@@ -16,50 +16,50 @@ You need the following tools installed:
 | C++17 compiler | Clang 14+, GCC 12+, or MSVC 2022 | For building the compiler |
 | LLVM | 17+ | Backend for code generation |
 
-### Installing LLVM
+## Installation
+
+Clone the repository and run the install script for your platform. The script auto-detects LLVM, builds the compiler and safeguard package manager, configures environment variables, and verifies the installation.
+
+```bash
+git clone https://github.com/safec-org/SafeC.git
+cd SafeC
+```
 
 ::: code-group
 
-```bash [macOS (Homebrew)]
-brew install llvm
+```bash [macOS / Linux]
+bash install.sh
 ```
 
-```bash [Ubuntu/Debian]
-# Add LLVM apt repository for latest version
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-sudo ./llvm.sh 17
+```powershell [Windows (PowerShell)]
+.\install.ps1
 ```
 
-```bash [Fedora]
-sudo dnf install llvm-devel
+```bat [Windows (cmd.exe)]
+install.bat
 ```
 
 :::
 
-## Building the Compiler
+### Install Script Options
 
-Clone the repository and build:
+| Option | Description |
+|---|---|
+| `--llvm-dir=<path>` | Path to LLVM cmake directory (auto-detected if omitted) |
+| `--jobs=N` | Number of parallel build jobs (default: all cores) |
+| `--skip-safeguard` | Skip building the safeguard package manager |
+| `--skip-env` | Skip shell environment configuration |
 
-```bash
-git clone https://github.com/safec-org/SafeC.git
-cd SafeC/compiler
-
-# Configure (adjust LLVM_DIR for your system)
-cmake -S . -B build -DLLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
-
-# Build
-cmake --build build
-```
-
-On Linux, the `LLVM_DIR` path is typically `/usr/lib/llvm-17/lib/cmake/llvm` or similar. Adjust to match your installation.
+::: tip
+The install script will offer to install LLVM automatically if it is not found on your system. You can also pass `--llvm-dir` to point to an existing LLVM installation.
+:::
 
 The compiler binary is produced at `compiler/build/safec`.
 
 Verify the build:
 
 ```bash
-./build/safec --help
+./compiler/build/safec --help
 ```
 
 ## Your First Program
@@ -227,19 +227,16 @@ The automatic import works by invoking `clang -ast-dump=json` on the included he
 
 ## Using the Package Manager
 
-For projects with dependencies or multiple source files, use `safeguard`:
+For projects with dependencies or multiple source files, use `safeguard`. If you ran the install script without `--skip-safeguard`, it is already built.
 
 ```bash
-cd /path/to/SafeC/safeguard
-cmake -S . -B build && cmake --build build
-
 # Create a new project
-./build/safeguard new myproject
+safeguard new myproject
 cd myproject
 
 # Build and run
-../build/safeguard build
-../build/safeguard run
+safeguard build
+safeguard run
 ```
 
 The project structure created by `safeguard new`:
