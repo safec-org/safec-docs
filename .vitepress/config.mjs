@@ -3,7 +3,8 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'SafeC',
   description: 'The SafeC Programming Language — Safe, Deterministic Systems Programming',
-  head: [['link', { rel: 'icon', href: '/favicon.ico' }]],
+  base: '/safec-docs/',
+  head: [['link', { rel: 'icon', href: '/safec-docs/favicon.ico' }]],
   themeConfig: {
     logo: '/logo.svg',
     nav: [
