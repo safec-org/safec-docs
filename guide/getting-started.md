@@ -42,7 +42,7 @@ sudo dnf install llvm-devel
 Clone the repository and build:
 
 ```bash
-git clone https://github.com/MinjaeKim/SafeC.git
+git clone https://github.com/safec-org/SafeC.git
 cd SafeC/compiler
 
 # Configure (adjust LLVM_DIR for your system)

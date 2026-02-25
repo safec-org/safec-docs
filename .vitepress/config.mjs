@@ -11,7 +11,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/introduction' },
       { text: 'Reference', link: '/reference/types' },
       { text: 'Standard Library', link: '/stdlib/' },
-      { text: 'GitHub', link: 'https://github.com/MinjaeKim/SafeC' }
+      { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
     ],
     sidebar: {
       '/guide/': [
@@ -74,7 +74,7 @@ export default defineConfig({
       ]
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/MinjaeKim/SafeC' }
+      { icon: 'github', link: 'https://github.com/safec-org/SafeC' }
     ],
     search: { provider: 'local' },
     footer: {
