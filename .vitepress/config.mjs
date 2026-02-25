@@ -29,8 +29,11 @@ export default defineConfig({
           text: 'Language Reference',
           items: [
             { text: 'Types', link: '/reference/types' },
+            { text: 'Operators', link: '/reference/operators' },
+            { text: 'Literals & Qualifiers', link: '/reference/literals' },
             { text: 'Memory & Regions', link: '/reference/memory' },
             { text: 'Functions', link: '/reference/functions' },
+            { text: 'Generics', link: '/reference/generics' },
             { text: 'Control Flow', link: '/reference/control-flow' },
             { text: 'Safety', link: '/reference/safety' },
             { text: 'C Interop (FFI)', link: '/reference/ffi' },
@@ -62,7 +65,9 @@ export default defineConfig({
           items: [
             { text: 'Compiler Architecture', link: '/advanced/compiler' },
             { text: 'Package Manager', link: '/advanced/safeguard' },
-            { text: 'Safety Model', link: '/advanced/safety-model' }
+            { text: 'Safety Model', link: '/advanced/safety-model' },
+            { text: 'Compile-Time Introspection', link: '/advanced/introspection' },
+            { text: 'Formal Verification', link: '/advanced/formal-proofs' }
           ]
         }
       ]

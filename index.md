@@ -13,7 +13,7 @@ hero:
       link: /reference/types
     - theme: alt
       text: GitHub
-      link: https://github.com/MinjaeKim/SafeC
+      link: https://github.com/mkaudio-company/SafeC
 features:
   - title: Region-Based Memory Safety
     details: Stack, heap, arena, and static regions enforced at compile time. No garbage collector, no runtime overhead.
