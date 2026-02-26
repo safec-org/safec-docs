@@ -1,6 +1,10 @@
 # Collections
 
-SafeC provides eight collection modules in `std/collections/`. Because the compiler does not support generic structs, all collections use `void*` internally with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at call sites via monomorphization.
+SafeC provides eleven collection modules in `std/collections/`. Because the compiler does not support generic structs (only generic functions), most collections use `void*` internally with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at call sites via monomorphization.
+
+This design keeps a single compiled struct per collection type (no per-`T` code bloat), while preserving full type safety at every call site — an important property for embedded targets where binary size matters.
+
+`ringbuffer` is an exception: it is byte-oriented and operates on `unsigned char` streams directly, using `&stack`/`&static` region annotations instead of `void*`.
 
 ## slice -- Bounds-Checked Array Access
 
@@ -663,6 +667,218 @@ int main() {
     }
     map_free(&sm);
 
+    return 0;
+}
+```
+
+---
+
+---
+
+## btree -- Ordered B-Tree Map
+
+```c
+#include "collections/btree.h"
+```
+
+A pool-based B-tree (order 4) backed by a 256-node static pool. O(log n) insert/lookup. All keys are `unsigned long`; values are `void*`. Provides sorted in-order traversal.
+
+### Struct
+
+```c
+struct BTree {
+    // 256-node pool (1-indexed; 0 = null sentinel)
+    // internal FL/SL bitmaps (opaque)
+}
+```
+
+### API
+
+```c
+struct BTree btree_new();
+void         btree_clear(struct BTree* t);
+
+int           btree_insert(struct BTree* t, unsigned long key, void* val);
+void*         btree_get(struct BTree* t, unsigned long key);     // NULL if missing
+int           btree_contains(struct BTree* t, unsigned long key);
+void          btree_foreach(struct BTree* t, void* fn);
+// fn: void(*)(unsigned long key, void* val) — called in ascending key order
+```
+
+### Generic Wrappers
+
+```c
+generic<T> int  btree_insert_t(struct BTree* t, unsigned long key, T val);
+generic<T> T*   btree_get_t(struct BTree* t, unsigned long key);
+```
+
+### Example
+
+```c
+#include "collections/btree.h"
+#include "io.h"
+
+void print_entry(unsigned long key, void* val) {
+    print_int(key); print(" -> "); println_int(*(int*)val);
+}
+
+int main() {
+    struct BTree t = btree_new();
+
+    int v10 = 100, v20 = 200, v5 = 50;
+    btree_insert(&t, 10, &v10);
+    btree_insert(&t, 20, &v20);
+    btree_insert(&t,  5, &v5);
+
+    int* found = btree_get_t(&t, 10);
+    println_int(*found);  // 100
+
+    // In-order traversal: 5, 10, 20
+    btree_foreach(&t, print_entry);
+    return 0;
+}
+```
+
+---
+
+## ringbuffer -- SPSC Lock-Free Ring Buffer
+
+```c
+#include "collections/ringbuffer.h"
+```
+
+A single-producer / single-consumer **byte-oriented** power-of-two ring buffer. Uses compiler barriers for correct producer/consumer ordering without OS locks. Suitable for ISR-to-task data transfer and audio pipelines.
+
+Unlike the other collection types, `RingBuffer` is not element-based — it operates on raw byte streams. Use it with `unsigned char` buffers.
+
+### Struct
+
+```c
+struct RingBuffer {
+    &static unsigned char buf;   // backing store — must be static-lifetime
+    unsigned long         cap;   // capacity in bytes (must be power of two)
+    unsigned long         mask;  // cap - 1  (for fast modulo)
+    volatile unsigned long head; // write position (producer)
+    volatile unsigned long tail; // read position (consumer)
+
+    unsigned long readable() const;          // bytes available to read
+    unsigned long writable() const;          // bytes that can be written
+    int           is_empty() const;
+    int           is_full() const;
+
+    unsigned long write(const &stack unsigned char data, unsigned long len);
+    unsigned long read(&stack unsigned char out, unsigned long len);
+    unsigned long peek(&stack unsigned char out, unsigned long len) const;
+    unsigned long discard(unsigned long len);
+    void          clear();
+}
+
+// Initialise with an existing static-lifetime backing store.
+// `cap` must be a power of two.
+struct RingBuffer ring_init(&static unsigned char buf, unsigned long cap);
+```
+
+### Static macro
+
+The `RING_STATIC` macro is the idiomatic way to create a ring buffer with no heap allocation:
+
+```c
+// Declare + initialise a 256-byte ring buffer backed by a static array
+RING_STATIC(uart_rx, 256);
+
+// Expands to:
+//   static unsigned char uart_rx_storage_[256];
+//   static struct RingBuffer uart_rx = { uart_rx_storage_, 256, 255, 0, 0 };
+```
+
+### Example
+
+```c
+#include "collections/ringbuffer.h"
+#include "io.h"
+
+// Static 128-byte buffer — no heap required
+RING_STATIC(rb, 128);
+
+int main() {
+    // Producer: write bytes
+    unsigned char tx[] = {'H', 'e', 'l', 'l', 'o'};
+    rb.write(tx, 5);
+
+    print("readable: ");
+    println_int(rb.readable());  // 5
+
+    // Consumer: read bytes back
+    unsigned char rx[5];
+    rb.read(rx, 5);
+
+    int i = 0;
+    while (i < 5) { print_char(rx[i]); i = i + 1; }
+    println("");  // Hello
+
+    return 0;
+}
+```
+
+::: info
+`buf` has region `&static unsigned char` — the backing store must outlive the `RingBuffer` struct itself. Use `RING_STATIC` for embedded globals. For heap-backed use, cast inside an `unsafe {}` block and supply your own lifetime discipline.
+:::
+
+---
+
+## static\_collections -- Zero-Heap Compile-Time Collections
+
+```c
+#include "collections/static_vec.h"
+```
+
+Header-only macros that declare fixed-capacity collections on the stack or as static globals. No heap allocation, no function call overhead.
+
+### Static Vec
+
+```c
+STATIC_VEC_DECL(MyVec, int, 32);  // declares: struct MyVec { int data[32]; int len; }
+STATIC_VEC_INIT(v, MyVec);        // MyVec v = {0}
+
+STATIC_VEC_PUSH(v, 42);           // v.data[v.len++] = 42  (no bounds check elided)
+STATIC_VEC_POP(v);                // v.len--
+STATIC_VEC_TOP(v);                // v.data[v.len - 1]
+STATIC_VEC_AT(v, i);              // v.data[i]
+```
+
+### Static Map (Open-Addressing Hash)
+
+```c
+STATIC_MAP_DECL(MyMap, unsigned long, int, 64);  // key=ulong, val=int, 64 buckets
+STATIC_MAP_INIT(m, MyMap);
+
+STATIC_MAP_INSERT(m, key, val);   // insert or update
+STATIC_MAP_GET(m, key, MyMap);    // returns pointer to val, or NULL
+```
+
+### Example
+
+```c
+#include "collections/static_vec.h"
+#include "io.h"
+
+STATIC_VEC_DECL(IntVec, int, 16);
+
+int main() {
+    IntVec v;
+    STATIC_VEC_INIT(v, IntVec);
+
+    STATIC_VEC_PUSH(v, 10);
+    STATIC_VEC_PUSH(v, 20);
+    STATIC_VEC_PUSH(v, 30);
+
+    println_int(STATIC_VEC_TOP(v));  // 30
+    STATIC_VEC_POP(v);
+    println_int(STATIC_VEC_TOP(v));  // 20
+
+    for (int i = 0; i < v.len; i++) {
+        println_int(STATIC_VEC_AT(v, i));  // 10, 20
+    }
     return 0;
 }
 ```

@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) provides **20+ modules** covering memory, I/O, strings, math, concurrency, and collections. Each module is a `.h` (declarations) + `.sc` (implementation) pair. Include `prelude.h` to pull in every module at once.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` (declarations) + `.sc` (implementation) pair. Include `prelude.h` to pull in every module at once.
 
 ```c
 #include "prelude.h"
@@ -17,36 +17,10 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| [mem](/stdlib/mem) | `mem.h` | Allocation, deallocation, safe memcpy/memmove/memset/memcmp |
+| [mem](/stdlib/mem) | `mem.h` | Allocation, deallocation, safe memcpy/memmove/memset/memcmp; cache-line helpers, alignment utilities |
 | [io](/stdlib/io) | `io.h` | Formatted output (stdout/stderr), stdin input, buffer formatting |
-| io_file | `io_file.h` | FILE\* file I/O (open/close/read/write/seek) |
 | [str](/stdlib/str) | `str.h` | String length, comparison, copy, search, tokenisation, duplication |
-| fmt | `fmt.h` | snprintf-based formatting into caller-supplied buffers |
-| convert | `convert.h` | String-to-number parsing, number-to-string conversion |
-
-### Math & Numeric
-
-| Module | Header | Description |
-|--------|--------|-------------|
-| [math](/stdlib/math) | `math.h` | Constants (PI, E, ...), float/double math, classification |
-| complex | `complex.h` | Complex numbers as `float[2]`/`double[2]`; arithmetic + transcendentals |
-| bit | `bit.h` | Popcount, clz, ctz, rotate, bswap, power-of-two helpers |
-
-### System & OS
-
-| Module | Header | Description |
-|--------|--------|-------------|
-| sys | `sys.h` | Process control, environment, PRNG, sorting, clocks |
-| errno | `errno.h` | Thread-local errno access and error descriptions |
-| signal | `signal.h` | Signal handling, raise, kill, pause |
-| time | `time.h` | Wall/monotonic/CPU clocks, calendar, formatting, sleep |
-| locale | `locale.h` | Locale get/set (wraps C `setlocale`) |
-| fenv | `fenv.h` | Floating-point environment: exception flags, rounding mode |
-
-### Concurrency
-
-| Module | Header | Description |
-|--------|--------|-------------|
+| [math](/stdlib/math) | `math.h` | Constants (PI, E, …), float/double math, classification |
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
 | [atomic](/stdlib/atomic) | `atomic.h` | Lock-free atomic operations (C11 `<stdatomic.h>` wrappers) |
 
@@ -62,6 +36,80 @@ int main() {
 | list | `collections/list.h` | Doubly linked list |
 | map | `collections/map.h` | Hash map (open addressing, linear probing) |
 | bst | `collections/bst.h` | Unbalanced binary search tree |
+| btree | `collections/btree.h` | B-tree ordered map (order-4, 256-node pool) |
+| ringbuffer | `collections/ringbuffer.h` | SPSC lock-free power-of-two ring buffer |
+| static_collections | `collections/static_vec.h` | Header-only zero-heap vec + map macros |
+
+### [Allocators](/stdlib/allocators)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| bump | `alloc/bump.h` | Linear bump-pointer arena; O(1) alloc, reset-only free |
+| slab | `alloc/slab.h` | Freelist slab for fixed-size objects; O(1) alloc/dealloc |
+| pool | `alloc/pool.h` | Fixed-block pool for mixed content; O(1) alloc/free |
+| tlsf | `alloc/tlsf.h` | Two-Level Segregated Fit; O(1) worst-case general heap |
+
+### [Synchronization](/stdlib/sync)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| spinlock | `sync/spinlock.h` | Busy-wait mutual exclusion (`__sync_lock_test_and_set`) |
+| lockfree | `sync/lockfree.h` | Wait-free SPSC ring buffer with compiler barriers |
+| task | `sync/task.h` | Cooperative round-robin task scheduler |
+| thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
+
+### [Networking](/stdlib/net)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| net-core | `net/net_core.h` | `PacketBuf`, `NetIf`, byte-order utilities, IP/MAC helpers |
+| ethernet | `net/ethernet.h` | `EthernetHdr`, `eth_parse`, `eth_build` |
+| arp | `net/arp.h` | `ArpTable` (16-entry FIFO), `arp_build_packet`, `arp_parse_packet` |
+| ipv4 | `net/ipv4.h` | `Ipv4Hdr`, Internet checksum, `ipv4_parse`, `ipv4_build` |
+| ipv6 | `net/ipv6.h` | `Ipv6Addr`/`Ipv6Hdr`, link-local/loopback predicates, `ipv6_frame` |
+| udp | `net/udp.h` | `UdpHdr`, `udp_parse`, `udp_build`, `udp_frame` |
+| tcp | `net/tcp.h` | `TcpConn` 10-state machine, pseudo-header checksum |
+| dns | `net/dns.h` | A-record query builder + reply parser (label compression) |
+| dhcp | `net/dhcp.h` | `DhcpClient` DORA handshake |
+
+### [Filesystems](/stdlib/fs)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| block | `fs/block.h` | `BlockDevice` driver interface (function pointer–based) |
+| partition | `fs/partition.h` | MBR partition table parser (4 primary entries) |
+| vfs | `fs/vfs.h` | VFS with longest-prefix mount routing; `VfsNode` forwarding |
+| fat | `fs/fat.h` | FAT32 read-only driver; 8.3 path walk, cluster chain |
+| ext | `fs/ext.h` | ext2 read-only driver; inode walk, direct-block reads |
+| tmpfs | `fs/tmpfs.h` | In-memory FS; 32 inodes, 64 KiB data pool; full CRUD |
+
+### [DSP & Real-Time](/stdlib/dsp)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| fixed | `dsp/fixed.h` | Q16.16 fixed-point arithmetic (`newtype Fixed = int`) |
+| dsp | `dsp/dsp.h` | `dsp_dot`, `dsp_scale`, `dsp_moving_avg`, `dsp_iir_lp`, `dsp_rms` |
+| audio_buffer | `dsp/audio_buffer.h` | Multi-channel SPSC audio ring buffer (interleaved `Fixed` frames) |
+| timer_wheel | `dsp/timer_wheel.h` | 256-slot O(1) timer wheel; one-shot + periodic |
+
+### [Security & Cryptography](/stdlib/crypto)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| aes | `crypto/aes.h` | AES-128/256 ECB + CBC; full S-box + key expansion |
+| sha256 | `crypto/sha256.h` | SHA-256/224; streaming and one-shot API |
+| rng | `crypto/rng.h` | ChaCha20 CSPRNG; `rdrand`/`/dev/urandom` seeding |
+| secure_alloc | `crypto/secure_alloc.h` | Slab allocator with zeroing-on-free |
+| x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, wildcard hostname, validity |
+| tls | `crypto/tls.h` | TLS 1.3 record layer; AES-CBC + PKCS#7 + nonce XOR seq |
+
+### [Debugging & Profiling](/stdlib/debug)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| perf | `debug/perf.h` | Arch-dispatched cycle counter (RDTSC/cntvct_el0/CSR); ns calibration |
+| coverage | `debug/coverage.h` | 1024-site coverage tracker; `COV_SITE()` macro; `report()` |
+| jtag | `debug/jtag.h` | `debug_break` per arch; ARM/AArch64 semihosting; ITM ports |
 
 ### C Compatibility Headers
 

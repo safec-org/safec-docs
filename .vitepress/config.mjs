@@ -11,6 +11,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/introduction' },
       { text: 'Reference', link: '/reference/types' },
       { text: 'Standard Library', link: '/stdlib/' },
+      { text: 'Advanced', link: '/advanced/compiler' },
       { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
     ],
     sidebar: {
@@ -50,15 +51,37 @@ export default defineConfig({
           text: 'Standard Library',
           items: [
             { text: 'Overview', link: '/stdlib/' },
+          ]
+        },
+        {
+          text: 'Core',
+          items: [
             { text: 'mem', link: '/stdlib/mem' },
             { text: 'io', link: '/stdlib/io' },
             { text: 'str', link: '/stdlib/str' },
             { text: 'math', link: '/stdlib/math' },
-            { text: 'Collections', link: '/stdlib/collections' },
             { text: 'thread', link: '/stdlib/thread' },
-            { text: 'atomic', link: '/stdlib/atomic' }
+            { text: 'atomic', link: '/stdlib/atomic' },
           ]
-        }
+        },
+        {
+          text: 'Collections',
+          items: [
+            { text: 'All Collections', link: '/stdlib/collections' },
+          ]
+        },
+        {
+          text: 'Ecosystem',
+          items: [
+            { text: 'Allocators', link: '/stdlib/allocators' },
+            { text: 'Synchronization', link: '/stdlib/sync' },
+            { text: 'Networking', link: '/stdlib/net' },
+            { text: 'Filesystems', link: '/stdlib/fs' },
+            { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
+            { text: 'Cryptography', link: '/stdlib/crypto' },
+            { text: 'Debugging', link: '/stdlib/debug' },
+          ]
+        },
       ],
       '/advanced/': [
         {

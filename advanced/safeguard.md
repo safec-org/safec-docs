@@ -12,6 +12,8 @@
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard clean` | Remove the `build/` directory and all artifacts |
+| `safeguard verify-lock` | Check `Package.lock` against current dependency state |
+| `safeguard analyze [--verbose]` | Run static analysis lint passes on all `.sc` source files |
 
 ## Package.toml
 
@@ -104,6 +106,72 @@ safeguard run
 safeguard build --release
 ./build/hello
 ```
+
+## Reproducible Builds
+
+After every successful build, safeguard writes a `Package.lock` file that pins:
+
+- The `safec` compiler binary (FNV-1a 64-bit hash)
+- Each dependency's git commit SHA (`git rev-parse HEAD`)
+- Each source file's content hash
+
+```toml
+[safec]
+hash = "a3f5c8d2e1b04976"
+
+[dep.mylib]
+url     = "https://github.com/user/mylib"
+git_sha = "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+
+[sources]
+"src/main.sc"   = "9f8e7d6c5b4a3f2e"
+"src/utils.sc"  = "1a2b3c4d5e6f7a8b"
+```
+
+### Verifying a lock
+
+```bash
+safeguard verify-lock
+```
+
+Checks that each dependency's current HEAD matches the locked SHA. If any dependency has drifted, the command prints a warning and exits with code 1. When the compiler binary hash changes, a warning is printed but the build is not blocked.
+
+### Blocking builds on drift
+
+`safeguard build` automatically calls `checkLock()` before compiling. If a dependency SHA has changed since the lock was written, the build is aborted:
+
+```
+safeguard: dep 'mylib' git SHA has changed — run 'safeguard fetch' then rebuild
+```
+
+---
+
+## Static Analysis
+
+```bash
+safeguard analyze [--verbose]
+```
+
+Runs built-in lint passes over every `.sc` file in `src/`. Uses `safec --dump-ast` to obtain the AST for unused-variable detection.
+
+| Code | Level | Description |
+|------|-------|-------------|
+| SA001 | warning | File contains more than 5 `unsafe {}` blocks — consider refactoring |
+| SA002 | note | `alloc()` result is not null-checked on the same line |
+| SA003 | warning | Unused variable (forwarded from `safec --dump-ast` output) |
+
+### Example output
+
+```
+src/driver.sc: warning [SA001] file contains 7 unsafe{} blocks — consider refactoring
+src/parser.sc:42: note [SA002] result of alloc() should be null-checked
+src/parser.sc:58: warning [SA003] warning: unused variable 'tmp'
+safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
+```
+
+Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level diagnostics are found.
+
+---
 
 ## Building safeguard
 
