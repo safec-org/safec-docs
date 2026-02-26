@@ -18,28 +18,11 @@ You need the following tools installed:
 
 ## Installation
 
-Clone the repository and run the install script for your platform. The script auto-detects LLVM, builds the compiler and safeguard package manager, configures environment variables, and verifies the installation.
+Run the install script. It auto-detects LLVM, builds the compiler and safeguard package manager, configures environment variables, and verifies the installation.
 
 ```bash
-git clone https://github.com/safec-org/SafeC.git
-cd SafeC
+curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash
 ```
-
-::: code-group
-
-```bash [macOS / Linux]
-bash install.sh
-```
-
-```powershell [Windows (PowerShell)]
-.\install.ps1
-```
-
-```bat [Windows (cmd.exe)]
-install.bat
-```
-
-:::
 
 ### Install Script Options
 
@@ -64,7 +47,23 @@ Verify the build:
 
 ## Your First Program
 
-Create a file called `hello.sc`:
+Create a new project with `safeguard`:
+
+```bash
+safeguard new hello
+cd hello
+```
+
+This generates the following structure:
+
+```
+hello/
+  Package.toml
+  src/
+    main.sc
+```
+
+Replace `src/main.sc` with:
 
 ```c
 extern int printf(const char* fmt, ...);
@@ -75,17 +74,11 @@ int main() {
 }
 ```
 
-Compile and run:
+Build and run:
 
 ```bash
-# Compile to LLVM IR
-./build/safec hello.sc --emit-llvm -o hello.ll
-
-# Link to native binary
-clang hello.ll -o hello
-
-# Run
-./hello
+safeguard build
+safeguard run
 ```
 
 Output:
@@ -93,10 +86,6 @@ Output:
 ```
 Hello from SafeC!
 ```
-
-::: tip
-On macOS with Apple Silicon, use `/usr/bin/clang` (the system clang) for the linking step to avoid architecture mismatches.
-:::
 
 ## A More Complete Example
 
