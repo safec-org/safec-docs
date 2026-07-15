@@ -4,9 +4,15 @@ export default defineConfig({
   title: 'SafeC',
   description: 'The SafeC Programming Language — Safe, Deterministic Systems Programming',
   base: '/safec-docs/',
-  head: [['link', { rel: 'icon', href: '/safec-docs/favicon.ico' }]],
+  head: [
+    ['link', { rel: 'icon', type: 'image/x-icon', href: '/safec-docs/favicon.ico' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/safec-docs/favicon-32x32.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/safec-docs/favicon-16x16.png' }],
+    ['link', { rel: 'apple-touch-icon', href: '/safec-docs/apple-touch-icon.png' }],
+    ['link', { rel: 'manifest', href: '/safec-docs/site.webmanifest' }]
+  ],
   themeConfig: {
-    logo: '/logo.svg',
+    logo: '/Logo.svg',
     nav: [
       {
         text: 'Guide',
