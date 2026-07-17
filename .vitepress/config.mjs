@@ -75,8 +75,7 @@ export default defineConfig({
           { text: 'Compiler Architecture', link: '/advanced/compiler' },
           { text: 'Package Manager', link: '/advanced/safeguard' },
           { text: 'Safety Model', link: '/advanced/safety-model' },
-          { text: 'Compile-Time Introspection', link: '/advanced/introspection' },
-          { text: 'Formal Verification', link: '/advanced/formal-proofs' }
+          { text: 'Compile-Time Introspection', link: '/advanced/introspection' }
         ]
       },
       { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
@@ -175,8 +174,7 @@ export default defineConfig({
             { text: 'Compiler Architecture', link: '/advanced/compiler' },
             { text: 'Package Manager', link: '/advanced/safeguard' },
             { text: 'Safety Model', link: '/advanced/safety-model' },
-            { text: 'Compile-Time Introspection', link: '/advanced/introspection' },
-            { text: 'Formal Verification', link: '/advanced/formal-proofs' }
+            { text: 'Compile-Time Introspection', link: '/advanced/introspection' }
           ]
         }
       ]

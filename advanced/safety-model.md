@@ -107,7 +107,7 @@ The safety model is grounded in established type theory:
 - **Oxide** (Weiss et al., 2019) — formalization of Rust's ownership and borrowing as a typed calculus with places and provenance
 - **Cyclone** (Grossman et al., 2002) — region-based memory management with static safety guarantees for a C-like language
 
-SafeC adapts these formalisms to a C-compatible language with regions as the primary memory safety mechanism. Machine-checkable proofs in Lean 4 are maintained in the `proofs/` directory of the repository.
+SafeC adapts these formalisms to a C-compatible language with regions as the primary memory safety mechanism.
 
 ### Progress and Preservation
 
