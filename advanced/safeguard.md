@@ -10,10 +10,83 @@
 | `safeguard init` | Initialize a `Package.toml` in the current directory |
 | `safeguard fetch` | Download all dependencies listed in `Package.toml` |
 | `safeguard build [--release]` | Compile the project and all dependencies |
+| `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
+| `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard clean` | Remove the `build/` directory and all artifacts |
 | `safeguard verify-lock` | Check `Package.lock` against current dependency state |
-| `safeguard analyze [--verbose]` | Run static analysis lint passes on all `.sc` source files |
+| `safeguard lint [--verbose]` | Run static-analysis lint passes on all `.sc` source files |
+| `safeguard format [--check]` | Reindent and whitespace-normalize all `.sc`/`.h` source files |
+
+## `check` — fast compile-only feedback
+
+Like Rust's `cargo check`: runs every source file through its full front
+end (for `.sc`, `safec`'s Preprocessor→Lexer→Parser→Sema→ConstEval — so
+every type error, borrow-check violation, and region-escape error is
+still caught; for `.c`/`.cpp`, `clang -fsyntax-only`) but skips assembling
+object files and skips linking entirely, and never builds the standard
+library archive — `check` only needs `std/`'s *headers* on the include
+path, not the linkable implementation. This is normally the majority of
+`build`'s wall time, so `check` is the fast inner-loop command for "did I
+break anything," with `build`/`run` reserved for when you actually need a
+binary.
+
+## `test` — integration tests
+
+`tests/` is to `safeguard test` what Rust's `tests/` directory is to
+`cargo test`: each file is an independent, standalone program with its
+own `main()` — not a set of `#[test]`-annotated functions extracted from
+one binary, since SafeC has no such attribute. Every file under `tests/`
+is built (linked against the same stdlib and `[[dependencies]]` as the
+main project) and run; a test passes if its binary exits `0`. This
+composes naturally with [`std::test`](/stdlib/testing)'s `TestSuite` —
+`test_run_and_exit()` is designed to be the last line of a test file's
+`main()`, translating a suite of assertions into the single pass/fail
+exit code `safeguard test` checks:
+
+```c
+// tests/math_test.sc
+#include <std/test/test.h>
+
+void addition_works() { ASSERT_EQ(2 + 2, 4); }
+
+int main(void) {
+    struct TestSuite t = std::test_suite_init();
+    unsafe { t.add("addition works", (void*)addition_works); }
+    std::test_run_and_exit(&t);   // exits 1 on any failure
+}
+```
+
+## `format` — reindenter
+
+Deliberately scoped narrower than a full AST-based pretty-printer like
+`rustfmt` or `clang-format`: it recomputes indentation from `{`/`}`
+nesting depth, trims trailing whitespace, normalizes tabs, and collapses
+runs of blank lines — but never touches string/comment *contents*,
+horizontal spacing within a line, or line-wrapping. This scope was chosen
+because `safec`'s own Lexer discards comments entirely during
+tokenization (see [Compiler Architecture](/advanced/compiler)) — there is
+no lossless AST for a formatter to round-trip through, so it works from
+raw source text directly, where safe reindentation is tractable but
+arbitrary reflow risks corrupting comment/string content. `--check`
+reports which files would change without writing them (matching `cargo
+fmt --check` / `gofmt -l`), useful as a CI gate.
+
+## `lint` — static analysis
+
+In the spirit of `cargo clippy`: catches real issues beyond what
+compilation alone checks. Combines heuristic scans over raw source with
+`safec --dump-ast`'s own unused-variable warnings:
+
+| Code | Level | Description |
+|------|-------|-------------|
+| SA001 | warning | File contains more than 5 `unsafe {}` blocks — consider refactoring |
+| SA002 | note | `alloc()`/`malloc()` result is not null-checked on the same line |
+| SA003 | warning | Unused variable (forwarded from `safec --dump-ast`) |
+| SA004 | warning | Empty `unsafe {}` block — has no effect |
+| SA005 | note | Unresolved `TODO`/`FIXME`/`XXX` marker |
+| SA006 | warning | `=` instead of `==` in an `if` condition |
+| SA007 | warning | Duplicate `#include` in the same file |
 
 ## Package.toml
 
