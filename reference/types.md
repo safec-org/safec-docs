@@ -84,21 +84,68 @@ Optional types represent values that may or may not be present. They lower to a 
 
 ```c
 ?int find_first(int *arr, int n, int target) {
-    for (int i = 0; i < n; i = i + 1) {
-        if (arr[i] == target) return some(i);
+    int i = 0;
+    while (i < n) {
+        int v;
+        unsafe { v = arr[i]; }
+        if (v == target) return i;   // implicit T -> ?T wrap
+        i = i + 1;
     }
-    return none;
+    return null;                     // the empty case
 }
 
-// Usage with try operator (propagates none)
-int val = try find_first(arr, n, 42);
+// Usage with try (propagates the empty case to the caller)
+?int wrapper(int *arr, int n, int target) {
+    int val = try find_first(arr, n, target);
+    return val * 2;
+}
 ```
 
-Nullable references use the same syntax:
+A plain `T` implicitly wraps to `?T` (as in `return i;` above), and `null` is the empty value for **both** `?T` optionals and nullable references — there is no separate `some(x)`/`none` constructor syntax; those two identifiers only appear as `match` patterns (see [Control Flow](/reference/control-flow)), not as general expressions.
+
+Nullable references use the same `?` syntax:
 
 ```c
 ?&stack Node next;   // nullable stack reference
 ```
+
+### Reading a nullable value
+
+A pointer (`T*`), nullable reference (`?&region T`), or optional (`?T`) cannot be dereferenced, member-accessed, or force-unwrapped directly — the compiler requires one of the following:
+
+| Operation | Works on | Effect |
+|-----------|----------|--------|
+| `x.is_null()` | `T*`, `?&region T` | Returns `bool`; presence check only, does not narrow `x`'s type |
+| `x.is_none()` | `?T` | Returns `bool`; the optional's equivalent of `is_null()` |
+| `x.default(fallback)` | all three | Returns the inner value if present, else evaluates and returns `fallback` (must match the inner type) |
+| `match (x) { case null / none: ...  case some(v): ... }` | all three | `v` is bound directly as the inner type inside the `some` arm |
+| `x!` / `*x` / `x.field` / `x->field` inside `unsafe { }` | all three | Bypasses the checks above entirely |
+
+```c
+struct Node { int value; };
+
+int describe(?&stack Node n) {
+    // int v = n.value;      // ERROR: requires 'unsafe', or match/is_null()/.default(value)
+    // Node v = n!;          // ERROR: '!' force-unwrap requires 'unsafe'
+
+    if (n.is_null()) { return -1; }        // OK: presence check
+    Node fallback;
+    fallback.value = -1;
+    return n.default(fallback).value;       // OK: safe extraction with fallback
+
+    // OK: unsafe bypasses the checks entirely
+    // unsafe { return n->value; }
+}
+
+int describe_match(?&stack Node n) {
+    return match (n) {
+        case null:    -1,
+        case some(v): v.value,   // v : &stack Node — bound to the payload type directly
+    };
+}
+```
+
+`x.is_null()` on a `?T` (and `x.is_none()` on a pointer/nullable reference) is a compile error — use the one matching the receiver's kind. `match` with `null`/`some(x)` patterns works on raw pointers (`T*`) too, not just nullable references.
 
 ## Newtype Distinct Types
 

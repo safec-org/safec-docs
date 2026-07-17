@@ -1,6 +1,56 @@
 # thread -- Threading
 
-The `thread` module provides cross-platform threading primitives: threads, mutexes, condition variables, and read-write locks. It uses POSIX pthreads on Linux/macOS and Win32 threads on Windows (compile with `-D__WINDOWS__` to select the Win32 backend).
+SafeC has two layers of threading: the **`spawn`/`join`/`spawn_scoped` language keywords** (compiler built-ins, no `#include` needed), and the **`std::thread_*` library API** below (`thread.h`) for direct control over OS threads plus mutexes/condition variables/read-write locks. Both are backed by POSIX pthreads on Linux/macOS and Win32 threads on Windows; on freestanding/bare-metal targets (or any target the compiler doesn't recognize), the language keywords instead compile down to a documented two-symbol hook that `std/sync/bare_spawn.sc` implements cooperatively — see [Synchronization](/stdlib/sync) for that backend and for `std::thread_create`/`join`'s bare-metal-friendly cousins.
+
+## Language-Level `spawn` / `join` / `spawn_scoped`
+
+```c
+long long spawn(fn, arg);          // fn: &static function reference; returns a thread handle
+void      join(handle);
+long long spawn_scoped(fn, arg);   // like spawn, but the compiler guarantees a join before scope exit
+```
+
+`spawn`'s first argument must be a `&static` reference to a function (an ordinary top-level function name decays to one implicitly); its second argument is passed through as the thread's `void*` argument. Both `spawn` and `spawn_scoped` return a `long long` handle to pass to `join`.
+
+```c
+extern int printf(const char *fmt, ...);
+
+void* worker0(void* arg) { printf("thread 0\n"); return (void*)0; }
+void* worker1(void* arg) { printf("thread 1\n"); return (void*)0; }
+
+int main() {
+    long long h0 = spawn(worker0, 0);
+    long long h1 = spawn(worker1, 0);
+
+    join(h0);
+    join(h1);
+
+    printf("all threads done\n");
+    return 0;
+}
+```
+
+### Region Isolation
+
+`spawn`'s argument may not be a **mutable, non-`&static`** reference — passing one is a compile error ("region isolation violation"), since the spawned thread could outlive the region the reference points into. Pass a `&static` reference, an immutable reference, or a plain value (e.g. an index or a heap pointer you manage explicitly) instead.
+
+### Backend Selection
+
+The compiler picks a backend for `spawn`/`join`/`spawn_scoped` based on the build target:
+
+| Target | Backend |
+|--------|---------|
+| `--freestanding` | Hook (see below) — no OS thread API is assumed |
+| Explicit `--target` naming Windows | Win32 (`CreateThread`/`WaitForSingleObject`) |
+| Explicit `--target` naming Linux/macOS/*BSD/Solaris | Pthreads |
+| Explicit `--target` naming anything else (e.g. `wasm32-*`, `riscv64-unknown-elf`) | Hook |
+| No `--target` given | Pthreads (host default) |
+
+The **Hook** backend compiles `spawn`/`join` to calls against two fixed extern symbols — `__safec_thread_create(func, arg) -> i64` and `__safec_thread_join(i64) -> void` — a deliberate extension point: any runtime providing exactly those two symbols can back `spawn`/`join` without compiler changes. `std/sync/bare_spawn.sc` is the reference implementation, running spawned functions cooperatively on a `std::TaskScheduler` (see [Synchronization](/stdlib/sync)); a vendor RTOS shim could define the same two symbols instead.
+
+## Direct OS-Thread API (`thread.h`)
+
+The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a separate, explicitly-called API for when you want direct control over OS threads rather than the `spawn`/`join` keywords above. Both are pthread/Win32-backed on hosted targets; `thread_create`'s handle is ABI-compatible with `spawn`'s on Win32, but the two are otherwise independent (this API is not part of the Hook backend contract).
 
 ```c
 #include "thread.h"

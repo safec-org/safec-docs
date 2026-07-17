@@ -24,6 +24,15 @@ int main() {
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
 | [atomic](/stdlib/atomic) | `atomic.h` | Lock-free atomic operations (C11 `<stdatomic.h>` wrappers) |
 
+### [Serialization](/stdlib/serial)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| value | `serial/value.h` | Format-agnostic `Value` tree (Null/Bool/Int/Float/String/Array/Object) |
+| json | `serial/json.h` | JSON writer + parser, exact round-trip |
+| xml | `serial/xml.h` | XML writer + parser (own-grammar round-trip) |
+| html | `serial/html.h` | HTML fragment writer + parser (`<dl>`/`<ul>` shape) |
+
 ### [Collections](/stdlib/collections)
 
 | Module | Header | Description |
@@ -57,6 +66,14 @@ int main() {
 | lockfree | `sync/lockfree.h` | Wait-free SPSC ring buffer with compiler barriers |
 | task | `sync/task.h` | Cooperative round-robin task scheduler |
 | thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
+| bare_spawn | `sync/bare_spawn.sc` | Reference "Hook" backend for the `spawn`/`join` language keywords on freestanding targets |
+
+### [Real-Time Scheduler](/stdlib/sched)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| reactor | `sched/reactor.h` | `Reactor` — kqueue-backed I/O event loop driving `TaskScheduler` |
+| io_nb | `sched/io_nb.h` | Non-blocking file/socket helpers meant to pair with the reactor |
 
 ### [Networking](/stdlib/net)
 

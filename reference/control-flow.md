@@ -92,6 +92,50 @@ match (value) {
 }
 ```
 
+A match statement without a wildcard/`default` arm only warns if non-exhaustive (`match statement may not be exhaustive`) — it doesn't error, since falling through with no value produced is harmless in statement position.
+
+### Matching Nullable References and Optionals
+
+`match` also destructures pointers (`T*`), nullable references (`?&region T`), and optionals (`?T`) — this is the primary sanctioned way to read one of these, alongside `is_null()`/`is_none()`/`.default(fallback)` (see [Types](/reference/types#reading-a-nullable-value)); direct dereference/member-access/force-unwrap (`!`) require `unsafe`.
+
+```c
+struct Node { int value; };
+
+void describe(?&stack Node next) {
+    match (next) {
+        case null:    printf("empty\n");
+        case some(n): printf("value=%d\n", n.value);  // n bound as the payload type directly
+    }
+}
+
+?int maybe = compute();
+match (maybe) {
+    case none:    printf("nothing\n");
+    case some(x): printf("got %d\n", x);
+}
+```
+
+Pattern names are `null`/`some(x)` for pointers and nullable references, `none`/`some(x)` for optionals — plain identifiers, not dot-prefixed (unlike tagged-union variant patterns).
+
+### Match as an Expression
+
+`match` can also be used as an expression, producing a value from whichever arm ran. Unlike the statement form, a match **expression** must be provably exhaustive — every tagged-union variant covered (or a `default`/wildcard arm), or, for nullable/optional subjects, both `null`/`none` and `some(x)` covered — otherwise it's a compile error, since it has to produce a value on every path:
+
+```c
+int result = match (status_code) {
+    case 200:      1,
+    case 400..499: -1,
+    default:       0,
+};
+
+int describe_len(?&stack Node next) {
+    return match (next) {
+        case null:    -1,
+        case some(n): n.value,
+    };
+}
+```
+
 ## Switch Statement
 
 For C compatibility, SafeC also supports traditional `switch` with fall-through semantics:
@@ -141,45 +185,43 @@ void example() {
 // Output: 1, 2, 3
 ```
 
-## Errdefer
-
-`errdefer` is like `defer` but only executes if the function exits with an error (returns `none` from an optional, or an error from a result type):
-
-```c
-?int open_and_process(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (f == null) return none;
-    errdefer fclose(f);        // only runs if we return none below
-
-    char *buf = (char*)malloc(4096);
-    if (buf == null) return none;  // errdefer triggers: fclose(f) runs
-    defer free(buf);
-
-    // ... process ...
-    return some(result);       // success: errdefer does NOT run
-}
-```
-
 ## Try Operator
 
-The `try` operator unwraps an optional value, propagating `none` to the caller if the value is absent:
+The `try` operator unwraps an optional value, propagating the empty case (`null`) to the caller immediately if the value is absent — equivalent to `if (x.is_none()) return null; T value = ...;` written inline:
 
 ```c
 ?int parse_config(const char *path) {
     ?int fd = open_file(path);
-    int file = try fd;         // if fd is none, return none immediately
+    int file = try fd;         // if fd is empty, return null immediately
 
     ?int value = read_int(file);
     return try value;
 }
 ```
 
-This is equivalent to:
+A bare `T` returned from a `?T`-returning function implicitly wraps to "present" (`return file;` above needs no explicit wrap), and `return null;` produces the empty case — there's no separate `some(x)` constructor to call in ordinary code (`some`/`none` only appear as `match` patterns, see above).
+
+## Errdefer
+
+`errdefer` is written like `defer`, but is meant to run only on a `try`-propagated failure exit rather than every exit:
 
 ```c
-if (fd == none) return none;
-int file = unwrap(fd);
+?int open_and_process(const char *path) {
+    ?int fd = open_file(path);
+    int f = try fd;             // propagates null on failure
+    errdefer close_fd(f);       // intended to run only if a later 'try' below fails
+
+    ?int size = read_size(f);
+    int n = try size;           // on failure: close_fd(f) runs, then null propagates
+
+    // ... process ...
+    return n;
+}
 ```
+
+::: warning
+As currently implemented, `errdefer` only fires correctly on the `try`-propagated failure path. A plain explicit `return` — including a **successful** return, such as `return n;` above once every `try` in the function has already succeeded — also runs every registered `errdefer` in scope, not just `defer`. Until this is fixed, don't rely on `errdefer` being skipped on a successful explicit return; only the "runs on `try` failure" half of its contract currently holds.
+:::
 
 ## Labeled Break and Continue
 

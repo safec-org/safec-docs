@@ -54,9 +54,11 @@ export default defineConfig({
           { text: 'math', link: '/stdlib/math' },
           { text: 'thread', link: '/stdlib/thread' },
           { text: 'atomic', link: '/stdlib/atomic' },
+          { text: 'Serialization', link: '/stdlib/serial' },
           { text: 'Collections', link: '/stdlib/collections' },
           { text: 'Allocators', link: '/stdlib/allocators' },
           { text: 'Synchronization', link: '/stdlib/sync' },
+          { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
           { text: 'Networking', link: '/stdlib/net' },
           { text: 'Filesystems', link: '/stdlib/fs' },
           { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
@@ -134,6 +136,12 @@ export default defineConfig({
           ]
         },
         {
+          text: 'Serialization',
+          items: [
+            { text: 'JSON / XML / HTML', link: '/stdlib/serial' },
+          ]
+        },
+        {
           text: 'Collections',
           items: [
             { text: 'All Collections', link: '/stdlib/collections' },
@@ -144,6 +152,7 @@ export default defineConfig({
           items: [
             { text: 'Allocators', link: '/stdlib/allocators' },
             { text: 'Synchronization', link: '/stdlib/sync' },
+            { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
             { text: 'Networking', link: '/stdlib/net' },
             { text: 'Filesystems', link: '/stdlib/fs' },
             { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
