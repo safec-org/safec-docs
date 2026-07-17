@@ -195,7 +195,7 @@ This maps to LLVM's alignment attributes and is useful for performance-critical 
 Places a variable or function in a specific linker section:
 
 ```c
-section(".isr_vector") void (*vectors[])() = { reset_handler, nmi_handler };
+section(".isr_vector") fn void() vectors[2] = { reset_handler, nmi_handler };
 section(".rodata") const int lookup[256] = { /* ... */ };
 ```
 

@@ -32,6 +32,9 @@ export default defineConfig({
           { text: 'Memory & Regions', link: '/reference/memory' },
           { text: 'Functions', link: '/reference/functions' },
           { text: 'Generics', link: '/reference/generics' },
+          { text: 'Namespaces', link: '/reference/namespaces' },
+          { text: 'Native SIMD', link: '/reference/simd' },
+          { text: 'C Superset', link: '/reference/c-superset' },
           { text: 'Control Flow', link: '/reference/control-flow' },
           { text: 'Safety', link: '/reference/safety' },
           { text: 'C Interop (FFI)', link: '/reference/ffi' },
@@ -58,7 +61,12 @@ export default defineConfig({
           { text: 'Filesystems', link: '/stdlib/fs' },
           { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
           { text: 'Cryptography', link: '/stdlib/crypto' },
-          { text: 'Debugging', link: '/stdlib/debug' }
+          { text: 'Debugging', link: '/stdlib/debug' },
+          { text: 'SIMD', link: '/stdlib/simd' },
+          { text: 'Hardware Abstraction', link: '/stdlib/hal' },
+          { text: 'Interrupts & MMIO', link: '/stdlib/interrupt' },
+          { text: 'Kernel Primitives', link: '/stdlib/kernel' },
+          { text: 'Testing & Benchmarking', link: '/stdlib/testing' }
         ]
       },
       {
@@ -95,6 +103,9 @@ export default defineConfig({
             { text: 'Memory & Regions', link: '/reference/memory' },
             { text: 'Functions', link: '/reference/functions' },
             { text: 'Generics', link: '/reference/generics' },
+            { text: 'Namespaces', link: '/reference/namespaces' },
+            { text: 'Native SIMD', link: '/reference/simd' },
+            { text: 'C Superset', link: '/reference/c-superset' },
             { text: 'Control Flow', link: '/reference/control-flow' },
             { text: 'Safety', link: '/reference/safety' },
             { text: 'C Interop (FFI)', link: '/reference/ffi' },
@@ -139,6 +150,21 @@ export default defineConfig({
             { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
             { text: 'Cryptography', link: '/stdlib/crypto' },
             { text: 'Debugging', link: '/stdlib/debug' },
+          ]
+        },
+        {
+          text: 'SIMD & Embedded',
+          items: [
+            { text: 'SIMD', link: '/stdlib/simd' },
+            { text: 'Hardware Abstraction', link: '/stdlib/hal' },
+            { text: 'Interrupts & MMIO', link: '/stdlib/interrupt' },
+            { text: 'Kernel Primitives', link: '/stdlib/kernel' },
+          ]
+        },
+        {
+          text: 'Development',
+          items: [
+            { text: 'Testing & Benchmarking', link: '/stdlib/testing' },
           ]
         },
       ],

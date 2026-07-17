@@ -41,6 +41,37 @@ int lookup[table_size()];      // OK: compile-time constant
 // int bad = table_size();     // ERROR if result not used in const context
 ```
 
+## `constinit` Globals
+
+Every global variable's initializer must already be a compile-time
+constant expression — this is enforced unconditionally, as a hard
+compiler error, not merely when the optional `constinit` keyword is
+present:
+
+```c
+int table_size() { return 256; }
+int bad = table_size();   // ERROR: not a compile-time constant expression
+int ok  = 256;             // fine
+```
+
+`constinit` is an optional, purely self-documenting annotation — writing
+it changes nothing about how the initializer is checked, since every
+global is already held to the same standard. It exists for readability
+(matching C++'s `constinit` keyword) and to make the intent explicit at
+the declaration site rather than relying on the reader to know the rule:
+
+```c
+constinit int table_size = 256;
+```
+
+This is a deliberate hardening over what plain C or C++ allow: C++'s
+`constinit` only matters because C++ *permits* dynamic (runtime)
+initialization of globals by default and `constinit` opts a specific
+declaration out of that; SafeC never permits dynamic global
+initialization at all, so there's no silent fallback to guard against —
+a non-constant initializer is caught at compile time everywhere, with or
+without the keyword.
+
 ## Pure Functions
 
 Functions marked `pure` guarantee no side effects. The compiler lowers them with LLVM `readonly` and `nounwind` attributes, enabling aggressive optimization.

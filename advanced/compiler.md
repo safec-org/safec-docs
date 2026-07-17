@@ -95,17 +95,53 @@ clang input.ll -o input
 # Dump the AST
 ./build/safec input.sc --dump-ast
 
-# Incremental compilation
-./build/safec input.sc --incremental
+# Disable the (on-by-default) incremental bitcode cache
+./build/safec input.sc --no-incremental
 
 # Debug info
 ./build/safec input.sc --g lines    # line-level debug info
 ./build/safec input.sc --g full     # full variable-level debug info
+
+# Cross-compile to another architecture/OS
+./build/safec input.sc --target aarch64-unknown-linux-gnu --emit-llvm -o input.ll
 ```
+
+## Multi-Target Codegen
+
+`--target <triple>` cross-compiles to any LLVM-registered target — the
+compiler hardcodes nothing architecture-specific; `--target` selects an
+LLVM `TargetMachine`, which supplies both the data layout (used live
+during codegen for `sizeof`/struct layout/alignment) and the instruction
+selection a later `llc`/`clang -c` step uses to turn the emitted IR into
+real machine code. Omit the flag to target the host, unchanged from
+before this flag existed.
+
+Verified with real generated machine code (not merely accepted input)
+across:
+
+| OS | Architectures |
+|---|---|
+| macOS | x86_64, AArch64 |
+| Linux | x86_64, x86, AArch64, Aarch32 (ARMv7), RV64, RV32 |
+| Windows (MSVC) | x86_64, x86, AArch64 |
+| iOS | AArch64 (device + simulator) |
+| Android | AArch64, Aarch32, x86_64, x86 |
+| FreeBSD | x86_64, AArch64 |
+| Bare metal (`--freestanding`) | ARM Cortex-M (Thumb/Thumb2), RV32, RV64, AArch64 |
+| Portable / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
+
+Metal Shading Language is not reachable via `--target` — Apple's Metal
+compiler has no LLVM backend upstream, unlike NVPTX/AMDGPU/SPIR-V, which
+are real LLVM targets. The only interop path from SPIR-V output is a
+third-party translator (e.g. SPIRV-Cross), not something `safec` does.
+
+See [`std::simd`](/stdlib/simd) for the SIMD library built on top of this,
+and [Bare-Metal](/reference/baremetal) for ARM Cortex-M specifics (HAL,
+DSP-extension intrinsics, MVE).
 
 ## Incremental Compilation
 
-When `--incremental` is passed (with optional `--cache-dir <dir>`, defaulting to `.safec_cache`), the compiler hashes the preprocessed source using FNV-1a. If a cached `.bc` file with a matching hash exists, all pipeline stages are skipped.
+The file-level bitcode cache is **on by default** (optional `--cache-dir <dir>`, defaulting to `.safec_cache`; disable with `--no-incremental`). The compiler hashes the preprocessed source together with the compiler binary's own identity (so a rebuilt compiler always misses stale entries) and every codegen-affecting flag — `--target`, `-g`, `--freestanding` — using FNV-1a. If a cached `.bc` file with a matching hash exists, all pipeline stages are skipped.
 
 On a cache miss, the full pipeline runs and the resulting bitcode is written to the cache directory.
 

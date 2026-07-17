@@ -111,12 +111,83 @@ int main() {
 | coverage | `debug/coverage.h` | 1024-site coverage tracker; `COV_SITE()` macro; `report()` |
 | jtag | `debug/jtag.h` | `debug_break` per arch; ARM/AArch64 semihosting; ITM ports |
 
+### [SIMD](/stdlib/simd)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| simd | `simd/simd.h` | Portable core: `f32x4`/`i32x8`/... type aliases over native `vec<T,N>`; load/store, splat, fma, min/max, horizontal reductions |
+| x86_64 / aarch64 / riscv / wasm / spirv / cortex_m / cuda / rocm | `simd/*.h` | Thin per-ISA convenience layers (native-preferred-width naming, real-hardware verification notes) — same portable source underneath, no separate implementation |
+
+### [Hardware Abstraction Layer](/stdlib/hal)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| gpio | `hal/gpio.h` | `GpioPin`: direction, read/write/toggle, pull-up/down |
+| i2c | `hal/i2c.h` | `I2cBus`: polling master — write/read/write_read/probe |
+| spi | `hal/spi.h` | `SpiDevice`: polling master — transfer/write/read, chip-select |
+| uart | `hal/uart.h` | `Uart`: polling serial — byte/string I/O, ready flags |
+| timer | `hal/timer.h` | `Timer`: period/start/stop/read/flag |
+| watchdog | `hal/watchdog.h` | `Watchdog`: enable/feed/caused_reset |
+| cortex_m | `hal/cortex_m.h` | NVIC, SysTick, SCB (ARM Cortex-M) |
+| aarch64 | `hal/aarch64.h` | System registers, Generic Timer, GICv2 (ARMv8-A) |
+| riscv | `hal/riscv.h` | CSR access, CLINT, PLIC |
+
+### [Interrupts & MMIO](/stdlib/interrupt)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| mmio | `interrupt/mmio.h` | `MmioReg` + free-function register read/write/field access |
+| bitfield | `interrupt/bitfield.h` | Pure bit-manipulation functions (`bf_extract32`, `bf_insert32`, ...) |
+| isr | `interrupt/isr.h` | Software ISR dispatch table (256 slots) |
+| vector_table | `interrupt/vector_table.h` | Hardware vector table — Cortex-M `VTOR`/RISC-V `mtvec`/AArch64 `VBAR_EL1` |
+| clock | `interrupt/clock.h` | PLL/clock-source configuration |
+
+### [Kernel Primitives](/stdlib/kernel)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| frame | `kernel/frame.h` | Bitmap physical frame allocator (4 KiB frames) |
+| paging | `kernel/paging.h` | `PageEntry`/`PageTable` — raw page table manipulation |
+| mmu | `kernel/mmu.h` | `MmuContext` — 2-level virtual memory, map/unmap/walk/TLB/activate |
+| process | `kernel/process.h` | `PCB` — process control block |
+| scheduler | `kernel/scheduler.h` | Priority round-robin scheduler over PCBs |
+| ipc | `kernel/ipc.h` | `Mailbox` — fixed-capacity message queue |
+| syscall | `kernel/syscall.h` | Syscall registration/dispatch table |
+
+### [Testing & Benchmarking](/stdlib/testing)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| test | `test/test.h` | `TestSuite` + `ASSERT_*` macros |
+| bench | `test/bench.h` | `BenchSuite` — wall-clock timed iteration benchmarks |
+| fuzz | `test/fuzz.h` | `FuzzTarget` — lightweight in-process mutation fuzzer |
+
+### Utilities
+
+| Header | Description |
+|--------|-------------|
+| `bit.h` | Bit manipulation (C23 `<stdbit.h>` + popcount/clz/ctz/bswap builtins) |
+| `convert.h` | String ↔ number parsing (C11/C17), `*ok` success flag on failure |
+| `dma.h` | Cache-coherent DMA buffer descriptors (64-byte aligned) |
+| `fmt.h` | Safe `snprintf`-based formatting into caller-supplied buffers |
+| `heap.h` | Unified heap: TLSF-backed static buffer (freestanding) or malloc/free/realloc (hosted) |
+| `log.h` | Configurable logging, zero overhead when `LOG_LEVEL` is 0 |
+| `panic.h` | Opt-in panic handler — infinite loop (freestanding) or `abort()` (hosted) by default |
+| `result.h` | Explicit `Result` error-propagation type (heap-allocated, mirrors `?T` optional) |
+| `sys.h` | Process-control constants (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG constants |
+| `complex.h` | Complex numbers (C99 `<complex.h>`) as `[real, imag]` float/double pairs |
+
 ### C Compatibility Headers
 
 | Header | Description |
 |--------|-------------|
 | `assert.h` | Runtime assertions (`runtime_assert`, `assert_true`); NDEBUG support |
 | `ctype.h` | Character classification (`char_is_alpha`, `char_is_digit`, ...) and conversion |
+| `errno.h` | Thread-local `errno` value and error descriptions (C11) |
+| `fenv.h` | Floating-point exception flags and rounding mode (C99) |
+| `locale.h` | Locale category constants (C11) |
+| `signal.h` | Signal handler installation and dispatch (C11) |
+| `time.h` | Calendar/wall-clock time (C11), complements `sys.h`'s high-resolution clocks |
 | `stdckdint.h` | Checked integer arithmetic (C23-style `ckd_add`/`ckd_sub`/`ckd_mul`) |
 | `stdint.h` | Fixed-width integer types |
 | `stddef.h` | `size_t`, `NULL`, `offsetof` |

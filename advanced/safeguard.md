@@ -35,22 +35,73 @@ Each `[[dependencies]]` entry specifies a dependency by name and source URL. Dep
 
 ## Build Flow
 
+`src/` can freely mix `.sc`, `.c`, and `.cpp`/`.cc`/`.cxx` files — each is
+dispatched by extension and compiled to its own object file independently,
+never merged into a shared translation unit, so per-file recompilation
+stays as granular as a pure-SafeC project:
+
 ```
-.sc sources
-    |
-safec --emit-llvm ---> .ll files
-    |
-clang -c ------------> .o files
+.sc sources          .c / .cpp sources
+    |                       |
+safec --emit-llvm      clang / clang++ -c
+    |                       |
+clang -c ------------> .o files <-----
     |
 ar ---------------------> .a static library (for deps)
     |
-clang link -------------> executable
+clang(++) link ----------> executable
 ```
 
-1. Each `.sc` file is compiled to LLVM IR (`.ll`) by the `safec` compiler
-2. `clang -c` assembles each `.ll` file into an object file (`.o`)
-3. Dependencies are archived into static libraries using `ar`
-4. The final executable is linked by `clang`, combining the project objects with dependency libraries
+1. Each `.sc` file is compiled to LLVM IR (`.ll`) by `safec`, then assembled to `.o` by `clang -c`
+2. Each `.c`/`.cpp` file is compiled straight to `.o` by `clang`/`clang++` — no LLVM-IR intermediate step, since these are already native compiler front ends
+3. Dependencies are archived into static libraries using `ar` (also mixed-language aware — a dependency's own `src/` can contain `.sc`/`.c`/`.cpp` too)
+4. The final link uses `clang++` as the driver whenever any `.cpp` source was compiled in (so the C++ runtime — libc++/libstdc++, exceptions, RTTI — links in correctly), plain `clang` otherwise; either way it's linking ordinary object files, since SafeC's C ABI compatibility means a `.sc`-compiled `.o` and a `.c`/`.cpp`-compiled `.o` are interchangeable at the object-file level
+
+All three languages share the project's own `include/` directory and each
+dependency's `include/` directory for headers — but *not* SafeC's own
+`std/` directory, which is deliberately kept off the `.c`/`.cpp` include
+path: `std/`'s headers use `#define`-based typedefs tuned for SafeC's own
+preprocessing model, and putting them on a real C/C++ compiler's search
+path corrupts its own standard headers (e.g. `<cstdint>`/`<vector>`) if
+they happen to shadow the same names.
+
+### Example: calling C and C++ from SafeC
+
+```c
+// src/helper.c
+int add_c(int a, int b) { return a + b; }
+```
+
+```cpp
+// src/helper.cpp
+#include <vector>
+extern "C" int sum_cpp(int a, int b) {
+    std::vector<int> v = {a, b};
+    int total = 0;
+    for (int x : v) total += x;
+    return total;
+}
+```
+
+```c
+// src/main.sc
+extern int add_c(int a, int b);
+extern int sum_cpp(int a, int b);
+
+int main() {
+    unsafe { printf("%d %d\n", add_c(2, 3), sum_cpp(2, 3)); }
+    return 0;
+}
+```
+
+A C++ function called from SafeC needs `extern "C"` on the C++ side (same
+requirement as calling C++ from plain C) — without it, C++ name mangling
+means the linker never finds a plain `sum_cpp` symbol.
+
+`Package.toml`'s `[build] srcs = [...]` can also list files explicitly
+(mixed extensions allowed) instead of relying on auto-discovery under
+`src/`; `cflags = [...]` is appended to every `clang`/`clang++` invocation
+(both `.c`/`.cpp` compilation and the final link).
 
 ## Standard Library Linking
 

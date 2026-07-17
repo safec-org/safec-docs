@@ -234,6 +234,79 @@ void spin_unlock() {
 }
 ```
 
+## ARM Cortex-M
+
+Cortex-M gets first-class treatment beyond the generic bare-metal features
+above: cross-compiles cleanly with `--target thumbv7em-none-eabi
+--freestanding` (M4/M7), `--target thumbv6m-none-eabi --freestanding`
+(M0/M0+, no FPU/DSP — the most constrained variant), or
+`--target thumbv8.1m.main-none-eabi` with `+mve` (M55/M85), plus a HAL and
+DSP-extension intrinsics described below. See
+[Multi-Target Codegen](/advanced/compiler#multi-target-codegen) for the
+full cross-compilation matrix.
+
+### HAL: NVIC, SysTick, SCB
+
+`std/hal/cortex_m.h` wraps the three most commonly needed Cortex-M
+peripherals as methods on global instances at their standard memory-mapped
+addresses — see [`std::hal`](/stdlib/hal) for the full API:
+
+```c
+#include <std/hal/cortex_m.h>
+
+void setup_timer_interrupt() {
+    std::nvic_init();
+    std::systick_init();
+    std::systick.start(1000000, 1);   // 1,000,000 core-clock ticks per interrupt
+    std::nvic.enable(15);              // SysTick IRQ
+    std::nvic.set_priority(15, (unsigned char)0);
+}
+```
+
+### DSP Extension (Cortex-M4/M7)
+
+The DSP extension's packed-SIMD/saturating instructions — `SADD16`,
+`SMLAD`, `USAD8`, `SSAT`, and friends — pack 2×16-bit or 4×8-bit lanes into
+a single 32-bit *scalar* register, a different model from a real vector
+register file. LLVM does not auto-vectorize `vec<T,N>` IR into these (see
+[Native SIMD](/reference/simd)), so they're exposed directly as `std::dsp_*`
+functions in `std/simd/cortex_m.h`, each verified to emit the single named
+instruction (not a libcall) via real `llc -mcpu=cortex-m4` output:
+
+```c
+#include <std/simd/cortex_m.h>
+
+int clamp_i8(int x) {
+    return __arm_dsp_ssat(x, 8);   // saturate to signed 8-bit range
+}
+
+int checksum4(int a, int b, int acc) {
+    return std::dsp_smlad(a, b, acc);   // dual 16x16 multiply-accumulate
+}
+```
+
+`dsp_ssat`/`dsp_usat`/`dsp_ssat16`/`dsp_usat16` aren't wrapped as
+functions — the underlying instruction's bit-width operand is a literal
+immediate encoded directly into the instruction, enforced by the compiler
+at the `__arm_dsp_ssat(val, bits)` call site (`bits` must literally be an
+integer-literal expression there, which a forwarding function parameter
+can never satisfy) — call the builtin directly with a literal width, as
+above.
+
+Requires an ARM target — using any `__arm_dsp_*`/`std::dsp_*` function
+while compiling for a non-ARM target (or the default host target on a
+non-ARM machine) is a compile error at the call site, not silently wrong
+codegen.
+
+### MVE (Cortex-M55/M85)
+
+Unlike the DSP extension, MVE ("Helium") *is* a real vector register file,
+and `vec<T,N>` reaches it directly — `vec<int,4>` arithmetic compiled with
+`--target thumbv8.1m.main-none-eabi` and `+mve` lowers to real MVE
+instructions (`vadd.i32 q2, q0, q1`, `vldrw.u32`/`vstrw.32` for loads/
+stores), the same mechanism used for NEON, SSE, RVV, and SIMD128 on the
+other targets — see [Native SIMD](/reference/simd).
+
 ## Bare-Metal Example: Minimal Kernel
 
 ```c
