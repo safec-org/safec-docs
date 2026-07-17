@@ -4,45 +4,37 @@ title: Getting Started
 
 # Getting Started
 
-This guide walks you through building the SafeC compiler from source, compiling your first program, and understanding the basic compilation workflow.
-
-## Prerequisites
-
-You need the following tools installed:
-
-| Tool | Minimum Version | Notes |
-|---|---|---|
-| CMake | 3.20+ | Build system generator |
-| C++17 compiler | Clang 14+, GCC 12+, or MSVC 2022 | For building the compiler |
-| LLVM | 17+ | Backend for code generation |
+This guide walks you through installing SafeC, compiling your first program, and understanding the basic compilation workflow.
 
 ## Installation
 
-Run the install script. It auto-detects LLVM, builds the compiler and safeguard package manager, configures environment variables, and verifies the installation.
+Run the install script. It downloads a prebuilt `safec`/`safeguard`/`sc-lsp` release from GitHub Releases and configures your shell environment — no LLVM or C++ toolchain needed on the machine you're installing to.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash
+```
+```powershell
+irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 ```
 
 ### Install Script Options
 
 | Option | Description |
 |---|---|
-| `--llvm-dir=<path>` | Path to LLVM cmake directory (auto-detected if omitted) |
-| `--jobs=N` | Number of parallel build jobs (default: all cores) |
-| `--skip-safeguard` | Skip building the safeguard package manager |
+| `--prefix=<path>` | Install directory (default: `~/safec`) |
+| `--version=<tag>` | Release tag to install, e.g. `v0.2.0` (default: latest) |
 | `--skip-env` | Skip shell environment configuration |
 
+macOS/Linux publish `arm64`/`x86_64` binaries; Windows publishes `x86_64`. See [Releases](https://github.com/safec-org/SafeC/releases) for the full asset list.
+
 ::: tip
-The install script will offer to install LLVM automatically if it is not found on your system. You can also pass `--llvm-dir` to point to an existing LLVM installation.
+Building from source (needed for a platform the release workflow doesn't publish, or to build from an unreleased commit) is still possible via each component's own `CMakeLists.txt` under `compiler/`, `safeguard/`, and the sibling `sc-language-server` repo — see [Compiler Architecture](/advanced/compiler).
 :::
 
-The compiler binary is produced at `compiler/build/safec`.
-
-Verify the build:
+Verify the install:
 
 ```bash
-./compiler/build/safec --help
+safec --help
 ```
 
 ## Your First Program
@@ -216,7 +208,7 @@ The automatic import works by invoking `clang -ast-dump=json` on the included he
 
 ## Using the Package Manager
 
-For projects with dependencies or multiple source files, use `safeguard`. If you ran the install script without `--skip-safeguard`, it is already built.
+For projects with dependencies or multiple source files, use `safeguard`. The install script installs it alongside `safec` and `sc-lsp`, so it's already available.
 
 ```bash
 # Create a new project
@@ -237,10 +229,11 @@ myproject/
     main.sc          # Entry point
 ```
 
-Set the `SAFEC_HOME` environment variable to your SafeC repository root so that `safeguard` can locate the compiler and standard library automatically:
+The install script already sets `SAFEC_HOME` (to the install prefix, `~/safec` by default) and adds it to `PATH` so `safeguard` can locate the compiler and standard library automatically — restart your shell, or `source` your shell rc file, after installing. If you skipped that step (`--skip-env`) or moved the install elsewhere, set it manually:
 
 ```bash
-export SAFEC_HOME=/path/to/SafeC
+export SAFEC_HOME=/path/to/safec
+export PATH="$SAFEC_HOME/bin:$PATH"
 ```
 
 ## Linking
