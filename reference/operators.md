@@ -85,7 +85,7 @@ x *= 2;     // x is 24
 x /= 4;     // x is 6
 x %= 5;     // x is 1
 
-uint32 flags = 0xFF00;
+uint32_t flags = 0xFF00;
 flags &= 0x0F0F;    // flags is 0x0F00
 flags |= 0x00F0;    // flags is 0x0FF0
 flags ^= 0x0FF0;    // flags is 0x0000
@@ -132,15 +132,15 @@ if (ptr != null && *ptr > 0) {
 | `>>` | Right shift | `a >> n` |
 
 ```c
-uint32 flags = 0b1100;
-uint32 mask  = 0b1010;
+uint32_t flags = 0b1100;
+uint32_t mask  = 0b1010;
 
-uint32 and_result = flags & mask;   // 0b1000
-uint32 or_result  = flags | mask;   // 0b1110
-uint32 xor_result = flags ^ mask;   // 0b0110
-uint32 not_result = ~flags;         // all bits flipped
+uint32_t and_result = flags & mask;   // 0b1000
+uint32_t or_result  = flags | mask;   // 0b1110
+uint32_t xor_result = flags ^ mask;   // 0b0110
+uint32_t not_result = ~flags;         // all bits flipped
 
-uint32 shifted = 1 << 4;           // 16 (bit 4 set)
+uint32_t shifted = 1 << 4;           // 16 (bit 4 set)
 ```
 
 ## Member Access Operators

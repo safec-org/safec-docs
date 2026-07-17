@@ -20,10 +20,10 @@ For explicit control over width and signedness:
 
 | Signed | Unsigned | Width |
 |--------|----------|-------|
-| `int8` | `uint8` | 8-bit |
-| `int16` | `uint16` | 16-bit |
-| `int32` | `uint32` | 32-bit |
-| `int64` | `uint64` | 64-bit |
+| `int8_t` | `uint8_t` | 8-bit |
+| `int16_t` | `uint16_t` | 16-bit |
+| `int32_t` | `uint32_t` | 32-bit |
+| `int64_t` | `uint64_t` | 64-bit |
 
 ## Struct Types
 
@@ -117,7 +117,7 @@ UserId id = UserId(42);
 Enums with explicit underlying type:
 
 ```c
-enum Color : uint8 {
+enum Color : uint8_t {
     Red = 0,
     Green = 1,
     Blue = 2
@@ -181,7 +181,7 @@ T clamp(T val, T lo, T hi) {
 
 ## Type Conversions
 
-SafeC has **no implicit conversions** with one exception: safe integer widening (e.g., `uint8` to `int`, `char` to `int`). All other conversions require explicit casts:
+SafeC has **no implicit conversions** with one exception: safe integer widening (e.g., `uint8_t` to `int`, `char` to `int`). All other conversions require explicit casts:
 
 ```c
 int x = 42;

@@ -120,7 +120,7 @@ long long read_tsc() {
 ### Memory-Mapped I/O with Assembly
 
 ```c
-void outb(uint16 port, uint8 value) {
+void outb(uint16_t port, uint8_t value) {
     asm volatile (
         "outb %0, %1"
         :
@@ -128,8 +128,8 @@ void outb(uint16 port, uint8 value) {
     );
 }
 
-uint8 inb(uint16 port) {
-    uint8 result;
+uint8_t inb(uint16_t port) {
+    uint8_t result;
     asm volatile (
         "inb %1, %0"
         : "=a"(result)
@@ -321,11 +321,11 @@ naked void _start() {
     );
 }
 
-volatile uint8 *VGA_BUFFER = (volatile uint8*)0xB8000;
+volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
 
-void vga_putchar(int x, int y, char c, uint8 color) {
+void vga_putchar(int x, int y, char c, uint8_t color) {
     int offset = (y * 80 + x) * 2;
-    volatile_store(VGA_BUFFER + offset, (uint8)c);
+    volatile_store(VGA_BUFFER + offset, (uint8_t)c);
     volatile_store(VGA_BUFFER + offset + 1, color);
 }
 

@@ -77,7 +77,7 @@ Returns the number of fields in a struct type as a compile-time constant:
 
 ```c
 struct Point { double x; double y; };
-struct Color { uint8 r; uint8 g; uint8 b; uint8 a; };
+struct Color { uint8_t r; uint8_t g; uint8_t b; uint8_t a; };
 struct Empty {};
 
 long n1 = fieldcount(Point);      // 2
@@ -124,9 +124,9 @@ static_assert(alignof(double) >= 8, "double must be 8-byte aligned");
 
 ```c
 struct Packet {
-    uint16 header;
-    uint32 payload;
-    uint16 checksum;
+    uint16_t header;
+    uint32_t payload;
+    uint16_t checksum;
 };
 
 static_assert(sizeof(Packet) <= 64, "Packet must fit in a cache line");
