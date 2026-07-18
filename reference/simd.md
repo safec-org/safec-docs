@@ -11,9 +11,15 @@ vec<float, 4> b = {10.0, 20.0, 30.0, 40.0};
 vec<float, 4> c = a + b;      // element-wise add
 vec<float, 4> d = c * b;      // element-wise multiply
 
-double first = c[0];          // extractelement — reads one lane
+float first = c[0];           // extractelement — reads one lane
 c[2] = 999.0;                 // insertelement — writes one lane
 ```
+
+::: warning No implicit float -> double widening
+`double first = c[0];` doesn't compile — `c[0]` is `float` (the vector's
+element type), and there's no implicit `float` -> `double` conversion.
+Declare `first` as `float`, as shown above.
+:::
 
 `T` can be any integer or floating-point primitive; `N` must be a
 compile-time constant. There's no restriction to "nice" hardware widths —

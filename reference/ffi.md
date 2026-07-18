@@ -52,11 +52,20 @@ References with `static` region can be passed to C functions without an `unsafe`
 ```c
 extern int puts(const char *s);
 
-static const char *greeting = "Hello from SafeC";
-puts(greeting);                // OK: &static → raw pointer is safe
+void greet() {
+    static const char *greeting = "Hello from SafeC";
+    puts(greeting);             // OK: &static → raw pointer is safe
+}
 ```
 
 This coercion is the only implicit region-to-pointer conversion allowed outside `unsafe`.
+
+::: warning `static const char*` initializers must be local, not global
+As with the same pattern in [Memory & Regions](/reference/memory), a
+file-scope `static const char *greeting = "...";` fails to compile
+("global initializer is not a compile-time constant expression"). Declare
+it as a local `static` inside a function instead, as shown above.
+:::
 
 ## Non-Static References Require Unsafe
 
@@ -86,7 +95,7 @@ extern void free(void *ptr);
 
 void example() {
     unsafe {
-        int *data = (int*)malloc(10 * sizeof(int));
+        int *data = (int*)malloc(10UL * sizeof(int));  // UL: no implicit int -> long widening
         data[0] = 42;
         free(data);
     }
@@ -102,8 +111,12 @@ extern void qsort(void *base, long nmemb, long size,
                    fn int(const void*, const void*) compar);
 
 int compare_ints(const void *a, const void *b) {
-    int ia = *(int*)a;
-    int ib = *(int*)b;
+    int ia;
+    int ib;
+    unsafe {
+        ia = *(int*)a;          // raw-pointer dereference needs unsafe
+        ib = *(int*)b;
+    }
     return ia - ib;
 }
 

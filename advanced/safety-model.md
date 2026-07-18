@@ -1,6 +1,6 @@
 # Formal Safety Model
 
-SafeC's safety guarantees are not aspirational — they are formalized as a type system with syntactic type safety (progress + preservation). The formal model is documented in `SAFETY.md` and draws on prior work from Oxide (Weiss et al.) and Cyclone (Grossman et al.).
+SafeC's safety guarantees are not aspirational — they are formalized as a type system with syntactic type safety (progress + preservation), drawing on prior work from Oxide (Weiss et al.) and Cyclone (Grossman et al.).
 
 ## Seven Safety Properties
 
@@ -20,7 +20,7 @@ Runtime bounds checks can be suppressed inside `unsafe {}` blocks.
 
 ### 2. Temporal Safety
 
-No use-after-free. Region annotations tie reference lifetimes to allocation scopes. A reference to stack memory cannot escape the function. A reference to arena memory cannot outlive the arena.
+No use-after-free for stack memory: region annotations tie reference lifetimes to allocation scopes, and a reference to stack memory cannot escape the function.
 
 ```c
 &stack int get_local() {
@@ -29,6 +29,15 @@ No use-after-free. Region annotations tie reference lifetimes to allocation scop
 }
 ```
 
+::: warning Arena use-after-reset is not currently enforced
+Conceptually a reference into an arena should not outlive an
+`arena_reset<R>()`/`arena_destroy<R>()` call, but the compiler does not
+check this today — see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset-conceptually-not-yet-enforced)
+for a concrete example that compiles with no diagnostic despite being a
+real use-after-reset. Temporal safety currently only holds for stack
+memory, not arena memory.
+:::
+
 ### 3. Aliasing Safety
 
 Mutable references are exclusive. The borrow checker enforces that at any point in the program, a value has either one mutable reference or any number of immutable references, but never both simultaneously.
@@ -36,17 +45,28 @@ Mutable references are exclusive. The borrow checker enforces that at any point 
 ```c
 int x = 10;
 &stack int a = &x;          // mutable borrow
-const &stack int b = &x;    // error: cannot take immutable reference while mutable reference exists
+&stack const int b = &x;    // error: cannot borrow 'x' as immutable: already borrowed as mutable
 ```
+
+::: warning Write `const` after the region qualifier
+`const &stack int b` (const *before* the region) is accepted by the parser
+but silently misparses as a mutable borrow — a known parser bug (see
+[Safety](/reference/safety#aliasing-rules-borrow-checker)). Always write
+`const` *after* the region qualifier (`&stack const int`, as above).
+:::
 
 ### 4. Region Escape Safety
 
 References cannot outlive the region they point into. The compiler tracks region scope depth and rejects any assignment or return that would move a reference to a shallower scope.
 
 ```c
-arena<R> {
+region R { capacity: 1024 }
+&arena<R> int outer_ptr;
+
+void demo() {
     &arena<R> int p = new<R> int;
-    outer_ptr = p;   // error: arena reference escapes region scope
+    outer_ptr = p;   // error: cannot assign '&arena<R> int' to variable in
+                     //        outer scope: arena reference would escape
 }
 ```
 
@@ -56,7 +76,7 @@ Threads spawned with `spawn()` operate on isolated data. The type system prevent
 
 ### 6. Null Safety
 
-References are non-null by default. There is no null reference in safe SafeC code. Nullable references use the `?&T` syntax and require an explicit null check before dereferencing.
+References are non-null by default. There is no null reference in safe SafeC code. Nullable references use the `?&T` syntax; unlike languages with flow-sensitive null narrowing, a bare `!= null` comparison does not by itself make a later dereference safe — reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block (see [Safety](/reference/safety#nullability-enforcement)).
 
 ### 7. Determinism
 
@@ -69,9 +89,9 @@ The compiler enforces these properties through a series of analysis passes durin
 | Phase | What it checks |
 |-------|---------------|
 | Definite initialization | Every variable is assigned before use |
-| Region escape analysis | References do not outlive their target region |
+| Region escape analysis | Stack/static/cross-region escapes are rejected (arena-reset invalidation is not yet checked — see above) |
 | Alias/borrow checking (NLL) | Mutable exclusivity is maintained |
-| Nullability enforcement | Nullable references are checked before use |
+| Nullability enforcement | Dereferencing a nullable reference outside `match`/`.is_null()`/`.default()`/`unsafe` is rejected |
 | Bounds checking | Array accesses are within bounds |
 
 All checks run at compile time. The only runtime insertion is bounds checks for dynamic array indices, and those are visible in the generated IR.

@@ -11,13 +11,17 @@ SafeC provides low-level, C-compatible concurrency primitives. Threads are creat
 ```c
 void* worker(void *arg) {
     int *data = (int*)arg;
-    printf("Worker received: %d\n", *data);
+    unsafe {
+        printf("Worker received: %d\n", *data);   // raw deref needs unsafe
+    }
     return (void*)0;
 }
 
 int main() {
     int value = 42;
-    long long handle = spawn(worker, (void*)&value);
+    void *arg;
+    unsafe { arg = (void*)&value; }   // casting a &stack ref to raw pointer needs unsafe
+    long long handle = spawn(worker, arg);
     join(handle);
     return 0;
 }
@@ -81,7 +85,7 @@ The compiler rejects passing mutable references to non-static data as spawn argu
 ```c
 void* bad_worker(void *arg) {
     int *p = (int*)arg;
-    *p = 99;                   // data race!
+    unsafe { *p = 99; }        // data race!
     return (void*)0;
 }
 
@@ -142,6 +146,69 @@ The SafeC standard library provides higher-level concurrency primitives in the `
 
 These are cross-platform wrappers over POSIX threads (or Win32 threads with `-D__WINDOWS__`).
 
+## Scoped Spawn
+
+`spawn_scoped(fn, arg)` is a compiler built-in, distinct from `spawn` — it
+has the same signature and the same mutable-non-static-reference rejection,
+but is intended for spawns whose join is guaranteed before the enclosing
+scope exits. It returns a thread handle exactly like `spawn`, still joined
+explicitly with `join`:
+
+```c
+void* worker(void *arg) {
+    return (void*)0;
+}
+
+void example() {
+    void *arg;
+    unsafe { arg = (void*)0; }
+    long long h = spawn_scoped(worker, arg);
+    join(h);
+}
+```
+
+## Channels
+
+Channels are another compiler built-in (no `#include` required, like
+`spawn`/`join`), providing a bounded MPMC queue for passing values between
+threads without shared mutable references:
+
+| Built-in | Signature | Description |
+|----------|-----------|-------------|
+| `chan_create(capacity)` | `(int) -> void*` | Creates a channel with the given capacity, returns an opaque handle |
+| `chan_send(channel, value_ptr)` | `(void*, void*) -> bool` | Sends the value pointed to by `value_ptr`; returns `true` on success |
+| `chan_recv(channel, out_ptr)` | `(void*, void*) -> bool` | Receives into `*out_ptr`; returns `false` if the channel is closed and empty |
+| `chan_close(channel)` | `(void*) -> void` | Closes the channel; pending/future `chan_recv` calls drain remaining values then return `false` |
+
+Since the channel handle and the value pointers are raw `void*`, sending and
+receiving both require `unsafe` for the pointer casts involved:
+
+```c
+void* producer(void *arg) {
+    void* ch;
+    unsafe { ch = *(void**)arg; }
+    int value = 7;
+    unsafe { chan_send(ch, (void*)&value); }
+    chan_close(ch);
+    return (void*)0;
+}
+
+void example2() {
+    void* ch = chan_create(4);
+
+    void* argp;
+    unsafe { argp = (void*)&ch; }
+    long long h = spawn_scoped(producer, argp);
+
+    int received = 0;
+    void* recvp;
+    unsafe { recvp = (void*)&received; }
+    bool ok = chan_recv(ch, recvp);
+
+    join(h);
+}
+```
+
 ## Example: Parallel Computation
 
 ```c
@@ -158,25 +225,38 @@ struct WorkItem {
 void* sum_range(void *arg) {
     struct WorkItem *w = (struct WorkItem*)arg;
     long long sum = 0;
-    for (int i = w->start; i < w->end; i = i + 1) {
-        sum = sum + w->data[i];
+    unsafe {
+        // Every access through 'w' (a raw pointer) needs unsafe: member
+        // access, subscript, and the final store all go through it.
+        for (int i = w->start; i < w->end; i = i + 1) {
+            sum = sum + (long long)w->data[i];   // no implicit int -> long long widening
+        }
+        w->result = sum;
     }
-    w->result = sum;
     return (void*)0;
 }
 
 int main() {
     int N = 10000;
-    int *data = (int*)malloc(N * sizeof(int));
-    for (int i = 0; i < N; i = i + 1) {
-        data[i] = i;
+    int *data = (int*)malloc((unsigned long)N * sizeof(int));  // no implicit int -> unsigned long
+    unsafe {
+        for (int i = 0; i < N; i = i + 1) {
+            data[i] = i;                          // raw-pointer subscript needs unsafe
+        }
     }
 
     struct WorkItem w1 = {data, 0, N / 2, 0};
     struct WorkItem w2 = {data, N / 2, N, 0};
 
-    long long h1 = spawn(sum_range, (void*)&w1);
-    long long h2 = spawn(sum_range, (void*)&w2);
+    void *arg1;
+    void *arg2;
+    unsafe {
+        arg1 = (void*)&w1;                        // casting a &stack ref to raw pointer needs unsafe
+        arg2 = (void*)&w2;
+    }
+
+    long long h1 = spawn(sum_range, arg1);
+    long long h2 = spawn(sum_range, arg2);
 
     join(h1);
     join(h2);

@@ -39,7 +39,7 @@ Interrupt functions use the ISR calling convention. They must be `void(void)` an
 ```c
 interrupt void timer_handler() {
     volatile int *timer_reg = (volatile int*)0x40000C00;
-    *timer_reg = 1;            // acknowledge interrupt
+    unsafe { *timer_reg = 1; }  // acknowledge interrupt
 }
 ```
 
@@ -61,9 +61,9 @@ Place functions or variables in specific linker sections:
 ```c
 section(".isr_vector")
 void* vector_table[256] = {
-    (void*)&_start,
-    (void*)&nmi_handler,
-    (void*)&hardfault_handler,
+    _start,
+    nmi_handler,
+    hardfault_handler,
     // ...
 };
 
@@ -73,6 +73,16 @@ void hot_path() {
 }
 ```
 
+::: warning No `&` or explicit cast on function entries
+`(void*)&_start` doesn't compile: `&_start` fails ("address-of operator
+requires lvalue" — a function name isn't an lvalue you can take the address
+of), and even after dropping the `&`, `(void*)_start` still fails ("cast
+from safe reference to raw pointer requires 'unsafe' block") — but a global
+initializer can't contain an `unsafe {}` block, since that's a statement
+form. The working form drops the cast entirely: a bare function name
+converts to `void*` implicitly in this position, as shown above.
+:::
+
 ## Inline Assembly
 
 SafeC supports GCC-style extended inline assembly:
@@ -81,38 +91,57 @@ SafeC supports GCC-style extended inline assembly:
 asm [volatile] ( "template" [: outputs [: inputs [: clobbers]]] );
 ```
 
+Inline `asm` needs an `unsafe {}` block, same as any other memory-unsafe
+construct — except inside a `naked` function, where it's exempt (the whole
+body is already required to be assembly, so there's nothing extra to opt
+into).
+
 ### Basic Assembly
 
 ```c
-asm volatile ("cli");          // disable interrupts
-asm volatile ("sti");          // enable interrupts
-asm volatile ("nop");          // no operation
-asm volatile ("hlt");          // halt processor
+unsafe {
+    asm volatile ("cli");          // disable interrupts
+    asm volatile ("sti");          // enable interrupts
+    asm volatile ("nop");          // no operation
+    asm volatile ("hlt");          // halt processor
+}
 ```
 
 ### Extended Assembly with Operands
 
 ```c
-int result;
-asm volatile (
-    "mov %1, %0\n"
-    "add $1, %0"
-    : "=r"(result)             // output: result register
-    : "r"(input)               // input: input register
-    : "cc"                     // clobbers: condition codes
-);
+int result = 0;
+unsafe {
+    asm volatile (
+        "mov %1, %0\n"
+        "add $1, %0"
+        : "=r"(result)             // output: result register
+        : "r"(input)               // input: input register
+        : "cc"                     // clobbers: condition codes
+    );
+}
 ```
+
+::: warning Pre-initialize output-operand variables
+`int result;` followed by `asm volatile (... : "=r"(result) ...)` fails
+with "use of possibly uninitialized variable 'result'" — the
+definite-initialization checker doesn't recognize an asm output operand
+(`"=r"(result)`) as initializing its target. Give the variable a dummy
+initial value (`int result = 0;`, as above) to work around this.
+:::
 
 ### Reading Special Registers
 
 ```c
 long long read_tsc() {
-    int lo;
-    int hi;
-    asm volatile (
-        "rdtsc"
-        : "=a"(lo), "=d"(hi)
-    );
+    int lo = 0;
+    int hi = 0;
+    unsafe {
+        asm volatile (
+            "rdtsc"
+            : "=a"(lo), "=d"(hi)
+        );
+    }
     return ((long long)hi << 32) | lo;
 }
 ```
@@ -121,20 +150,24 @@ long long read_tsc() {
 
 ```c
 void outb(uint16_t port, uint8_t value) {
-    asm volatile (
-        "outb %0, %1"
-        :
-        : "a"(value), "Nd"(port)
-    );
+    unsafe {
+        asm volatile (
+            "outb %0, %1"
+            :
+            : "a"(value), "Nd"(port)
+        );
+    }
 }
 
 uint8_t inb(uint16_t port) {
-    uint8_t result;
-    asm volatile (
-        "inb %1, %0"
-        : "=a"(result)
-        : "Nd"(port)
-    );
+    uint8_t result = 0;
+    unsafe {
+        asm volatile (
+            "inb %1, %0"
+            : "=a"(result)
+            : "Nd"(port)
+        );
+    }
     return result;
 }
 ```
@@ -146,9 +179,19 @@ The `volatile` qualifier ensures that reads and writes are not optimized away or
 ### Volatile Variables
 
 ```c
-volatile int *UART_DATA = (volatile int*)0x40001000;
-volatile int *UART_STATUS = (volatile int*)0x40001004;
+void uart_registers() {
+    volatile int *UART_DATA = (volatile int*)0x40001000;
+    volatile int *UART_STATUS = (volatile int*)0x40001004;
+}
 ```
+
+::: warning Integer-to-pointer casts can't initialize a global
+`volatile int *UART_DATA = (volatile int*)0x40001000;` fails at file scope
+("global initializer ... is not a compile-time constant expression") —
+even though the cast is a fixed integer literal. Declare MMIO register
+pointers as locals (as above), or as a `static` local inside a small getter
+function if every call site needs the same address.
+:::
 
 ### Volatile Load and Store
 
@@ -321,22 +364,32 @@ naked void _start() {
     );
 }
 
-volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
-
 void vga_putchar(int x, int y, char c, uint8_t color) {
+    volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
     int offset = (y * 80 + x) * 2;
-    volatile_store(VGA_BUFFER + offset, (uint8_t)c);
-    volatile_store(VGA_BUFFER + offset + 1, color);
+    unsafe {
+        volatile_store(VGA_BUFFER + offset, (uint8_t)c);
+        volatile_store(VGA_BUFFER + offset + 1, color);
+    }
 }
 
 void kernel_main() {
     const char *msg = "Hello from SafeC!";
-    for (int i = 0; msg[i] != 0; i = i + 1) {
-        vga_putchar(i, 0, msg[i], 0x0F);
+    unsafe {
+        for (int i = 0; msg[i] != 0; i = i + 1) {
+            vga_putchar(i, 0, msg[i], 0x0F);
+        }
     }
 
     while (1) {
-        asm volatile ("hlt");
+        unsafe { asm volatile ("hlt"); }
     }
 }
 ```
+
+::: warning
+As with `UART_DATA` above, `VGA_BUFFER` must be a local (not a file-scope
+global) because its initializer is an integer-to-pointer cast. `msg[i]`
+also needs `unsafe`: `msg` is a raw `const char*`, and subscripting a raw
+pointer always requires it, string literal or not.
+:::

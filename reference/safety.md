@@ -50,15 +50,27 @@ void bad() {
 }
 ```
 
-### Arena References Die on Reset
+### Arena References Die on Reset — Not Currently Enforced
+
+Conceptually, resetting an arena invalidates every outstanding reference
+into it. In practice, the compiler does not check this: the following
+compiles with no error or warning, even though `p` points at memory that
+`arena_reset` has logically freed and a later `new<Pool>` may reuse.
 
 ```c
 region Pool { capacity: 1024 }
 
-&arena<Pool> int p = new<Pool> int;
-arena_reset<Pool>();
-*p = 42;                       // ERROR: reference invalidated by arena reset
+int main() {
+    &arena<Pool> int p = new<Pool> int;
+    arena_reset<Pool>();
+    *p = 42;                   // compiles — NOT actually caught
+    return 0;
+}
 ```
+
+See [Memory & Regions](/reference/memory#4-arena-references-die-on-reset-conceptually-not-yet-enforced)
+for more detail. Avoid touching a reference after resetting or destroying
+its arena; the compiler currently won't catch the mistake for you.
 
 ### Scope Depth Tracking
 
@@ -88,15 +100,26 @@ int x = 42;
 
 ```c
 int x = 42;
-const &stack int a = &x;       // immutable borrow
-const &stack int b = &x;       // OK: multiple immutable borrows allowed
+&stack const int a = &x;       // immutable borrow
+&stack const int b = &x;       // OK: multiple immutable borrows allowed
 ```
+
+::: warning `const` must come after the region qualifier
+Writing `const` *before* the region (`const &stack int a`) is accepted by
+the parser but silently produces a **mutable** borrow instead of an
+immutable one — a parser bug (the `const` token is consumed before the
+region qualifier is peeked). This makes two `const &stack int` borrows of
+the same variable fail with "already borrowed as mutable," which looks like
+a compiler bug in the borrow checker but is actually the mutable
+misparse upstream of it. Always write `const` *after* the region qualifier
+(`&stack const int`, as above) to get the immutable borrow you intended.
+:::
 
 ### Mutable + Immutable Conflict
 
 ```c
 int x = 42;
-const &stack int r = &x;       // immutable borrow
+&stack const int r = &x;       // immutable borrow
 &stack int w = &x;             // ERROR: cannot mutably borrow while
                                //        immutable borrow exists
 ```
@@ -115,16 +138,28 @@ int x = 42;
 
 ## Nullability Enforcement
 
-Plain references are non-null by default. Nullable references must use the `?&` prefix and be checked before use:
+Plain references are non-null by default. Nullable references must use the `?&` prefix, and — unlike languages with flow-sensitive null narrowing — a bare `!= null` comparison does **not** make a later dereference safe: the compiler performs no flow analysis linking the check to the access. Reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block:
 
 ```c
-?&stack Node next = get_next(node);
+void demo(?&stack Node next) {
+    // *next;                   // ERROR: cannot dereference nullable ref
+                                //         directly, with or without a
+                                //         preceding null check
 
-// *next;                      // ERROR: cannot dereference nullable ref
-                               //        without null check
+    match (next) {
+        case null:    return;
+        case some(n): {
+            int val = n.value;  // OK: n is bound as the non-null payload
+        }
+    }
+}
 
-if (next != null) {
-    int val = (*next).value;   // OK: null check performed
+void demo_default(?&stack Node next) {
+    if (next.is_null()) {       // OK: sanctioned null check
+        return;
+    }
+    // still cannot dereference 'next' directly here even after the
+    // is_null() check above -- use match, or an explicit unsafe block
 }
 ```
 
@@ -173,7 +208,7 @@ When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing th
 
 ```c
 unsafe {
-    int *raw = (int*)malloc(10 * sizeof(int));
+    int *raw = (int*)malloc(10UL * sizeof(int));
     raw[0] = 42;               // no bounds check
     int *alias = raw;          // aliasing allowed
     free(raw);
@@ -193,29 +228,13 @@ unsafe {
 - Performance-critical inner loops where bounds checks are measurably costly
 - Hardware register access in bare-metal code
 
-## Unsafe Escape
-
-The `unsafe escape {}` block permanently removes region guarantees for a reference, allowing it to be used anywhere regardless of lifetime:
-
-```c
-&stack int ref;
-unsafe escape {
-    int local = 42;
-    ref = &local;              // allowed: region tracking removed
-}
-// ref is now untracked -- the programmer takes full responsibility
-```
-
-::: danger
-`unsafe escape` is more dangerous than regular `unsafe`. It permanently strips region information from references, meaning the compiler can no longer prevent use-after-free. Use it only when absolutely necessary (e.g., interfacing with C libraries that manage their own lifetimes).
-:::
-
 ## Summary of Safety Guarantees
 
 | Safety Check | Compile-Time | Runtime | Suppressed by `unsafe` |
 |-------------|-------------|---------|----------------------|
 | Definite initialization | Yes | -- | No |
-| Region escape analysis | Yes | -- | Yes |
+| Region escape analysis (stack/static/cross-region) | Yes | -- | Yes |
+| Arena-reset invalidation | No (not implemented) | No | N/A |
 | Aliasing / borrow check | Yes | -- | Yes |
 | Nullability enforcement | Yes | -- | Yes |
 | Static bounds check | Yes | -- | Yes |

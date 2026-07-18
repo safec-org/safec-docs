@@ -180,11 +180,13 @@ safec <input.sc> [options]
 
 ### Incremental Compilation
 
+Incremental compilation (per-file `.bc` caching) is **on by default** — no flag needed to enable it.
+
 | Flag | Description |
 |---|---|
-| `--incremental` | Enable incremental compilation |
+| `--no-incremental` | Disable incremental compilation (always recompile from scratch) |
 | `--cache-dir <dir>` | Set cache directory (default: `.safec_cache`) |
-| `--clear-cache` | Clear all cached `.bc` files |
+| `--clear-cache` | Clear all cached `.bc` files and exit |
 
 ## C Header Import
 

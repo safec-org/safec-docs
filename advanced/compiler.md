@@ -55,7 +55,8 @@ compiler/
 │   ├── CodeGen.h        LLVM IR generation
 │   ├── Preprocessor.h   Macro expansion and conditional compilation
 │   ├── CHeaderImporter.h  Native C header import via clang AST
-│   └── Clone.h          AST deep-clone for generics monomorphization
+│   ├── Clone.h          AST deep-clone for generics monomorphization
+│   └── Diagnostic.h     Error/warning reporting
 ├── src/
 │   ├── Preprocessor.cpp
 │   ├── CHeaderImporter.cpp
@@ -68,7 +69,7 @@ compiler/
 │   ├── ConstEval.cpp
 │   ├── CodeGen.cpp
 │   └── main.cpp
-├── examples/            16 demo files
+├── examples/            demo files
 └── CMakeLists.txt
 ```
 

@@ -10,8 +10,10 @@ SafeC supports multiple integer literal formats:
 |--------|--------|---------|-------|
 | Decimal | (none) | `42` | 42 |
 | Hexadecimal | `0x` / `0X` | `0xFF` | 255 |
-| Binary | `0b` / `0B` | `0b1010` | 10 |
-| Octal | `0` | `0777` | 511 |
+
+::: warning No binary or octal literals
+`0b`/`0B` binary literals don't exist — the lexer has no handling for them at all (`0b1010` fails to compile). A leading-zero literal like `0777` is **not** octal either — despite the C convention this table used to claim, the lexer treats it as plain decimal, so `0777` means 777, not 511 (verified: the compiler emits `777` for it). If you need binary or octal parsing, convert at runtime (e.g. `str_to_hex`-style parsing with a different base) — there's no literal syntax for either.
+:::
 
 ### Integer Suffixes
 
@@ -38,9 +40,12 @@ unsigned long long d = 0xFFFFFFFFFFFFFFFFULL;
 ```c
 double a = 3.14;
 double b = 1.5e-2;        // 0.015 (scientific notation)
-double c = 0.;             // 0.0 (trailing dot)
 float d = 3.14f;           // f suffix for float
 ```
+
+::: warning No trailing-dot form
+`0.` (a bare trailing dot with no digit after it) doesn't parse as a float — the lexer only continues a float literal past `.` when a digit follows, so `0.` lexes as the integer `0` followed by a `.` member-access operator expecting a field name. Write `0.0` instead.
+:::
 
 ## Character Literals
 
@@ -50,7 +55,6 @@ Character literals are enclosed in single quotes:
 char a = 'A';
 char newline = '\n';
 char tab = '\t';
-char hex = '\x41';         // 'A' via hex escape
 char null = '\0';          // null byte
 ```
 
@@ -65,7 +69,10 @@ char null = '\0';          // null byte
 | `\'` | Single quote |
 | `\"` | Double quote |
 | `\0` | Null byte |
-| `\xNN` | Hex byte value |
+
+::: warning No `\xNN` hex escape
+`\x` isn't handled specially by the char-literal lexer — any escape other than the ones listed above falls through to "consume this one character literally," so `'\x41'` doesn't mean `'A'`; it fails to compile (the `x` is consumed as the escaped character, leaving `41'` as unconsumed trailing input). There's no hex-byte escape in character or string literals.
+:::
 
 ## String Literals
 
@@ -87,9 +94,13 @@ bool b = false;
 ## Null Literal
 
 ```c
-?&stack Node next = null;   // null for nullable references
-?int val = none;             // none for optional values
+?&stack Node next = null;   // null — the empty case for both nullable references and ?T optionals
+?int val = null;             // same 'null', not a separate 'none' literal
 ```
+
+::: warning `none` is a match pattern, not a literal
+`?int val = none;` doesn't compile (`none` is undeclared) — `null` is the one empty-value literal for **both** `?T` optionals and `?&region T` nullable references. `some(x)`/`none` only exist as `match` patterns (`match (val) { case none: ... case some(x): ... }`, see [Control Flow](/reference/control-flow)), never as general expressions.
+:::
 
 ## Storage Qualifiers
 

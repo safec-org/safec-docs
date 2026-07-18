@@ -74,7 +74,7 @@ SafeC extends C with safety and modern features while preserving C's execution m
 | **Struct methods** | `Point::length()` syntax with implicit `self` receiver |
 | **Operator overloading** | `Vec2 operator+(Vec2 other) const` |
 | **Pattern matching** | `match` expressions with exhaustiveness checking |
-| **Optional types** | `T?` with `if let` unwrapping |
+| **Optional types** | `?T` (implicit `T -> ?T` wrap), unwrapped via `match`, `.is_null()`/`.is_none()`, or `.default(fallback)` |
 | **Slices** | `[]int s = arr[0..3]` — bounds-checked views into arrays |
 | **Defer** | `defer close(fd)` — deterministic cleanup |
 | **Compile-time evaluation** | `consteval`, `static_assert`, `if const` |

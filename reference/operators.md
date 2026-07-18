@@ -115,8 +115,13 @@ All comparison operators return `bool`.
 Short-circuit evaluation: `&&` does not evaluate the right operand if the left is `false`; `||` does not evaluate the right operand if the left is `true`.
 
 ```c
-if (ptr != null && *ptr > 0) {
-    // safe: *ptr is only evaluated if ptr is non-null
+// Short-circuiting affects *evaluation order*, not the unsafe-dereference
+// rule: *ptr still needs 'unsafe' even though && guarantees it only runs
+// when ptr is non-null — the compiler doesn't do flow-sensitive narrowing.
+unsafe {
+    if (ptr != (int*)0 && *ptr > 0) {
+        // *ptr is only evaluated when ptr is non-null, thanks to &&
+    }
 }
 ```
 
@@ -132,12 +137,14 @@ if (ptr != null && *ptr > 0) {
 | `>>` | Right shift | `a >> n` |
 
 ```c
-uint32_t flags = 0b1100;
-uint32_t mask  = 0b1010;
+// No binary literal syntax (see Literals & Qualifiers) — write the hex
+// equivalent instead. flags = 0xC = 0b1100, mask = 0xA = 0b1010.
+uint32_t flags = 0xC;
+uint32_t mask  = 0xA;
 
-uint32_t and_result = flags & mask;   // 0b1000
-uint32_t or_result  = flags | mask;   // 0b1110
-uint32_t xor_result = flags ^ mask;   // 0b0110
+uint32_t and_result = flags & mask;   // 0x8  (0b1000)
+uint32_t or_result  = flags | mask;   // 0xE  (0b1110)
+uint32_t xor_result = flags ^ mask;   // 0x6  (0b0110)
 uint32_t not_result = ~flags;         // all bits flipped
 
 uint32_t shifted = 1 << 4;           // 16 (bit 4 set)
@@ -156,11 +163,15 @@ The `.` operator accesses fields on values and references. The `->` operator der
 ```c
 struct Point { double x; double y; };
 
-Point p = {3.0, 4.0};
+struct Point p = {3.0, 4.0};
 double x1 = p.x;            // value access
 
-Point *ptr = &p;
-double x2 = ptr->x;         // pointer dereference + access
+// Getting a raw pointer and dereferencing it through -> both require
+// 'unsafe' — there's no implicit '&stack Point' -> 'Point*' conversion.
+struct Point *ptr;
+unsafe { ptr = (struct Point*)&p; }
+double x2;
+unsafe { x2 = ptr->x; }      // pointer dereference + access
 // equivalent to: (*ptr).x
 ```
 
@@ -204,19 +215,36 @@ The ternary operator has very low precedence — use parentheses around complex 
 
 ## Comma Operator
 
-The comma operator evaluates the left operand, discards the result, then evaluates and returns the right operand:
+In a `for` loop's increment clause, comma-separated expressions are evaluated left to right purely for side effects — this is the common, working use:
 
 ```c
-int x = (a = 1, b = 2, a + b);   // x is 3
-```
-
-The most common use is in `for` loop headers:
-
-```c
-for (int i = 0, j = 10; i < j; i++, j--) {
+int i = 0;
+int j = 10;
+for (; i < j; i++, j--) {
     // i counts up, j counts down
 }
 ```
+
+::: warning Comma as a value-producing expression doesn't work like C
+Unlike C, `(a = 1, b = 2, a + b)` does **not** evaluate to the type/value of
+its last sub-expression — SafeC's comma operator produces a tuple type
+(`(int, int, int)` for that example), which then fails to convert to `int`
+in a variable declaration or assignment. So `int x = (a = 1, b = 2, a + b);`
+does not compile. Write the statements out separately instead:
+
+```c
+int a = 1;
+int b = 2;
+int x = a + b;   // x is 3
+```
+:::
+
+::: warning No C-style multi-variable declarations
+`for (int i = 0, j = 10; i < j; i++, j--)` doesn't parse — SafeC has no
+C-style comma-separated multi-variable declaration (`int i = 0, j = 10;`
+fails the same way as a standalone statement). Declare each variable on its
+own line before the loop, as in the working example above.
+:::
 
 ## Address-of and Dereference
 

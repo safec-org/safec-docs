@@ -118,6 +118,44 @@ uint32_t safe_distance(uint32_t a, uint32_t b) {
 }
 ```
 
+## Checked Arithmetic
+
+For cases where overflow should be detected rather than wrapped or clamped,
+`<stdckdint.h>` (SafeC's equivalent of C23's `<stdckdint.h>`) provides
+functions that perform the operation, store the wrapped result, and report
+whether it overflowed. Unlike C23's type-generic `ckd_add`/`ckd_sub`/`ckd_mul`
+macros, SafeC exposes explicitly-typed functions per width/signedness —
+`ckd_add_i32`/`ckd_sub_i32`/`ckd_mul_i32` for `int`, `..._i64` for
+`long long`, `..._u32` for `unsigned int`, and `..._u64` for
+`unsigned long long`:
+
+```c
+#include <stdckdint.h>
+
+int result;
+int overflowed = std::ckd_add_i32(&result, 2147483647, 1);
+if (overflowed) {
+    // result holds the wrapped value (INT_MIN); overflowed is 1 (CKD_OVERFLOW)
+}
+```
+
+`std::CKD_OK` (0) and `std::CKD_OVERFLOW` (1) are provided as readable
+aliases for the return value.
+
+### Checked Allocation Sizing
+
+`std::checked_mul_size` (`<mem.h>`) is a narrower-purpose helper for the
+common `count * element_size` allocation-sizing multiplication — it aborts
+instead of returning an overflow flag, since a silently-wrapped allocation
+size is a memory-safety bug, not a value you can recover from:
+
+```c
+#include <mem.h>
+
+unsigned long n = std::checked_mul_size(count, sizeof(int));
+int* buf = (int*)std::alloc(n);
+```
+
 ## Comparison with Other Languages
 
 | Language | Default | Wrapping | Saturating |

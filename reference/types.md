@@ -25,6 +25,22 @@ For explicit control over width and signedness:
 | `int32_t` | `uint32_t` | 32-bit |
 | `int64_t` | `uint64_t` | 64-bit |
 
+## Type Inference with `auto`
+
+`auto` infers a local variable's type from its initializer — the variable must have one (`auto x;` with no initializer is a compile error):
+
+```c
+auto n = 42;       // int
+auto pi = 3.14;     // double
+auto p = compute(); // whatever compute() returns
+
+for (auto i = 0; i < 10; i++) {
+    // i : int
+}
+```
+
+`auto` only infers from the initializer expression's own type — it doesn't do any broader flow analysis, and (like every other declared type) the inferred type is fixed for the variable's lifetime; there's no re-inference on reassignment. It works anywhere an ordinary declared-type local variable would — including a `for` loop's init clause, as shown above.
+
 ## Struct Types
 
 Structs are value types with C-compatible layout. Assignment copies the entire value.
@@ -43,15 +59,14 @@ Structs support methods (see [Functions](/reference/functions)), operator overlo
 
 ## Union Types
 
-Tagged unions provide type-safe sum types:
-
 ```c
-generic<T, E>
 union Result {
-    T ok;
-    E err;
+    int ok;
+    int err;
 }
 ```
+
+Unions can't be generic — the same limitation as [generic structs](/reference/generics): `generic<T, E> union Result { T ok; E err; }` doesn't parse (a `generic<...>` declaration only ever accepts a following function or variable, never a struct/union). For a sum type over an arbitrary pair of types, use `void*` fields plus a discriminant, the same type-erasure-plus-generic-wrapper-functions pattern the standard library's collections use.
 
 ## Tuple Types
 
@@ -131,7 +146,8 @@ int describe(?&stack Node n) {
     if (n.is_null()) { return -1; }        // OK: presence check
     Node fallback;
     fallback.value = -1;
-    return n.default(fallback).value;       // OK: safe extraction with fallback
+    Node result = n.default(fallback);      // bind first — chaining .default(...).value
+    return result.value;                    // directly doesn't compile (temporary receiver)
 
     // OK: unsafe bypasses the checks entirely
     // unsafe { return n->value; }
@@ -155,8 +171,8 @@ Newtypes create distinct types from a base type. They are not interchangeable wi
 newtype UserId = int;
 newtype Temperature = double;
 
-UserId id = UserId(42);
-// int x = id;          // ERROR: UserId is not int
+UserId id = (UserId)42;   // explicit cast — no UserId(42) constructor-call syntax
+// int x = id;            // ERROR: UserId is not int
 ```
 
 ## Enum Types

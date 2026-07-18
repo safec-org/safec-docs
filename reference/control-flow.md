@@ -63,25 +63,38 @@ match (status_code) {
 
 ### Features
 
-**Range patterns** match inclusive ranges:
+**Range patterns** match inclusive ranges of *integers*:
 
 ```c
-match (ch) {
-    case 'a'..'z': printf("lowercase\n");
-    case 'A'..'Z': printf("uppercase\n");
-    case '0'..'9': printf("digit\n");
+match (status_code) {
+    case 400..499: printf("client error\n");
+    case 500..599: printf("server error\n");
     default: printf("other\n");
 }
 ```
 
-**Alternation patterns** match multiple values:
+::: warning No char range patterns
+Range patterns only work on integer literals. `case 'a'..'z':` does **not**
+parse — the char-literal pattern branch never checks for a following `..`,
+so `'a'..'z'` fails with a parser error at the `..` token. Match on the
+integer value instead (a `char` promotes to its integer code point in
+comparisons), e.g. `case 97..122:` for lowercase ASCII, or use a chain of
+`if`/`else if` with explicit comparisons.
+:::
+
+**Alternation patterns** match multiple values — use **comma**, not `|`:
 
 ```c
 match (day) {
-    case 1 | 7: printf("weekend\n");
-    case 2 | 3 | 4 | 5 | 6: printf("weekday\n");
+    case 1, 7: printf("weekend\n");
+    case 2, 3, 4, 5, 6: printf("weekday\n");
 }
 ```
+
+::: warning Alternation uses `,`, not `|`
+`case 1 | 7:` does not parse — `|` is not valid inside a pattern list. Use a
+comma to separate alternatives, as shown above.
+:::
 
 **Wildcard** matches everything:
 
@@ -136,23 +149,14 @@ int describe_len(?&stack Node next) {
 }
 ```
 
-## Switch Statement
-
-For C compatibility, SafeC also supports traditional `switch` with fall-through semantics:
-
-```c
-switch (op) {
-    case '+':
-        result = a + b;
-        break;
-    case '-':
-        result = a - b;
-        break;
-    default:
-        printf("unknown op\n");
-        break;
-}
-```
+::: warning No `switch` statement
+Despite `switch`, `case`, `default`, and `break` all being reserved words in
+the lexer, there is no parser or semantic support for a C-style `switch`
+statement — `switch (op) { case '+': ... }` fails to parse entirely
+(`unexpected token 'switch' in expression`). Use `match` (above) for
+multi-way branching; it covers the same use cases without fall-through
+footguns.
+:::
 
 ## Defer
 

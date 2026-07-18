@@ -74,8 +74,9 @@ int x = 10;
     // ...
 #endif
 
-// Rejected in safe mode: function-like macros
-#define MAX(a, b) ((a) > (b) ? (a) : (b))  // ERROR in safe mode
+// Rejected by default (not an opt-in "safe mode" — this is the normal
+// compile path; --compat-preprocessor is the opt-in flag that allows it):
+#define MAX(a, b) ((a) > (b) ? (a) : (b))  // ERROR unless --compat-preprocessor
 // Use: generic<T> T max(T a, T b) instead
 ```
 
@@ -193,28 +194,30 @@ process(v);
 // v is still accessible — no ownership transfer
 ```
 
-### Explicit vs Elided lifetimes
+### No lifetime elision — because there's no lifetime parameter to elide
 
-Rust elides lifetimes in many common cases, making code cleaner but sometimes obscuring the actual lifetime relationships. SafeC requires explicit region annotations:
+Rust elides lifetimes in common cases like `fn first(s: &str) -> &str`, inferring that the returned borrow's lifetime is tied to `s`'s. SafeC doesn't have an equivalent to elide, because it doesn't have lifetime *parameters* at all — regions are a fixed, closed set (`stack`, `heap`, `arena<R>`, `static`), not per-call-site-inferred spans. The practical consequence is stricter than "annotations are always explicit": **a `&stack` reference can never be returned from a function, full stop** — not even the caller's own stack reference handed right back. `longest`'s Rust signature (`fn longest<'a>(a: &'a str, b: &'a str) -> &'a str`) has no direct SafeC equivalent for `&stack` parameters, because there's no lifetime variable `'a` to tie the return value to.
 
 ```rust
-// Rust: lifetime elided
-fn first(s: &str) -> &str {
-    &s[..1]
-}
-
-// Rust: explicit lifetime when needed
+// Rust: the returned borrow's lifetime is tied to whichever input it came from
 fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
     if a.len() > b.len() { a } else { b }
 }
 ```
 
+When a function genuinely needs to hand back a reference to data the caller gave it, use `&arena<R>` (or `&static`) instead of `&stack` — region membership, not a lifetime relationship, is what's tracked, so an arena reference can be returned, stored, and passed around freely as long as everyone agrees on the region:
+
 ```c
-// SafeC: region always explicit
-&stack char first(&stack char s) {
-    // region annotation makes the relationship visible
+region Pool { capacity: 8192 }
+
+// &arena<Pool> can be returned — &stack cannot
+&arena<Pool> int longest(&arena<Pool> int a, &arena<Pool> int b) {
+    if (*a > *b) { return a; }
+    return b;
 }
 ```
+
+This is the same trade-off [Region-Based Safety Model](/guide/design#region-based-safety-model) describes: SafeC is more permissive than Rust for arena-shaped code (no borrow-checker fights over cyclic/shared arena references) and strictly more restrictive for stack references (no lifetime inference means no way to prove a returned stack reference is safe, so it's disallowed outright rather than requiring an annotation).
 
 ### No borrow checker "fights"
 
@@ -359,7 +362,7 @@ int readFile(const char* path, char* buf, int bufLen) {
     int fd = open(path, 0);
     if (fd < 0) return -1;
     defer close(fd);
-    return read(fd, buf, bufLen);
+    return (int)read(fd, buf, bufLen);  // read() returns long — no implicit narrowing
 }
 ```
 

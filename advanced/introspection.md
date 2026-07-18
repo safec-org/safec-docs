@@ -36,12 +36,20 @@ long a3 = alignof(double);        // 8
 long a4 = alignof(long long);     // 8
 ```
 
-Alignment values are platform-dependent. `alignof` is useful with the `align(N)` attribute to ensure correct alignment for SIMD, cache-line optimization, or hardware requirements:
+Alignment values are platform-dependent and useful alongside the `align(N)` attribute to ensure correct alignment for SIMD, cache-line optimization, or hardware requirements:
 
 ```c
-// Allocate a buffer aligned to the natural alignment of double
-align(alignof(double)) char buf[1024];
+// Allocate a buffer aligned to the natural alignment of double (8 on
+// most platforms)
+align(8) char buf[1024];
 ```
+
+::: warning `align(N)` requires a literal integer, not an expression
+`align(alignof(double))` doesn't parse — `align(N)`'s parser only accepts a
+literal integer token for `N`, not an expression, `alignof(...)` call, or
+`const`-declared identifier. Look up the alignment value with `alignof`
+separately (e.g. in a `static_assert`) and hardcode the literal in `align(N)`.
+:::
 
 ## `typeof`
 
@@ -100,13 +108,24 @@ Returns the number of types in a variadic generic type pack:
 ```c
 generic<T...>
 int count_types(T... args) {
-    return sizeof...(T);           // number of type parameters
+    return (int)sizeof...(T);      // sizeof...(T) is unsigned long; cast to
+                                    // match the declared int return type
 }
 
-int n = count_types(1, 2.0, 'a'); // 3
+int main() {
+    int n = count_types(1, 2.0, 'a'); // 3
+    return n;
+}
 ```
 
 This is a compile-time constant. See [Generics](/reference/generics) for variadic generic details.
+
+::: warning
+`int n = count_types(...);` must be a local variable, not a global — like
+other non-literal global initializers in SafeC, a call to a generic
+function isn't accepted as a compile-time constant expression at file
+scope, even though the value is knowable at compile time.
+:::
 
 ## `static_assert`
 
@@ -138,6 +157,8 @@ static_assert(fieldcount(Packet) == 3, "Packet field count changed");
 Compile-time conditional branching. The condition must be a constant expression. Only the taken branch is compiled — the other branch is eliminated before codegen.
 
 ```c
+#include <io.h>
+
 const int DEBUG = 1;
 
 void log_message(const char *msg) {
@@ -151,6 +172,8 @@ void log_message(const char *msg) {
 This is more powerful than preprocessor `#ifdef` because it participates in type checking — both branches must be syntactically valid, but only the taken branch must be semantically valid.
 
 ```c
+#include <io.h>
+
 generic<T>
 void print_value(T val) {
     if const (sizeof(T) == 4) {
@@ -174,20 +197,27 @@ The compile-time evaluator enforces resource limits to prevent infinite compile 
 Exceeding any limit is a compile error. These limits apply to `const` function evaluation, `consteval` functions, `static_assert` conditions, and `if const` branch resolution.
 
 ```c
-// This would hit the recursion limit:
-const int bad(int n) {
-    return bad(n + 1);             // ERROR: recursion limit exceeded (256)
+// This hits the recursion limit:
+consteval int bad(int n) {
+    return bad(n + 1);
 }
+const int r1 = bad(0);             // ERROR: recursion depth limit (256) exceeded
 
-// This would hit the loop limit:
+// This hits the loop limit:
 consteval int slow() {
     int x = 0;
     for (int i = 0; i < 2000000; i++) {
         x += i;
     }
-    return x;                      // ERROR: loop iteration limit exceeded
+    return x;
 }
+const int r2 = slow();             // ERROR: loop iteration limit exceeded
 ```
+
+Both functions must actually be evaluated at compile time to trigger these
+limits — assigning the call result to a `const` global (as above) forces
+that; a `consteval` function that's never called in a constant context
+never runs through the const-eval engine at all.
 
 ## Summary
 

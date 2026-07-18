@@ -48,7 +48,9 @@ exit code `safeguard test` checks:
 // tests/math_test.sc
 #include <std/test/test.h>
 
-void addition_works() { ASSERT_EQ(2 + 2, 4); }
+void addition_works() {
+    std::test_assert_eq_i(2 + 2, 4, "2+2 == 4", "math_test.sc", 4);
+}
 
 int main(void) {
     struct TestSuite t = std::test_suite_init();
@@ -57,7 +59,27 @@ int main(void) {
 }
 ```
 
+::: danger `<std/test/test.h>` currently requires `--compat-preprocessor`, which `safeguard test` never passes
+`<std/test/test.h>` unconditionally `#define`s several function-like
+macros (`ASSERT_EQ`, `ASSERT_TRUE`, ...) at the top of the header — and
+merely *including* a header containing function-like macro definitions
+fails ("function-like macros are not allowed in safe mode ... or pass
+--compat-preprocessor") regardless of whether those macros are ever
+called, even in the macro-free calling style shown above (which calls
+`std::test_assert_eq_i` directly instead of the `ASSERT_EQ` macro).
+`safeguard`'s builder never passes `--compat-preprocessor` when compiling
+a project's own `src/`/`tests/` files (only when building `std/` itself),
+and there is currently no `Package.toml` setting to request it. **As a
+result, any file under `tests/` that includes `<std/test/test.h>` fails to
+compile under real `safeguard test` today.** Until this gap is closed,
+either invoke `safec --compat-preprocessor` directly instead of going
+through `safeguard test`, or write the pass/fail check in a test file by
+hand without including `<std/test/test.h>` at all.
+:::
+
 ## `format` — reindenter
+
+(`safeguard fmt` is accepted as a shorter alias.)
 
 Deliberately scoped narrower than a full AST-based pretty-printer like
 `rustfmt` or `clang-format`: it recomputes indentation from `{`/`}`
@@ -76,10 +98,12 @@ fmt --check` / `gofmt -l`), useful as a CI gate.
 
 In the spirit of `cargo clippy`: catches real issues beyond what
 compilation alone checks. Combines heuristic scans over raw source with
-`safec --dump-ast`'s own unused-variable warnings:
+`safec --dump-ast`'s own unused-variable warnings. `safeguard analyze` is
+accepted as an alias for `safeguard lint` — both run the identical pass.
 
 | Code | Level | Description |
 |------|-------|-------------|
+| SA000 | error | Source file could not be opened |
 | SA001 | warning | File contains more than 5 `unsafe {}` blocks — consider refactoring |
 | SA002 | note | `alloc()`/`malloc()` result is not null-checked on the same line |
 | SA003 | warning | Unused variable (forwarded from `safec --dump-ast`) |
@@ -87,6 +111,17 @@ compilation alone checks. Combines heuristic scans over raw source with
 | SA005 | note | Unresolved `TODO`/`FIXME`/`XXX` marker |
 | SA006 | warning | `=` instead of `==` in an `if` condition |
 | SA007 | warning | Duplicate `#include` in the same file |
+
+### Example output
+
+```
+src/driver.sc: warning [SA001] file contains 7 unsafe{} blocks — consider refactoring
+src/parser.sc:42: note [SA002] result of alloc() should be null-checked
+src/parser.sc:58: warning [SA003] warning: unused variable 'tmp'
+safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
+```
+
+Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level diagnostics are found.
 
 ## Package.toml
 
@@ -262,38 +297,12 @@ Checks that each dependency's current HEAD matches the locked SHA. If any depend
 
 ### Blocking builds on drift
 
-`safeguard build` automatically calls `checkLock()` before compiling. If a dependency SHA has changed since the lock was written, the build is aborted:
+`safeguard build` automatically calls `checkLock()` before compiling. A dependency SHA mismatch is a hard error that aborts the build (a `safec` binary hash mismatch, by contrast, only warns — see above):
 
 ```
-safeguard: dep 'mylib' git SHA has changed — run 'safeguard fetch' then rebuild
+safeguard: error: dependency 'mylib' git SHA mismatch (locked=c3d4e5f... current=a1b2c3d...)
+  Run 'safeguard fetch' to update, then rebuild.
 ```
-
----
-
-## Static Analysis
-
-```bash
-safeguard analyze [--verbose]
-```
-
-Runs built-in lint passes over every `.sc` file in `src/`. Uses `safec --dump-ast` to obtain the AST for unused-variable detection.
-
-| Code | Level | Description |
-|------|-------|-------------|
-| SA001 | warning | File contains more than 5 `unsafe {}` blocks — consider refactoring |
-| SA002 | note | `alloc()` result is not null-checked on the same line |
-| SA003 | warning | Unused variable (forwarded from `safec --dump-ast` output) |
-
-### Example output
-
-```
-src/driver.sc: warning [SA001] file contains 7 unsafe{} blocks — consider refactoring
-src/parser.sc:42: note [SA002] result of alloc() should be null-checked
-src/parser.sc:58: warning [SA003] warning: unused variable 'tmp'
-safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
-```
-
-Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level diagnostics are found.
 
 ---
 

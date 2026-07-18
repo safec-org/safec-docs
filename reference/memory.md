@@ -71,7 +71,7 @@ The `heap` region is for dynamically allocated data. Heap references require exp
 
 ```c
 void example() {
-    &heap int p = (heap int*)malloc(sizeof(int));
+    &heap int p = (int*)malloc(sizeof(int));
     *p = 42;
     free(p);
 }
@@ -81,11 +81,40 @@ The compiler tracks heap references but does not automatically free them. Use `d
 
 ```c
 void process() {
-    &heap char buf = (heap char*)malloc(4096);
+    &heap char buf = (char*)malloc(4096UL);
     defer free(buf);
 
     // ... use buf ...
 }   // buf freed here via defer
+```
+
+::: warning Cast to the plain pointer type, not `(heap T*)`
+`(heap int*)malloc(...)` doesn't parse — a region qualifier isn't valid
+inside a cast's parentheses. Cast to the ordinary pointer type (`(int*)`);
+the result converts implicitly to the `&heap` reference on assignment, as
+shown above. Also note the `UL` suffix on `malloc(4096UL)` — `malloc` takes
+an `unsigned long` (`size_t`), and there's no implicit `int` →
+`unsigned long` conversion (see [Types](/reference/types)).
+:::
+
+`<mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer free()` pattern
+above into a single call. `malloc_defer` isn't a real function — it's
+parser-level sugar recognized only as a var-decl initializer, and it
+desugars into `std::alloc(n)` for the declaration plus a synthesized
+`defer std::dealloc(buf);` right after it. Because it's backed by
+`std::alloc`, the declared variable's type is `void*` (same as `alloc()`
+everywhere else in `std/`), so an explicit `unsafe` cast is still needed to
+use it as a typed pointer:
+
+```c
+#include <mem.h>
+
+void process2() {
+    auto buf = malloc_defer(4096UL);   // void*, freed automatically at scope exit
+    int* typed;
+    unsafe { typed = (int*)buf; }
+    // ... use typed ...
+}   // std::dealloc(buf) runs here via the synthesized defer
 ```
 
 ## Arena Regions
@@ -115,6 +144,23 @@ arena_reset<AudioPool>();
 ```
 
 This resets the arena's offset to zero, effectively freeing all allocations at once. No destructors are called -- arena-allocated objects must not hold external resources.
+
+### Destroying an Arena
+
+`arena_destroy<R>()` goes a step further than `arena_reset<R>()`: it frees
+the region's malloc'd backing buffer entirely rather than just rewinding the
+bump offset.
+
+```c
+arena_destroy<AudioPool>();
+```
+
+A second call is a safe no-op (the buffer pointer is nulled after the first
+call), and a subsequent `new<AudioPool> T` transparently re-`malloc`s a
+fresh backing buffer. Use `arena_destroy<R>()` when the arena won't be
+reused for a while and you want to release its memory back to the system;
+use `arena_reset<R>()` when you'll keep allocating from it again soon and
+want to avoid the re-`malloc` cost.
 
 ### Arena Runtime Representation
 
@@ -167,16 +213,33 @@ void example() {
 }
 ```
 
-### 4. Arena References Die on Reset
+### 4. Arena References Die on Reset — Conceptually, Not Yet Enforced
 
-After `arena_reset<R>()`, all references into region `R` are invalid. The compiler tracks this:
+*Conceptually*, `arena_reset<R>()` invalidates every outstanding reference
+into region `R`, since the next `new<R>` can hand out that same memory
+again.
+
+::: danger Not currently checked by the compiler
+Unlike rules 1-3 above, this one is **not enforced**. The compiler compiles
+the following without any error or warning, generating code that reads/writes
+through a reference into memory that may already have been reused by a
+later `new<Pool>`:
 
 ```c
 region Pool { capacity: 1024 }
-&arena<Pool> int p = new<Pool> int;
-arena_reset<Pool>();
-// *p = 42;                    // ERROR: reference invalidated by reset
+int main() {
+    &arena<Pool> int p = new<Pool> int;
+    arena_reset<Pool>();
+    *p = 42;                    // compiles with no diagnostic — use-after-reset
+    return 0;
+}
 ```
+
+Treat "don't touch a reference after resetting its arena" as a rule you must
+enforce yourself in code review/discipline, the same way you would in
+hand-written C — the compiler currently gives no help here despite the
+region model's design intent. This applies to `arena_destroy<R>()` as well.
+:::
 
 ## Unsafe Escape Hatch
 
@@ -202,8 +265,18 @@ When calling C functions, region information is erased:
 ```c
 extern int printf(const char *fmt, ...);
 
-static const char *msg = "hello\n";
-printf(msg);                   // OK: &static → raw pointer is safe
+void example() {
+    static const char *msg = "hello\n";
+    printf(msg);                // OK: &static → raw pointer is safe
+}
 ```
+
+::: warning `static const char*` initializers must be local, not global
+A file-scope `static const char *msg = "hello\n";` fails with "global
+initializer for 'msg' is not a compile-time constant expression" — even
+though the value genuinely is a string-literal constant. The same
+declaration works fine as a local (`static`-storage) variable inside a
+function, as shown above.
+:::
 
 See [C Interop](/reference/ffi) for details.

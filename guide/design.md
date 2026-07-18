@@ -56,6 +56,8 @@ There are no implicit constructors, no implicit destructors, no implicit convers
 The programmer decides when memory is allocated, how long it lives, and when it is freed. The compiler verifies that these decisions are safe — but it does not make these decisions for you.
 
 ```c
+#include <stdlib.h>
+
 // Memory lifetime is explicit
 int x = 10;                          // stack — dies at scope exit
 &heap int h = (int*)malloc(4);       // heap — programmer frees
@@ -150,15 +152,21 @@ This contract is not aspirational — it is enforced by the compiler. Code that 
 SafeC's approach to memory safety is fundamentally different from Rust's ownership model. Instead of tracking ownership transfer, SafeC tracks **where** memory lives:
 
 ```c
-int x = 10;
-&stack int r1 = &x;         // r1 points to stack memory
-
-&heap int r2 = (int*)malloc(sizeof(int));
-*r2 = 20;                    // r2 points to heap memory
-
+// Region declarations are top-level only — declare before any function
+// that uses them, not inline where they're first needed.
 region Pool { capacity: 1024 }
-&arena<Pool> int r3 = new<Pool> int;
-*r3 = 30;                    // r3 points to arena memory
+
+int main() {
+    int x = 10;
+    &stack int r1 = &x;         // r1 points to stack memory
+
+    &heap int r2 = (int*)malloc(sizeof(int));
+    *r2 = 20;                    // r2 points to heap memory
+
+    &arena<Pool> int r3 = new<Pool> int;
+    *r3 = 30;                    // r3 points to arena memory
+    return 0;
+}
 ```
 
 Each reference carries its region in the type. The compiler uses this information to prevent:
@@ -184,7 +192,7 @@ SafeC uses return values for error handling. This is more verbose than exception
 ```c
 int readSensor(int id, float* out) {
     if (id < 0 || id >= SENSOR_COUNT) return -1;
-    *out = sensorValues[id];
+    unsafe { *out = sensorValues[id]; }   // raw pointer deref always needs unsafe
     return 0;
 }
 
