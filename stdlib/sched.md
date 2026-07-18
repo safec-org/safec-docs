@@ -2,12 +2,28 @@
 
 `std/sched/` adds a single-threaded I/O-readiness event loop — a **reactor** — that drives [`std::TaskScheduler`](/stdlib/sync#taskscheduler-cooperative-task-scheduler) so many concurrent network, file, and signal operations can make progress on one real OS thread without ever blocking the whole program on any one of them. It's "async" in the same sense as epoll/kqueue-based runtimes elsewhere, built directly on SafeC's existing cooperative scheduler rather than introducing a second, competing concurrency primitive.
 
-This is a **hosted-only** module (currently macOS/BSD, via kqueue) operating on real OS file descriptors through real syscalls. It's deliberately separate from [`std/net/tcp.sc`](/stdlib/net), which is a from-scratch, bare-metal-oriented packet-level TCP/IP stack with no OS socket syscalls at all — the two serve different targets (hosted userspace vs. no-OS-underneath embedded), and neither is a drop-in replacement for the other.
+This is a **hosted-only** module operating on real OS file descriptors through real syscalls — deliberately separate from [`std/net/tcp.sc`](/stdlib/net), which is a from-scratch, bare-metal-oriented packet-level TCP/IP stack with no OS socket syscalls at all. The two serve different targets (hosted userspace vs. no-OS-underneath embedded), and neither is a drop-in replacement for the other.
 
 ```c
 #include "sched/reactor.h"
 #include "sched/io_nb.h"   // non-blocking socket/file helpers meant to pair with it
 ```
+
+## Backends
+
+`reactor.h` declares one portable `struct Reactor`/API; pick the `.sc` file matching your target and include it directly (safeguard's stdlib build tolerates the other two failing to compile/assemble for the current target and skips them — see [Standard Library Resolution](/stdlib/#including-the-standard-library)):
+
+| File | Target | Mechanism | `SCHED_SIGNAL` |
+|---|---|---|---|
+| `reactor_kqueue.sc` | macOS, iOS, FreeBSD | kqueue/kevent, persistent registration | native (`EVFILT_SIGNAL`) |
+| `reactor_epoll.sc` | Linux, Android | epoll, persistent registration | via `signalfd()` |
+| `reactor_win32.sc` | Windows | `WSAPoll`, re-registers every poll (no persistent OS-side set) | **not supported** — `add()` silently no-ops; see the file's own header comment for why and what to use instead (`SetConsoleCtrlHandler`, wired to signal the scheduler some other way) |
+
+All three implement the exact same surface, so calling code never needs to know which one is compiled in — `SCHED_READ`/`SCHED_WRITE`/`SCHED_SIGNAL` and `TaskScheduler::await_fd`/`unblock_fd` are already backend-agnostic. `reactor_run` itself (see below) is shared across all three (`reactor.sc`), not reimplemented per backend.
+
+::: tip Verification status
+`reactor_kqueue.sc` is exercised end-to-end (compiled, linked, and run) on macOS. `reactor_epoll.sc` and `reactor_win32.sc` are compiled and cross-target-verified (real object-code generation via `--target`, plus `static_assert`-checked struct layouts for the platform-ABI-sensitive parts — `EpollEvent`'s packed 12-byte layout, `WSAPollFd`'s 16-byte layout) but not yet runtime-tested on an actual Linux or Windows host in this environment.
+:::
 
 ## Usage Shape
 
@@ -23,10 +39,15 @@ This is a **hosted-only** module (currently macOS/BSD, via kqueue) operating on 
 #define SCHED_SIGNAL  3   // for this filter, 'fd' is actually a signal number
 
 struct Reactor {
-    int kq;   // underlying OS event queue fd
+    int kq;   // underlying OS event queue fd (kqueue fd, epoll fd; unused on the Win32 backend)
 
-    int  init();                                             // opens the OS event queue; 0 ok, -1 fail
-    void add(int fd, int filter);                             // registers interest (re-registers automatically each poll)
+    // Backend-private bookkeeping — left empty and unused by whichever
+    // backend doesn't need it (see reactor.h for why each exists):
+    struct Vec sigfds;    // reactor_epoll.sc's signum -> signalfd table
+    struct Vec watched;   // reactor_win32.sc's registered (fd, filter) table
+
+    int  init();                                             // opens/initializes the backend; 0 ok, -1 fail
+    void add(int fd, int filter);                             // registers persistent, level-triggered interest
     void remove(int fd, int filter);
     int  poll(struct TaskScheduler* sched, long long timeout_ms);
         // timeout_ms: 0 = return immediately if nothing pending, negative = block indefinitely.
@@ -120,7 +141,7 @@ int tcp_connect_nb(unsigned int addr_network_order, unsigned short port);
 ```
 
 ::: warning
-The constant values in `io_nb.h` (`O_NONBLOCK`, `sockaddr_in`'s layout including the extra `sin_len` byte) are macOS/BSD-specific, matching the kqueue reactor backend. A Linux build needs the Linux-equivalent values (`O_NONBLOCK` is `0x800` there, not `0x0004`; Linux's `sockaddr_in` has no `sin_len` field) alongside a future epoll reactor backend — only the kqueue backend (`reactor_kqueue.sc`) exists today.
+Unlike the reactor itself (now three backends), `io_nb.h`'s constant values (`O_NONBLOCK`, `sockaddr_in`'s layout including the extra `sin_len` byte) are still macOS/BSD-specific only. A Linux build needs the Linux-equivalent values (`O_NONBLOCK` is `0x800` there, not `0x0004`; Linux's `sockaddr_in` has no `sin_len` field), and a Windows build needs Winsock's `SOCKET`-based, non-`O_NONBLOCK` non-blocking-mode API (`ioctlsocket(s, FIONBIO, ...)`) entirely — neither exists yet. `reactor_epoll.sc`/`reactor_win32.sc` work with any fds you set up yourself in the meantime (e.g. via platform-appropriate `extern` calls of your own), just not through these particular convenience wrappers.
 :::
 
 ## Scheduling Model
