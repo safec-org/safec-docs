@@ -58,6 +58,7 @@ export default defineConfig({
           { text: 'Collections', link: '/stdlib/collections' },
           { text: 'Allocators', link: '/stdlib/allocators' },
           { text: 'Synchronization', link: '/stdlib/sync' },
+          { text: 'IPC', link: '/stdlib/ipc' },
           { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
           { text: 'Networking', link: '/stdlib/net' },
           { text: 'Filesystems', link: '/stdlib/fs' },
@@ -152,6 +153,7 @@ export default defineConfig({
           items: [
             { text: 'Allocators', link: '/stdlib/allocators' },
             { text: 'Synchronization', link: '/stdlib/sync' },
+            { text: 'IPC', link: '/stdlib/ipc' },
             { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
             { text: 'Networking', link: '/stdlib/net' },
             { text: 'Filesystems', link: '/stdlib/fs' },

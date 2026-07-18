@@ -64,9 +64,18 @@ int main() {
 |--------|--------|-------------|
 | spinlock | `sync/spinlock.h` | Busy-wait mutual exclusion (`__sync_lock_test_and_set`) |
 | lockfree | `sync/lockfree.h` | Wait-free SPSC ring buffer with compiler barriers |
+| channel | `sync/channel.h` | Typed (`chan_send_t<T>`/`chan_recv_t<T>`) wrappers over the language's built-in bounded blocking MPMC channel (`chan_create`/`chan_send`/`chan_recv`/`chan_close`) |
+| mpsc | `sync/mpsc.h` | Spinlock-guarded bounded MPSC ring buffer, non-blocking API |
 | task | `sync/task.h` | Cooperative round-robin task scheduler |
 | thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
 | bare_spawn | `sync/bare_spawn.sc` | Reference "Hook" backend for the `spawn`/`join` language keywords on freestanding targets |
+
+### [IPC](/stdlib/ipc)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| pipe | `ipc/pipe.h` | Anonymous pipes (hosted) — one-way byte stream, typically parent/child after `fork()` |
+| uds | `ipc/uds.h` | Unix domain sockets (hosted) — named IPC between unrelated processes, non-blocking/`Reactor`-pairable |
 
 ### [Real-Time Scheduler](/stdlib/sched)
 
@@ -104,8 +113,24 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| fixed | `dsp/fixed.h` | Q16.16 fixed-point arithmetic (`newtype Fixed = int`) |
-| dsp | `dsp/dsp.h` | `dsp_dot`, `dsp_scale`, `dsp_moving_avg`, `dsp_iir_lp`, `dsp_rms` |
+| fixed | `dsp/fixed.h` | Q8.24 fixed-point arithmetic (`newtype Fixed = int`) |
+| dsp | `dsp/dsp.h` | `dsp_dot`, `dsp_scale`, `dsp_add`, `dsp_clip`, `dsp_peak`, `dsp_rms`, SIMD-FMA `dsp_dot_f64` |
+| complex_dsp | `dsp/complex_dsp.h` | Value-type `Complex`/`FComplex` with operator overloading (`+`,`-`,`*`,`/`,`abs`,`arg`,`conj`) |
+| dft | `dsp/dft.h` | Direct O(n²) DFT/IDFT, arbitrary length (float + Q8.24) |
+| fft | `dsp/fft.h` | In-place radix-2 Cooley-Tukey FFT/IFFT, O(n log n), power-of-two length (float + Q8.24) |
+| convolution | `dsp/convolution.h` | Linear convolution — direct O(len_x·len_h) (SIMD-accelerated) and FFT-based O(n log n) |
+| window | `dsp/window.h` | Rectangular/Hann/Hamming/Blackman analysis windows |
+| filter | `dsp/filter.h` | General streaming FIR/IIR (feedforward/feedback) difference-equation filters (float + Q8.24) |
+| biquad | `dsp/biquad.h` | 2nd-order IIR sections + RBJ "Audio EQ Cookbook" designers + general bilinear transform |
+| dct | `dsp/dct.h` | DCT-II/DCT-III (JPEG/MPEG-style discrete cosine transform), float + Q8.24 |
+| stft | `dsp/stft.h` | Short-Time Fourier Transform + inverse (windowed overlap-add) + multi-resolution STFT loss |
+| resample | `dsp/resample.h` | Up/downsampling — nearest, linear, windowed-sinc (band-limited); float + Q8.24 nearest/linear |
+| ztransform | `dsp/ztransform.h` | Arbitrary-order bilinear (Laplace-to-Z) transform + Z-domain frequency response evaluator |
+| comb | `dsp/comb.h` | Feedforward/feedback comb filters + Karplus-Strong string synthesis (float + Q8.24) |
+| minphase | `dsp/minphase.h` | Minimum-phase reconstruction via real cepstrum (homomorphic processing) |
+| cqt | `dsp/cqt.h` | Constant-Q Transform (log-spaced bins, direct-correlation form) |
+| cwt | `dsp/cwt.h` | Continuous Wavelet Transform (Morlet wavelet, time-scale scalogram) |
+| imaging | `dsp/imaging.h` | 2D convolution, 2D FFT (row-column decomposition), Gaussian/Sobel kernels |
 | audio_buffer | `dsp/audio_buffer.h` | Multi-channel SPSC audio ring buffer (interleaved `Fixed` frames) |
 | timer_wheel | `dsp/timer_wheel.h` | 256-slot O(1) timer wheel; one-shot + periodic |
 

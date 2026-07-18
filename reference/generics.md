@@ -1,6 +1,10 @@
 # Generics
 
-SafeC generics are compile-time only. Every generic function or struct is fully monomorphized — the compiler generates a separate copy for each concrete type used. There are no vtables, no type erasure, and no runtime dispatch.
+SafeC generics are compile-time only. Every generic function is fully monomorphized — the compiler generates a separate copy for each concrete type used. There are no vtables, no type erasure, and no runtime dispatch.
+
+::: warning No generic structs
+Only **functions** can be generic (`generic<T> T max(T a, T b) { ... }`). `generic<T> struct Pair { T first; T second; };` is not supported — it fails to parse. The standard library's own generic-looking containers (`Vec`, `HashMap`, `BST`, ...) work around this with a `void*`-based struct plus `generic<T>` *wrapper functions* for type-safe access (`vec_push_t<T>`, `map_get_t<T>`, ...) — see [Standard Library Overview](/stdlib/#generic-pattern) for the pattern. If you're looking for `Pair<T>`/`Container<T>`-style generic structs, they aren't there; write the type-erased struct + typed wrapper functions instead.
+:::
 
 ## Generic Functions
 
@@ -23,26 +27,7 @@ double m2 = max(1.5, 2.7);    // instantiates max<double>
 
 Each instantiation produces a separate function in the generated code.
 
-## Generic Structs
-
-Structs can also be parameterized by type:
-
-```c
-generic<T>
-struct Pair {
-    T first;
-    T second;
-};
-```
-
-```c
-Pair<int> p = {1, 2};
-Pair<double> q = {3.14, 2.71};
-```
-
-Generic structs follow the same monomorphization rules as generic functions.
-
-## Constrained Generics
+## Traits and Constrained Generics
 
 Type parameters can be constrained with traits to restrict what types are accepted:
 
@@ -55,53 +40,63 @@ T clamp(T val, T lo, T hi) {
 }
 ```
 
-The `Numeric` constraint ensures `T` supports comparison operators. The compiler rejects instantiation with types that do not satisfy the constraint.
+The `Numeric` constraint ensures `T` supports arithmetic and comparison. The compiler rejects instantiation with types that don't satisfy the constraint.
 
-### Built-in Constraints
+### Declaring a Trait
 
-| Constraint | Required Operations |
-|------------|-------------------|
-| `Numeric` | Arithmetic (`+`, `-`, `*`, `/`) and comparison (`<`, `>`, `==`) |
+A trait is a named set of method signatures:
 
-Constraint satisfaction is checked after monomorphization — the compiler verifies that the concrete type supports all operations used in the generic body.
+```c
+trait Drawable {
+    void draw() const;
+}
+```
+
+Traits in SafeC are **structural** ("duck-typed"), not nominal — there's no `impl Trait for Type` block. A struct satisfies a trait automatically as soon as it defines methods with matching names and signatures:
+
+```c
+struct Circle {
+    double radius;
+    void draw() const;   // satisfies Drawable — nothing else needed
+}
+void Circle::draw() const { printf("circle r=%.1f\n", self.radius); }
+
+generic<T: Drawable> void render(T shape) { shape.draw(); }
+render(circle);   // OK: Circle has a matching draw() const
+```
+
+Conformance is checked at the call site during monomorphization: if the concrete type substituted for `T` doesn't have every method the trait bound requires, instantiation fails with a compile error there — not at the (possibly far-away, library-internal) point where the generic function's body uses that method.
+
+### Built-in Traits
+
+| Trait | Required Operations |
+|-------|---------------------|
+| `Numeric` | Arithmetic (`+`, `-`, `*`, `/`) |
+| `Eq` | `==`, `!=` |
+| `Ord` | `<`, `>`, `<=`, `>=` |
+| `Add` | `+` only |
+| `Sub` | `-` only |
+| `Mul` | `*` only |
+| `Div` | `/` only |
+
+Two further traits are satisfied structurally by the type system itself rather than by user-defined methods: `Indexed` (array, slice, and `vec<T,N>` types — anything usable with `[]`) and `Pointer` (raw pointer and reference types).
 
 ## Variadic Generics
 
-SafeC supports variadic type packs with `generic<T...>`. A variadic generic accepts any number of type arguments.
+SafeC supports variadic type packs with `generic<T...>`. A variadic generic parameter accepts any number of arguments of any types, and `sizeof...(T)` gives the pack's size:
 
 ```c
 generic<T...>
-int safe_printf(const char *fmt, T... args) {
-    // type-safe printf: each arg's type is known at compile time
-    return __builtin_printf(fmt, args...);
-}
-```
-
-### Pack Size
-
-Use `sizeof...(T)` to get the number of types in a variadic pack:
-
-```c
-generic<T...>
-int count_args(T... args) {
+unsigned long count_args(T... args) {
     return sizeof...(T);
 }
 
-int n = count_args(1, 2.0, 'a');   // n is 3
+unsigned long n = count_args(1, 2.0, 'a');   // n is 3
 ```
 
-### Pack Expansion
-
-The `...` suffix expands a parameter pack at the call site:
-
-```c
-generic<T...>
-void forward_all(T... args) {
-    target(args...);    // expands to target(arg0, arg1, arg2, ...)
-}
-```
-
-Variadic generics are monomorphized for each unique combination of argument types.
+::: warning No pack expansion yet
+There's currently no way to *expand* a parameter pack back out into another call's argument list (no `args...` forwarding, e.g. into a variadic C function like `printf`) — only declaring the pack and asking for its size with `sizeof...(T)` are supported. A `generic<T...>` function's only real use today is arity/type-counting logic over the pack, not forwarding it somewhere else.
+:::
 
 ## Monomorphization
 

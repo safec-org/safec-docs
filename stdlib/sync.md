@@ -1,15 +1,19 @@
 # Synchronization Primitives
 
-SafeC provides four synchronization modules in `std/sync/` for both hosted (OS-based) and freestanding (bare-metal) environments — plus `bare_spawn.sc`, the reference "Hook" backend for the language-level `spawn`/`join` keywords on freestanding targets (see [thread](/stdlib/thread#backend-selection)).
+SafeC provides six synchronization modules in `std/sync/` for both hosted (OS-based) and freestanding (bare-metal) environments — plus `bare_spawn.sc`, the reference "Hook" backend for the language-level `spawn`/`join` keywords on freestanding targets (see [thread](/stdlib/thread#backend-selection)).
 
 ```c
 #include "sync/spinlock.h"
 #include "sync/lockfree.h"
+#include "sync/channel.h"
+#include "sync/mpsc.h"
 #include "sync/task.h"
 #include "sync/thread_bare.h"
 // or via:
 #include "prelude.h"
 ```
+
+For communicating with a *different process* rather than another thread, see [IPC](/stdlib/ipc) (`std/ipc/pipe.h`, `std/ipc/uds.h`).
 
 `TaskScheduler` (from `task.h`) is also the foundation the real-time I/O reactor drives — see [Real-Time Scheduler](/stdlib/sched) for the hosted (macOS/Linux) event loop that lets tasks block on file/socket readiness without stalling the whole scheduler.
 
@@ -138,16 +142,20 @@ int main() {
     LFQueue q = lfq_new(sizeof(int), 64);
 
     // Producer
-    int a = 10, b = 20, c = 30;
-    q.enqueue(&a);
-    q.enqueue(&b);
-    q.enqueue(&c);
+    int a = 10;
+    int b = 20;
+    int c = 30;
+    unsafe {
+        q.enqueue((const void*)&a);
+        q.enqueue((const void*)&b);
+        q.enqueue((const void*)&c);
+    }
 
     // Consumer
-    int val;
+    int val = 0;
     while (!q.is_empty()) {
-        q.dequeue(&val);
-        println_int(val);  // 10, 20, 30
+        unsafe { q.dequeue((void*)&val); }
+        println_int((long long)val);  // 10, 20, 30
     }
 
     q.destroy();
@@ -158,6 +166,120 @@ int main() {
 ::: tip
 In a real SPSC scenario, the producer and consumer run in separate threads or ISR contexts. This queue is safe without any additional locking as long as only one thread enqueues and only one thread dequeues.
 :::
+
+---
+
+## Channel — Bounded Blocking MPMC Channel
+
+The language has its own channel *syntax* built in — `chan_create`/`chan_send`/`chan_recv`/`chan_close` are compiler built-ins, no `#include` needed — backed by `std/sync/channel.h`'s runtime (a bounded, blocking, multi-producer/multi-consumer channel implemented with a mutex + condvar from `thread.h`). Unlike `LFQueue`/`MpscQueue` below, `chan_send`/`chan_recv` **block** the calling thread when the channel is full/empty rather than returning a full/empty indicator immediately.
+
+```c
+#include "sync/channel.h"
+```
+
+The built-ins are deliberately untyped at the compiler level: `chan_create` only ever takes a capacity, never an element type, so the runtime picks one fixed convention — every channel carries 8-byte ("machine word") payload slots, and the raw `chan_send`/`chan_recv` always copy exactly 8 bytes at `*value_ptr`/`*out_ptr`. Passing a pointer to something smaller directly (e.g. a bare `int`) is a real out-of-bounds hazard, not just a style concern — `chan_send_t<T>`/`chan_recv_t<T>` are the safe way to use a channel for any `T` that actually fits (`static_assert`'d at compile time, so an oversized `T` is a compile error here instead of silent corruption at the raw built-ins):
+
+```c
+generic<T> int chan_send_t(void* ch, T val);
+generic<T> int chan_recv_t(void* ch, T* out);
+```
+
+### Example
+
+```c
+#include "sync/channel.h"
+#include "io.h"
+
+int main() {
+    void* ch = chan_create(16);      // still the raw built-in
+    std::chan_send_t(ch, 42);        // T=int inferred from the argument
+
+    int v = 0;
+    int ok;
+    unsafe { ok = std::chan_recv_t(ch, (int*)&v); }
+    if (ok) { println_int((long long)v); }   // 42
+
+    chan_close(ch);                  // still the raw built-in
+    return 0;
+}
+```
+
+::: warning
+The explicit `(int*)&v` cast (inside `unsafe`) on the receive side is not optional today — generic type inference doesn't unify a plain `&v` reference argument against a `T*` pointer parameter (a pre-existing compiler limitation, also affecting a few other `T*` out-parameter generics in the standard library). Passing `&v` alone fails with "cannot infer type arguments"; the explicit pointer cast is what makes `T` resolvable.
+
+For a `T` larger than 8 bytes, box it on the heap and send the pointer instead — a pointer is always exactly 8 bytes on every target this compiler supports, so `chan_send_t(ch, myStructPtr)` (`T` inferred as `MyStruct*`) still fits the fixed slot size.
+:::
+
+---
+
+## MpscQueue — Multi-Producer / Single-Consumer Ring Buffer
+
+`LFQueue` above is the SPSC case: lock-free, but only correct with exactly one producer and one consumer — concurrent producers would race on the same `head` index with no coordination. `MpscQueue` is the multi-producer sibling: still a bounded ring buffer, still a non-blocking API (`enqueue`/`dequeue` return immediately with a full/empty indicator rather than blocking the caller — unlike `Channel` above), but correctness across multiple concurrent producers comes from a `Spinlock` guarding every mutation rather than a lock-free algorithm — a deliberate simplicity-over-cleverness choice over a hand-rolled CAS-based MPSC ring buffer.
+
+```c
+#include "sync/mpsc.h"
+```
+
+"Single-consumer" is a contract this type does not itself enforce (the spinlock would still serialize concurrent `dequeue()` calls correctly) — it's a naming/intent signal for callers, the same way `LFQueue`'s SPSC contract is documented rather than mechanically checked.
+
+### Struct
+
+```c
+struct MpscQueue {
+    &heap void      buffer;
+    unsigned long   cap;        // capacity in elements — need not be a power of two (unlike LFQueue)
+    unsigned long   elem_size;
+    unsigned long   head;       // consumer reads here
+    unsigned long   tail;       // producers write here
+    unsigned long   count;      // pending element count
+    struct Spinlock lock;       // guards head/tail/count and the buffer contents
+
+    int           enqueue(const void* elem);   // 1 on success, 0 if full
+    int           dequeue(void* out);          // 1 on success, 0 if empty
+    int           is_empty() const;
+    int           is_full() const;
+    unsigned long len() const;
+    void          destroy();                    // frees the backing buffer
+}
+
+struct MpscQueue mpsc_new(unsigned long elem_size, unsigned long cap);   // heap-allocates its own buffer
+```
+
+### Typed Generic Wrappers
+
+```c
+generic<T> int mpsc_enqueue_t(&stack MpscQueue q, T val);
+generic<T> int mpsc_dequeue_t(&stack MpscQueue q, T* out);
+```
+
+### Example
+
+```c
+#include "sync/mpsc.h"
+#include "io.h"
+
+int main() {
+    struct MpscQueue q = mpsc_new(sizeof(int), 64UL);
+
+    int a = 10;
+    int b = 20;
+    int c = 30;
+    unsafe {
+        q.enqueue((const void*)&a);
+        q.enqueue((const void*)&b);
+        q.enqueue((const void*)&c);
+    }
+
+    int val = 0;
+    while (!q.is_empty()) {
+        unsafe { q.dequeue((void*)&val); }
+        println_int((long long)val);  // 10, 20, 30
+    }
+
+    q.destroy();
+    return 0;
+}
+```
 
 ---
 
