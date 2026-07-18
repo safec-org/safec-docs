@@ -106,29 +106,27 @@ int main() {
 
 ## Non-Blocking I/O Helpers (`io_nb.h`)
 
-Thin wrappers around `open`/`socket`/`accept`/`connect` that set `O_NONBLOCK`, meant to be paired with the reactor above: a task calls one of these, gets `EAGAIN`/`EWOULDBLOCK` immediately instead of blocking the whole program, and awaits readiness via `await_fd` instead.
+Thin wrappers around `open`/`socket`/`accept`/`connect` that enable non-blocking mode, meant to be paired with the reactor above: a task calls one of these, gets `EAGAIN`/`EWOULDBLOCK` immediately instead of blocking the whole program, and awaits readiness via `await_fd` instead. Like the reactor, `io_nb.h` declares one portable API with a backend per platform:
+
+| File | Target | Non-blocking mechanism |
+|---|---|---|
+| `io_nb_bsd.sc` | macOS, iOS, FreeBSD | `fcntl` + `O_NONBLOCK` (`0x0004`) |
+| `io_nb_linux.sc` | Linux, Android | `fcntl` + `O_NONBLOCK` (`0x800`) |
+| `io_nb_win32.sc` | Windows | sockets: `ioctlsocket` + `FIONBIO`. Files: **best-effort** — see below |
 
 ```c
-#define SCHED_AF_INET     2
-#define SCHED_SOCK_STREAM 1
-#define SCHED_O_RDONLY 0
+#define SCHED_AF_INET     2   // same value on every backend (a BSD-sockets
+#define SCHED_SOCK_STREAM 1   // accident every later API, including
+#define SCHED_O_RDONLY 0      // Winsock, deliberately kept)
 #define SCHED_O_WRONLY 1
 #define SCHED_O_RDWR   2
-
-struct SockAddrIn {
-    unsigned char  sin_len;     // BSD/macOS layout — see the caveat below
-    unsigned char  sin_family;
-    unsigned short sin_port;    // network byte order
-    unsigned int   sin_addr;    // network byte order
-    unsigned long  sin_zero;
-};
 
 unsigned short sched_htons(unsigned short host16);
 unsigned int   sched_htonl(unsigned int host32);
 unsigned int   sched_ipv4(unsigned char a, unsigned char b, unsigned char c, unsigned char d);
 
-int fd_set_nonblocking(int fd);                         // sets O_NONBLOCK on an open fd
-int fd_open_nb(const char* path, int flags, int mode);   // open() + O_NONBLOCK
+int fd_set_nonblocking(int fd);                         // enables non-blocking mode on an open fd
+int fd_open_nb(const char* path, int flags, int mode);   // open() in non-blocking mode where supported
 
 int tcp_listen_nb(unsigned short port);                  // socket+bind+listen, non-blocking; listening fd or -1
 int tcp_accept_nb(int listenfd);
@@ -140,8 +138,14 @@ int tcp_connect_nb(unsigned int addr_network_order, unsigned short port);
     // "connect finished" (check SO_ERROR to distinguish success/failure).
 ```
 
+Each backend also declares its own `struct SockAddrIn` matching that platform's real `sockaddr_in` layout — BSD/macOS has a leading 1-byte `sin_len` field Linux and Windows don't (both of those use a plain 2-byte `sin_family` instead), so the three aren't interchangeable; use whichever one your included backend file declares.
+
 ::: warning
-Unlike the reactor itself (now three backends), `io_nb.h`'s constant values (`O_NONBLOCK`, `sockaddr_in`'s layout including the extra `sin_len` byte) are still macOS/BSD-specific only. A Linux build needs the Linux-equivalent values (`O_NONBLOCK` is `0x800` there, not `0x0004`; Linux's `sockaddr_in` has no `sin_len` field), and a Windows build needs Winsock's `SOCKET`-based, non-`O_NONBLOCK` non-blocking-mode API (`ioctlsocket(s, FIONBIO, ...)`) entirely — neither exists yet. `reactor_epoll.sc`/`reactor_win32.sc` work with any fds you set up yourself in the meantime (e.g. via platform-appropriate `extern` calls of your own), just not through these particular convenience wrappers.
+`io_nb_win32.sc`'s `fd_open_nb` is best-effort: Windows has no non-blocking-file-open equivalent to `O_NONBLOCK` (true async file I/O there means `CreateFile` with `FILE_FLAG_OVERLAPPED` plus a completion-based model entirely different from this reactor's readiness-based one — out of scope here), so a file opened through it on that backend is an ordinary blocking file descriptor. Don't `await_fd()` a Windows file handle from `fd_open_nb` expecting non-blocking semantics the way a socket from `tcp_listen_nb`/`tcp_connect_nb` genuinely has; sockets are fully non-blocking on all three backends.
+:::
+
+::: tip Verification status
+Same status as the reactor backends: `io_nb_bsd.sc` is exercised end-to-end on macOS (including a real `tcp_listen_nb`/bind/listen call). `io_nb_linux.sc` and `io_nb_win32.sc` are compiled and cross-target-verified (real object-code generation via `--target`, `static_assert`-checked `SockAddrIn` layout) but not yet runtime-tested on an actual Linux or Windows host.
 :::
 
 ## Scheduling Model
