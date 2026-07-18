@@ -89,9 +89,12 @@ The resulting binary is `build/safec`.
 ## Usage
 
 ```bash
-# Compile to executable (via LLVM IR + clang link)
+# Compile to executable (via LLVM IR + clang link) — the two-step form
 ./build/safec input.sc --emit-llvm -o input.ll
 clang input.ll -o input
+
+# Or in one step, via --emit-bin (see "Linking" below)
+./build/safec input.sc --emit-bin -o input
 
 # Dump the AST
 ./build/safec input.sc --dump-ast
@@ -105,7 +108,54 @@ clang input.ll -o input
 
 # Cross-compile to another architecture/OS
 ./build/safec input.sc --target aarch64-unknown-linux-gnu --emit-llvm -o input.ll
+
+# Print the compiler version
+./build/safec --version
 ```
+
+## Linking (`--emit-bin`)
+
+`safec`'s own pipeline stops at LLVM IR/bitcode — it never links on its
+own. `--emit-bin` adds a genuine "compile straight to a native
+binary/library" mode: it writes the module to a temporary `.ll` file, then
+invokes the system `clang` (assemble + link) or `ar` (for a static
+archive) to produce the file at `-o`. This is the same tool-shelling
+approach [`safeguard`](/advanced/safeguard) already uses per source file —
+`--emit-bin` just makes it available directly from `safec` for a single
+`.sc` file, without going through a project/`Package.toml`.
+
+```bash
+# Link a plain executable
+./build/safec main.sc --emit-bin -o main
+
+# Link against an external library: -l<name> / -L<dir>, same convention as
+# clang/gcc. Calling into a C library needs a matching 'extern' declaration
+# on the SafeC side (see C Interop); calling into C++/Objective-C needs
+# 'extern "C"' on *their* side to avoid name mangling — SafeC itself has no
+# name mangling to opt out of, since every top-level function already has
+# a plain C-compatible symbol name.
+./build/safec main.sc --emit-bin -o main -lm -L/usr/local/lib
+
+# Produce a shared/dynamic library instead of an executable
+./build/safec mathlib.sc --emit-bin --shared -o libmath.dylib
+
+# Produce a static library (an 'ar' archive of the compiled object — no
+# linker, -l/-L are meaningless here since a .a isn't linked, just packaged)
+./build/safec mathlib.sc --emit-bin --static-lib -o libmath.a
+
+# Enable LTO for the link step (thin is the default; full is also available)
+./build/safec main.sc --emit-bin --lto -o main
+./build/safec main.sc --emit-bin --lto=full -o main
+
+# Release profile: -O2 unless -O was given explicitly
+./build/safec main.sc --emit-bin --release -o main
+```
+
+`-l`/`-L`/`--shared`/`--static-lib`/`--lto` are only meaningful with
+`--emit-bin` — passing them without it prints a warning and has no effect,
+since there's no link step for them to configure. `SAFEC_CLANG`/`SAFEC_AR`
+environment variables override the discovered `clang`/`ar` path, mirroring
+`safeguard`'s `SAFEC_CLANG`/`SAFEC_CLANGXX`.
 
 ## Multi-Target Codegen
 

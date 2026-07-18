@@ -162,6 +162,59 @@ reused for a while and you want to release its memory back to the system;
 use `arena_reset<R>()` when you'll keep allocating from it again soon and
 want to avoid the re-`malloc` cost.
 
+### Partially Freeing an Arena
+
+`arena_reset<R>()` always rewinds all the way to zero. `arena_mark<R>()` /
+`arena_free_to<R>()` are a checkpoint/rewind pair for freeing only the
+*tail* of an arena's allocations — a scratch-space pattern where you take a
+checkpoint, allocate some short-lived working data, then rewind past just
+that data:
+
+```c
+region AudioPool { capacity: 4096 }
+
+void process() {
+    for (int i = 0; i < 10; i = i + 1) {
+        unsigned long mark = arena_mark<AudioPool>();          // checkpoint
+        &arena<AudioPool> struct Sample scratch = new<AudioPool> struct Sample;
+        // ... use scratch for this iteration only ...
+        arena_free_to<AudioPool>(mark);                        // free just 'scratch'
+    }
+}
+```
+
+`arena_mark<R>()` returns the region's current byte offset (an
+`unsigned long`) as an opaque checkpoint value. `arena_free_to<R>(mark)`
+rewinds the offset back to it at runtime, clamped so a stale or otherwise-
+too-large `mark` can only shrink `used`, never grow it — verified: an
+allocation made *before* the checkpoint keeps its original value after a
+later allocation is freed back to that checkpoint and something else
+reuses the space.
+
+::: warning `arena_free_to<R>()` currently invalidates *every* outstanding reference into `R`, not just the ones after the checkpoint
+The compile-time staleness checker (see "Arena References Die on Reset"
+below) can't yet distinguish "allocated before the mark" from "allocated
+after it" — a call to `arena_free_to<R>()` conservatively invalidates
+*all* `&arena<R> T` references for `R`, the same as a full
+`arena_reset<R>()` would, even ones bound before the checkpoint that are
+still genuinely valid at runtime. Continuing to use such a reference after
+a `arena_free_to<R>()` call needs an explicit `unsafe {}` block:
+
+```c
+&arena<AudioPool> struct Sample keep = new<AudioPool> struct Sample;
+unsigned long mark = arena_mark<AudioPool>();
+&arena<AudioPool> struct Sample scratch = new<AudioPool> struct Sample;
+arena_free_to<AudioPool>(mark);
+unsafe { keep->v = 5; }   // genuinely valid at runtime, but the compiler
+                          // can't currently prove it — needs unsafe
+```
+
+Until the checker grows per-checkpoint precision, the cleanest pattern is
+to avoid holding a `&arena<R> T` across a `arena_free_to<R>()` call at all
+— keep the "survives the free" data outside the arena (or in a separate,
+always-persistent region) instead.
+:::
+
 ### Arena Runtime Representation
 
 At the LLVM level, each arena is a global struct `{ptr, i64 used, i64 cap}`:
@@ -213,32 +266,47 @@ void example() {
 }
 ```
 
-### 4. Arena References Die on Reset — Conceptually, Not Yet Enforced
+### 4. Arena References Die on Reset
 
-*Conceptually*, `arena_reset<R>()` invalidates every outstanding reference
-into region `R`, since the next `new<R>` can hand out that same memory
-again.
-
-::: danger Not currently checked by the compiler
-Unlike rules 1-3 above, this one is **not enforced**. The compiler compiles
-the following without any error or warning, generating code that reads/writes
-through a reference into memory that may already have been reused by a
-later `new<Pool>`:
+`arena_reset<R>()`, `arena_destroy<R>()`, and `arena_free_to<R>()` (below)
+all invalidate outstanding references into region `R`, since the memory
+they point into may be handed out again by a later `new<R>`. The compiler
+tracks this with a generation counter per region: every reset/destroy/
+free-to call bumps `R`'s generation, and reading a `&arena<R> T` reference
+whose generation doesn't match is a compile error.
 
 ```c
 region Pool { capacity: 1024 }
 int main() {
     &arena<Pool> int p = new<Pool> int;
     arena_reset<Pool>();
-    *p = 42;                    // compiles with no diagnostic — use-after-reset
+    *p = 42;   // ERROR: use of 'p' (&arena<Pool> reference) after
+               //        arena_reset<Pool>(), arena_destroy<Pool>(), or
+               //        arena_free_to<Pool>() invalidated it
     return 0;
 }
 ```
 
-Treat "don't touch a reference after resetting its arena" as a rule you must
-enforce yourself in code review/discipline, the same way you would in
-hand-written C — the compiler currently gives no help here despite the
-region model's design intent. This applies to `arena_destroy<R>()` as well.
+Rebinding a stale reference to a fresh allocation recovers it — the check
+is about reading a *specific* stale binding, not about the variable name:
+
+```c
+&arena<Pool> int p = new<Pool> int;
+arena_reset<Pool>();
+p = new<Pool> int;   // OK: fresh binding, judged against the current generation
+*p = 42;              // OK
+```
+
+::: warning Flow-insensitive, not full dataflow analysis
+This is a running counter over AST traversal order, not a simulation of
+actual control flow: a reset inside an `if` branch is treated as having
+happened for everything textually after the `if`-statement, whether or not
+that branch actually runs — sound (a real bug is never missed) but it can
+occasionally flag code that's actually safe. It's also not loop-aware
+across iterations: a reference read *before* a reset that appears later in
+the same loop body isn't retroactively flagged for reuse on the *next*
+iteration. `unsafe {}` bypasses the check entirely, same as every other
+region/aliasing rule.
 :::
 
 ## Unsafe Escape Hatch

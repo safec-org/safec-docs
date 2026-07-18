@@ -211,6 +211,33 @@ means the linker never finds a plain `sum_cpp` symbol.
 `src/`; `cflags = [...]` is appended to every `clang`/`clang++` invocation
 (both `.c`/`.cpp` compilation and the final link).
 
+## Linking External Libraries and Library Output
+
+Four more `[build]` keys configure the final link step and what kind of
+artifact it produces — the same underlying flags `safec --emit-bin` exposes
+directly (see [Compiler Architecture](/advanced/compiler#linking-emit-bin)),
+here driven by `Package.toml` instead of the command line:
+
+```toml
+[build]
+libs       = ["m", "pthread"]   # -l<name> at the final link
+lib_dirs   = ["/usr/local/lib"] # -L<dir> at the final link
+lto        = "thin"             # "" (off, default), "thin", or "full"
+crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
+```
+
+`crate_type` selects what `safeguard build` produces:
+
+| `crate_type` | Output | How it's produced |
+|---|---|---|
+| `"bin"` (default) | `build/<output>` | linked executable |
+| `"staticlib"` | `build/lib<output>.a` | `ar`-packed archive of this project's own objects (no linker, no `-l`/`-L`/`lto` — a `.a` isn't linked, just bundled for a later link to consume) |
+| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (platform-dependent) | linked with `-shared` |
+
+`safeguard run` requires `crate_type = "bin"` — a static or dynamic library
+has no executable entry point to run, and running it against the linker
+directly produces a clear error rather than a confusing OS-level failure.
+
 ## Standard Library Linking
 
 The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed.

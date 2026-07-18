@@ -20,7 +20,7 @@ Runtime bounds checks can be suppressed inside `unsafe {}` blocks.
 
 ### 2. Temporal Safety
 
-No use-after-free for stack memory: region annotations tie reference lifetimes to allocation scopes, and a reference to stack memory cannot escape the function.
+No use-after-free: region annotations tie reference lifetimes to allocation scopes. A reference to stack memory cannot escape the function, and a reference into an arena is invalidated by `arena_reset<R>()`/`arena_destroy<R>()`/`arena_free_to<R>()`.
 
 ```c
 &stack int get_local() {
@@ -29,13 +29,15 @@ No use-after-free for stack memory: region annotations tie reference lifetimes t
 }
 ```
 
-::: warning Arena use-after-reset is not currently enforced
-Conceptually a reference into an arena should not outlive an
-`arena_reset<R>()`/`arena_destroy<R>()` call, but the compiler does not
-check this today — see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset-conceptually-not-yet-enforced)
-for a concrete example that compiles with no diagnostic despite being a
-real use-after-reset. Temporal safety currently only holds for stack
-memory, not arena memory.
+::: warning Arena use-after-reset checking is flow-insensitive
+The arena side of this (see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset))
+is a generation-counter check over AST traversal order, not a real
+control-flow simulation — sound (a genuine use-after-reset is never
+missed) but it can over-flag references that are actually still valid,
+most notably: `arena_free_to<R>()`'s partial free currently invalidates
+*every* reference into `R`, not just the ones allocated after its
+checkpoint. `unsafe {}` remains the escape hatch for cases the checker
+can't (yet) prove safe on its own.
 :::
 
 ### 3. Aliasing Safety
@@ -89,7 +91,7 @@ The compiler enforces these properties through a series of analysis passes durin
 | Phase | What it checks |
 |-------|---------------|
 | Definite initialization | Every variable is assigned before use |
-| Region escape analysis | Stack/static/cross-region escapes are rejected (arena-reset invalidation is not yet checked — see above) |
+| Region escape analysis | Stack/static/cross-region escapes are rejected; arena-reset invalidation is checked flow-insensitively (see above) |
 | Alias/borrow checking (NLL) | Mutable exclusivity is maintained |
 | Nullability enforcement | Dereferencing a nullable reference outside `match`/`.is_null()`/`.default()`/`unsafe` is rejected |
 | Bounds checking | Array accesses are within bounds |

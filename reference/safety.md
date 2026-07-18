@@ -50,12 +50,14 @@ void bad() {
 }
 ```
 
-### Arena References Die on Reset — Not Currently Enforced
+### Arena References Die on Reset
 
-Conceptually, resetting an arena invalidates every outstanding reference
-into it. In practice, the compiler does not check this: the following
-compiles with no error or warning, even though `p` points at memory that
-`arena_reset` has logically freed and a later `new<Pool>` may reuse.
+Resetting, destroying, or partially freeing an arena invalidates every
+outstanding reference into it, since the memory may be handed out again by
+a later `new<R>`. The compiler enforces this with a generation counter per
+region: `arena_reset<R>()`, `arena_destroy<R>()`, and `arena_free_to<R>()`
+each bump it, and reading a `&arena<R> T` reference bound before the bump
+is a compile error.
 
 ```c
 region Pool { capacity: 1024 }
@@ -63,14 +65,21 @@ region Pool { capacity: 1024 }
 int main() {
     &arena<Pool> int p = new<Pool> int;
     arena_reset<Pool>();
-    *p = 42;                   // compiles — NOT actually caught
+    *p = 42;   // ERROR: use of 'p' (&arena<Pool> reference) after
+               //        arena_reset<Pool>(), arena_destroy<Pool>(), or
+               //        arena_free_to<Pool>() invalidated it
     return 0;
 }
 ```
 
-See [Memory & Regions](/reference/memory#4-arena-references-die-on-reset-conceptually-not-yet-enforced)
-for more detail. Avoid touching a reference after resetting or destroying
-its arena; the compiler currently won't catch the mistake for you.
+This is a flow-insensitive check (a running counter over AST traversal
+order, not real control-flow simulation) — sound, but it can over-flag
+code that's actually safe, and `arena_free_to<R>()` currently invalidates
+*every* reference into the region rather than just the ones allocated
+after its checkpoint. See [Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
+for the full detail, including the `unsafe {}` workaround for references
+that are genuinely still valid. As with every other region/aliasing check,
+`unsafe {}` bypasses this one too.
 
 ### Scope Depth Tracking
 
@@ -234,7 +243,7 @@ unsafe {
 |-------------|-------------|---------|----------------------|
 | Definite initialization | Yes | -- | No |
 | Region escape analysis (stack/static/cross-region) | Yes | -- | Yes |
-| Arena-reset invalidation | No (not implemented) | No | N/A |
+| Arena-reset invalidation (flow-insensitive) | Yes | -- | Yes |
 | Aliasing / borrow check | Yes | -- | Yes |
 | Nullability enforcement | Yes | -- | Yes |
 | Static bounds check | Yes | -- | Yes |
