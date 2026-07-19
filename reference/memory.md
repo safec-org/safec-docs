@@ -191,28 +191,31 @@ allocation made *before* the checkpoint keeps its original value after a
 later allocation is freed back to that checkpoint and something else
 reuses the space.
 
-::: warning `arena_free_to<R>()` currently invalidates *every* outstanding reference into `R`, not just the ones after the checkpoint
-The compile-time staleness checker (see "Arena References Die on Reset"
-below) can't yet distinguish "allocated before the mark" from "allocated
-after it" — a call to `arena_free_to<R>()` conservatively invalidates
-*all* `&arena<R> T` references for `R`, the same as a full
-`arena_reset<R>()` would, even ones bound before the checkpoint that are
-still genuinely valid at runtime. Continuing to use such a reference after
-a `arena_free_to<R>()` call needs an explicit `unsafe {}` block:
+`arena_free_to<R>()` only invalidates references allocated *after* the
+checkpoint it's rewinding to — a reference bound before any
+`arena_mark<R>()` call was ever made for `R` survives a `arena_free_to<R>()`
+call untouched, since the memory it points into is outside the scratch
+range being freed:
 
 ```c
 &arena<AudioPool> struct Sample keep = new<AudioPool> struct Sample;
 unsigned long mark = arena_mark<AudioPool>();
 &arena<AudioPool> struct Sample scratch = new<AudioPool> struct Sample;
 arena_free_to<AudioPool>(mark);
-unsafe { keep->v = 5; }   // genuinely valid at runtime, but the compiler
-                          // can't currently prove it — needs unsafe
+keep->v = 5;      // OK: 'keep' was bound before any mark() — never staled by free_to()
+scratch->v = 5;   // ERROR: 'scratch' was bound after the mark — correctly caught
 ```
 
-Until the checker grows per-checkpoint precision, the cleanest pattern is
-to avoid holding a `&arena<R> T` across a `arena_free_to<R>()` call at all
-— keep the "survives the free" data outside the arena (or in a separate,
-always-persistent region) instead.
+::: warning Still flow-insensitive, and not precise across nested marks
+Like the generation counter described below, this is tracked with a
+running mark-nesting *depth* over AST traversal order, not real
+control-flow simulation. A reference bound while any `arena_mark<R>()`
+scope is active (depth > 0) is invalidated by *any* later
+`arena_free_to<R>()` call while still inside that nesting — precise for
+the common single-level "mark, allocate scratch, free_to" pattern shown
+above, but conservative for deeply nested marks where an outer scope's
+own references could, in principle, survive an inner scope's free_to.
+`unsafe {}` bypasses the check entirely, same as every other region rule.
 :::
 
 ### Arena Runtime Representation
@@ -268,12 +271,14 @@ void example() {
 
 ### 4. Arena References Die on Reset
 
-`arena_reset<R>()`, `arena_destroy<R>()`, and `arena_free_to<R>()` (below)
-all invalidate outstanding references into region `R`, since the memory
-they point into may be handed out again by a later `new<R>`. The compiler
-tracks this with a generation counter per region: every reset/destroy/
-free-to call bumps `R`'s generation, and reading a `&arena<R> T` reference
-whose generation doesn't match is a compile error.
+`arena_reset<R>()` and `arena_destroy<R>()` invalidate *every* outstanding
+reference into region `R`, since the memory they point into may be handed
+out again by a later `new<R>`. The compiler tracks this with a generation
+counter per region: every reset/destroy call bumps `R`'s generation, and
+reading a `&arena<R> T` reference whose generation doesn't match is a
+compile error. `arena_free_to<R>()` uses a separate, narrower check — see
+"Partially Freeing an Arena" above — that only invalidates references
+bound after the checkpoint being freed to.
 
 ```c
 region Pool { capacity: 1024 }

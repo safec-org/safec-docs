@@ -73,15 +73,16 @@ void hot_path() {
 }
 ```
 
-::: warning No `&` or explicit cast on function entries
-`(void*)&_start` doesn't compile: `&_start` fails ("address-of operator
-requires lvalue" — a function name isn't an lvalue you can take the address
-of), and even after dropping the `&`, `(void*)_start` still fails ("cast
-from safe reference to raw pointer requires 'unsafe' block") — but a global
-initializer can't contain an `unsafe {}` block, since that's a statement
-form. The working form drops the cast entirely: a bare function name
-converts to `void*` implicitly in this position, as shown above.
-:::
+A bare function name, `&functionName`, and `(void*)functionName` are all
+equivalent — a function's code address is neither freed nor moved for the
+life of the program, so none of the three needs `unsafe {}`, even at file
+scope where an `unsafe {}` *block* couldn't appear anyway:
+
+```c
+void* p1 = _start;          // bare name
+void* p2 = &_start;         // '&' is a no-op on a function designator
+void* p3 = (void*)_start;   // explicit cast also needs no unsafe{}
+```
 
 ## Inline Assembly
 
@@ -122,13 +123,12 @@ unsafe {
 }
 ```
 
-::: warning Pre-initialize output-operand variables
-`int result;` followed by `asm volatile (... : "=r"(result) ...)` fails
-with "use of possibly uninitialized variable 'result'" — the
-definite-initialization checker doesn't recognize an asm output operand
-(`"=r"(result)`) as initializing its target. Give the variable a dummy
-initial value (`int result = 0;`, as above) to work around this.
-:::
+A write-only output operand (`"=r"(result)`) counts as initializing its
+target for the definite-initialization checker, so `int result;` (no
+initializer) followed by `asm volatile (... : "=r"(result) ...)` is fine —
+the `int result = 0;` above works too, just isn't required. A read-write
+operand (`"+r"(var)`) is a genuine read as well as a write, so it still
+requires `var` to already have a value before the `asm` statement.
 
 ### Reading Special Registers
 
@@ -185,13 +185,14 @@ void uart_registers() {
 }
 ```
 
-::: warning Integer-to-pointer casts can't initialize a global
-`volatile int *UART_DATA = (volatile int*)0x40001000;` fails at file scope
-("global initializer ... is not a compile-time constant expression") —
-even though the cast is a fixed integer literal. Declare MMIO register
-pointers as locals (as above), or as a `static` local inside a small getter
-function if every call site needs the same address.
-:::
+An integer-to-pointer cast of a compile-time-constant address (a literal,
+or arithmetic on literals) can initialize a global directly, same as a
+local:
+
+```c
+volatile int *UART_DATA   = (volatile int*)0x40001000;
+volatile int *UART_STATUS = (volatile int*)(0x40001000 + 4);
+```
 
 ### Volatile Load and Store
 
@@ -388,8 +389,9 @@ void kernel_main() {
 ```
 
 ::: warning
-As with `UART_DATA` above, `VGA_BUFFER` must be a local (not a file-scope
-global) because its initializer is an integer-to-pointer cast. `msg[i]`
-also needs `unsafe`: `msg` is a raw `const char*`, and subscripting a raw
-pointer always requires it, string literal or not.
+`VGA_BUFFER` could just as well be hoisted to a file-scope global now (see
+"Volatile Variables" above) — kept local here only because
+`vga_putchar`'s the only function that needs it. `msg[i]` needs `unsafe`
+either way: `msg` is a raw `const char*`, and subscripting a raw pointer
+always requires it, string literal or not.
 :::
