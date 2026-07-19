@@ -15,6 +15,15 @@ export default defineConfig({
     logo: '/Logo.svg',
     nav: [
       {
+        text: 'Guide',
+        items: [
+          { text: 'Introduction', link: '/guide/introduction' },
+          { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Design Philosophy', link: '/guide/design' },
+          { text: 'Comparison', link: '/guide/comparison' }
+        ]
+      },
+      {
         text: 'Book',
         items: [
           { text: 'Preface', link: '/book/' },
@@ -27,15 +36,6 @@ export default defineConfig({
           { text: '7. Enums, Unions, and Match', link: '/book/ch07-enums-and-match' },
           { text: '8. Error Handling', link: '/book/ch08-error-handling' },
           { text: '9. Final Project', link: '/book/ch09-final-project' }
-        ]
-      },
-      {
-        text: 'Guide',
-        items: [
-          { text: 'Introduction', link: '/guide/introduction' },
-          { text: 'Getting Started', link: '/guide/getting-started' },
-          { text: 'Design Philosophy', link: '/guide/design' },
-          { text: 'Comparison', link: '/guide/comparison' }
         ]
       },
       {
@@ -100,6 +100,17 @@ export default defineConfig({
       { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
     ],
     sidebar: {
+      '/guide/': [
+        {
+          text: 'Getting Started',
+          items: [
+            { text: 'Introduction', link: '/guide/introduction' },
+            { text: 'Getting Started', link: '/guide/getting-started' },
+            { text: 'Design Philosophy', link: '/guide/design' },
+            { text: 'Comparison', link: '/guide/comparison' }
+          ]
+        }
+      ],
       '/book/': [
         {
           text: 'The SafeC Book',
@@ -114,17 +125,6 @@ export default defineConfig({
             { text: '7. Enums, Unions, and Match', link: '/book/ch07-enums-and-match' },
             { text: '8. Error Handling', link: '/book/ch08-error-handling' },
             { text: '9. Final Project', link: '/book/ch09-final-project' }
-          ]
-        }
-      ],
-      '/guide/': [
-        {
-          text: 'Getting Started',
-          items: [
-            { text: 'Introduction', link: '/guide/introduction' },
-            { text: 'Getting Started', link: '/guide/getting-started' },
-            { text: 'Design Philosophy', link: '/guide/design' },
-            { text: 'Comparison', link: '/guide/comparison' }
           ]
         }
       ],
