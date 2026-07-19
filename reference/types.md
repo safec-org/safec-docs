@@ -59,12 +59,58 @@ Structs support methods (see [Functions](/reference/functions)), operator overlo
 
 ## Union Types
 
+Every `union` in SafeC is a **tagged union**: alongside the fields you
+declare, the compiler stores a hidden discriminant recording which field
+is actually live, and enforces that you can only read the field you most
+recently wrote (via `match`, not direct field access — see below). This
+is a deliberate departure from C's `union`, where reading whatever field
+you like regardless of which one was last written is legal (if
+type-punning-dependent) — SafeC doesn't allow that, in keeping with its
+general "no undefined behavior in safe code" stance.
+
 ```c
 union Result {
     int ok;
     int err;
 }
 ```
+
+::: warning Construct and read through `Type.field(value)` / `match`, not plain `.field` assignment
+Because every union is tagged, `union Result r; r.ok = 42;` followed by
+plain-field reads doesn't behave like a C union (and can produce
+outright wrong values for non-`int`-sized fields, due to how the
+discriminant and payload are laid out) — it isn't the sanctioned way to
+use one. Construct a union value with `TypeName.field(value)`, and read
+it back with `match`'s dot-prefixed variant patterns, `case .field(x):`:
+
+```c
+union Result {
+    int ok;
+    int err;
+}
+
+void handle(union Result r) {
+    match (r) {
+        case .ok(v):  printf("ok: %d\n", v);
+        case .err(e): printf("err: %d\n", e);
+        default:      printf("unreachable\n");
+    }
+}
+
+int main() {
+    union Result a = Result.ok(42);
+    union Result b = Result.err(-1);
+    handle(a);   // ok: 42
+    handle(b);   // err: -1
+    return 0;
+}
+```
+
+This is the same `.variant(x)` pattern shape `?T`/`?&region T`'s
+`some(x)` uses (see "Reading a nullable value" above), minus the leading
+dot there — `some`/`none` are plain identifiers, not dot-prefixed, unlike
+a tagged union's own variant names.
+:::
 
 Unions can't be generic — the same limitation as [generic structs](/reference/generics): `generic<T, E> union Result { T ok; E err; }` doesn't parse (a `generic<...>` declaration only ever accepts a following function or variable, never a struct/union). For a sum type over an arbitrary pair of types, use `void*` fields plus a discriminant, the same type-erasure-plus-generic-wrapper-functions pattern the standard library's collections use.
 

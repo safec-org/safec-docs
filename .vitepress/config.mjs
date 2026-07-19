@@ -15,6 +15,21 @@ export default defineConfig({
     logo: '/Logo.svg',
     nav: [
       {
+        text: 'Book',
+        items: [
+          { text: 'Preface', link: '/book/' },
+          { text: '1. Getting Started', link: '/book/ch01-getting-started' },
+          { text: '2. A First Program', link: '/book/ch02-first-program' },
+          { text: '3. Common Concepts', link: '/book/ch03-common-concepts' },
+          { text: '4. Functions', link: '/book/ch04-functions' },
+          { text: '5. Understanding Regions', link: '/book/ch05-understanding-regions' },
+          { text: '6. Structs and Methods', link: '/book/ch06-structs-and-methods' },
+          { text: '7. Enums, Unions, and Match', link: '/book/ch07-enums-and-match' },
+          { text: '8. Error Handling', link: '/book/ch08-error-handling' },
+          { text: '9. Final Project', link: '/book/ch09-final-project' }
+        ]
+      },
+      {
         text: 'Guide',
         items: [
           { text: 'Introduction', link: '/guide/introduction' },
@@ -84,6 +99,23 @@ export default defineConfig({
       { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
     ],
     sidebar: {
+      '/book/': [
+        {
+          text: 'The SafeC Book',
+          items: [
+            { text: 'Preface', link: '/book/' },
+            { text: '1. Getting Started', link: '/book/ch01-getting-started' },
+            { text: '2. A First Program', link: '/book/ch02-first-program' },
+            { text: '3. Common Concepts', link: '/book/ch03-common-concepts' },
+            { text: '4. Functions', link: '/book/ch04-functions' },
+            { text: '5. Understanding Regions', link: '/book/ch05-understanding-regions' },
+            { text: '6. Structs and Methods', link: '/book/ch06-structs-and-methods' },
+            { text: '7. Enums, Unions, and Match', link: '/book/ch07-enums-and-match' },
+            { text: '8. Error Handling', link: '/book/ch08-error-handling' },
+            { text: '9. Final Project', link: '/book/ch09-final-project' }
+          ]
+        }
+      ],
       '/guide/': [
         {
           text: 'Getting Started',
