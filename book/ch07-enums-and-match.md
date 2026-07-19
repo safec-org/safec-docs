@@ -134,10 +134,9 @@ match (day) {
 }
 ```
 
-Note the comma for alternation (`case 1, 7:`), not a pipe — and ranges
-only work on integer patterns, not characters (`case 'a'..'z':` isn't
-supported; match on the integer code point instead if you need
-character-range logic).
+Note the comma for alternation (`case 1, 7:`), not a pipe. Ranges work on
+character patterns too, not just integers — `case 'a'..'z':` — see
+[Control Flow](/reference/control-flow) for more range-pattern examples.
 
 Next: [Error Handling](/book/ch08-error-handling) — `?T` optionals are,
 under the hood, exactly the two-variant tagged union this chapter just

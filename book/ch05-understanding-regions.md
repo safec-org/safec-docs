@@ -179,12 +179,16 @@ error: use of 'p' (&arena<Pool> reference) after arena_reset<Pool>(),
 
 — the same category of bug `dangling()` demonstrated at the top of this
 chapter, caught the same way: at compile time, before it can become a
-runtime use-after-free. (This particular check is flow-insensitive — a
-running count of resets seen so far in the function, not a full
-simulation of every branch and loop — so it can occasionally flag code
-that's actually safe at runtime; see [Memory &
+runtime use-after-free. (This check is flow-*sensitive* across if/else
+branches — a reset in one branch doesn't affect the other — and loop
+bodies — a reset anywhere in a loop is treated as possibly having
+happened before every statement in that loop, since a later iteration
+re-runs the top of the body after an earlier iteration's reset — but
+it's a sound approximation, not a full control-flow dataflow analysis,
+so it can still occasionally flag code that's actually safe at runtime
+in less common shapes; see [Memory &
 Regions](/reference/memory#4-arena-references-die-on-reset) for the exact
-shape of that limitation and the `unsafe` workaround when you're sure a
+shape of what's covered and the `unsafe` workaround when you're sure a
 flagged reference really is still valid.)
 
 ### The escape hatch: `&T` with no region
@@ -319,8 +323,8 @@ mechanism.
 Sometimes you genuinely need to step outside what the region system can
 verify — calling into a C library that hands you a raw pointer, doing
 manual pointer arithmetic, or (as in `arena_demo` above) telling the
-compiler "I know better than your flow-insensitive check this one time."
-That's what `unsafe { ... }` is for:
+compiler "I know better than your conservative approximation this one
+time." That's what `unsafe { ... }` is for:
 
 ```c
 unsafe {

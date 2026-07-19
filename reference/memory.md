@@ -206,16 +206,30 @@ keep->v = 5;      // OK: 'keep' was bound before any mark() — never staled by 
 scratch->v = 5;   // ERROR: 'scratch' was bound after the mark — correctly caught
 ```
 
-::: warning Still flow-insensitive, and not precise across nested marks
+::: warning Not precise across nested marks
 Like the generation counter described below, this is tracked with a
-running mark-nesting *depth* over AST traversal order, not real
-control-flow simulation. A reference bound while any `arena_mark<R>()`
-scope is active (depth > 0) is invalidated by *any* later
-`arena_free_to<R>()` call while still inside that nesting — precise for
-the common single-level "mark, allocate scratch, free_to" pattern shown
-above, but conservative for deeply nested marks where an outer scope's
-own references could, in principle, survive an inner scope's free_to.
-`unsafe {}` bypasses the check entirely, same as every other region rule.
+running mark-nesting *depth*, updated as the compiler walks the
+function — see "Arena References Die on Reset" below for how much of
+that walk is now flow-*sensitive* (if/else branches, and loop bodies for
+plain `arena_reset`/`arena_destroy`). A reference bound while any
+`arena_mark<R>()` scope is active (depth > 0) is invalidated by *any*
+later `arena_free_to<R>()` call while still inside that nesting —
+precise for the common single-level "mark, allocate scratch, free_to"
+pattern shown above, but conservative for deeply nested marks where an
+outer scope's own references could, in principle, survive an inner
+scope's free_to: this is a design characteristic of tracking one nesting
+depth per region rather than a per-mark-level record, independent of
+flow-sensitivity, so it isn't something branch/loop tracking can fix.
+One remaining flow-insensitive gap: the loop pre-scan described below
+(for catching a reset on an earlier iteration invalidating a use earlier
+in the same loop body) currently only looks for `arena_reset`/
+`arena_destroy` calls, not `arena_mark`/`arena_free_to` — a mark/free_to
+pair inside a loop body is fine (each iteration's free_to cancels that
+iteration's mark, so the depth returns to baseline every time, as in the
+scratch-allocation example above), but an *unpaired* `arena_free_to<R>()`
+inside a loop, invalidating a reference used earlier in the same body on
+a later iteration, is not yet caught. `unsafe {}` bypasses the check
+entirely, same as every other region rule.
 :::
 
 ### Arena Runtime Representation
@@ -292,6 +306,44 @@ int main() {
 }
 ```
 
+The generation counter is updated as the compiler walks the function's
+control flow, not just its raw text order — two cases worth knowing:
+
+- **if/else branches don't bleed into each other.** A reset inside one
+  branch only affects the generation *within that branch* and *after the
+  if-statement merges* (conservatively — since either branch might have
+  run) — not the *other* branch:
+  ```c
+  if (cond) {
+      arena_reset<Pool>();
+  } else {
+      *p = 2;   // OK: this branch never resets Pool
+  }
+  *p = 3;       // ERROR: 'then' might have run, so this is possibly stale
+  ```
+- **A reset anywhere in a loop body invalidates the whole body, not just
+  code after it.** Since a later iteration runs the top of the body
+  again *after* an earlier iteration's reset, a use that's textually
+  *before* the reset call is still flagged:
+  ```c
+  while (cond) {
+      *p = 1;                // ERROR: a *previous* iteration may have reset Pool here
+      arena_reset<Pool>();
+  }
+  ```
+  This loop-body check is a syntactic pre-scan for `arena_reset`/
+  `arena_destroy` calls reachable anywhere in the body (not a full
+  type-checking pass) — it covers the common statement/expression forms
+  such a call appears in, not literally every possible expression
+  nesting, and (per the warning above) doesn't yet extend to
+  `arena_mark`/`arena_free_to`.
+
+Both of these are still sound in the same direction as the rest of this
+checker: a real use-after-reset is never missed, and the remaining
+imprecision (deeply unusual expression nesting inside a loop; an
+unpaired `arena_free_to` inside a loop) only means some code that's
+actually safe might still be conservatively flagged — never the reverse.
+
 Rebinding a stale reference to a fresh allocation recovers it — the check
 is about reading a *specific* stale binding, not about the variable name:
 
@@ -301,18 +353,6 @@ arena_reset<Pool>();
 p = new<Pool> int;   // OK: fresh binding, judged against the current generation
 *p = 42;              // OK
 ```
-
-::: warning Flow-insensitive, not full dataflow analysis
-This is a running counter over AST traversal order, not a simulation of
-actual control flow: a reset inside an `if` branch is treated as having
-happened for everything textually after the `if`-statement, whether or not
-that branch actually runs — sound (a real bug is never missed) but it can
-occasionally flag code that's actually safe. It's also not loop-aware
-across iterations: a reference read *before* a reset that appears later in
-the same loop body isn't retroactively flagged for reuse on the *next*
-iteration. `unsafe {}` bypasses the check entirely, same as every other
-region/aliasing rule.
-:::
 
 ## Unsafe Escape Hatch
 

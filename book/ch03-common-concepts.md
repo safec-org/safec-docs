@@ -60,16 +60,16 @@ types "differing."
 
 ### Literal syntax gaps
 
-A few literal forms C has that SafeC doesn't: no binary literals
-(`0b1010`), and a leading `0` does **not** mean octal — `0777` is decimal
-777, not octal 511, so if you actually need binary or octal values,
-compute them from hex or write out the decimal value. Hex works exactly
-as in C (`0xFF`), and it's the natural substitute for binary literals too
-— `0xC` for what you might have reached for as `0b1100`:
+One literal form C has that SafeC doesn't: a leading `0` does **not**
+mean octal — `0777` is decimal 777, not octal 511, so if you actually
+need an octal value, compute it from hex/binary or write out the decimal
+value. Binary literals *are* supported, with a `0b`/`0B` prefix just
+like hex's `0x`/`0X` — see [Literals](/reference/literals) for the full
+table:
 
 ```c
-unsigned int flags = 0xCU;   // 0b1100
-unsigned int mask  = 0xAU;   // 0b1010
+unsigned int flags = 0b1100U;   // 12
+unsigned int mask  = 0b1010U;   // 10
 printf("%u %u %u\n", flags & mask, flags | mask, flags ^ mask);
 // 8 14 6
 ```
@@ -131,13 +131,14 @@ if (k > 10) {
 ```
 
 SafeC also has `match` — a pattern-matching statement/expression that
-looks like a much safer version of C's `switch` (in fact, `switch`/`case`
-as *C* writes them don't work in SafeC at all — despite being reserved
-words, there's no implementation behind them; `match` is the only
-multi-way branch construct). It deserves its own space rather than a
-quick mention here: [Chapter 7](/book/ch07-enums-and-match) covers it
-alongside enums and tagged unions, the two things it's most useful for
-matching against.
+covers the same multi-way-branch ground as C's `switch` without its
+fall-through footguns (each case is independent; no `break` needed to
+stop it from falling into the next one). A real C-style `switch`/`case`
+with fall-through is available too, for when you actually want it — see
+[Control Flow](/reference/control-flow#switch-statement) — but `match`
+deserves its own space rather than a quick mention here:
+[Chapter 7](/book/ch07-enums-and-match) covers it alongside enums and
+tagged unions, the two things it's most useful for matching against.
 
 Next: [Chapter 4](/book/ch04-functions) covers functions — declarations,
 parameters, and a few SafeC-specific attributes (`pure`, `inline`,

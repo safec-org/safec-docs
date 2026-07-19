@@ -112,7 +112,7 @@ dot there — `some`/`none` are plain identifiers, not dot-prefixed, unlike
 a tagged union's own variant names.
 :::
 
-Unions can't be generic — the same limitation as [generic structs](/reference/generics): `generic<T, E> union Result { T ok; E err; }` doesn't parse (a `generic<...>` declaration only ever accepts a following function or variable, never a struct/union). For a sum type over an arbitrary pair of types, use `void*` fields plus a discriminant, the same type-erasure-plus-generic-wrapper-functions pattern the standard library's collections use.
+Unions can be generic too, the same as [structs](/reference/generics#generic-structs-and-methods): `generic<T, E> union Result { T ok; E err; }` is a real sum type over an arbitrary pair of types, monomorphized per concrete `<T, E>` instantiation like any other generic type.
 
 ## Tuple Types
 

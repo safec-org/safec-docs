@@ -1,6 +1,6 @@
 # Collections
 
-SafeC provides eleven collection modules in `std/collections/`. Because the compiler does not support generic structs (only generic functions), most collections use `void*` internally with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at call sites via monomorphization.
+SafeC provides eleven collection modules in `std/collections/`. These predate SafeC's generic-struct support (see [Generics](/reference/generics#generic-structs-and-methods)) and haven't been migrated to it: most still use `void*` internally with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at call sites via monomorphization.
 
 This design keeps a single compiled struct per collection type (no per-`T` code bloat), while preserving full type safety at every call site — an important property for embedded targets where binary size matters.
 

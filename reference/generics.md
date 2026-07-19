@@ -2,9 +2,7 @@
 
 SafeC generics are compile-time only. Every generic function is fully monomorphized — the compiler generates a separate copy for each concrete type used. There are no vtables, no type erasure, and no runtime dispatch.
 
-::: warning No generic structs
-Only **functions** can be generic (`generic<T> T max(T a, T b) { ... }`). `generic<T> struct Pair { T first; T second; };` is not supported — it fails to parse. The standard library's own generic-looking containers (`Vec`, `HashMap`, `BST`, ...) work around this with a `void*`-based struct plus `generic<T>` *wrapper functions* for type-safe access (`vec_push_t<T>`, `map_get_t<T>`, ...) — see [Standard Library Overview](/stdlib/#generic-pattern) for the pattern. If you're looking for `Pair<T>`/`Container<T>`-style generic structs, they aren't there; write the type-erased struct + typed wrapper functions instead.
-:::
+Structs and unions can be generic too — `generic<T> struct Pair { T first; T second; };` — fully monomorphized per concrete type argument, the same as generic functions; see [Generic Methods](#generic-methods) below for struct methods and out-of-line definitions. The standard library's own containers (`Vec`, `HashMap`, `BST`, ...) predate this feature and still use a `void*`-based struct plus `generic<T>` *wrapper functions* for type-safe access (`vec_push_t<T>`, `map_get_t<T>`, ...) rather than being genuinely generic structs themselves — see [Standard Library Overview](/stdlib/#generic-pattern) for that pattern, which remains a legitimate approach in its own right (e.g. for a container whose backing storage genuinely shouldn't care about the element type at the ABI level).
 
 ## Generic Functions
 
@@ -94,8 +92,30 @@ unsigned long count_args(T... args) {
 unsigned long n = count_args(1, 2.0, 'a');   // n is 3
 ```
 
-::: warning No pack expansion yet
-There's currently no way to *expand* a parameter pack back out into another call's argument list (no `args...` forwarding, e.g. into a variadic C function like `printf`) — only declaring the pack and asking for its size with `sizeof...(T)` are supported. A `generic<T...>` function's only real use today is arity/type-counting logic over the pack, not forwarding it somewhere else.
+A pack forwards into another call by naming it as a bare argument — `args`, not `args...` — which expands to the pack's actual arguments at each monomorphized call site:
+
+```c
+int sum3(int a, int b, int c) { return a + b + c; }
+
+generic<T...>
+int forward_sum(T... args) {
+    return sum3(args);   // expands to sum3(args0, args1, args2) for a 3-element pack
+}
+
+int n = forward_sum(1, 2, 3);   // n == 6
+```
+
+A pack element can also be indexed with a literal (constant) index — `args[0]`, `args[1]`, ... — resolved at monomorphization time to the corresponding argument:
+
+```c
+generic<T...>
+int first_int(T... args) {
+    return args[0];
+}
+```
+
+::: warning Literal indices only
+`args[i]` requires `i` to be a compile-time integer literal, not a runtime variable — the pack doesn't exist as a real indexable array at codegen time, each `args[N]` is rewritten to the Nth actual argument during monomorphization. Looping over a pack with a runtime index isn't supported; write `sizeof...(T)` recursion or repeat the literal-index form for each position you need instead.
 :::
 
 ## Monomorphization
@@ -124,9 +144,9 @@ Monomorphized functions follow the pattern `__safec_<name>_<type>`:
 
 Each unique instantiation generates separate code. If you instantiate `max` with 5 different types, 5 separate functions are emitted. This trades binary size for runtime performance (no indirection).
 
-## Generic Methods
+## Generic Structs and Methods
 
-Structs with generic type parameters can define methods that use the type parameter:
+A struct (or union) can carry its own type parameters, declared the same way as a generic function's:
 
 ```c
 generic<T>
@@ -138,13 +158,27 @@ struct Container {
     void set(T new_value);
 };
 
+struct Container<int> c;
+c.set(42);
+int v = c.get();   // v == 42
+```
+
+`T get() const;`/`void set(T new_value);` above are in-body method
+*declarations* — write the bodies out-of-line the same way you would for
+a non-generic struct's methods, just with a `generic<T>` line above each
+definition too. The out-of-line qualifier is the plain struct name
+(`Container::get()`), **not** `Container<T>::get()` — the type parameter
+is already in scope from the `generic<T>` line, so it isn't repeated on
+the method-owner name:
+
+```c
 generic<T>
-T Container<T>::get() const {
+T Container::get() const {
     return self.value;
 }
 
 generic<T>
-void Container<T>::set(T new_value) {
+void Container::set(T new_value) {
     self.value = new_value;
 }
 ```

@@ -29,15 +29,23 @@ No use-after-free: region annotations tie reference lifetimes to allocation scop
 }
 ```
 
-::: warning Arena use-after-reset checking is flow-insensitive
+::: warning Arena use-after-reset checking: flow-sensitive, not exhaustive
 The arena side of this (see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset))
-is a generation-counter check over AST traversal order, not a real
-control-flow simulation — sound (a genuine use-after-reset is never
-missed) but it can over-flag references that are actually still valid,
-most notably: `arena_free_to<R>()`'s partial free currently invalidates
-*every* reference into `R`, not just the ones allocated after its
-checkpoint. `unsafe {}` remains the escape hatch for cases the checker
-can't (yet) prove safe on its own.
+is a generation-counter check, updated as the compiler walks the
+function's actual control flow (if/else branches don't bleed into each
+other; a reset anywhere in a loop body is treated as possibly having
+happened before every statement in that body, not just the ones after
+it) rather than a naive linear pass — sound (a genuine use-after-reset
+is never missed) but not a full dataflow fixpoint, so it can still
+over-flag references that are actually valid in less common shapes: the
+loop-body check is a syntactic pre-scan covering the common statement/
+expression forms a reset call appears in, not literally every nesting,
+and doesn't yet extend to `arena_mark<R>()`/`arena_free_to<R>()` inside
+a loop (which use their own, separately-tracked mark-nesting depth, and
+remain conservative across *deeply nested* marks independent of
+flow-sensitivity — a design characteristic of tracking one depth per
+region, not a per-level record). `unsafe {}` remains the escape hatch
+for cases the checker can't (yet) prove safe on its own.
 :::
 
 ### 3. Aliasing Safety
@@ -91,7 +99,7 @@ The compiler enforces these properties through a series of analysis passes durin
 | Phase | What it checks |
 |-------|---------------|
 | Definite initialization | Every variable is assigned before use |
-| Region escape analysis | Stack/static/cross-region escapes are rejected; arena-reset invalidation is checked flow-insensitively (see above) |
+| Region escape analysis | Stack/static/cross-region escapes are rejected; arena-reset invalidation is checked flow-sensitively across if/else and loops, not exhaustively (see above) |
 | Alias/borrow checking (NLL) | Mutable exclusivity is maintained |
 | Nullability enforcement | Dereferencing a nullable reference outside `match`/`.is_null()`/`.default()`/`unsafe` is rejected |
 | Bounds checking | Array accesses are within bounds |

@@ -52,12 +52,16 @@ void bad() {
 
 ### Arena References Die on Reset
 
-Resetting, destroying, or partially freeing an arena invalidates every
-outstanding reference into it, since the memory may be handed out again by
-a later `new<R>`. The compiler enforces this with a generation counter per
-region: `arena_reset<R>()`, `arena_destroy<R>()`, and `arena_free_to<R>()`
-each bump it, and reading a `&arena<R> T` reference bound before the bump
-is a compile error.
+`arena_reset<R>()`/`arena_destroy<R>()` invalidate *every* outstanding
+reference into `R`, since the memory may be handed out again by a later
+`new<R>`. The compiler enforces this with a generation counter per
+region: each call bumps it, and reading a `&arena<R> T` reference bound
+before the bump is a compile error. `arena_free_to<R>()` (paired with
+`arena_mark<R>()`) is narrower — it only invalidates references bound
+*after* the checkpoint being freed to, tracked with its own
+mark-nesting-depth counter rather than sharing `arena_reset`'s
+generation; a reference bound before any `arena_mark<R>()` call for `R`
+survives a `arena_free_to<R>()` call untouched.
 
 ```c
 region Pool { capacity: 1024 }
@@ -72,11 +76,19 @@ int main() {
 }
 ```
 
-This is a flow-insensitive check (a running counter over AST traversal
-order, not real control-flow simulation) — sound, but it can over-flag
-code that's actually safe, and `arena_free_to<R>()` currently invalidates
-*every* reference into the region rather than just the ones allocated
-after its checkpoint. See [Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
+This tracking is flow-*sensitive* across if/else branches and loop
+bodies (a reset inside one `if`/`else` branch doesn't affect the other;
+a reset anywhere in a loop body is treated as possibly having happened
+before *every* statement in that body, not just the ones textually after
+it — since a later iteration re-runs the top of the body after an
+earlier iteration's reset) for `arena_reset`/`arena_destroy`. It's still
+sound rather than exhaustive: the loop-body check is a syntactic
+pre-scan covering the common statement/expression forms, not literally
+every possible nesting, and doesn't yet extend to `arena_mark`/
+`arena_free_to` inside a loop. Nested `arena_mark`/`arena_free_to`
+scopes also remain conservative (one nesting-depth counter per region,
+not a full per-level record) independent of flow-sensitivity. See
+[Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
 for the full detail, including the `unsafe {}` workaround for references
 that are genuinely still valid. As with every other region/aliasing check,
 `unsafe {}` bypasses this one too.
@@ -243,7 +255,7 @@ unsafe {
 |-------------|-------------|---------|----------------------|
 | Definite initialization | Yes | -- | No |
 | Region escape analysis (stack/static/cross-region) | Yes | -- | Yes |
-| Arena-reset invalidation (flow-insensitive) | Yes | -- | Yes |
+| Arena-reset invalidation (flow-sensitive across if/else and loops; see above) | Yes | -- | Yes |
 | Aliasing / borrow check | Yes | -- | Yes |
 | Nullability enforcement | Yes | -- | Yes |
 | Static bounds check | Yes | -- | Yes |

@@ -103,32 +103,30 @@ forget at one of them and hard to notice you forgot.
 ## `errdefer`: cleanup only on the failure path
 
 `errdefer` is `defer`'s narrower sibling — written the same way, but
-intended to run only when the function is exiting because a `try`
-propagated a failure, not on an ordinary successful return:
+runs only when the function is exiting because a `try` propagated a
+failure out of it, not on an ordinary `return` (successful *or*
+otherwise — a plain explicit `return null;` doesn't trigger it either,
+only a `try` that actually unwinds through this function does):
 
 ```c
+?int risky_step(int fail_at) {
+    if (fail_at != 0) { return null; }
+    return 0;
+}
+
 ?int process(int fail_at) {
     printf("processing\n");
     errdefer printf("rolling back\n");
-    int r = risky_step(fail_at);
-    if (r != 0) {
-        return null;
-    }
+    int r = try risky_step(fail_at);   // propagates risky_step's failure via try
     return 42;
 }
 ```
 
-::: warning Currently runs on every explicit return, not just `try`-propagated failure
-As implemented today, `errdefer` reliably fires on a `try`-propagated
-failure (its intended case) — but it *also* fires on a plain explicit
-`return`, including a successful one, which the description above would
-suggest it shouldn't. In `process` above, even a completely successful
-`return 42;` (no failure at all) currently triggers the `errdefer` and
-prints "rolling back." Until this is fixed, don't rely on `errdefer`
-being skipped on a successful explicit return — see [Control
-Flow](/reference/control-flow#errdefer) for the up-to-date status of this
-limitation.
-:::
+`process(0)` prints just `processing` — `risky_step` succeeds, `try`
+unwraps it normally, and `errdefer` never fires. `process(1)` prints
+`processing` then `rolling back` — `risky_step` returns `null`, `try`
+propagates that failure out of `process` (making `process(1)` itself
+evaluate to `null`), and *that* unwind is what fires the `errdefer`.
 
 ## Beyond `?T`: richer errors
 

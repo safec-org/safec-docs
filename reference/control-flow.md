@@ -148,15 +148,6 @@ int describe_len(?&stack Node next) {
 }
 ```
 
-::: warning No `switch` statement
-Despite `switch`, `case`, `default`, and `break` all being reserved words in
-the lexer, there is no parser or semantic support for a C-style `switch`
-statement — `switch (op) { case '+': ... }` fails to parse entirely
-(`unexpected token 'switch' in expression`). Use `match` (above) for
-multi-way branching; it covers the same use cases without fall-through
-footguns.
-:::
-
 ## Switch Statement
 
 Real C fall-through dispatch, distinct from `match` above (which never

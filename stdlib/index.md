@@ -271,7 +271,7 @@ PNG (DEFLATE) and SVG decoders/renderers.
 
 ## Generic Pattern
 
-The SafeC compiler does not support generic structs. Collections use `void*` structs for the underlying data structure, with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at the call site via monomorphization.
+The standard library's own collections predate SafeC's generic-struct support (see [Generics](/reference/generics#generic-structs-and-methods) — structs and unions can be generic now) and haven't been migrated to it: they still use `void*` structs for the underlying data structure, with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at the call site via monomorphization. This keeps a single compiled struct per collection *type* rather than one per element type `T` — a real tradeoff independent of whether generic structs exist, not just a workaround for their absence (see [Collections](/stdlib/collections) for the full rationale).
 
 ```c
 #include "collections/vec.h"
