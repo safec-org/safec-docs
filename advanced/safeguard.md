@@ -141,6 +141,68 @@ The `[package]` section defines the project name and version.
 
 Each `[[dependencies]]` entry specifies a dependency by name and source URL. Dependencies are git repositories cloned into the build directory during `safeguard fetch`.
 
+## Feature Flags
+
+`Package.toml` can declare a Cargo-style `[features]` table — named, optional
+build configurations that gate source code without maintaining separate
+branches or build scripts:
+
+```toml
+[features]
+default   = ["backend"]              # enabled unless --no-default-features
+frontend  = []
+backend   = []
+fullstack = ["frontend", "backend"]  # enabling one feature can enable others
+```
+
+Each entry's value is a list of *other* features it also turns on — the same
+"a feature can pull in other features" model Cargo uses (SafeC has no
+optional-dependency concept yet, so a feature can only chain other features,
+not toggle a `[[dependencies]]` entry on or off).
+
+Select features at build time:
+
+```bash
+safeguard build                                              # "default" only
+safeguard build --features frontend                          # default + frontend
+safeguard build --features frontend,backend                  # comma-separated, repeatable
+safeguard build --no-default-features --features backend     # backend only
+```
+
+`build` / `check` / `test` / `run` all accept `--features`/`--no-default-features`.
+safeguard resolves the enabled set (starting from `default` unless suppressed,
+following each enabled feature's own sub-feature list to a fixed point) and
+passes every enabled feature to `safec` as a preprocessor define:
+
+```
+feature "backend"  ->  -DSAFEC_FEATURE_BACKEND=1
+feature "frontend" ->  -DSAFEC_FEATURE_FRONTEND=1
+```
+
+(hyphens in a feature name become underscores). Project source gates on that
+define with `safec`'s existing preprocessor — no new language syntax:
+
+```c
+#ifdef SAFEC_FEATURE_BACKEND
+#include <std/http/http.h>
+#include <std/http/http.sc>
+// ... server-only code ...
+#endif
+```
+
+Feature `-D` defines apply only to the project's own `src/`/`tests/` sources
+— the standard library and fetched dependencies build the same way
+regardless of which features the top-level project enabled. All files under
+`src/` are still compiled either way (feature flags decide what code
+*runs*, not what gets *compiled* — an `#ifdef`'d-out function still exists
+in the binary as dead code, same as plain C conditional compilation); this
+keeps the model simple and matches how the rest of `safec`'s preprocessor
+already works, at the cost of not shrinking binary size or skipping
+unrelated build errors the way Cargo's per-feature compilation does. See
+`examples/fullstack_demo/` in the SafeC repository for a complete
+`frontend`/`backend`/`fullstack` project built this way, including a scx
+frontend (see [scx Templating](/advanced/scx)).
+
 ## Build Flow
 
 `src/` can freely mix `.sc`, `.c`, and `.cpp`/`.cc`/`.cxx` files — each is

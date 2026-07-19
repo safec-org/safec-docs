@@ -92,6 +92,7 @@ export default defineConfig({
         items: [
           { text: 'Compiler Architecture', link: '/advanced/compiler' },
           { text: 'Package Manager', link: '/advanced/safeguard' },
+          { text: 'scx Templating', link: '/advanced/scx' },
           { text: 'Safety Model', link: '/advanced/safety-model' },
           { text: 'Compile-Time Introspection', link: '/advanced/introspection' }
         ]
@@ -216,6 +217,7 @@ export default defineConfig({
           items: [
             { text: 'Compiler Architecture', link: '/advanced/compiler' },
             { text: 'Package Manager', link: '/advanced/safeguard' },
+            { text: 'scx Templating', link: '/advanced/scx' },
             { text: 'Safety Model', link: '/advanced/safety-model' },
             { text: 'Compile-Time Introspection', link: '/advanced/introspection' }
           ]
