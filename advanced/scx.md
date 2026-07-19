@@ -122,6 +122,25 @@ unsafe {
 return __scx0;
 ```
 
+## Editor Support
+
+`sc-lsp` (see [Compiler Architecture](/advanced/compiler)'s tooling section
+and `sc-language-server`'s README) understands `.scx` directly — open one
+in an editor with the SafeC extension installed and you get the same
+diagnostics, hover, go-to-definition, completion, and document outline a
+`.sc` file gets. Under the hood the server transpiles the buffer with the
+same transpiler `safeguard build` uses (one shared copy, so the two can't
+drift apart), analyzes the generated SafeC, then maps every reported
+position back onto the `.scx` buffer's own lines — you never see the
+generated code. That mapping is line-level: it's exact everywhere outside
+a markup expansion (which is most of a typical file), and for a
+diagnostic *inside* one — e.g. a type error on a `{expr}` interpolation —
+it points at the line the enclosing `return <markup>;` starts on rather
+than the exact sub-line, since a markup block doesn't correspond 1:1 to
+the code it expands to. Malformed markup itself (a mismatched closing tag,
+an unterminated `{`) is reported the same way, at the exact line the
+transpiler caught it.
+
 ## Feature-gating a frontend
 
 `.scx` files are ordinary project sources — `safeguard` compiles every one
