@@ -117,8 +117,13 @@ Foreign function calls (C interop) follow specific safety rules:
 
 - `extern` declarations use raw C types — no region qualifiers
 - `&static T` to `T*` coercion is safe without `unsafe {}`
-- Non-static region references passed to C require `unsafe {}`
-- Raw pointers received from C must be handled inside `unsafe {}`
+- `&T`/`?&T` (no region qualifier at all — an "outliving reference," see
+  [Memory & Regions](/reference/memory)) also coerces to/from `T*`/`void*`
+  safely without `unsafe {}`, in both directions — the type for a pointer
+  that may be retained by the C side past the call returning
+- Non-static, non-region-less references passed to C require `unsafe {}`
+- Raw pointers received from C must be handled inside `unsafe {}`, unless
+  received directly into a `&T`/`?&T`-typed variable
 
 These rules ensure that the boundary between safe SafeC code and unsafe C code is always explicit.
 

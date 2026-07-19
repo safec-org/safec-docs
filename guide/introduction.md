@@ -67,7 +67,7 @@ SafeC extends C with safety and modern features while preserving C's execution m
 
 | Feature | Description |
 |---|---|
-| **Regions** | `&stack T`, `&heap T`, `&arena<R> T`, `&static T` — compile-time memory safety |
+| **Regions** | `&stack T`, `&heap T`, `&arena<R> T`, `&static T`, or `&T`/`?&T` (no region at all) — compile-time memory safety |
 | **Bounds checking** | Static and runtime array bounds verification |
 | **Borrow checking** | Mutable/immutable reference exclusion enforced at compile time |
 | **Generics** | `generic<T>` with monomorphization — zero runtime cost |

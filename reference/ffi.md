@@ -58,7 +58,7 @@ void greet() {
 }
 ```
 
-This coercion is the only implicit region-to-pointer conversion allowed outside `unsafe`.
+This coercion is one of two implicit region-to-pointer conversions allowed outside `unsafe` — the other is `&T`/`?&T` (no region qualifier), covered next.
 
 ::: warning `static const char*` initializers must be local, not global
 As with the same pattern in [Memory & Regions](/reference/memory), a
@@ -66,6 +66,41 @@ file-scope `static const char *greeting = "...";` fails to compile
 ("global initializer is not a compile-time constant expression"). Declare
 it as a local `static` inside a function instead, as shown above.
 :::
+
+## Safe Coercion: `&T` / `?&T` (No Region) to `T*`
+
+A reference with **no region qualifier at all** — `&T` (non-nullable) or
+`?&T` (nullable) — also converts to a raw pointer without `unsafe`, in
+both directions. This is the natural type for a pointer that's meant to
+cross the `extern` boundary in the first place, especially when the C
+side might *retain* it past the call returning (a registered callback's
+context, an opaque handle) — see [Memory & Regions](/reference/memory)'s
+"Outliving References" section for the full rationale.
+
+```c
+struct Widget { int value; }
+
+// Conceptually retains 'w' past this call returning -- a real extern
+// declaration would just be 'extern int c_register_callback(struct Widget*);'
+int c_register_callback(struct Widget* w) {
+    unsafe { return w->value; }
+}
+
+int main() {
+    struct Widget local;
+    local.value = 42;
+
+    &stack Widget sref = &local;
+    ?&Widget wref = sref;         // &stack Widget -> ?&Widget: implicit, no unsafe
+    c_register_callback(wref);    // ?&Widget -> struct Widget*: implicit, no unsafe
+    return 0;
+}
+```
+
+Reading a `?&T` value back out goes through the same nullable-reference
+grammar as `?&stack T`/`?&heap T`/etc — `match`, `is_null()`,
+`.default(fallback)`, or an `unsafe`-gated `!`. See
+[Safety](/reference/safety) for that grammar.
 
 ## Non-Static References Require Unsafe
 
@@ -153,6 +188,7 @@ Region qualifiers are a compile-time-only concept. At the LLVM IR level:
 - `&stack int` is just `i32*`
 - `&heap float` is just `float*`
 - `&arena<R> T` is just `T*`
+- `&T`/`?&T` (no region) is also just `T*` — identical codegen to a raw pointer, since there's no region metadata to carry in the first place
 
 References carry `nonnull` and `noalias` LLVM attributes where applicable, enabling better optimization, but there is no runtime metadata or fat pointer overhead.
 
@@ -161,9 +197,11 @@ References carry `nonnull` and `noalias` LLVM attributes where applicable, enabl
 | Scenario | Requires `unsafe`? |
 |----------|-------------------|
 | `&static T` passed to C | No |
+| `&T` / `?&T` (no region) passed to C | No |
 | `&stack T` passed to C | Yes |
 | `&heap T` passed to C | Yes |
 | `&arena<R> T` passed to C | Yes |
 | Raw pointer from C | Yes |
+| Raw pointer from C into `&T`/`?&T` | No |
 | C function call (no refs) | No |
 | Struct passed by value to C | No |

@@ -147,7 +147,7 @@ int x = 42;
 
 ## Nullability Enforcement
 
-Plain references are non-null by default. Nullable references must use the `?&` prefix, and — unlike languages with flow-sensitive null narrowing — a bare `!= null` comparison does **not** make a later dereference safe: the compiler performs no flow analysis linking the check to the access. Reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block:
+Plain references are non-null by default. Nullable references must use the `?&` prefix — with a region (`?&stack Node`) or without one (`?&Node`, an "outliving reference" with no tracked region at all; see [Memory & Regions](/reference/memory)) — and — unlike languages with flow-sensitive null narrowing — a bare `!= null` comparison does **not** make a later dereference safe: the compiler performs no flow analysis linking the check to the access. Reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block:
 
 ```c
 void demo(?&stack Node next) {

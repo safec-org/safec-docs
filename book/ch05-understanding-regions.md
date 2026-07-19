@@ -187,6 +187,57 @@ Regions](/reference/memory#4-arena-references-die-on-reset) for the exact
 shape of that limitation and the `unsafe` workaround when you're sure a
 flagged reference really is still valid.)
 
+### The escape hatch: `&T` with no region
+
+Sometimes none of the four regions above is the right answer, because
+the question "which region?" doesn't actually matter for what you're
+doing. Leave the region qualifier off entirely — `&T` (non-nullable) or
+`?&T` (nullable) — and you get a reference with **no declared or tracked
+region at all**:
+
+```c
+struct Point { double x; double y; }
+
+// No region committed -- the caller can pass &stack, &heap, &static,
+// or &arena<R>, and this function doesn't have to care which.
+double sum_point(&Point p) {
+    return p.x + p.y;
+}
+```
+
+This isn't a fifth region joining the escape-analysis machinery from
+this chapter — it's the opt-out from needing one. Two situations call
+for it:
+
+- **A parameter that just reads through a reference for the call's
+  duration.** Picking one specific region (`&stack Point`, say) would
+  only reject callers whose `Point` happens to live somewhere else, for
+  no safety benefit — `sum_point` above doesn't retain `p` past its own
+  return, so it has no reason to care.
+- **A pointer crossing into or out of C.** An `extern` function's `T*`
+  parameter or return value sometimes needs to be *retained* past the
+  call returning — a registered callback's context, an opaque handle —
+  and none of `&stack` (dies with the call), `&heap`, or `&static`
+  (both claim a lifetime guarantee SafeC can't verify across an ABI
+  boundary it doesn't control) honestly describe that. `&T`/`?&T`
+  converts to and from a raw pointer with no `unsafe` in either
+  direction, which is what makes it fit that boundary — see [C
+  Interop](/reference/ffi) for the full picture.
+
+A reference of *any* of the four regions converts to `&T`/`?&T`
+implicitly, with no cast and no `unsafe`:
+
+```c
+int main() {
+    struct Point local;
+    local.x = 1.0; local.y = 2.0;
+    &stack Point p = &local;
+    double total = sum_point(p);   // &stack Point -> &Point: implicit
+    printf("%f\n", total);
+    return 0;
+}
+```
+
 ## Aliasing: one writer, or many readers, never both
 
 Region tracking answers "how long does this live." A separate rule

@@ -172,7 +172,7 @@ Nullable references use the same `?` syntax:
 
 ### Reading a nullable value
 
-A pointer (`T*`), nullable reference (`?&region T`), or optional (`?T`) cannot be dereferenced, member-accessed, or force-unwrapped directly — the compiler requires one of the following:
+A pointer (`T*`), nullable reference (`?&region T` — "region" here also covers the region-less `?&T` form, see [Memory & Regions](/reference/memory)'s "Outliving References" section), or optional (`?T`) cannot be dereferenced, member-accessed, or force-unwrapped directly — the compiler requires one of the following:
 
 | Operation | Works on | Effect |
 |-----------|----------|--------|
@@ -202,7 +202,7 @@ int describe(?&stack Node n) {
 int describe_match(?&stack Node n) {
     return match (n) {
         case null:    -1,
-        case some(v): v.value,   // v : &stack Node — bound to the payload type directly
+        case some(v): v.value,   // v : Node (a copy of the payload) -- bound by value, not by reference
     };
 }
 ```
@@ -258,7 +258,14 @@ References carry region information that the compiler uses for lifetime analysis
 &heap float          // non-null heap reference
 &static Config       // non-null static reference
 &arena<AudioPool> Frame  // non-null arena reference
+&Point               // non-null reference, no region -- accepts any of the above
+?&Point              // nullable, no region
 ```
+
+Leaving off the region qualifier entirely (`&T` / `?&T`) gives a
+reference with no declared or tracked region — see [Memory &
+Regions](/reference/memory)'s "Outliving References" section for when
+that's the right choice over pinning a specific region.
 
 See [Memory & Regions](/reference/memory) for details.
 

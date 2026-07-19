@@ -328,12 +328,58 @@ unsafe {
 
 See [Safety](/reference/safety) for the full unsafe model.
 
+## Outliving References: `&T` / `?&T` With No Region
+
+Leaving the region qualifier off entirely — `&T` (non-nullable) or `?&T`
+(nullable) — gives a reference with **no declared or tracked region** at
+all. It isn't a fifth entry in the region-escape/lifetime analysis above;
+it's the escape hatch from needing one, for two overlapping cases:
+
+1. **Crossing the `extern` boundary.** A pointer that a C function might
+   *retain* past the call returning (a registered callback's context, an
+   opaque handle) can't honestly be `&stack` (dies with the call) or
+   `&heap`/`&static` (claims a lifetime guarantee SafeC can't verify
+   across the ABI boundary).
+2. **Not committing to a region for its own sake.** Most functions that
+   just read or write through a reference for the call's duration don't
+   care whether the caller's value is `&stack`, `&heap`, `&static`, or
+   `&arena<R>` — picking one specific region as a parameter type only
+   narrows who can call it, for no safety benefit. Reserve a concrete
+   region for when the parameter's own semantics genuinely pin it to one
+   lifetime (e.g. a callee that stores the reference past its own return
+   needs `&heap`/`&static`, not `&stack`).
+
+```c
+struct Point { int x; int y; }
+
+// No region committed -- caller may pass &stack, &heap, &static, or &arena<R>.
+int sumPoint(&Point p) { return p.x + p.y; }
+
+struct Point local;
+local.x = 3; local.y = 4;
+&stack Point ref = &local;
+sumPoint(ref);        // &stack Point -> &Point: implicit, no unsafe, no region check
+```
+
+A reference of *any* region converts to `&T`/`?&T` implicitly (no
+`unsafe`, no cast), and `&T`/`?&T` converts back to a raw pointer
+implicitly too — because there's no region to check in the first place.
+Nullable vs. non-nullable is the ordinary, orthogonal choice here: use
+`?&T` only where the value can genuinely be absent, `&T` otherwise. See
+[Safety](/reference/safety) for the nullable-reference read grammar
+(`match`/`is_null()`/`.default()`/`!`), which applies identically to
+`?&T`.
+
 ## FFI and Regions
 
 When calling C functions, region information is erased:
 
 - `&static T` converts to `T*` automatically (safe, no `unsafe` needed)
-- Other region refs require `unsafe {}` to pass to C
+- `&T`/`?&T` (no region) converts to/from `T*`/`void*` automatically in
+  both directions (safe, no `unsafe` needed) — see "Outliving References"
+  above
+- Other region refs (`&stack`, `&heap`, `&arena<R>`) require `unsafe {}`
+  to pass to C
 
 ```c
 extern int printf(const char *fmt, ...);
