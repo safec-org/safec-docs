@@ -1,6 +1,6 @@
 # Types
 
-SafeC provides a strong, statically-typed type system with no implicit conversions (except safe integer widening). All types are resolved at compile time; generics are fully monomorphized with zero runtime overhead.
+SafeC provides a strong, statically-typed type system with no implicit conversions (except safe numeric widening — smaller to bigger, never the reverse). All types are resolved at compile time; generics are fully monomorphized with zero runtime overhead.
 
 ## Primitive Types
 
@@ -290,17 +290,21 @@ T clamp(T val, T lo, T hi) {
 
 ## Type Conversions
 
-SafeC has **no implicit conversions** with one exception: safe integer widening (e.g., `uint8_t` to `int`, `char` to `int`). All other conversions require explicit casts:
+SafeC has **no implicit conversions** with one exception: safe widening
+— any smaller numeric type to a bigger one, across integer, float, and
+integer→float. Narrowing (bigger → smaller, or float → integer) still
+requires an explicit cast:
 
 ```c
 int x = 42;
-double d = (double)x;    // explicit cast required
+double d = x;             // implicit: int -> double widens safely
 
 float f = 3.14f;
-int i = (int)f;           // explicit truncation
+double d2 = f;             // implicit: float -> double widens safely
+int i = (int)f;            // explicit cast required: float -> int narrows
 
 long long big = 100LL;
-int small = (int)big;     // explicit narrowing
+int small = (int)big;      // explicit cast required: narrowing
 ```
 
 ## Value vs Reference Semantics

@@ -63,7 +63,8 @@ match (status_code) {
 
 ### Features
 
-**Range patterns** match inclusive ranges of *integers*:
+**Range patterns** match inclusive ranges of integers or chars, with
+either `..` or `...`:
 
 ```c
 match (status_code) {
@@ -71,16 +72,14 @@ match (status_code) {
     case 500..599: printf("server error\n");
     default: printf("other\n");
 }
-```
 
-::: warning No char range patterns
-Range patterns only work on integer literals. `case 'a'..'z':` does **not**
-parse — the char-literal pattern branch never checks for a following `..`,
-so `'a'..'z'` fails with a parser error at the `..` token. Match on the
-integer value instead (a `char` promotes to its integer code point in
-comparisons), e.g. `case 97..122:` for lowercase ASCII, or use a chain of
-`if`/`else if` with explicit comparisons.
-:::
+match (c) {
+    case 'a'...'z': printf("lowercase\n");
+    case 'A'..'Z':  printf("uppercase\n");
+    case '0'...'9': printf("digit\n");
+    default:        printf("other\n");
+}
+```
 
 **Alternation patterns** match multiple values — use **comma**, not `|`:
 
@@ -158,6 +157,37 @@ multi-way branching; it covers the same use cases without fall-through
 footguns.
 :::
 
+## Switch Statement
+
+Real C fall-through dispatch, distinct from `match` above (which never
+falls through, and whose `break` passes through to an *enclosing loop*,
+not the match itself):
+
+```c
+switch (n) {
+case 1:
+case 2:
+    do_low();
+    break;
+case 3:
+    do_three();
+    // falls through — no break
+case 4:
+    do_three_or_four();
+    break;
+default:
+    do_other();
+}
+```
+
+Case values are literal (optionally negated) integer or char constants —
+not general constant expressions, matching C's "case labels must be
+integer constant expressions" rule closely enough to compile to a real
+`switch`/jump-table instruction rather than a chain of comparisons.
+Unlabeled `break` exits the switch; `continue` is not consumed by a
+switch — it keeps referring to whatever loop (if any) already encloses
+it, same as real C.
+
 ## Defer
 
 `defer` schedules a statement to execute when the enclosing scope exits, in LIFO (last-in, first-out) order. This is ideal for resource cleanup.
@@ -223,9 +253,12 @@ A bare `T` returned from a `?T`-returning function implicitly wraps to "present"
 }
 ```
 
-::: warning
-As currently implemented, `errdefer` only fires correctly on the `try`-propagated failure path. A plain explicit `return` — including a **successful** return, such as `return n;` above once every `try` in the function has already succeeded — also runs every registered `errdefer` in scope, not just `defer`. Until this is fixed, don't rely on `errdefer` being skipped on a successful explicit return; only the "runs on `try` failure" half of its contract currently holds.
-:::
+A normal (non-`try`-triggered) exit — a plain explicit `return`, including
+a successful one, or falling off the end of the function — runs every
+registered `defer`, but skips `errdefer`, as the names suggest. A
+`try`-propagated failure exit runs both: general cleanup (`defer`) still
+owes its work, on top of whatever error-specific cleanup (`errdefer`)
+was registered.
 
 ## Labeled Break and Continue
 

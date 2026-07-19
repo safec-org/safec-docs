@@ -10,9 +10,14 @@ SafeC supports multiple integer literal formats:
 |--------|--------|---------|-------|
 | Decimal | (none) | `42` | 42 |
 | Hexadecimal | `0x` / `0X` | `0xFF` | 255 |
+| Binary | `0b` / `0B` | `0b1010` | 10 |
+| Octal | `0o` / `0O` | `0o17` | 15 |
 
-::: warning No binary or octal literals
-`0b`/`0B` binary literals don't exist — the lexer has no handling for them at all (`0b1010` fails to compile). A leading-zero literal like `0777` is **not** octal either — despite the C convention this table used to claim, the lexer treats it as plain decimal, so `0777` means 777, not 511 (verified: the compiler emits `777` for it). If you need binary or octal parsing, convert at runtime (e.g. `str_to_hex`-style parsing with a different base) — there's no literal syntax for either.
+::: warning `0777` is decimal, not octal
+Unlike C, a bare leading-zero literal (`0777`) is **not** octal — it's
+plain decimal 777. Use the explicit `0o`/`0O` prefix (`0o777` = 511) for
+octal — this sidesteps the classic C footgun where an accidental leading
+zero silently changes a number's base.
 :::
 
 ### Integer Suffixes
@@ -43,9 +48,9 @@ double b = 1.5e-2;        // 0.015 (scientific notation)
 float d = 3.14f;           // f suffix for float
 ```
 
-::: warning No trailing-dot form
-`0.` (a bare trailing dot with no digit after it) doesn't parse as a float — the lexer only continues a float literal past `.` when a digit follows, so `0.` lexes as the integer `0` followed by a `.` member-access operator expecting a field name. Write `0.0` instead.
-:::
+A trailing dot with no digit after it (`0.`) also parses as a float —
+equivalent to `0.0` — as long as it isn't immediately followed by another
+`.` (which would instead start a `..`/`...` range/spread token).
 
 ## Character Literals
 
@@ -69,10 +74,9 @@ char null = '\0';          // null byte
 | `\'` | Single quote |
 | `\"` | Double quote |
 | `\0` | Null byte |
+| `\xNN` | Hex byte (1–2 hex digits) — `'\x41'` is `'A'` |
 
-::: warning No `\xNN` hex escape
-`\x` isn't handled specially by the char-literal lexer — any escape other than the ones listed above falls through to "consume this one character literally," so `'\x41'` doesn't mean `'A'`; it fails to compile (the `x` is consumed as the escaped character, leaving `41'` as unconsumed trailing input). There's no hex-byte escape in character or string literals.
-:::
+`\xNN` works the same way in string literals: `"A\x42\x43"` is `"ABC"`.
 
 ## String Literals
 

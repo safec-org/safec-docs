@@ -215,9 +215,14 @@ The ternary operator has very low precedence — use parentheses around complex 
 
 ## Comma Operator
 
-In a `for` loop's increment clause, comma-separated expressions are evaluated left to right purely for side effects — this is the common, working use:
+Works like C: `(e1, e2, ..., eN)` evaluates every operand left to right
+for its side effects, and the whole expression's type and value are the
+*last* operand's — the earlier operands' values are discarded.
 
 ```c
+int a; int b;
+int x = (a = 1, b = 2, a + b);   // x is 3
+
 int i = 0;
 int j = 10;
 for (; i < j; i++, j--) {
@@ -225,26 +230,16 @@ for (; i < j; i++, j--) {
 }
 ```
 
-::: warning Comma as a value-producing expression doesn't work like C
-Unlike C, `(a = 1, b = 2, a + b)` does **not** evaluate to the type/value of
-its last sub-expression — SafeC's comma operator produces a tuple type
-(`(int, int, int)` for that example), which then fails to convert to `int`
-in a variable declaration or assignment. So `int x = (a = 1, b = 2, a + b);`
-does not compile. Write the statements out separately instead:
+C-style comma-separated multi-variable declarations also work, including
+as a `for` loop's init clause:
 
 ```c
-int a = 1;
-int b = 2;
-int x = a + b;   // x is 3
-```
-:::
+for (int i = 0, j = 10; i < j; i++, j--) {
+    // i counts up, j counts down
+}
 
-::: warning No C-style multi-variable declarations
-`for (int i = 0, j = 10; i < j; i++, j--)` doesn't parse — SafeC has no
-C-style comma-separated multi-variable declaration (`int i = 0, j = 10;`
-fails the same way as a standalone statement). Declare each variable on its
-own line before the loop, as in the working example above.
-:::
+int a, b = 5, c;   // a and c uninitialized, b == 5
+```
 
 ## Address-of and Dereference
 

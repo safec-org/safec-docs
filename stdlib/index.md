@@ -98,6 +98,37 @@ int main() {
 | dns | `net/dns.h` | A-record query builder + reply parser (label compression) |
 | dhcp | `net/dhcp.h` | `DhcpClient` DORA handshake |
 
+### [HTTP & Web](/stdlib/http)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| http | `http/http.h` | HTTP/1.1 client + server (`http_serve`/`http_serve_threaded`), request/response types |
+| cors | `http/cors.h` | CORS preflight detection + response headers |
+| jwt | `http/jwt.h` | HS256 JWT sign/verify (HMAC-SHA256) |
+| oauth2 | `http/oauth2.h` | OAuth2 client: authorization-code + refresh-token exchange (RFC 6749) |
+| websocket | `http/websocket.h` | WebSocket handshake + frame read/write |
+| rpc | `rpc/rpc.h` | gRPC-inspired RPC-over-HTTP (length-prefixed framing, path-based dispatch) |
+| server_fn | `rpc/server_fn.h` | "Write once, call from anywhere" JSON-marshaled server functions (Dioxus/Leptos-style) |
+| reactive | `reactive/signal.h` | `Signal<T>` fine-grained reactive state (WASM client hydration) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is a freestanding malloc/free runtime (wasm32-only — never linked into the hosted stdlib archive) |
+| scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
+
+### Machine Learning — see [ML](/stdlib/ml)
+
+### GUI (`std/gui/`)
+
+A retained-mode widget toolkit over a portable `GuiWindow`/`GuiEvent`
+API, with four backends selected by including the matching `.sc` file:
+`gui_cocoa.sc` (macOS, Objective-C runtime interop — fully verified on
+real hardware), `gui_win32.sc`/`gui_x11.sc` (Windows/X11 — written and
+type-checked against the real Win32/Xlib ABI shapes, unverified: no
+Windows/X11 host available), and `gui_fb.sc` (bare-metal linear
+framebuffer — fully verified, zero OS dependency). `gui_widget.h` is the
+widget tree (containers, button/label/checkbox/textinput/slider, a
+custom-widget extension API); `gui_draw.h`/`gui_font.h` handle
+primitives and bitmap fonts; `gui_png.h`/`gui_svg.h` are from-scratch
+PNG (DEFLATE) and SVG decoders/renderers.
+
 ### [Filesystems](/stdlib/fs)
 
 | Module | Header | Description |
