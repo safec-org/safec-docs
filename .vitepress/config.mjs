@@ -97,6 +97,7 @@ export default defineConfig({
           { text: 'Compile-Time Introspection', link: '/advanced/introspection' }
         ]
       },
+      { text: 'Benchmarks', link: '/benchmarks' },
       { text: 'GitHub', link: 'https://github.com/safec-org/SafeC' }
     ],
     sidebar: {
