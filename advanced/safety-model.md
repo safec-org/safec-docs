@@ -20,7 +20,7 @@ Runtime bounds checks can be suppressed inside `unsafe {}` blocks.
 
 ### 2. Temporal Safety
 
-No use-after-free: region annotations tie reference lifetimes to allocation scopes. A reference to stack memory cannot escape the function, and a reference into an arena is invalidated by `arena_reset<R>()`/`arena_destroy<R>()`/`arena_free_to<R>()`.
+No use-after-free: region annotations tie reference lifetimes to allocation scopes. A reference to stack memory cannot escape the function, a reference into an arena is invalidated by `arena_reset<R>()`/`arena_destroy<R>()`/`arena_free_to<R>()`, and a `&heap T` reference is invalidated by `std::dealloc()` — all three are checked at compile time, not just at runtime.
 
 ```c
 &stack int get_local() {
@@ -29,23 +29,40 @@ No use-after-free: region annotations tie reference lifetimes to allocation scop
 }
 ```
 
-::: warning Arena use-after-reset checking: flow-sensitive, not exhaustive
-The arena side of this (see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset))
-is a generation-counter check, updated as the compiler walks the
+```c
+#include <std/mem.sc>
+
+void heap_example() {
+    &heap int p = new int;
+    std::dealloc(p);
+    *p = 1;              // compile-time error: use of 'p' after std::dealloc() freed it
+    std::dealloc(p);      // compile-time error: double-free, same check
+}
+```
+
+::: warning Flow-sensitive, not exhaustive
+Both the arena and heap sides of this (see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
+and [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking))
+are generation-counter checks, updated as the compiler walks the
 function's actual control flow (if/else branches don't bleed into each
-other; a reset anywhere in a loop body is treated as possibly having
-happened before every statement in that body, not just the ones after
-it) rather than a naive linear pass — sound (a genuine use-after-reset
-is never missed) but not a full dataflow fixpoint, so it can still
+other; a reset/free_to/dealloc anywhere in a loop body is treated as
+possibly having happened before every statement in that body, not just
+the ones after it) rather than a naive linear pass — sound (a genuine
+use-after-reset, use-after-free_to, use-after-free, or double-free is
+never missed) but not a full dataflow fixpoint, so it can still
 over-flag references that are actually valid in less common shapes: the
 loop-body check is a syntactic pre-scan covering the common statement/
-expression forms a reset call appears in, not literally every nesting,
-and doesn't yet extend to `arena_mark<R>()`/`arena_free_to<R>()` inside
-a loop (which use their own, separately-tracked mark-nesting depth, and
-remain conservative across *deeply nested* marks independent of
-flow-sensitivity — a design characteristic of tracking one depth per
-region, not a per-level record). `unsafe {}` remains the escape hatch
-for cases the checker can't (yet) prove safe on its own.
+expression forms a reset/destroy/free_to/dealloc call appears in, not
+literally every nesting; `arena_mark<R>()`/`arena_free_to<R>()` remain
+conservative across *deeply nested* marks independent of
+flow-sensitivity — a design characteristic of tracking one nesting depth
+per region rather than a per-level record, not something loop/branch
+tracking addresses; and heap tracking is intra-procedural and keyed to
+one variable's own declaration, so it doesn't follow the underlying
+allocation across aliases or function-call boundaries (see the warning
+in [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)
+for the exact scope). `unsafe {}` remains the escape hatch for cases the
+checker can't (yet) prove safe on its own.
 :::
 
 ### 3. Aliasing Safety

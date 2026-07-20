@@ -78,20 +78,26 @@ int main() {
 
 This tracking is flow-*sensitive* across if/else branches and loop
 bodies (a reset inside one `if`/`else` branch doesn't affect the other;
-a reset anywhere in a loop body is treated as possibly having happened
-before *every* statement in that body, not just the ones textually after
-it — since a later iteration re-runs the top of the body after an
-earlier iteration's reset) for `arena_reset`/`arena_destroy`. It's still
-sound rather than exhaustive: the loop-body check is a syntactic
-pre-scan covering the common statement/expression forms, not literally
-every possible nesting, and doesn't yet extend to `arena_mark`/
-`arena_free_to` inside a loop. Nested `arena_mark`/`arena_free_to`
-scopes also remain conservative (one nesting-depth counter per region,
-not a full per-level record) independent of flow-sensitivity. See
+a reset/free_to anywhere in a loop body is treated as possibly having
+happened before *every* statement in that body, not just the ones
+textually after it — since a later iteration re-runs the top of the body
+after an earlier iteration's reset) for `arena_reset`/`arena_destroy`
+*and* `arena_free_to`. It's still sound rather than exhaustive: the
+loop-body check is a syntactic pre-scan covering the common statement/
+expression forms, not literally every possible nesting. Nested
+`arena_mark`/`arena_free_to` scopes also remain conservative (one
+nesting-depth counter per region, not a full per-level record)
+independent of flow-sensitivity. See
 [Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
 for the full detail, including the `unsafe {}` workaround for references
 that are genuinely still valid. As with every other region/aliasing check,
 `unsafe {}` bypasses this one too.
+
+The same flow-sensitive generation-counter approach also covers `&heap T`
+references freed with `std::dealloc(p)` — see
+[Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)
+for the heap-specific scope (intra-procedural, keyed to one variable's
+own declaration).
 
 ### Scope Depth Tracking
 
@@ -144,6 +150,18 @@ int x = 42;
 &stack int w = &x;             // ERROR: cannot mutably borrow while
                                //        immutable borrow exists
 ```
+
+::: tip This is what rules out WAR/RAW/WAW hazards
+"One mutable XOR many shared" is the same guarantee usually described in
+terms of *hazards*: a write-after-read, read-after-write, or
+write-after-write on the same memory from two live references at once.
+The "Mutable + Immutable Conflict" example above is a WAR/RAW hazard
+(`w` could write while `r` still expects to read the old value) rejected
+at compile time by the same borrow check that rejects two simultaneous
+mutable borrows (a WAW hazard). This holds for ordinary single-threaded
+aliasing; see [Concurrency](/reference/concurrency) for how the same
+guarantee extends (and where it stops) across `spawn` and `unsafe`.
+:::
 
 ### Scope-Based Tracking
 
@@ -251,12 +269,36 @@ unsafe {
 
 ## Summary of Safety Guarantees
 
+By mechanism:
+
 | Safety Check | Compile-Time | Runtime | Suppressed by `unsafe` |
 |-------------|-------------|---------|----------------------|
 | Definite initialization | Yes | -- | No |
 | Region escape analysis (stack/static/cross-region) | Yes | -- | Yes |
 | Arena-reset invalidation (flow-sensitive across if/else and loops; see above) | Yes | -- | Yes |
+| Heap use-after-free/double-free invalidation (`std::dealloc(p)`, flow-sensitive; see [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)) | Yes | Yes (backstop, wider coverage) | Yes |
 | Aliasing / borrow check | Yes | -- | Yes |
 | Nullability enforcement | Yes | -- | Yes |
 | Static bounds check | Yes | -- | Yes |
 | Dynamic bounds check | -- | Yes | Yes |
+| Allocator double-free/invalid-free tag check (`std::alloc`/`dealloc`, `pool.h`/`slab.h`/`tlsf.h`) | -- | Yes | N/A (runtime-only) |
+
+By named bug class — this maps the mechanisms above onto the classic C
+bug taxonomy, since a single mechanism (e.g. the borrow checker) often
+covers a bug class that goes by several names:
+
+| Bug Class | Compile-Time | Runtime | How |
+|-----------|-------------|---------|-----|
+| Uninitialized variable read | Yes | -- | Definite initialization, above. |
+| Null pointer dereference (`&T`, `?T`, `?&region T`) | Yes | -- | Nullability enforcement, above. Raw C `T*` is **not** covered — dereferencing one is only reachable inside `unsafe {}`, same responsibility model as C. |
+| Buffer overflow / overread, constant index | Yes | -- | Static bounds check, above. |
+| Buffer overflow / overread, dynamic index | -- | Yes | Runtime bounds check, above — proving an arbitrary runtime-computed index in-bounds ahead of time is undecidable in general, so this is a deliberate runtime backstop, not a gap. |
+| Data race: WAR/RAW/WAW on aliased data, single-threaded | Yes | -- | The borrow checker's "one mutable XOR many shared" rule — see the tip above the "Scope-Based Tracking" section. |
+| Data race: across threads | Yes | -- | `spawn`/scoped-spawn reject mutable non-`&static` reference arguments; see [Concurrency](/reference/concurrency). |
+| Data race: inside `unsafe` / raw pointers | -- | -- | Deliberately unchecked — `unsafe` is the explicit opt-out for aliasing tracking, same as C. Not a bug in the checker; it's the boundary by design. |
+| Use-after-free: stack references | Yes | -- | Region escape analysis, above. |
+| Use-after-free: arena references | Yes | -- | Flow-sensitive generation counter — sound but not exhaustive across deeply nested marks or unusual expression nesting inside a loop; see the warning under [Arena References Die on Reset](#arena-references-die-on-reset). |
+| Use-after-free: heap references (`std::dealloc(p)`) | Yes | Yes (backstop) | Flow-sensitive per-variable generation counter — intra-procedural and syntactic (a bare identifier argument to `std::dealloc`); see [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking) for the exact scope, including what it does *not* cover (raw `free()`, allocator-instance `.dealloc()` methods, cross-alias/cross-function frees). |
+| Double free | Yes (`std::dealloc(p)` on a tracked `&heap T`, or a repeated arena reset/free_to) | Yes (every other allocator, and as a backstop for the compile-time cases too) | Same mechanism/scope as the heap-UAF row above, plus the allocator tag check below for everything it doesn't cover. |
+| Mismatched free (freeing a pointer with the wrong allocator's free function) | -- | Yes | Each allocator (`std::alloc`/`dealloc`, and `pool.h`/`slab.h`/`tlsf.h`'s allocators) tags its own blocks and checks the tag on free. The compiler doesn't track *which* allocator produced a given pointer, so a pointer freed through the wrong allocator's free function is caught when that allocator's own tag check rejects it at runtime, not ahead of time. |
+| Memory leak | -- | -- | Not checked, at compile time or runtime. General leak detection needs whole-program ownership/escape analysis — the same reason Rust's own borrow checker doesn't guarantee leak-freedom either (`Rc` cycles and `mem::forget` are "safe" leaks there too). Pair every allocation with `defer std::dealloc(...)` (or `errdefer` for the failure-only case) right next to it, so cleanup is structurally hard to forget rather than compiler-enforced — see [Defer](/reference/control-flow#defer) and [Error Handling](/book/ch08-error-handling). |

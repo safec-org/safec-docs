@@ -43,15 +43,23 @@ unsigned long size = 10UL * sizeof(int);   // OK -- both operands unsigned long
 
 `sizeof` returns `unsigned long`; a bare `10` is `int`. Multiplying them
 needs the same type on both sides, so the literal gets an explicit `UL`
-suffix. The same rule applies to explicit casts between differently-sized
-or differently-signed types generally — if a conversion isn't a pure
-widening within the same signedness (`int` → `long`, `float` → `double`),
-write it out:
+suffix — that's a binary-operator rule (both operands of `+`/`*`/... must
+already be the same type). Assigning or passing a value, on the other
+hand, allows one implicit conversion: *widening* — any smaller numeric
+type to a bigger one, including crossing from integer to float (`int` →
+`double`, not just `int` → `long`/`float` → `double`):
 
 ```c
 int x = 42;
-double dx = (double)x;    // explicit cast required
+double dx = x;             // implicit: int -> double widens safely
+
+long long big = 100LL;
+int small = (int)big;      // explicit cast required: this narrows
 ```
+
+Narrowing (bigger → smaller, or float → integer) always needs an
+explicit cast — see [Types](/reference/types#type-conversions) for the
+full widening rule.
 
 This shows up constantly once you're calling into libc functions whose
 signatures use `size_t`/`unsigned long` — get used to reaching for a `UL`

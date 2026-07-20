@@ -117,6 +117,55 @@ void process2() {
 }   // std::dealloc(buf) runs here via the synthesized defer
 ```
 
+### Compile-Time Use-After-Free and Double-Free Checking
+
+A `&heap T` variable freed with `std::dealloc(p)` is tracked the same
+flow-sensitive way arena references are (if/else branches checked
+independently and merged conservatively; loop bodies pre-scanned so a
+free on one iteration is visible to code textually before it on the
+next) — reading `p` after that point is a compile error, and freeing it
+again is a double-free, also caught at compile time:
+
+```c
+#include <std/mem.sc>
+
+void f() {
+    &heap int p = new int;
+    *p = 42;
+    std::dealloc(p);
+    *p = 43;              // ERROR: use of 'p' (&heap reference) after
+                           //        std::dealloc() freed it
+    std::dealloc(p);       // ERROR: same check -- this is the double-free
+}
+```
+
+Rebinding recovers `p`, same as arena references:
+
+```c
+&heap int p = new int;
+std::dealloc(p);
+p = new int;        // OK: fresh allocation, fresh binding
+*p = 42;             // OK
+std::dealloc(p);
+```
+
+::: warning Intra-procedural, and 'std::dealloc(p)' specifically
+This check is keyed to *this variable's own declaration*, not to the
+underlying allocation — freeing a heap block through a different alias
+(a second variable pointing at the same allocation, or the same pointer
+value threaded through a different function) isn't tracked, so it's
+sound within a function but not exhaustive across aliases or call
+boundaries. It also only recognizes calls that resolve syntactically to
+`std::dealloc(p)` with a bare identifier argument — a raw libc `free(p)`
+call (as in the first example on this page, which predates this check),
+an allocator-instance method like a `PoolAllocator`'s `.dealloc()` (see
+[std/alloc/pool.h](/stdlib/index)), or `std::dealloc(some_expr())` with a
+non-identifier argument fall outside this analysis entirely and rely on
+the runtime double-free/invalid-free protection described in
+[Safety](/reference/safety) instead. `unsafe {}` bypasses the check, same
+as every other region rule.
+:::
+
 ## Arena Regions
 
 Arenas provide bulk allocation and deallocation. You declare a region, allocate into it with `new<R>`, and reset all allocations at once with `arena_reset<R>()`.
@@ -210,8 +259,9 @@ scratch->v = 5;   // ERROR: 'scratch' was bound after the mark — correctly cau
 Like the generation counter described below, this is tracked with a
 running mark-nesting *depth*, updated as the compiler walks the
 function — see "Arena References Die on Reset" below for how much of
-that walk is now flow-*sensitive* (if/else branches, and loop bodies for
-plain `arena_reset`/`arena_destroy`). A reference bound while any
+that walk is now flow-*sensitive* (if/else branches, and loop bodies,
+including `arena_mark`/`arena_free_to` as well as plain
+`arena_reset`/`arena_destroy` — see below). A reference bound while any
 `arena_mark<R>()` scope is active (depth > 0) is invalidated by *any*
 later `arena_free_to<R>()` call while still inside that nesting —
 precise for the common single-level "mark, allocate scratch, free_to"
@@ -219,17 +269,35 @@ pattern shown above, but conservative for deeply nested marks where an
 outer scope's own references could, in principle, survive an inner
 scope's free_to: this is a design characteristic of tracking one nesting
 depth per region rather than a per-mark-level record, independent of
-flow-sensitivity, so it isn't something branch/loop tracking can fix.
-One remaining flow-insensitive gap: the loop pre-scan described below
-(for catching a reset on an earlier iteration invalidating a use earlier
-in the same loop body) currently only looks for `arena_reset`/
-`arena_destroy` calls, not `arena_mark`/`arena_free_to` — a mark/free_to
-pair inside a loop body is fine (each iteration's free_to cancels that
-iteration's mark, so the depth returns to baseline every time, as in the
-scratch-allocation example above), but an *unpaired* `arena_free_to<R>()`
-inside a loop, invalidating a reference used earlier in the same body on
-a later iteration, is not yet caught. `unsafe {}` bypasses the check
-entirely, same as every other region rule.
+flow-sensitivity, so it isn't something branch/loop tracking can fix
+(sound either way — it can over-flag a deeply-nested-mark reference that
+was actually still valid, but it never misses a genuine use-after-free_to).
+
+The loop pre-scan described below (for catching an earlier-iteration call
+invalidating a use earlier in the same loop body) now covers
+`arena_mark`/`arena_free_to` the same way it already covered
+`arena_reset`/`arena_destroy`: a mark/free_to pair inside a loop body is
+fine (each iteration's free_to cancels that iteration's mark, so the
+depth returns to baseline every time, as in the scratch-allocation
+example above), and an *unpaired* `arena_free_to<R>()` inside a loop,
+invalidating an outer reference used earlier in the same body on a later
+iteration, is caught too:
+
+```c
+region Pool { capacity: 4096 }
+
+void process() {
+    unsigned long mark = arena_mark<Pool>();
+    &arena<Pool> struct Sample keep = new<Pool> struct Sample;
+    for (int i = 0; i < 3; i = i + 1) {
+        keep->v = 1;                 // ERROR: could be invalidated by the
+                                      // free_to below on a prior iteration
+        arena_free_to<Pool>(mark);   // unpaired -- no mark() in this loop body
+    }
+}
+```
+
+`unsafe {}` bypasses the check entirely, same as every other region rule.
 :::
 
 ### Arena Runtime Representation
@@ -332,17 +400,21 @@ control flow, not just its raw text order — two cases worth knowing:
   }
   ```
   This loop-body check is a syntactic pre-scan for `arena_reset`/
-  `arena_destroy` calls reachable anywhere in the body (not a full
-  type-checking pass) — it covers the common statement/expression forms
-  such a call appears in, not literally every possible expression
-  nesting, and (per the warning above) doesn't yet extend to
-  `arena_mark`/`arena_free_to`.
+  `arena_destroy`/`arena_free_to` calls reachable anywhere in the body
+  (not a full type-checking pass) — it covers the common statement/
+  expression forms such a call appears in, not literally every possible
+  expression nesting. The same pre-scan catches an unpaired
+  `arena_free_to<R>()` inside a loop invalidating an outer reference used
+  earlier in the same body — see the nested-marks warning above for the
+  one thing it still doesn't attempt (per-nesting-level precision, a
+  separate design characteristic of the mark/free_to counters themselves).
 
 Both of these are still sound in the same direction as the rest of this
-checker: a real use-after-reset is never missed, and the remaining
-imprecision (deeply unusual expression nesting inside a loop; an
-unpaired `arena_free_to` inside a loop) only means some code that's
-actually safe might still be conservatively flagged — never the reverse.
+checker: a real use-after-reset (or use-after-free_to) is never missed,
+and the remaining imprecision (deeply unusual expression nesting inside a
+loop; conservativeness across deeply nested marks) only means some code
+that's actually safe might still be conservatively flagged — never the
+reverse.
 
 Rebinding a stale reference to a fresh allocation recovers it — the check
 is about reading a *specific* stale binding, not about the variable name:
