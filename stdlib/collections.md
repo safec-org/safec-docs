@@ -548,14 +548,11 @@ void list_reverse(&List l);
 ### Generic Wrappers
 
 ```c
+generic<T> int list_push_front_t(&List l, T val);
 generic<T> int list_push_back_t(&List l, T val);
 generic<T> T*  list_front_t(&List l);   // see tip above -- needs a typed target
 generic<T> T*  list_back_t(&List l);    // see tip above -- needs a typed target
 ```
-
-::: warning No `list_push_front_t`
-Only `list_push_back_t` exists as a generic wrapper — there's no generic front-push. Use `list_push_front(&List l, const void* elem)` with an `&x` (through `unsafe`) if you need to push onto the front with a typed value; a previous version of this page's example called a `list_push_front_t` that isn't actually declared anywhere in `list.h`.
-:::
 
 ### Example
 
@@ -569,9 +566,7 @@ int main() {
 
     std::list_push_back_t(&l, 10);
     std::list_push_back_t(&l, 20);
-
-    int five = 5;
-    unsafe { std::list_push_front(&l, (const void*)&five); }
+    std::list_push_front_t(&l, 5);
 
     int* front = std::list_front_t(&l);   // T=int inferred from the 'int*' target
     int* back = std::list_back_t(&l);
@@ -745,9 +740,15 @@ struct BTree {
 };
 ```
 
-::: warning No `btree_new()` -- zero-initialize instead
-There's no constructor free function. Declare a plain `struct BTree t;` and set `pool_used = 0; root = 0UL; count = 0UL;` yourself before use — verified working below. (`pool` itself doesn't need zeroing; nodes are claimed from it lazily as `pool_used` grows.)
-:::
+```c
+// Initialise (or reset) an empty tree in place -- only the three scalar
+// fields above are touched; 'pool' is left untouched (nodes are claimed
+// from it lazily as 'pool_used' grows, so zeroing it up front would be
+// pure waste). Not a by-value 'btree_new()' constructor, since 'pool'
+// makes BTree large enough (~47 KB) that returning it by value would copy
+// the whole thing on every call.
+void btree_init(&stack BTree t);
+```
 
 ### Generic Wrappers
 
@@ -773,9 +774,7 @@ void print_entry(unsigned long key, void* val, void* user) {
 
 int main() {
     struct BTree t;
-    t.pool_used = 0;
-    t.root      = 0UL;
-    t.count     = 0UL;
+    std::btree_init(&t);
 
     int v10 = 100; int v20 = 200; int v5 = 50;
     int* p10;

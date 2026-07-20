@@ -59,22 +59,17 @@ int main(void) {
 }
 ```
 
-::: danger `<std/test/test.h>` currently requires `--compat-preprocessor`, which `safeguard test` never passes
+::: tip Why this compiles despite `test.h`'s function-like macros
 `<std/test/test.h>` unconditionally `#define`s several function-like
-macros (`ASSERT_EQ`, `ASSERT_TRUE`, ...) at the top of the header — and
+macros (`ASSERT_EQ`, `ASSERT_TRUE`, ...) at the top of the header, and
 merely *including* a header containing function-like macro definitions
-fails ("function-like macros are not allowed in safe mode ... or pass
---compat-preprocessor") regardless of whether those macros are ever
-called, even in the macro-free calling style shown above (which calls
-`std::test_assert_eq_i` directly instead of the `ASSERT_EQ` macro).
-`safeguard`'s builder never passes `--compat-preprocessor` when compiling
-a project's own `src/`/`tests/` files (only when building `std/` itself),
-and there is currently no `Package.toml` setting to request it. **As a
-result, any file under `tests/` that includes `<std/test/test.h>` fails to
-compile under real `safeguard test` today.** Until this gap is closed,
-either invoke `safec --compat-preprocessor` directly instead of going
-through `safeguard test`, or write the pass/fail check in a test file by
-hand without including `<std/test/test.h>` at all.
+normally fails outside `--compat-preprocessor` mode ("function-like
+macros are not allowed in safe mode..."), even in the macro-free calling
+style shown above. `safeguard test` specifically compiles every file
+under `tests/` with `--compat-preprocessor` (unlike `build`/`check`,
+which compile `src/` without it) precisely so `<std/test/test.h>` can be
+included — verified against a real `safeguard test` run of the example
+above.
 :::
 
 ## `format` — reindenter

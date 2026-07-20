@@ -57,10 +57,12 @@ literally every nesting; `arena_mark<R>()`/`arena_free_to<R>()` remain
 conservative across *deeply nested* marks independent of
 flow-sensitivity — a design characteristic of tracking one nesting depth
 per region rather than a per-level record, not something loop/branch
-tracking addresses; and heap tracking is intra-procedural and keyed to
-one variable's own declaration, so it doesn't follow the underlying
-allocation across aliases or function-call boundaries (see the warning
-in [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)
+tracking addresses. Heap tracking is intra-procedural, and follows a
+direct-copy alias one hop deep — `&heap T q = p;` or `q = p;` shares p's
+own tracking key, so `std::dealloc()` through *either* name correctly
+invalidates both — but no further: an allocation reached through a struct
+field, array element, or function parameter/return isn't tracked (see the
+warning in [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)
 for the exact scope). `unsafe {}` remains the escape hatch for cases the
 checker can't (yet) prove safe on its own.
 :::

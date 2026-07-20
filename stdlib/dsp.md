@@ -137,9 +137,7 @@ FComplex complex_to_fixed(Complex c);   // quantize a design-time double result 
 Complex  fcomplex_to_float(FComplex c);
 ```
 
-::: warning Operator calls need an addressable receiver
-`a * b + c` works when `a`/`b`/`c` are named locals, but a chained call like `complex_new(x,0.0) * zInv` fails to compile — a SafeC operator call needs an addressable (lvalue) receiver, and `complex_new(...)`'s return value is a temporary. Bind each intermediate to a named variable first: `struct Complex cx = complex_new(x, 0.0); struct Complex t = cx * zInv;`.
-:::
+`a * b + c` works with named locals, and so does chaining an operator call directly onto a temporary — `complex_new(x,0.0) * zInv` compiles and evaluates correctly; the temporary is materialized into a hidden stack slot for the call, no need to bind it to a named variable first.
 
 ---
 

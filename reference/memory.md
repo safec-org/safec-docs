@@ -150,20 +150,23 @@ std::dealloc(p);
 ```
 
 ::: warning Intra-procedural, and 'std::dealloc(p)' specifically
-This check is keyed to *this variable's own declaration*, not to the
-underlying allocation — freeing a heap block through a different alias
-(a second variable pointing at the same allocation, or the same pointer
-value threaded through a different function) isn't tracked, so it's
-sound within a function but not exhaustive across aliases or call
-boundaries. It also only recognizes calls that resolve syntactically to
-`std::dealloc(p)` with a bare identifier argument — a raw libc `free(p)`
-call (as in the first example on this page, which predates this check),
-an allocator-instance method like a `PoolAllocator`'s `.dealloc()` (see
-[std/alloc/pool.h](/stdlib/index)), or `std::dealloc(some_expr())` with a
-non-identifier argument fall outside this analysis entirely and rely on
-the runtime double-free/invalid-free protection described in
-[Safety](/reference/safety) instead. `unsafe {}` bypasses the check, same
-as every other region rule.
+This check is keyed to the underlying allocation, followed through one
+hop of direct-copy aliasing: `&heap T q = p;` and `q = p;` (a bare-
+identifier initializer/RHS) share `p`'s own tracking key, so
+`std::dealloc()` through *either* `p` or `q` correctly invalidates both.
+It doesn't go further than that single hop — an allocation reached
+through a struct field, an array element, or a different function
+(the same pointer value threaded through a call) isn't tracked, so it's
+sound within a function but not exhaustive across every possible alias
+shape or call boundaries. It also only recognizes calls that resolve
+syntactically to `std::dealloc(p)` with a bare identifier argument — a
+raw libc `free(p)` call (as in the first example on this page, which
+predates this check), an allocator-instance method like a
+`PoolAllocator`'s `.dealloc()` (see [std/alloc/pool.h](/stdlib/index)),
+or `std::dealloc(some_expr())` with a non-identifier argument fall
+outside this analysis entirely and rely on the runtime double-free/
+invalid-free protection described in [Safety](/reference/safety) instead.
+`unsafe {}` bypasses the check, same as every other region rule.
 :::
 
 ## Arena Regions

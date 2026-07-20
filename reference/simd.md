@@ -15,11 +15,11 @@ float first = c[0];           // extractelement — reads one lane
 c[2] = 999.0;                 // insertelement — writes one lane
 ```
 
-::: warning No implicit float -> double widening
-`double first = c[0];` doesn't compile — `c[0]` is `float` (the vector's
-element type), and there's no implicit `float` -> `double` conversion.
-Declare `first` as `float`, as shown above.
-:::
+`c[0]` is `float` (the vector's element type) — assigning it to a `double`
+widens implicitly, the same safe smaller-to-bigger conversion that applies
+to every other numeric type (see [Types](/reference/types#type-conversions)):
+`double first = c[0];` compiles and reads back the exact value, no cast
+needed.
 
 `T` can be any integer or floating-point primitive; `N` must be a
 compile-time constant. There's no restriction to "nice" hardware widths —
