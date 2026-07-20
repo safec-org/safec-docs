@@ -172,7 +172,7 @@ export default defineConfig({
         {
           text: 'Serialization',
           items: [
-            { text: 'JSON / XML / HTML', link: '/stdlib/serial' },
+            { text: 'JSON / XML / HTML / CSV / YAML', link: '/stdlib/serial' },
           ]
         },
         {

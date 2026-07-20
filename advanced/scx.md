@@ -100,7 +100,7 @@ Generated code calls into a small runtime under `std/scx/scx.h`:
 
 ```c
 namespace std {
-void scx_append_esc(struct String* buf, const char* s); // HTML-escape + append
+void scx_append_esc(&String buf, const char* s); // HTML-escape + append
 }
 ```
 
