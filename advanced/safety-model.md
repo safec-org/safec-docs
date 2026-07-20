@@ -41,7 +41,7 @@ void heap_example() {
 ```
 
 ::: warning Flow-sensitive, not exhaustive
-Both the arena and heap sides of this (see [Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
+Both the arena and heap sides of this (see [Memory & Regions](/reference/memory#_4-arena-references-die-on-reset)
 and [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking))
 are generation-counter checks, updated as the compiler walks the
 function's actual control flow (if/else branches don't bleed into each
@@ -110,6 +110,23 @@ References are non-null by default. There is no null reference in safe SafeC cod
 ### 7. Determinism
 
 No hidden runtime costs. SafeC does not insert garbage collection, reference counting, or implicit heap allocations. Every allocation is explicit in the source code. The performance model is transparent — what you write is what runs.
+
+## Memory Safety Compared to C, C++, Rust, and Zig
+
+[Comparison](/guide/comparison) has a one-line "Memory Safety: Yes/No" summary across the same five languages; this breaks that single row out into the properties above, since "yes" and "no" hide real differences in *when* each language checks (compile time vs. runtime vs. not at all) and *how completely* (every safe-mode program vs. an opt-in build mode vs. nothing).
+
+| Property | C | C++ | Rust | Zig | SafeC |
+|---|---|---|---|---|---|
+| Spatial safety (buffer overflow) | None — `[]` has no check, OOB is UB | None for raw arrays/`[]`; opt-in via `.at()`/`std::span` (throws) | Compile-time for const indices, runtime panic otherwise — always on in safe code | Runtime check in Debug/ReleaseSafe; **compiled out** (UB) in ReleaseFast/ReleaseSmall | Compile-time for const indices, runtime check otherwise — always on outside `unsafe` |
+| Temporal safety (use-after-free) | None — manual `free()`, no tracking | None for raw pointers/refs; RAII (`unique_ptr`/`shared_ptr`) helps only if used consistently, not enforced | Compile-time — the borrow checker rejects any use after move/drop; sound | None from the compiler; `GeneralPurposeAllocator` catches some in Debug builds only, at runtime | Compile-time, region-based (stack/arena/heap) — flow-sensitive and sound but [not exhaustive](#_2-temporal-safety); `unsafe {}` opts out |
+| Double-free | None — UB | Same as C for raw `delete`; smart pointers avoid it structurally unless defeated by raw aliasing | Compile-time — only one owner can ever call drop | Runtime-only, opt-in (`GeneralPurposeAllocator` in Debug) | Compile-time (same check as above), plus a runtime tagged-header guard in `std::alloc`/`std::dealloc` as defense in depth |
+| Uninitialized reads | None — UB | None — UB | Compile-time — definite-assignment analysis | `undefined` is explicit and typed; Debug builds poison it (`0xaa`) to make bugs *visible*, not prevent them | Compile-time — definite-initialization check |
+| Null-pointer dereference | None — raw pointers, untracked | None for raw pointers; references can't be null by construction but can be formed from a deref'd null pointer (UB), uncaught | Compile-time — no null in safe code, `Option<T>` must be matched/unwrapped | Compile-time — optionals (`?T`) must be explicitly unwrapped | Compile-time — `?&T` requires `match`/`.is_null()`/`.default()`/`unsafe` to read (see [Null Safety](#_6-null-safety)) |
+| Data races | None — no language-level concurrency safety | None — races are UB; `atomic`/mutexes are opt-in tools, not enforced | Compile-time — `Send`/`Sync` traits enforce shared-state safety in safe code | None — no type-system enforcement, manual synchronization only | Compile-time — `spawn()` isolates data by default; sharing mutable state requires explicit synchronization |
+| Enforcement point | N/A | Mostly none; a few opt-in runtime checks | Compile-time first (borrow checker), runtime for the genuinely dynamic parts (bounds, panics) | Runtime, and only in safety-checked build modes — the *same binary* can be compiled with checks off | Compile-time first, runtime only where the check is inherently dynamic (index bounds) — always on outside `unsafe` |
+| Escape hatch | N/A — the whole language is this way | N/A — the whole language is this way | `unsafe {}` blocks/functions | No lexical escape hatch — safety is a whole-build-mode setting, not a per-block opt-out | `unsafe {}` blocks — lexically scoped, non-propagating (see below) |
+
+The throughline: C and C++ don't check most of these at all (undefined behavior is the "checked" state most of the time). Zig checks several of them, but as a *build-mode* choice — the same source either has the checks or doesn't, decided once for the whole binary, not per-line. Rust and SafeC both check at compile time by default and require an explicit, lexically-scoped opt-out (`unsafe {}`) to turn a check off for a specific block of code — that's the property this page's own [`unsafe` escape hatch](#the-unsafe-escape-hatch) section is describing. Where Rust and SafeC differ is *how* they prove temporal safety (ownership/borrowing vs. region membership — see [Compared to Rust](/guide/comparison#compared-to-rust) for that trade-off in detail) and how complete the proof is: Rust's borrow checker is a sound, complete static proof for the patterns it accepts (it may reject valid programs, but never accepts an unsound one); SafeC's region/generation-counter checks are sound but intentionally incomplete in a few documented shapes (nested arena marks, heap aliasing beyond one hop — see the warnings throughout this page), trading some precision for a simpler, more C-compatible mental model.
 
 ## Safety Analysis Phases
 

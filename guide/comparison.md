@@ -23,6 +23,8 @@ SafeC occupies a specific point in the design space of systems programming langu
 | Struct Methods | No | Classes | impl blocks | Methods | Struct methods |
 | Operator Overloading | No | Yes | Traits | No | Yes |
 
+The "Memory Safety" row above is necessarily a single yes/no — see [Formal Safety Model's memory-safety comparison](/advanced/safety-model#memory-safety-compared-to-c-c-rust-and-zig) for a property-by-property breakdown (spatial safety, use-after-free, double-free, null safety, data races, ...) of what each language actually checks, and whether that checking happens at compile time, at runtime, or as an opt-in build mode.
+
 ## Compared to C
 
 SafeC is a superset of C. Valid C patterns work in SafeC, but SafeC adds compile-time safety checks that C lacks.

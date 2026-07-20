@@ -88,7 +88,7 @@ expression forms, not literally every possible nesting. Nested
 `arena_mark`/`arena_free_to` scopes also remain conservative (one
 nesting-depth counter per region, not a full per-level record)
 independent of flow-sensitivity. See
-[Memory & Regions](/reference/memory#4-arena-references-die-on-reset)
+[Memory & Regions](/reference/memory#_4-arena-references-die-on-reset)
 for the full detail, including the `unsafe {}` workaround for references
 that are genuinely still valid. As with every other region/aliasing check,
 `unsafe {}` bypasses this one too.

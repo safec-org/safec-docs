@@ -187,7 +187,7 @@ re-runs the top of the body after an earlier iteration's reset — but
 it's a sound approximation, not a full control-flow dataflow analysis,
 so it can still occasionally flag code that's actually safe at runtime
 in less common shapes; see [Memory &
-Regions](/reference/memory#4-arena-references-die-on-reset) for the exact
+Regions](/reference/memory#_4-arena-references-die-on-reset) for the exact
 shape of what's covered and the `unsafe` workaround when you're sure a
 flagged reference really is still valid.)
 
