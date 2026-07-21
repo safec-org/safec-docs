@@ -309,6 +309,15 @@ Same shape, scaled up 512→1024→256, batch 128 (~50x the multiply-adds/matmul
 
 ## Machine learning, GPU backends — CUDA, ROCm, Vulkan/SPIR-V, WebGPU
 
+This machine (Apple M1 Pro, see methodology below) has no NVIDIA/AMD GPU, no CUDA/ROCm toolkit, no Vulkan SDK/driver, and no WebGPU native library — so unlike the MPS numbers above, **nothing in this section is measured**. Every function is hand-written against the real vendor C ABI and type-checks under `safec`, but is unlinkable/unrunnable here; treat it as "should be right," not "confirmed right," until sanity-checked on real hardware. Each backend hits a different wall:
+
+| Backend | Elementwise ops | Matmul (naive kernel) | Matmul (vendor BLAS) | Gap |
+|---|---|---|---|---|
+| CUDA | real (PTX, text IR) | real (PTX) | real (cuBLAS) | none — just no NVIDIA GPU here |
+| ROCm | always returns 0 | always returns 0 | real (rocBLAS) | HSACO is a *binary* IR; no ROCm toolchain here to compile a kernel image |
+| Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is a *binary* IR; no glslc/glslangValidator here to compile one |
+| WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | none — just no wgpu-native/Dawn library here |
+
 [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_spirv.h](/benchmarks/stdlib/gpu_spirv.h) · [gpu_spirv.sc](/benchmarks/stdlib/gpu_spirv.sc) · [gpu_webgpu.h](/benchmarks/stdlib/gpu_webgpu.h) · [gpu_webgpu.sc](/benchmarks/stdlib/gpu_webgpu.sc) · [tensor_cuda.h](/benchmarks/stdlib/tensor_cuda.h) · [tensor_cuda.sc](/benchmarks/stdlib/tensor_cuda.sc) · [tensor_rocm.h](/benchmarks/stdlib/tensor_rocm.h) · [tensor_rocm.sc](/benchmarks/stdlib/tensor_rocm.sc)
 
 ## Machine learning, device selection
