@@ -320,6 +320,24 @@ This machine (Apple M1 Pro, see methodology below) has no NVIDIA/AMD GPU, no CUD
 
 [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_spirv.h](/benchmarks/stdlib/gpu_spirv.h) · [gpu_spirv.sc](/benchmarks/stdlib/gpu_spirv.sc) · [gpu_webgpu.h](/benchmarks/stdlib/gpu_webgpu.h) · [gpu_webgpu.sc](/benchmarks/stdlib/gpu_webgpu.sc) · [tensor_cuda.h](/benchmarks/stdlib/tensor_cuda.h) · [tensor_cuda.sc](/benchmarks/stdlib/tensor_cuda.sc) · [tensor_rocm.h](/benchmarks/stdlib/tensor_rocm.h) · [tensor_rocm.sc](/benchmarks/stdlib/tensor_rocm.sc)
 
+## Machine learning, fp16 / bf16 support
+
+SafeC's type system has no native 16-bit float (`Type.h`'s `TypeKind` only has `Float32`/`Float64` — adding one would be a real compiler feature: lexer, parser, sema's arithmetic-promotion rules, LLVM codegen, not a stdlib change). What's here instead is the standard approach systems use before/without a compiler-native half type: fp16 and bf16 values are carried as raw bits in `unsigned short` for storage, with explicit, correctly-rounded (round-to-nearest-even) conversion to/from `float` — and, on the MPS backend, real native `half`/`bfloat` GPU compute, not just halved storage.
+
+**Conversion correctness (CPU, fully verified — not just type-checked):**
+
+| Check | Result |
+|---|---|
+| Known bit patterns (fp16: 1.0, -1.0, 0.0, -0.0, 2.0, 0.5, max normal 65504, overflow→inf, smallest subnormal, inf; bf16: 1.0, -1.0, 0.0, 2.0, π) | all exact |
+| fp16 subnormal idempotence sweep (every mantissa 1–1023, `fp16→f32→fp16`) | 1023/1023 exact |
+| fp16 normal-range idempotence sweep (every exponent × sampled mantissas, 330 patterns) | 330/330 exact |
+| fp16 round-trip on representable values (1.0, -3.5, 0.125, 100.0, 4096.0, ...) | exact |
+| bf16 round-trip (lossy by construction — 7 mantissa bits) | within expected ~0.4% relative error |
+
+[float16.h](/benchmarks/stdlib/float16.h) · [float16.sc](/benchmarks/stdlib/float16.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gpu_webgpu.h](/benchmarks/stdlib/gpu_webgpu.h) · [gpu_webgpu.sc](/benchmarks/stdlib/gpu_webgpu.sc)
+
+**Sources:** [train_gpu_f16.sc](/benchmarks/ml/safec/train_gpu_f16.sc) · [train_gpu_bf16.sc](/benchmarks/ml/safec/train_gpu_bf16.sc)
+
 ## Machine learning, device selection
 
 Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs ...) — precise, but awkward for a caller that wants to pick a device once rather than hard-code a function name per call site.
