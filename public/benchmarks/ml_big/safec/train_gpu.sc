@@ -2,9 +2,8 @@ extern int printf(const char* fmt, ...);
 extern double drand48();
 extern void srand48(long seed);
 #include <std/ml/tensor_gpu.h>
-#include <std/ml/tensor_nn.h>
-#include <std/ml/gpu_mps.h>
-#include <std/time.h>
+#include <std/ml/tensor_gpu.sc>
+#include <std/time.sc>
 
 #define BATCH 128UL
 #define IN_DIM 512UL
@@ -17,29 +16,26 @@ void sgd_update(&Tensor w) {
     unsafe {
         unsigned long i = 0UL;
         while (i < w->size) {
-            double* data = (double*)w->data;
-            double* grad = (double*)w->grad;
-            data[i] = data[i] - LR * grad[i];
+            float* data = (float*)w->data;
+            float* grad = (float*)w->grad;
+            data[i] = data[i] - (float)LR * grad[i];
             i = i + 1UL;
         }
     }
 }
 
-double now_ms() {
-    return std::time_ns_to_ms(std::time_mono_ns());
-}
+double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 int main() {
+    if (!std::mps_available()) { printf("no MPS device -- skipping\n"); return 0; }
     srand48(42L);
 
-    if (!std::mps_available()) { printf("no MPS device\n"); return 1; }
-
-    double xbuf[BATCH * IN_DIM];
-    double tbuf[BATCH * OUT_DIM];
+    float xbuf[BATCH * IN_DIM];
+    float tbuf[BATCH * OUT_DIM];
     unsigned long i = 0UL;
-    while (i < BATCH * IN_DIM) { xbuf[i] = drand48() - 0.5; i = i + 1UL; }
+    while (i < BATCH * IN_DIM) { xbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
     i = 0UL;
-    while (i < BATCH * OUT_DIM) { tbuf[i] = drand48() - 0.5; i = i + 1UL; }
+    while (i < BATCH * OUT_DIM) { tbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
 
     &Tensor X = std::tensor_from_2d(xbuf, BATCH, IN_DIM, 0);
     &Tensor target = std::tensor_from_2d(tbuf, BATCH, OUT_DIM, 0);
@@ -47,9 +43,9 @@ int main() {
     &Tensor W1 = std::tensor_new_2d(IN_DIM, HIDDEN, 1);
     &Tensor W2 = std::tensor_new_2d(HIDDEN, OUT_DIM, 1);
     i = 0UL;
-    while (i < IN_DIM * HIDDEN) { unsafe { double* d = (double*)W1->data; d[i] = (drand48() - 0.5) * 0.1; } i = i + 1UL; }
+    while (i < IN_DIM * HIDDEN) { unsafe { float* d = (float*)W1->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
     i = 0UL;
-    while (i < HIDDEN * OUT_DIM) { unsafe { double* d = (double*)W2->data; d[i] = (drand48() - 0.5) * 0.1; } i = i + 1UL; }
+    while (i < HIDDEN * OUT_DIM) { unsafe { float* d = (float*)W2->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
 
     double t0 = now_ms();
     int step = 0;
@@ -58,17 +54,8 @@ int main() {
         std::tensor_zero_grad(W1);
         std::tensor_zero_grad(W2);
 
-        // Forward matmul AND relu both run on the GPU now, chained onto
-        // one shared command buffer with a single sync
-        // (tensor_gpu_batch_begin/end — see tensor_gpu.h) instead of one
-        // sync per op. sub/mul/sum and the entire backward pass still
-        // stay on the CPU -- std::ml has no GPU-backed backward or
-        // elementwise-loss ops wired into the autograd graph, only
-        // forward matmul/relu (see tensor_gpu.h).
-        std::tensor_gpu_batch_begin();
         &Tensor H = std::tensor_relu_gpu(std::tensor_matmul_gpu(X, W1));
         &Tensor Y = std::tensor_matmul_gpu(H, W2);
-        std::tensor_gpu_batch_end();
         &Tensor diff = std::tensor_sub(Y, target);
         &Tensor sq = std::tensor_mul(diff, diff);
         &Tensor loss = std::tensor_sum(sq);
@@ -77,28 +64,11 @@ int main() {
         sgd_update(W1);
         sgd_update(W2);
 
-        unsafe { lastLoss = loss->data[0]; }
+        unsafe { lastLoss = (double)loss->data[0]; }
         step = step + 1;
     }
     double t1 = now_ms();
 
     printf("train_ms=%.3f last_loss=%.6f\n", t1 - t0, lastLoss);
-    printf("throughput_samples_per_sec=%.2f\n", (double)((unsigned long)STEPS * BATCH) / ((t1 - t0) / 1000.0));
-
-    // Inference-only benchmark
-    double t2 = now_ms();
-    int inf = 0;
-    double checksum = 0.0;
-    while (inf < 200) {
-        std::tensor_gpu_batch_begin();
-        &Tensor H2 = std::tensor_relu_gpu(std::tensor_matmul_gpu(X, W1));
-        &Tensor Y2 = std::tensor_matmul_gpu(H2, W2);
-        std::tensor_gpu_batch_end();
-        unsafe { checksum = checksum + Y2->data[0]; }
-        inf = inf + 1;
-    }
-    double t3 = now_ms();
-    printf("inference_ms_per_200=%.3f checksum=%.6f\n", t3 - t2, checksum);
-
     return 0;
 }

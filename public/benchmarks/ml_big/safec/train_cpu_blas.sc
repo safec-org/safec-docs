@@ -17,9 +17,9 @@ void sgd_update(&Tensor w) {
     unsafe {
         unsigned long i = 0UL;
         while (i < w->size) {
-            double* data = (double*)w->data;
-            double* grad = (double*)w->grad;
-            data[i] = data[i] - LR * grad[i];
+            float* data = (float*)w->data;
+            float* grad = (float*)w->grad;
+            data[i] = data[i] - (float)LR * grad[i];
             i = i + 1UL;
         }
     }
@@ -32,12 +32,12 @@ double now_ms() {
 int main() {
     srand48(42L);
 
-    double xbuf[BATCH * IN_DIM];
-    double tbuf[BATCH * OUT_DIM];
+    float xbuf[BATCH * IN_DIM];
+    float tbuf[BATCH * OUT_DIM];
     unsigned long i = 0UL;
-    while (i < BATCH * IN_DIM) { xbuf[i] = drand48() - 0.5; i = i + 1UL; }
+    while (i < BATCH * IN_DIM) { xbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
     i = 0UL;
-    while (i < BATCH * OUT_DIM) { tbuf[i] = drand48() - 0.5; i = i + 1UL; }
+    while (i < BATCH * OUT_DIM) { tbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
 
     &Tensor X = std::tensor_from_2d(xbuf, BATCH, IN_DIM, 0);
     &Tensor target = std::tensor_from_2d(tbuf, BATCH, OUT_DIM, 0);
@@ -45,9 +45,9 @@ int main() {
     &Tensor W1 = std::tensor_new_2d(IN_DIM, HIDDEN, 1);
     &Tensor W2 = std::tensor_new_2d(HIDDEN, OUT_DIM, 1);
     i = 0UL;
-    while (i < IN_DIM * HIDDEN) { unsafe { double* d = (double*)W1->data; d[i] = (drand48() - 0.5) * 0.1; } i = i + 1UL; }
+    while (i < IN_DIM * HIDDEN) { unsafe { float* d = (float*)W1->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
     i = 0UL;
-    while (i < HIDDEN * OUT_DIM) { unsafe { double* d = (double*)W2->data; d[i] = (drand48() - 0.5) * 0.1; } i = i + 1UL; }
+    while (i < HIDDEN * OUT_DIM) { unsafe { float* d = (float*)W2->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
 
     double t0 = now_ms();
     int step = 0;
@@ -66,7 +66,7 @@ int main() {
         sgd_update(W1);
         sgd_update(W2);
 
-        unsafe { lastLoss = loss->data[0]; }
+        unsafe { lastLoss = (double)loss->data[0]; }
         step = step + 1;
     }
     double t1 = now_ms();
@@ -74,10 +74,6 @@ int main() {
     printf("train_ms=%.3f last_loss=%.6f\n", t1 - t0, lastLoss);
     printf("throughput_samples_per_sec=%.2f\n", (double)((unsigned long)STEPS * BATCH) / ((t1 - t0) / 1000.0));
 
-    // Inference-only benchmark. tensor_set_grad_enabled(0) mirrors
-    // PyTorch's 'with torch.no_grad():' -- every op below still computes
-    // real values, just skips building the autograd graph since nothing
-    // here ever calls tensor_backward.
     std::tensor_set_grad_enabled(0);
     double t2 = now_ms();
     int inf = 0;
@@ -85,7 +81,7 @@ int main() {
     while (inf < 200) {
         &Tensor H2 = std::tensor_relu(std::tensor_matmul_blas(X, W1));
         &Tensor Y2 = std::tensor_matmul_blas(H2, W2);
-        unsafe { checksum = checksum + Y2->data[0]; }
+        unsafe { checksum = checksum + (double)Y2->data[0]; }
         inf = inf + 1;
     }
     double t3 = now_ms();
