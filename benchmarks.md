@@ -259,10 +259,12 @@ A large-array reduction (`sum(a[i]*a[i])`), comparing a plain scalar loop agains
 
 2-layer MLP (`relu(X @ W1) @ W2`, 128→256→64, batch 64, MSE loss, hand-rolled SGD, no bias) — 100 training steps then 1000 inference-only passes, fixed seed. Compares the same computation graph across frameworks; `std::ml` covers CPU (Accelerate BLAS), MPS, and CUDA/ROCm/SPIR-V/WebGPU backends (see the bigger-model table below for GPU numbers — this shape is too small for any GPU backend to win, on any framework).
 
+`std::Tensor` is float32, not float64: PyTorch defaults to float32, and this shape measured ~30% faster on `cblas_sgemm` than `cblas_dgemm` for identical work on top of halving memory bandwidth for every elementwise pass. A second, unrelated fix (splitting a hand-rolled training loop into small single-purpose functions, matching how this library already structures each op) turned out to be load-bearing too — the previous single-function shape made this compiler's `-O2` optimizer hang for 40+ minutes on this exact loop shape; splitting it let `-O2` actually run and auto-vectorize the elementwise passes. Together: 24.9ms → 16.9ms training, 53.1ms → 26.1ms inference.
+
 | Framework | Device | Train (100 steps) | Throughput | Inference (1000 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC (Accelerate BLAS) | CPU | 24.9ms | 256760 samples/s | 53.1ms | 100.333294 |
-| PyTorch | CPU | **23.1ms (fastest)** | 277232 samples/s | **13.5ms (fastest)** | 100.018272 |
+| SafeC (Accelerate BLAS) | CPU | **16.9ms (fastest)** | 377715 samples/s | 26.1ms | 100.333420 |
+| PyTorch | CPU | 23.1ms | 277232 samples/s | **13.5ms (fastest)** | 100.018272 |
 | PyTorch | MPS | 131.6ms | 48649 samples/s | 358.7ms | 103.423889 |
 | TensorFlow | CPU | 83.0ms | 77103 samples/s | 245.0ms | 106.182991 |
 | TensorFlow | GPU | 245.3ms | 26086 samples/s | 924.6ms | 106.182999 |
@@ -286,13 +288,15 @@ Same shape, scaled up 512→1024→256, batch 128 (~50x the multiply-adds/matmul
 
 | Framework | Device | Train (50 steps) | Throughput | Inference (200 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC (Accelerate BLAS) | CPU | 193.7ms | 33038 samples/s | 139.5ms | 95.429579 |
-| SafeC | MPS | 298.8ms | 21420 samples/s | 367.8ms | 95.429121 |
+| SafeC (Accelerate BLAS) | CPU | 92.2ms | 69402 samples/s | 62.0ms | 95.428856 |
+| SafeC | MPS | 615.6ms | 10396 samples/s | — | 95.428856 |
 | PyTorch | CPU | 67.8ms | 94440 samples/s | **48.2ms (fastest)** | 106.548233 |
 | PyTorch | MPS | 110.5ms | 57926 samples/s | 86.4ms | 108.710899 |
 | TensorFlow | CPU | 148.8ms | 43003 samples/s | 197.6ms | 316.556885 |
 | TensorFlow | GPU | 154.1ms | 41539 samples/s | 218.3ms | 317.200012 |
 | MLX | GPU | **54.3ms (fastest)** | 117953 samples/s | 74.4ms | 88.762100 |
+
+SafeC's own `std::Tensor` switch to float32 (see the small-model table above) applies here too — the CPU-BLAS row is now 193.7ms → 92.2ms, closing most of the remaining gap to PyTorch CPU. The MPS row's GPU-side backward dispatch is unaffected by that change (already float32 end to end via Metal), and its number is noisier run to run on this machine than the CPU rows — treat it as roughly-this rather than precise. GPU inference wasn't re-measured this pass.
 
 [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc)
 
