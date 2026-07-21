@@ -132,7 +132,7 @@ Same binary-trees workload, parallelized across 8 worker threads — each thread
 
 | Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
 |---|---|---|---|
-| SafeC (arena) | **0.090s (fastest)** | 0.154s | 0.112s |
+| SafeC (arena) | 0.090s | 0.075s | **0.045s (fastest)** |
 | C | 0.610s | 0.274s | 0.549s |
 | C++ | 0.630s | 0.290s | 0.566s |
 | Rust | 0.680s | 0.319s | 0.591s |
@@ -178,7 +178,7 @@ Plain scalar loop vs. each language's explicit vector type at `-O2`/release — 
 
 | Language | macOS req/s (p50/p99) | WSL2 req/s (p50/p99) | Windows req/s (p50/p99) | macOS peak memory |
 |---|---|---|---|---|
-| SafeC | **35832 (fastest)** (1/5ms) | 17497 (3/4ms) | 2043 (9.1/21.2ms) | 7.2 MB |
+| SafeC | **36055 (fastest)** (1/5ms) | 17650 (3/4ms) | 2313 (7.5/19.6ms) | 7.2 MB |
 | C | 25303 (2/2ms) | N/A | N/A | **1.4 MB (leanest)** |
 | C++ | 24148 (2/4ms) | N/A | N/A | 1.6 MB |
 | Rust | 27270 (2/2ms) | 18077 (3/3ms) | 465 (33.0/474.3ms) | 3.4 MB |
@@ -188,7 +188,7 @@ Plain scalar loop vs. each language's explicit vector type at `-O2`/release — 
 
 Every language completed every request with zero failures on every platform once measured in isolation.
 
-**Sources:** [server.sc](/benchmarks/webservice/safec/server.sc) · [server_reactor.sc](/benchmarks/webservice/safec/server_reactor.sc) · [server.c](/benchmarks/webservice/c/server.c) · [server.cpp](/benchmarks/webservice/cpp/server.cpp) · [main.rs](/benchmarks/webservice/rust/src/main.rs) · [server.zig](/benchmarks/webservice/zig/server.zig) · [server.go](/benchmarks/webservice/go/server.go) · [server.py](/benchmarks/webservice/python/server.py) · [io_nb_bsd.sc](/benchmarks/stdlib/io_nb_bsd.sc) · [io_nb.h](/benchmarks/stdlib/io_nb.h)
+**Sources:** [server.sc](/benchmarks/webservice/safec/server.sc) · [server_reactor.sc](/benchmarks/webservice/safec/server_reactor.sc) · [server.c](/benchmarks/webservice/c/server.c) · [server.cpp](/benchmarks/webservice/cpp/server.cpp) · [main.rs](/benchmarks/webservice/rust/src/main.rs) · [server.zig](/benchmarks/webservice/zig/server.zig) · [server.go](/benchmarks/webservice/go/server.go) · [server.py](/benchmarks/webservice/python/server.py) · [io_nb_bsd.sc](/benchmarks/stdlib/io_nb_bsd.sc) · [io_nb.h](/benchmarks/stdlib/io_nb.h) · [task.h](/benchmarks/stdlib/task.h)
 
 ## Machine learning — small MLP, training and inference {#machine-learning-small-mlp-training-and-inference}
 
