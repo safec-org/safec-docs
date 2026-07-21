@@ -151,6 +151,141 @@ The SafeC row above uses `region`/`arena<R>` (compile-time region-scoped lifetim
 
 **Python**: [binarytrees.py](/benchmarks/binarytrees/python/binarytrees.py)
 
+## Cross-platform — same workloads on Linux and Windows
+
+The three single-threaded benchmarks above, re-run on a second physical machine to see how much of the Apple M1 Pro's numbers are machine-specific: an AMD Ryzen 7 7800X3D (no GPU), once under WSL2 Ubuntu and once natively on Windows — same CPU, two different OS/toolchain stacks, so the WSL-vs-Windows gap isolates OS/syscall overhead from CPU differences.
+
+::: warning Read this before the numbers below
+Same single-machine, single-session, best-of-3 caveat as the methodology above — now times three. Toolchain versions were matched to the Mac run where practical (Zig 0.16.0, Go 1.26.5, Rust ~1.97) but are not bit-identical builds, and the two machines don't share a CPU architecture (Apple Silicon vs. x86-64), so treat cross-machine deltas as directional, not a controlled experiment.
+:::
+
+**Additional machines/toolchains:**
+
+- **WSL2 Ubuntu 22.04**: AMD Ryzen 7 7800X3D, no GPU · `safec` (this repo's build) · clang 19.1.7 · Go 1.26.5 · Zig 0.16.0 · Rust ~1.97.
+- **Windows 11 (native)**: same physical Ryzen 7 7800X3D box · `safec` (this repo's build) · clang/LLVM ~19 (MSVC-targeting) · Go 1.26.5 · Zig 0.16.0 · Rust ~1.97.
+- Windows has no `/usr/bin/time` equivalent; timing used `System.Diagnostics.Stopwatch` around each process (reliable). Peak memory via `Process.PeakWorkingSet64` consistently read 0 for these short-lived processes even after a refresh — an unresolved measurement quirk specific to that API on this workload — so **peak memory is omitted for all three environments below** to keep the comparison apples-to-apples, rather than showing memory for two machines and not the third.
+
+### fib(37) — release build
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC | 0.080s | **0.040s (fastest)** | 0.046s |
+| C | 0.070s | **0.040s (fastest)** | 0.046s |
+| C++ | 0.070s | **0.040s (fastest)** | 0.047s |
+| Rust | 0.090s | **0.040s (fastest)** | 0.049s |
+| Zig | 0.080s | **0.040s (fastest)** | 0.053s |
+| Go | 0.080s | 0.080s | 0.092s |
+| Python | 2.700s | 3.330s | 2.485s |
+
+### n-body — release build
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC | 0.110s | **0.090s (fastest)** | 0.102s |
+| C | 0.100s | **0.090s (fastest)** | 0.103s |
+| C++ | 0.110s | **0.090s (fastest)** | 0.104s |
+| Rust | 0.110s | 0.100s | 0.113s |
+| Zig | 0.110s | 0.110s | 0.116s |
+| Go | 0.100s | 0.100s | 0.113s |
+| Python | 9.890s | 12.150s | 11.922s |
+
+### binary-trees — release build
+
+Same `region`/`arena<R>` SafeC variant as the single-machine table above, for a fair three-way comparison — the plain-heap (`std::alloc`) variant is broken out separately below since it isn't the headline number on any of the three platforms.
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC (arena) | 0.210s | **0.130s (fastest)** | 0.147s |
+| C | 1.560s | 0.820s | 1.965s |
+| C++ | 1.860s | 0.930s | 2.025s |
+| Rust | 1.740s | 0.900s | 2.184s |
+| Zig | 1.570s | 0.880s | 2.020s |
+| Go | 1.260s | 1.150s | 1.125s |
+| Python | 20.930s | 20.130s | 10.019s |
+
+**SafeC, plain heap (`std::alloc`) variant, for reference:**
+
+| Platform | Run time |
+|---|---|
+| macOS (M1 Pro) | 1.150s |
+| WSL2 (7800X3D) | **0.620s (fastest)** |
+| Windows (7800X3D) | 1.119s |
+
+**Sources:** same as the single-threaded fib/n-body/binary-trees sections above.
+
+### Multithreaded — binary-trees, 8 threads (cross-platform)
+
+Same 8-thread binary-trees workload as the single-machine multithreading section below, on the same three environments as above. Release builds only.
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC (arena) | **0.090s (fastest)** | 0.154s | 0.112s |
+| C | 0.610s | 0.274s | 0.549s |
+| C++ | 0.630s | 0.290s | 0.566s |
+| Rust | 0.680s | 0.319s | 0.591s |
+| Zig | 0.540s | 0.280s | 0.563s |
+| Go | 0.440s | 0.358s | 0.320s |
+| Python | 24.430s | 26.626s | 10.055s |
+
+**SafeC, plain heap (`std::alloc`) variant, for reference:**
+
+| Platform | Run time |
+|---|---|
+| macOS (M1 Pro) | 0.680s |
+| WSL2 (7800X3D) | **0.308s (fastest)** |
+| Windows (7800X3D) | 0.367s |
+
+**Sources:** same as the single-machine multithreading section below.
+
+### SIMD — sum of squares (cross-platform)
+
+Same 20,000,000-element `sum(a[i]*a[i])` reduction as the single-machine SIMD section below. Rust's explicit-SIMD source there uses AArch64 NEON intrinsics and only builds on Apple Silicon; the WSL2/Windows columns use a new, separate x86_64 source ([simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs)) written for this comparison, using SSE2 intrinsics (`__m128d`, baseline on every x86_64 CPU) in the same shape. SafeC's `vec<T,N>` lowers to LLVM's target-generic `FixedVectorType`, so its own source needed no per-architecture variant.
+
+Apple Silicon wins this benchmark outright on every language, by a wide margin — treat that as a real result of this specific memory-bound microbenchmark on this specific hardware, not a general "M1 beats Ryzen" claim; the absolute times here (tens of milliseconds) are also small enough that process-startup and measurement noise matter proportionally more than in the other benchmarks.
+
+**Scalar loop:**
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC | **0.040s (fastest)** | 0.099s | 0.067s |
+| C | **0.040s (fastest)** | 0.099s | 0.077s |
+| C++ | **0.040s (fastest)** | 0.101s | 0.073s |
+| Rust | **0.040s (fastest)** | 0.099s | 0.044s |
+| Zig | **0.040s (fastest)** | 0.096s | 0.065s |
+| Go | 0.060s | 0.105s | 0.074s |
+| Python | 3.500s | 3.144s | 3.406s |
+
+**Explicit SIMD:**
+
+| Language | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |
+|---|---|---|---|
+| SafeC | **0.030s (fastest)** | 0.092s | 0.060s |
+| C | **0.030s (fastest)** | 0.092s | 0.060s |
+| C++ | **0.030s (fastest)** | 0.092s | 0.073s |
+| Rust | **0.030s (fastest)** | 0.093s | 0.039s |
+| Zig | **0.030s (fastest)** | 0.089s | 0.069s |
+| Go | N/A | N/A | N/A |
+| Python + NumPy | 0.140s | 0.213s | 0.313s |
+
+**Sources:** same as the single-machine SIMD section below, plus [simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs) for the WSL2/Windows Rust column.
+
+### Web service — JSON "hello world" (cross-platform)
+
+Same `GET /` → `{"message":"Hello, World!"}` endpoint as the single-machine web service section below, on SafeC, Go, Rust (axum), and Python (FastAPI+uvicorn) — the four servers here that don't hand-roll raw POSIX sockets. C, C++, and Zig's servers here are a minimal raw-socket accept loop written directly against `<sys/socket.h>`/`<pthread.h>`, which doesn't exist under MSVC — porting them to Winsock (`WSAStartup`, `closesocket`, `ioctlsocket`, linking `ws2_32.lib`) is the same shape of change already made to `std::http`'s own backend below, just not done for these three hand-written sources in this pass.
+
+::: warning Methodology differs from the numbers above
+`ab` (Apache Bench) isn't available on Windows and wasn't worth installing a POSIX layer just to run — the WSL2 and macOS numbers use it (`ab -n 20000 -c 50`, matching the single-machine methodology), but the **Windows column uses a small custom Go load generator** (Go's `net/http` client, no keep-alive, same concurrent-worker-pool shape) at a smaller `-n 5000 -c 20`. Two things forced the smaller scale specifically on Windows: first, closing the loop on rapid back-to-back server restarts on the same port hit stale `TIME_WAIT` state (Windows' default is a much longer and less aggressively reused `TIME_WAIT` than Linux's) — every measurement below waited for the previous server to fully exit and a 5s cooldown before starting the next; second, the smaller `-n`/`-c` avoided ephemeral-port pressure over loopback at this concurrency. Treat the Windows req/sec column as directional relative to itself (SafeC vs. Go vs. Rust vs. Python, all measured the same way), not as directly comparable to the `ab`-measured macOS/WSL2 columns.
+:::
+
+| Language | macOS (M1 Pro, `ab`) | WSL2 (7800X3D, `ab`) | Windows (7800X3D, custom loadgen) |
+|---|---|---|---|
+| SafeC | **28305 req/s (fastest)** · 2ms / 3ms | 16102 req/s · 3ms / 4ms | 1135 req/s · 17.0ms / 31.7ms |
+| Go | 25274 req/s · 2ms / 3ms | **18758 req/s (fastest)** · 3ms / 4ms | **2467 req/s (fastest)** · 7.8ms / 16.9ms |
+| Rust | 27270 req/s · 2ms / 2ms | 18077 req/s · 3ms / 3ms | 465 req/s · 33.0ms / 474.3ms |
+| Python | 4790 req/s · 10ms / 33ms | 2357 req/s · 21ms / 27ms | 528 req/s · 37.3ms / 52.5ms |
+
+All four completed every request with zero failures on every platform once measured in isolation (macOS/WSL2 via `ab`'s own Complete/Failed counters, Windows via the custom loadgen's ok/err counts) — the numbers above are real throughput under each environment's own constraints, not partial/error-skewed averages.
+
 ## Collections — std::collections throughput (1,000,000 elements)
 
 | Operation | Throughput |

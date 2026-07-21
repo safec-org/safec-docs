@@ -1,6 +1,27 @@
 #include <stdio.h>
 #include <stdlib.h>
+
+// Plain C has no portable threading API — POSIX pthreads on Linux/macOS,
+// native Win32 threads on Windows (no pthreads/pthread.h under MSVC).
+// A tiny compatibility shim over CreateThread/WaitForSingleObject keeps
+// main()'s pthread_create/pthread_join calls below unchanged on both.
+#ifdef _WIN32
+#include <windows.h>
+typedef HANDLE pthread_t;
+static int pthread_create(pthread_t* tid, void* attr, void* (*func)(void*), void* arg) {
+    (void)attr;
+    *tid = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)func, arg, 0, NULL);
+    return *tid ? 0 : -1;
+}
+static int pthread_join(pthread_t tid, void** retval) {
+    (void)retval;
+    WaitForSingleObject(tid, INFINITE);
+    CloseHandle(tid);
+    return 0;
+}
+#else
 #include <pthread.h>
+#endif
 
 #define NTHREADS 8
 

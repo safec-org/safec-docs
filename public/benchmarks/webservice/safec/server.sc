@@ -1,5 +1,13 @@
 extern int printf(const char* fmt, ...);
+// io_nb.h's backend is picked by whichever one the caller includes first
+// (see http.sc's own comment on this) — not auto-selected by std/ itself.
+#ifdef __APPLE__
 #include <std/sched/io_nb_bsd.sc>
+#elif defined(_WIN32)
+#include <std/sched/io_nb_win32.sc>
+#else
+#include <std/sched/io_nb_linux.sc>
+#endif
 #include <std/http/http.h>
 #include <std/http/http.sc>
 
