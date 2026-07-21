@@ -273,18 +273,18 @@ Apple Silicon wins this benchmark outright on every language, by a wide margin �
 
 Same `GET /` → `{"message":"Hello, World!"}` endpoint as the single-machine web service section below, on SafeC, Go, Rust (axum), and Python (FastAPI+uvicorn) — the four servers here that don't hand-roll raw POSIX sockets. C, C++, and Zig's servers here are a minimal raw-socket accept loop written directly against `<sys/socket.h>`/`<pthread.h>`, which doesn't exist under MSVC — porting them to Winsock (`WSAStartup`, `closesocket`, `ioctlsocket`, linking `ws2_32.lib`) is the same shape of change already made to `std::http`'s own backend below, just not done for these three hand-written sources in this pass.
 
-::: warning Methodology differs from the numbers above
-`ab` (Apache Bench) isn't available on Windows and wasn't worth installing a POSIX layer just to run — the WSL2 and macOS numbers use it (`ab -n 20000 -c 50`, matching the single-machine methodology), but the **Windows column uses a small custom Go load generator** (Go's `net/http` client, no keep-alive, same concurrent-worker-pool shape) at a smaller `-n 5000 -c 20`. Two things forced the smaller scale specifically on Windows: first, closing the loop on rapid back-to-back server restarts on the same port hit stale `TIME_WAIT` state (Windows' default is a much longer and less aggressively reused `TIME_WAIT` than Linux's) — every measurement below waited for the previous server to fully exit and a 5s cooldown before starting the next; second, the smaller `-n`/`-c` avoided ephemeral-port pressure over loopback at this concurrency. Treat the Windows req/sec column as directional relative to itself (SafeC vs. Go vs. Rust vs. Python, all measured the same way), not as directly comparable to the `ab`-measured macOS/WSL2 columns.
-:::
+SafeC's row uses `std::http_serve_reactor` — a non-blocking event-loop server (`std::Reactor`/`std::TaskScheduler`, kqueue/epoll/WSAPoll-backed) added specifically from this cross-platform testing pass, replacing the small fixed-size blocking-thread-pool model (`http_serve_threaded`) the rest of this page still uses elsewhere. See the note below the table for what changed and by how much.
 
-| Language | macOS (M1 Pro, `ab`) | WSL2 (7800X3D, `ab`) | Windows (7800X3D, custom loadgen) |
+| Language | macOS (M1 Pro, `ab`, `-n 20000 -c 50`) | WSL2 (7800X3D, `ab`, `-n 20000 -c 50`) | Windows (7800X3D, custom loadgen, `-n 5000 -c 20`) |
 |---|---|---|---|
-| SafeC | **28305 req/s (fastest)** · 2ms / 3ms | 16102 req/s · 3ms / 4ms | 1135 req/s · 17.0ms / 31.7ms |
+| SafeC | **35832 req/s (fastest)** · 1ms / 5ms | 17497 req/s · 3ms / 4ms | 2043 req/s · 9.1ms / 21.2ms |
 | Go | 25274 req/s · 2ms / 3ms | **18758 req/s (fastest)** · 3ms / 4ms | **2467 req/s (fastest)** · 7.8ms / 16.9ms |
 | Rust | 27270 req/s · 2ms / 2ms | 18077 req/s · 3ms / 3ms | 465 req/s · 33.0ms / 474.3ms |
 | Python | 4790 req/s · 10ms / 33ms | 2357 req/s · 21ms / 27ms | 528 req/s · 37.3ms / 52.5ms |
 
 All four completed every request with zero failures on every platform once measured in isolation (macOS/WSL2 via `ab`'s own Complete/Failed counters, Windows via the custom loadgen's ok/err counts) — the numbers above are real throughput under each environment's own constraints, not partial/error-skewed averages.
+
+**Sources:** same as the single-machine web service section below, plus [server_reactor.sc](/benchmarks/webservice/safec/server_reactor.sc) for the reactor variant.
 
 ## Collections — std::collections throughput (1,000,000 elements)
 
