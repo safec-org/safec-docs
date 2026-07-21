@@ -6,7 +6,7 @@ How SafeC compares to C, C++, Rust, Zig, Go, and Python on wall-clock time and p
 Single-machine, single-session, best-of-3 — not the Benchmarks Game's more rigorous multi-run methodology. Treat every number as "roughly this, on this machine, this day," not a universal truth about the language. Three benchmarks characterize *these workloads*, not overall language performance.
 :::
 
-## Methodology
+## Methodology {#methodology}
 
 - **Primary machine**: Apple M1 Pro, 10 cores, 32 GB RAM, macOS 26.5.1 — `safec` 1.0.0 · Apple Clang 21.0.0 (C/C++) · Go 1.26.5 · Zig 0.16.0 · Rust 1.97.1 · Python 3.14.6 (+ NumPy 2.5.1 for SIMD).
 - **Secondary machines** (fib/n-body/binary-trees/multithreading/SIMD/web service, release build only): same AMD Ryzen 7 7800X3D box (no GPU), once under **WSL2 Ubuntu 22.04** (clang 19.1.7, same Go/Zig/Rust versions) and once natively on **Windows 11** (clang/LLVM ~19, MSVC-targeting). Different CPU architecture from the Mac, so treat cross-machine deltas as directional, not controlled.
@@ -15,7 +15,7 @@ Single-machine, single-session, best-of-3 — not the Benchmarks Game's more rig
 - **Correctness**: every binary's output is checked against the known-correct value before being included.
 - Every source file is linked inline next to its result.
 
-## fib(37) — recursive Fibonacci
+## fib(37) — recursive Fibonacci {#fib37-recursive-fibonacci}
 
 Naive recursive Fibonacci — pure function-call and integer-arithmetic overhead, no allocation, no I/O.
 
@@ -43,7 +43,7 @@ Naive recursive Fibonacci — pure function-call and integer-arithmetic overhead
 
 **Sources:** [fib.sc](/benchmarks/fib/safec/fib.sc) · [fib.c](/benchmarks/fib/c/fib.c) · [fib.cpp](/benchmarks/fib/cpp/fib.cpp) · [fib.rs](/benchmarks/fib/rust/fib.rs) · [fib.zig](/benchmarks/fib/zig/fib.zig) · [fib.go](/benchmarks/fib/go/fib.go) · [fib.py](/benchmarks/fib/python/fib.py)
 
-## n-body — 5-body orbital simulation
+## n-body — 5-body orbital simulation {#n-body-5-body-orbital-simulation}
 
 The classic Benchmarks Game n-body test (Sun/Jupiter/Saturn/Uranus/Neptune), 2,000,000 steps. Floating-point heavy, no allocation, tiny working set.
 
@@ -71,7 +71,7 @@ The classic Benchmarks Game n-body test (Sun/Jupiter/Saturn/Uranus/Neptune), 2,0
 
 **Sources:** [nbody.sc](/benchmarks/nbody/safec/nbody.sc) · [nbody.c](/benchmarks/nbody/c/nbody.c) · [nbody.cpp](/benchmarks/nbody/cpp/nbody.cpp) · [nbody.rs](/benchmarks/nbody/rust/nbody.rs) · [nbody.zig](/benchmarks/nbody/zig/nbody.zig) · [nbody.go](/benchmarks/nbody/go/nbody.go) · [nbody.py](/benchmarks/nbody/python/nbody.py)
 
-## binary-trees — allocation/deallocation stress
+## binary-trees — allocation/deallocation stress {#binary-trees-allocationdeallocation-stress}
 
 Builds and discards millions of small binary trees (max depth 18) — exercises memory management rather than arithmetic. SafeC uses `region`/`arena<R>` (bump-pointer allocation, `arena_reset<R>()` discards a whole region in O(1)) instead of `std::alloc`/heap — this workload is all short-lived, same-scope allocations, exactly what regions are for.
 
@@ -103,7 +103,7 @@ SafeC plain-heap variant, same three platforms: macOS 1.150s, WSL2 **0.620s (fas
 
 **Sources:** [binarytrees.sc](/benchmarks/binarytrees/safec/binarytrees.sc) · [binarytrees_arena.sc](/benchmarks/binarytrees/safec/binarytrees_arena.sc) · [binarytrees.c](/benchmarks/binarytrees/c/binarytrees.c) · [binarytrees.cpp](/benchmarks/binarytrees/cpp/binarytrees.cpp) · [binarytrees.rs](/benchmarks/binarytrees/rust/binarytrees.rs) · [binarytrees.zig](/benchmarks/binarytrees/zig/binarytrees.zig) · [binarytrees.go](/benchmarks/binarytrees/go/binarytrees.go) · [binarytrees.py](/benchmarks/binarytrees/python/binarytrees.py)
 
-## Collections — std::collections throughput (1,000,000 elements)
+## Collections — std::collections throughput (1,000,000 elements) {#collections-stdcollections-throughput-1000000-elements}
 
 | Operation | Throughput |
 |---|---|
@@ -114,7 +114,7 @@ SafeC plain-heap variant, same three platforms: macOS 1.150s, WSL2 **0.620s (fas
 
 [bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc)
 
-## Multithreaded — binary-trees, 8 threads
+## Multithreaded — binary-trees, 8 threads {#multithreaded-binary-trees-8-threads}
 
 Same binary-trees workload, parallelized across 8 worker threads — each thread builds/checksums an independent slice of the tree count at a given depth, joined before the next depth. Release only. SafeC: one `region`/`arena<R>` per thread (arena state isn't shared/locked) — measured against plain heap: 0.68s → 0.09s (~7.5x) on macOS.
 
@@ -144,7 +144,7 @@ SafeC plain-heap variant: macOS 0.680s, WSL2 **0.308s (fastest)**, Windows 0.367
 
 **Sources:** [binarytrees_mt.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt.sc) · [binarytrees_mt_arena.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt_arena.sc) · [binarytrees_mt.c](/benchmarks/binarytrees_mt/c/binarytrees_mt.c) · [binarytrees_mt.cpp](/benchmarks/binarytrees_mt/cpp/binarytrees_mt.cpp) · [binarytrees_mt.rs](/benchmarks/binarytrees_mt/rust/binarytrees_mt.rs) · [binarytrees_mt.zig](/benchmarks/binarytrees_mt/zig/binarytrees_mt.zig) · [binarytrees_mt.go](/benchmarks/binarytrees_mt/go/binarytrees_mt.go) · [binarytrees_mt.py](/benchmarks/binarytrees_mt/python/binarytrees_mt.py)
 
-## SIMD — sum of squares over 20,000,000 f64 values
+## SIMD — sum of squares over 20,000,000 f64 values {#simd-sum-of-squares-over-20000000-f64-values}
 
 Plain scalar loop vs. each language's explicit vector type at `-O2`/release — isolates what explicit SIMD buys *on top of* the backend's auto-vectorizer, not "vectorized vs. deliberately crippled." SafeC: native `vec<double,4>` (lowers to LLVM's target-generic `FixedVectorType`, no per-architecture source needed). C/C++: GCC/Clang vector extensions. Zig: `@Vector`. Rust: stable-channel AArch64 NEON intrinsics on macOS (`std::simd` needs nightly) — the WSL2/Windows columns below use a separate x86_64/SSE2 source ([simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs)) written for this comparison. Go has no portable SIMD type, scalar only.
 
@@ -172,7 +172,7 @@ Plain scalar loop vs. each language's explicit vector type at `-O2`/release — 
 
 **Sources:** [simd_scalar.sc](/benchmarks/simd/safec/simd_scalar.sc) · [simd_vec.sc](/benchmarks/simd/safec/simd_vec.sc) · [simd_scalar.c](/benchmarks/simd/c/simd_scalar.c) · [simd_vec.c](/benchmarks/simd/c/simd_vec.c) · [simd_scalar.cpp](/benchmarks/simd/cpp/simd_scalar.cpp) · [simd_vec.cpp](/benchmarks/simd/cpp/simd_vec.cpp) · [simd_scalar.rs](/benchmarks/simd/rust/simd_scalar.rs) · [simd_vec.rs](/benchmarks/simd/rust/simd_vec.rs) (macOS/NEON) · [simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs) (WSL2/Windows/SSE2) · [simd_scalar.zig](/benchmarks/simd/zig/simd_scalar.zig) · [simd_vec.zig](/benchmarks/simd/zig/simd_vec.zig) · [simd_scalar.go](/benchmarks/simd/go/simd_scalar.go) · [simd_numpy.py](/benchmarks/simd/python/simd_numpy.py) · [simd_scalar.py](/benchmarks/simd/python/simd_scalar.py)
 
-## Web service — JSON "hello world" endpoint
+## Web service — JSON "hello world" endpoint {#web-service-json-hello-world-endpoint}
 
 `GET /` returning `{"message":"Hello, World!"}` — the same shape as TechEmpower's "JSON serialization" test, via Apache Bench (`ab -n 20000 -c 50`, no keep-alive) on macOS/WSL2 against each language's own HTTP story: SafeC's `std::http_serve_reactor`; a minimal raw-socket accept loop for C/C++/Zig (macOS only — not ported to Winsock); Go's `net/http`; Python's FastAPI+uvicorn; Rust's **axum** (not Dioxus — Dioxus's fullstack server layer *is* axum underneath, so this measures what it actually runs through). Windows has no `ab`, so SafeC/Go/Rust/Python there use a small custom Go load generator at `-n 5000 -c 20` instead (smaller scale — rapid same-port restarts hit Windows' long `TIME_WAIT`); treat the Windows column as directional relative to itself, not directly comparable to `ab`'s numbers.
 
@@ -190,7 +190,7 @@ Every language completed every request with zero failures on every platform once
 
 **Sources:** [server.sc](/benchmarks/webservice/safec/server.sc) · [server_reactor.sc](/benchmarks/webservice/safec/server_reactor.sc) · [server.c](/benchmarks/webservice/c/server.c) · [server.cpp](/benchmarks/webservice/cpp/server.cpp) · [main.rs](/benchmarks/webservice/rust/src/main.rs) · [server.zig](/benchmarks/webservice/zig/server.zig) · [server.go](/benchmarks/webservice/go/server.go) · [server.py](/benchmarks/webservice/python/server.py) · [io_nb_bsd.sc](/benchmarks/stdlib/io_nb_bsd.sc) · [io_nb.h](/benchmarks/stdlib/io_nb.h)
 
-## Machine learning — small MLP, training and inference
+## Machine learning — small MLP, training and inference {#machine-learning-small-mlp-training-and-inference}
 
 2-layer MLP (`relu(X @ W1) @ W2`, 128→256→64, batch 64, MSE loss, hand-rolled SGD, no bias) — 100 training steps then 1000 inference passes, fixed seed. `std::ml` covers CPU (Accelerate BLAS) and MPS (this shape is too small for GPU to beat CPU BLAS anywhere, SafeC included — the MPS row is for completeness, not competition).
 
@@ -206,7 +206,7 @@ Every language completed every request with zero failures on every platform once
 
 [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h) · [train.sc](/benchmarks/ml/safec/train.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
 
-## Machine learning, bigger model — 512→1024→256
+## Machine learning, bigger model — 512→1024→256 {#machine-learning-bigger-model-512-1024-256}
 
 Same shape, scaled ~50x (batch 128). 50 training steps, 200 inference passes.
 
@@ -222,7 +222,7 @@ Same shape, scaled ~50x (batch 128). 50 training steps, 200 inference passes.
 
 [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
 
-## Machine learning, GPU backends — CUDA, ROCm, Vulkan/SPIR-V, WebGPU
+## Machine learning, GPU backends — CUDA, ROCm, Vulkan/SPIR-V, WebGPU {#machine-learning-gpu-backends-cuda-rocm-vulkanspir-v-webgpu}
 
 This machine has no NVIDIA/AMD GPU, CUDA/ROCm toolkit, Vulkan SDK, or WebGPU library — **nothing here is measured**. Every function is hand-written against the real vendor C ABI and type-checks under `safec`, but is unlinkable/unrunnable here — "should be right," not "confirmed right." Each backend hits a different wall:
 
@@ -235,7 +235,7 @@ This machine has no NVIDIA/AMD GPU, CUDA/ROCm toolkit, Vulkan SDK, or WebGPU lib
 
 [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_spirv.h](/benchmarks/stdlib/gpu_spirv.h) · [gpu_spirv.sc](/benchmarks/stdlib/gpu_spirv.sc) · [gpu_webgpu.h](/benchmarks/stdlib/gpu_webgpu.h) · [gpu_webgpu.sc](/benchmarks/stdlib/gpu_webgpu.sc) · [tensor_cuda.h](/benchmarks/stdlib/tensor_cuda.h) · [tensor_cuda.sc](/benchmarks/stdlib/tensor_cuda.sc) · [tensor_rocm.h](/benchmarks/stdlib/tensor_rocm.h) · [tensor_rocm.sc](/benchmarks/stdlib/tensor_rocm.sc)
 
-## Machine learning, fp16 / bf16 support
+## Machine learning, fp16 / bf16 support {#machine-learning-fp16-bf16-support}
 
 No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float` — and real native `half`/`bfloat` GPU compute on the MPS backend, not just halved storage.
 
@@ -249,7 +249,7 @@ No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `F
 
 [float16.h](/benchmarks/stdlib/float16.h) · [float16.sc](/benchmarks/stdlib/float16.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gpu_webgpu.h](/benchmarks/stdlib/gpu_webgpu.h) · [gpu_webgpu.sc](/benchmarks/stdlib/gpu_webgpu.sc) · [train_gpu_f16.sc](/benchmarks/ml/safec/train_gpu_f16.sc) · [train_gpu_bf16.sc](/benchmarks/ml/safec/train_gpu_bf16.sc)
 
-## Machine learning, device selection
+## Machine learning, device selection {#machine-learning-device-selection}
 
 Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda`) — precise, but awkward for a caller that wants to pick a device once. `tensor_matmul_on(a, b, device)` / `tensor_relu_on(a, device)` dispatch over a `Device` enum instead — verified bit-identical across CPU/CPU+BLAS/MPS:
 
@@ -274,7 +274,7 @@ Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`
 
 [tensor_dispatch.h](/benchmarks/stdlib/tensor_dispatch.h) · [tensor_dispatch.sc](/benchmarks/stdlib/tensor_dispatch.sc) · [transformer_dispatch.h](/benchmarks/stdlib/transformer_dispatch.h) · [transformer_dispatch.sc](/benchmarks/stdlib/transformer_dispatch.sc) · [activations.h](/benchmarks/stdlib/activations.h) · [activations.sc](/benchmarks/stdlib/activations.sc) · [attention.h](/benchmarks/stdlib/attention.h) · [attention.sc](/benchmarks/stdlib/attention.sc) · [transformer.h](/benchmarks/stdlib/transformer.h) · [transformer.sc](/benchmarks/stdlib/transformer.sc)
 
-## Memory allocation — is `std::alloc`/`dealloc` slower than raw `malloc`/`free`?
+## Memory allocation — is `std::alloc`/`dealloc` slower than raw `malloc`/`free`? {#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree}
 
 `std::alloc` is a size-class caching allocator (same idea as PyTorch's CPU/CUDA caching allocators and MLX's Metal buffer cache): a freed block goes into a thread-local free list bucketed by power-of-two size class, and the next same-class `alloc()` is satisfied straight from there, skipping `malloc()`/`free()` entirely. Double-free/UAF detection is unaffected (a cached block still carries its "freed" magic word until reused).
 
