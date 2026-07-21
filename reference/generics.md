@@ -205,3 +205,6 @@ Region qualifiers on references inside generic code follow the same rules as non
 - **No partial specialization**: you cannot provide a specialized implementation for a subset of types.
 - **No default type arguments**: every type parameter must be inferred or explicitly provided.
 - **Inference is call-site only**: the compiler infers `T` from function arguments. It does not infer from the return type.
+- **Inference doesn't unify a `T*`/`[]T` parameter against a bare fixed-size array argument** — pass an already pointer/slice-typed value instead. See [Functional Programming](/reference/functional#higher-order-functions) for a worked example of this exact case.
+
+For everything else in SafeC's "no runtime dispatch" story — traits, the vtable-free `fn_eval` primitive, and how to build genuine heterogeneous runtime dispatch explicitly when generics alone can't — see [Polymorphism & OOP](/reference/polymorphism).

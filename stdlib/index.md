@@ -292,6 +292,8 @@ int main() {
 }
 ```
 
+This `void*`-plus-typed-wrapper shape is the same general technique behind explicit runtime polymorphism (a struct holding `void* data` plus a `fn` field) — see [Polymorphism & OOP](/reference/polymorphism#manual-dispatch-explicit-vtables).
+
 ## Including the Standard Library
 
 **Individual modules:**

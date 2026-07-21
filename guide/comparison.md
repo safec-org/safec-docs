@@ -153,7 +153,7 @@ if (result != 0) {
 
 ### No RTTI or virtual dispatch
 
-SafeC has no `virtual` functions, no `dynamic_cast`, no vtables. Polymorphism is achieved through generics (monomorphized at compile time) or function pointers (explicit).
+SafeC has no `virtual` functions, no `dynamic_cast`, no vtables. Polymorphism is achieved through generics (monomorphized at compile time) or function pointers (explicit) — see [Polymorphism & OOP](/reference/polymorphism) for the full picture, including `fn_eval` (vtable-free per-type method resolution) and how to build explicit runtime dispatch when you need it.
 
 ### What SafeC keeps from C++
 

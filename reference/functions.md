@@ -87,6 +87,8 @@ Pure functions may not:
 - Perform I/O
 - Call non-pure functions
 
+See [Functional Programming](/reference/functional#purity) for what this buys you beyond the optimization hint.
+
 ## Must-Use Functions
 
 The `must_use` keyword causes a compiler warning if the return value is discarded:
@@ -193,6 +195,8 @@ Supported overloadable operators: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`,
 
 Operator methods are mangled as `TypeName_operator+` etc. in the generated code.
 
+See [Polymorphism & OOP](/reference/polymorphism#ad-hoc-polymorphism-operator-overloading) for how this fits alongside generics, traits, and `fn_eval` as one of several distinct polymorphism mechanisms.
+
 ## Generic Functions
 
 Generic functions use the `generic<T>` syntax and are fully monomorphized at compile time.
@@ -267,3 +271,5 @@ int apply(fn int(int) f, int x) {
     return f(x);
 }
 ```
+
+See [Functional Programming](/reference/functional) for a larger higher-order-function example (generic `map`/`fold` helpers), and [Polymorphism & OOP](/reference/polymorphism#manual-dispatch-explicit-vtables) for using a struct field of `fn` type plus `void*` to build explicit runtime dispatch — SafeC's equivalent of a hand-written vtable.

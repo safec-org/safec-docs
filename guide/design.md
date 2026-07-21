@@ -241,6 +241,8 @@ Vec2 Vec2::operator+(Vec2 other) const {
 
 Methods are syntactic sugar for functions with an implicit `self` parameter. At the LLVM IR level, `v.length()` compiles to `Vec2_length(&v)`. There is no vtable, no dynamic dispatch, no hidden cost.
 
+See [Polymorphism & OOP](/reference/polymorphism) for every mechanism this stance leaves you with — generics, structural traits, the vtable-free `fn_eval` dispatch primitive, and how to build genuine runtime polymorphism explicitly when you actually need it.
+
 ## Unsafe Escape Hatch
 
 Safety checks can be selectively disabled inside `unsafe {}` blocks. This is necessary for low-level operations like raw pointer manipulation, hardware register access, and FFI with C libraries that return raw pointers:

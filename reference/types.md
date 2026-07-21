@@ -114,6 +114,8 @@ a tagged union's own variant names.
 
 Unions can be generic too, the same as [structs](/reference/generics#generic-structs-and-methods): `generic<T, E> union Result { T ok; E err; }` is a real sum type over an arbitrary pair of types, monomorphized per concrete `<T, E>` instantiation like any other generic type.
 
+Tagged unions plus exhaustive `match` are SafeC's algebraic-data-type / closed-polymorphism mechanism — see [Polymorphism & OOP](/reference/polymorphism#closed-set-polymorphism-tagged-unions-match) and [Functional Programming](/reference/functional#algebraic-data-types).
+
 ## Tuple Types
 
 Tuples are anonymous product types. Members are accessed by index using `.0`, `.1`, etc.
@@ -208,6 +210,8 @@ int describe_match(?&stack Node n) {
 ```
 
 `x.is_null()` on a `?T` (and `x.is_none()` on a pointer/nullable reference) is a compile error — use the one matching the receiver's kind. `match` with `null`/`some(x)` patterns works on raw pointers (`T*`) too, not just nullable references.
+
+See [Functional Programming](/reference/functional#optional-values-and-propagation) for `try`-based propagation and what `?T` deliberately doesn't offer (no `.map()`/`.and_then()` combinators).
 
 ## Newtype Distinct Types
 
