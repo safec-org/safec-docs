@@ -257,24 +257,27 @@ A large-array reduction (`sum(a[i]*a[i])`), comparing a plain scalar loop agains
 
 ## Machine learning — small MLP, training and inference
 
-2-layer MLP (`relu(X @ W1) @ W2`, 128→256→64, batch 64, MSE loss, hand-rolled SGD, no bias) — 100 training steps then 1000 inference-only passes, fixed seed. Compares the same computation graph across frameworks; `std::ml` covers CPU (Accelerate BLAS), MPS, and CUDA/ROCm/SPIR-V/WebGPU backends (see the bigger-model table below for GPU numbers — this shape is too small for any GPU backend to win, on any framework).
+2-layer MLP (`relu(X @ W1) @ W2`, 128→256→64, batch 64, MSE loss, hand-rolled SGD, no bias) — 100 training steps then 1000 inference-only passes, fixed seed. Compares the same computation graph across frameworks; `std::ml` covers CPU (Accelerate BLAS) and MPS (this shape is too small for GPU to beat CPU BLAS on any framework here, SafeC included — the MPS row is included for completeness, not to compete on it).
 
 `std::Tensor` is float32, not float64: PyTorch defaults to float32, and this shape measured ~30% faster on `cblas_sgemm` than `cblas_dgemm` for identical work on top of halving memory bandwidth for every elementwise pass. A second, unrelated fix (splitting a hand-rolled training loop into small single-purpose functions, matching how this library already structures each op) turned out to be load-bearing too — the previous single-function shape made this compiler's `-O2` optimizer hang for 40+ minutes on this exact loop shape; splitting it let `-O2` actually run and auto-vectorize the elementwise passes. Together: 24.9ms → 16.9ms training, 53.1ms → 26.1ms inference.
 
 | Framework | Device | Train (100 steps) | Throughput | Inference (1000 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC (Accelerate BLAS) | CPU | **16.9ms (fastest)** | 377715 samples/s | 26.1ms | 100.333420 |
+| SafeC (Accelerate BLAS) | CPU | **16.8ms (fastest)** | 380499 samples/s | 26.1ms | 100.333420 |
+| SafeC | MPS | 139.6ms | 45854 samples/s | 66.1ms | 100.333290 |
 | PyTorch | CPU | 23.1ms | 277232 samples/s | **13.5ms (fastest)** | 100.018272 |
 | PyTorch | MPS | 131.6ms | 48649 samples/s | 358.7ms | 103.423889 |
 | TensorFlow | CPU | 83.0ms | 77103 samples/s | 245.0ms | 106.182991 |
 | TensorFlow | GPU | 245.3ms | 26086 samples/s | 924.6ms | 106.182999 |
 | MLX | GPU | 72.2ms | 88685 samples/s | 309.1ms | 96.632431 |
 
+SafeC MPS beats TensorFlow-GPU outright here (both train and inference) and beats PyTorch-MPS on inference specifically (66.1ms vs 358.7ms) — same persistent-buffer + big-batch pipeline described in the bigger-model table below, applied here too. It's still behind PyTorch-MPS on train (139.6ms vs 131.6ms), and neither SafeC nor any other framework's GPU row beats CPU BLAS at this size, on any framework.
+
 [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h)
 
 **Sources:**
 
-**SafeC**: [train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc)
+**SafeC**: [train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc)
 
 **PyTorch**: [train.py](/benchmarks/ml/pytorch/train.py)
 
@@ -288,17 +291,23 @@ Same shape, scaled up 512→1024→256, batch 128 (~50x the multiply-adds/matmul
 
 | Framework | Device | Train (50 steps) | Throughput | Inference (200 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC (Accelerate BLAS) | CPU | 92.2ms | 69402 samples/s | 62.0ms | 95.428856 |
-| SafeC | MPS | 615.6ms | 10396 samples/s | — | 95.428856 |
+| SafeC (Accelerate BLAS) | CPU | 89.2ms | 71713 samples/s | 61.4ms | 95.428856 |
+| SafeC | MPS | 168.9ms | 37883 samples/s | 52.9ms | 95.428696 |
 | PyTorch | CPU | 67.8ms | 94440 samples/s | **48.2ms (fastest)** | 106.548233 |
 | PyTorch | MPS | 110.5ms | 57926 samples/s | 86.4ms | 108.710899 |
 | TensorFlow | CPU | 148.8ms | 43003 samples/s | 197.6ms | 316.556885 |
 | TensorFlow | GPU | 154.1ms | 41539 samples/s | 218.3ms | 317.200012 |
 | MLX | GPU | **54.3ms (fastest)** | 117953 samples/s | 74.4ms | 88.762100 |
 
-SafeC's own `std::Tensor` switch to float32 (see the small-model table above) applies here too — the CPU-BLAS row is now 193.7ms → 92.2ms, closing most of the remaining gap to PyTorch CPU. The MPS row's GPU-side backward dispatch is unaffected by that change (already float32 end to end via Metal), and its number is noisier run to run on this machine than the CPU rows — treat it as roughly-this rather than precise. GPU inference wasn't re-measured this pass.
+| SafeC pipeline stage | Dispatch tier (by shape alignment) | GPU batches | Weight/input upload |
+|---|---|---|---|
+| CPU BLAS train | `cblas_sgemm` (NoTrans forward, Trans backward — verified NOT slower than a manual pre-transpose, see below), O(1) call/op | — | — (already host-resident) |
+| CPU BLAS inference | `cblas_sgemm`, O(1) call/op | — | — |
+| MPS train step | `simdgroup_matrix` multi-simdgroup (32) → single-simdgroup (8) → tiled scalar (any) | O(1)/step | fresh every step (W1/W2 genuinely change every step via SGD) |
+| MPS inference, big model (200 passes) | `simdgroup_matrix` multi-simdgroup (32) → single-simdgroup (8) → tiled scalar (any) | 3 batches: 128+64+8 | **once**, before any pass (`mps_upload_persistent`) |
+| MPS inference, small model (1000 passes) | same tiers | 7 batches: 256+256+256+128+64+32+8 | **once**, before any pass |
 
-[gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc)
+[gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc)
 
 **Sources:**
 
