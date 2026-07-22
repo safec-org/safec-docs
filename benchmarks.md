@@ -204,7 +204,14 @@ Every language completed every request with zero failures on every platform once
 | TensorFlow | GPU | 245.3ms | 26086 samples/s | 924.6ms | 106.182999 |
 | MLX | GPU | 72.2ms | 88685 samples/s | 309.1ms | 96.632431 |
 
-[tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h) · [train.sc](/benchmarks/ml/safec/train.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
+**CPU training/inference, across platforms** (SafeC uses BLAS on all three — Accelerate on macOS, OpenBLAS elsewhere; loss differs by platform because Windows has no `drand48`, so its data/init RNG is a different, still-seeded stream — see `train_blas.sc`):
+
+| Framework | macOS train / inference | WSL2 train / inference | Windows train / inference |
+|---|---|---|---|
+| SafeC (BLAS) | **16.8ms / 26.1ms (fastest)** | 38.8ms / 74.0ms | 37.7ms / 101.9ms |
+| PyTorch | 23.1ms / **13.5ms (fastest)** | 25.4ms / 33.5ms | **21.7ms** / 34.8ms |
+
+[tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h) · [math.sc](/benchmarks/stdlib/math.sc) · [math.h](/benchmarks/stdlib/math.h) · [train.sc](/benchmarks/ml/safec/train.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
 
 ## Machine learning, bigger model — 512→1024→256 {#machine-learning-bigger-model-512-1024-256}
 

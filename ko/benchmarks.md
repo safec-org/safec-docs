@@ -204,7 +204,14 @@ SafeC 순수 힙 버전: macOS 0.680s, WSL2 **0.308s (가장 빠름)**, Windows 
 | TensorFlow | GPU | 245.3ms | 초당 26086개 | 924.6ms | 106.182999 |
 | MLX | GPU | 72.2ms | 초당 88685개 | 309.1ms | 96.632431 |
 
-[tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h) · [train.sc](/benchmarks/ml/safec/train.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
+**CPU 학습/추론, 플랫폼 간 비교** (SafeC는 세 플랫폼 모두 BLAS 사용 — macOS는 Accelerate, 나머지는 OpenBLAS; 손실 값이 플랫폼마다 다른 이유는 Windows에 `drand48`이 없어서 데이터/초기화 난수 스트림 자체가 다르기 때문입니다 — 여전히 시드는 고정되어 있습니다. `train_blas.sc` 참고):
+
+| 프레임워크 | macOS 학습/추론 | WSL2 학습/추론 | Windows 학습/추론 |
+|---|---|---|---|
+| SafeC (BLAS) | **16.8ms(가장 빠름)** / 26.1ms | 38.8ms / 74.0ms | 37.7ms / 101.9ms |
+| PyTorch | 23.1ms / **13.5ms (가장 빠름)** | 25.4ms / 33.5ms | **21.7ms** / 34.8ms |
+
+[tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_gpu.h](/benchmarks/stdlib/tensor_gpu.h) · [tensor_gpu.sc](/benchmarks/stdlib/tensor_gpu.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal) · [gen_mps_metallib.sh](/benchmarks/stdlib/gen_mps_metallib.sh) · [time.sc](/benchmarks/stdlib/time.sc) · [time.h](/benchmarks/stdlib/time.h) · [math.sc](/benchmarks/stdlib/math.sc) · [math.h](/benchmarks/stdlib/math.h) · [train.sc](/benchmarks/ml/safec/train.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
 
 ## 머신러닝, 더 큰 모델 — 512→1024→256 {#machine-learning-bigger-model-512-1024-256}
 

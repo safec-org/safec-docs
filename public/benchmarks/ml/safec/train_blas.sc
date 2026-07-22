@@ -1,6 +1,26 @@
 extern int printf(const char* fmt, ...);
+// drand48/srand48 are POSIX, not part of any C standard -- Windows/MSVC's
+// UCRT doesn't provide them at all (link error, not just "wrong seed
+// stream"). rand()/srand() are the portable C89 fallback there; rand()'s
+// RAND_MAX is typically only 15 bits on Windows (vs. drand48's 48), so two
+// calls are combined below for closer-to-drand48 resolution. This does
+// mean Windows gets a numerically different (still deterministic, still
+// seeded) init/data stream than macOS/WSL2's shared drand48 -- already
+// true of PyTorch's own independent RNG in this same benchmark's table,
+// so a platform-specific loss value isn't a new kind of caveat here.
+#ifdef _WIN32
+extern int rand();
+extern void srand(unsigned int seed);
+static double drand48() {
+    unsafe { return ((double)rand() * 32768.0 + (double)rand()) / (32768.0 * 32768.0); }
+}
+static void srand48(long seed) {
+    unsafe { srand((unsigned int)seed); }
+}
+#else
 extern double drand48();
 extern void srand48(long seed);
+#endif
 #include <std/ml/tensor.h>
 #include <std/ml/tensor_nn.h>
 #include <std/ml/tensor_blas.h>
@@ -74,6 +94,20 @@ int main() {
         &Tensor H2 = std::tensor_relu(std::tensor_matmul_blas(X, W1));
         &Tensor Y2 = std::tensor_matmul_blas(H2, W2);
         unsafe { checksum = checksum + (double)Y2->data[0]; }
+        // grad is disabled here, so neither tensor holds a grad buffer or
+        // parent edges (see tensor_set_grad_enabled's doc comment) --
+        // freeing is just releasing this iteration's data/shape buffers,
+        // nothing shared with X/W1/W2. Without this, all 1000 passes'
+        // worth of H2/Y2 buffers pile up unfreed for the whole loop
+        // (SafeC has no GC — nothing frees them on its own the way
+        // Python's refcounting does for PyTorch's own H2/Y2 each
+        // iteration), and the resulting allocator/cache pressure was a
+        // real, measured chunk of this loop's wall time, not just
+        // theoretical: growing heap fragmentation as 1000 iterations'
+        // worth of small buffers accumulate slows down every subsequent
+        // malloc, on top of the memory itself just sitting there unused.
+        H2.free();
+        Y2.free();
         inf = inf + 1;
     }
     double t3 = now_ms();
