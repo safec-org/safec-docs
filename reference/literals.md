@@ -163,7 +163,7 @@ int val = *status_reg;         // guaranteed to read from memory
 *status_reg = 1;               // guaranteed to write to memory
 ```
 
-See [Bare-Metal](/reference/baremetal) for more on volatile access patterns.
+`volatile` also works on struct fields, on `volatile &T` references, and after the base type (`int volatile*`); `int* volatile p` makes the pointer variable itself volatile. See [Bare-Metal](/reference/baremetal#what-volatile-applies-to) for the full rules and access patterns.
 
 ### `thread_local`
 

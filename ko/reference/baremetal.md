@@ -239,6 +239,34 @@ volatile int *UART_DATA   = (volatile int*)0x40001000;
 volatile int *UART_STATUS = (volatile int*)(0x40001000 + 4);
 ```
 
+### `volatile`이 적용되는 대상 {#what-volatile-applies-to}
+
+volatile lvalue를 거치는 모든 로드와 스토어는 LLVM `load volatile` / `store volatile`로 생성됩니다. 일반 대입과 복합 대입(`|=`, `+=`, …), `++`/`--`, 첨자, 멤버 접근, 역참조가 모두 포함됩니다. 한정자는 네 곳에 올 수 있습니다:
+
+| 선언 | volatile인 것 |
+|---|---|
+| `volatile int x;` | 변수 `x` (지역 또는 전역) |
+| `volatile unsigned int* reg` (또는 `unsigned int volatile* reg`) | `reg`가 가리키는 `unsigned int`. `reg` 자체는 보통 변수 |
+| `int* volatile p` | 포인터 변수 `p`. 그것이 가리키는 `int`는 volatile이 아님 |
+| `volatile &Dev d` | 참조 뒤의 `Dev`. 그래서 `d.ctrl = 1`은 volatile 스토어 |
+
+구조체 필드도 `volatile`로 선언할 수 있습니다. 그 필드에 대한 접근은 volatile이고, 같은 구조체의 volatile이 아닌 필드는 여전히 평소대로 최적화됩니다:
+
+```c
+struct Dev {
+    volatile unsigned int ctrl;   // 장치 레지스터: 모든 접근이 메모리에 감
+    unsigned int shadow;          // 보통 필드
+};
+
+void reset(&Dev d) {
+    d.ctrl = 0;      // store volatile
+    d.ctrl |= 4;     // load volatile + store volatile
+    d.shadow = 0;    // 다른 스토어처럼 합쳐지거나 제거될 수 있음
+}
+```
+
+`volatile`은 컴파일러가 접근을 제거하거나, 합치거나, 서로의 순서를 바꾸지 못하게 합니다. 스레드 사이의 메모리 배리어는 아닙니다. 그 용도로는 [`std::atomic`](/ko/stdlib/atomic)을 쓰세요. `std::mem_zero_secure`는 이 volatile 스토어에 의존하므로, 키를 지우는 코드가 `-O2`의 dead-store 제거에서도 살아남습니다.
+
 ### Volatile Load와 Store {#volatile-load-and-store}
 
 내장 함수는 명시적인 volatile 접근을 제공합니다.
@@ -248,7 +276,7 @@ int val = volatile_load(ptr);       // 메모리에서 읽는 것을 보장
 volatile_store(ptr, value);         // 메모리에 쓰는 것을 보장
 ```
 
-이들은 LLVM `load volatile`과 `store volatile` 명령어로 컴파일됩니다.
+이들은 LLVM `load volatile`과 `store volatile` 명령어로 컴파일됩니다. `volatile T*`를 통한 접근과 같은 일을 하며, 포인터 자체가 volatile로 선언되지 않았을 때 유용합니다.
 
 ### 예제: 하드웨어 레지스터 폴링 {#example-polling-a-hardware-register}
 

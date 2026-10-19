@@ -241,6 +241,34 @@ volatile int *UART_DATA   = (volatile int*)0x40001000;
 volatile int *UART_STATUS = (volatile int*)(0x40001000 + 4);
 ```
 
+### What `volatile` applies to
+
+Every load and store through a volatile lvalue is emitted as an LLVM `load volatile` / `store volatile`. That includes plain and compound assignment (`|=`, `+=`, …), `++`/`--`, subscripts, member access and dereference. The qualifier can sit in four places:
+
+| Declaration | What is volatile |
+|---|---|
+| `volatile int x;` | the variable `x` (local or global) |
+| `volatile unsigned int* reg` (or `unsigned int volatile* reg`) | the `unsigned int` that `reg` points at; `reg` itself is an ordinary variable |
+| `int* volatile p` | the pointer variable `p`; the `int` it points at is not volatile |
+| `volatile &Dev d` | the `Dev` behind the reference, so `d.ctrl = 1` is a volatile store |
+
+A struct field can also be declared `volatile`. Accesses to that field are volatile, and the non-volatile fields of the same struct are still optimized normally:
+
+```c
+struct Dev {
+    volatile unsigned int ctrl;   // device register: every access hits memory
+    unsigned int shadow;          // ordinary field
+};
+
+void reset(&Dev d) {
+    d.ctrl = 0;      // store volatile
+    d.ctrl |= 4;     // load volatile + store volatile
+    d.shadow = 0;    // may be merged or removed like any other store
+}
+```
+
+`volatile` keeps the compiler from removing, merging or reordering the accesses relative to each other. It is not a memory barrier between threads; use [`std::atomic`](/stdlib/atomic) for that. `std::mem_zero_secure` relies on these volatile stores, so wiping a key survives dead-store elimination at `-O2`.
+
 ### Volatile Load and Store
 
 Built-in functions provide explicit volatile access:
@@ -250,7 +278,7 @@ int val = volatile_load(ptr);       // guaranteed to read from memory
 volatile_store(ptr, value);         // guaranteed to write to memory
 ```
 
-These compile to LLVM `load volatile` and `store volatile` instructions.
+These compile to LLVM `load volatile` and `store volatile` instructions. They do the same thing as an access through a `volatile T*`, and are useful when the pointer itself is not declared volatile.
 
 ### Example: Polling a Hardware Register
 
