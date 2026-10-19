@@ -9,16 +9,16 @@
 ## 타입 설계하기 {#designing-the-type}
 
 키-값 스토어에는 항목을 보관할 곳과 그에 대한 몇 가지 연산이
-필요합니다. `std::HashMap`(구체적으로는 문자열 키를 위한 편의 함수인
-`str_map_*`)이 무거운 작업을 대신 해 주고, `Store`는 우리가 실제로
-노출하고 싶은 연산들로 그것을 감쌉니다.
+필요합니다. 문자열 키 해시 맵인 `std::StrMap<V>`가 무거운 작업을
+대신 해 주고, `Store`는 우리가 실제로 노출하고 싶은 연산들로 그것을
+감쌉니다.
 
 ```c
 #include <std/collections/map.h>
 #include <std/collections/string.h>
 
 struct Store {
-    struct HashMap entries;
+    struct StrMap<struct String> entries;
 
     void init();
     void set(const char* key, const char* value);
@@ -39,57 +39,54 @@ struct Store {
 
 ```c
 void Store::init() {
-    self.entries = std::str_map_new(sizeof(struct String));
+    self.entries = std::str_map_new();
 }
 
 void Store::set(const char* key, const char* value) {
-    struct String v = std::string_from(value);
-    unsafe { std::str_map_insert(&self.entries, key, (const void*)&v); }
+    match (self.entries.remove(key)) {          // replacing? free the old value
+        case some(old): old.free();
+        case none:      { }
+    }
+    self.entries.insert(key, std::string_from(value));
 }
 ```
 
-`str_map_insert`는 값 인자를 타입 소거된 `const void*`로 받습니다
-(맵 자체는 자신이 `struct String`을 저장하고 있다는 것을 알지도
-신경 쓰지도 않습니다 — 그것을 기억하는 것은 `Store`의 몫입니다).
-이는 정확히 [5장](/ko/book/ch05-understanding-regions)이 `unsafe`가
-필요하다고 알려준 종류의 원시 포인터 캐스트입니다. `set` 자체는
-작고 정직한 래퍼로 남습니다 — 실제 원소 타입을 알면서 그것을
-단언할 의사도 있는 유일한 곳이기 때문입니다.
+맵은 제네릭이므로 자신이 `struct String`을 저장한다는 것을 압니다 —
+어디에도 캐스트가 없습니다. 맵은 키의 복사본을 소유하고, `String`
+값은 `Store`가 소유합니다. 그래서 `set`은 자신이 교체하는 값을
+해제합니다.
 
 ```c
 ?struct String Store::get(const char* key) {
-    void* slot;
-    unsafe { slot = std::str_map_get(&self.entries, key); }
-    if (slot == (void*)0) {
-        return null;
+    match (self.entries.get(key)) {
+        case some(v): return v.clone();
+        case null:    return null;
     }
-    struct String* found;
-    unsafe { found = (struct String*)slot; }
-    return found->clone();
+    return null;
 }
 ```
 
-`str_map_get`은 존재하지 않는 키에 대해 순수 C 스타일로 `NULL`을
-반환합니다 — `get`은 그것을 프로그램의 나머지 부분이 기대하는
-`?struct String` 형태로 번역합니다. 타입 소거된 맵 API가 타입이
-있는 `Store` API를 만나는 바로 이 경계 지점에서요. `.clone()`이
-여기서 중요합니다: `slot`은 맵 자체의 저장 공간 *안을* 가리키고
-있으며, 복사본이 아니라 그 포인터를 그대로 반환한다면 맵이 결코
-리사이즈되지 않거나 해당 항목이 덮어써지지 않는다는 것에 의존하는
-라이프타임을 가진 참조를 호출자에게 넘기게 됩니다 — 정확히
-[5장](/ko/book/ch05-understanding-regions)이 암묵적으로 두지 않고
-명시적으로 만들려고 설계된 종류의 암묵적 라이프타임 의존성입니다.
-복제되어 독립적으로 소유된 `String`은 이 질문 자체를 완전히
-비켜갑니다.
+맵의 `get`은 `?&String`을 반환합니다: 맵 자체의 저장 공간 *안을*
+가리키는 참조이거나 `null`입니다. `Store::get`은 그 참조 대신 복제본을
+반환하는데, 그 참조는 맵이 다음에 리사이즈되거나 해당 항목이
+덮어써지기 전까지만 유효하기 때문입니다 — 정확히
+[5장](/ko/book/ch05-understanding-regions)이 다루는 종류의 암묵적
+라이프타임 의존성입니다. 복제되어 독립적으로 소유된 `String`은 이
+질문 자체를 완전히 비켜갑니다.
 
 ```c
 int Store::remove(const char* key) {
-    int r;
-    unsafe { r = std::str_map_remove(&self.entries, key); }
-    return r;
+    match (self.entries.remove(key)) {
+        case some(old): { old.free(); return 1; }
+        case none:      return 0;
+    }
+    return 0;
 }
 
+static void free_value(const char* key, &String v) { v.free(); }
+
 void Store::free() {
+    self.entries.foreach(free_value);   // the values are ours to free
     self.entries.free();
 }
 ```
@@ -97,6 +94,8 @@ void Store::free() {
 ## 조립하기 {#putting-it-together}
 
 ```c
+extern int printf(const char* fmt, ...);
+
 int main() {
     struct Store store;
     store.init();
@@ -107,17 +106,17 @@ int main() {
 
     ?struct String name = store.get("name");
     match (name) {
-        case none:    printf("name: (not found)\n");
-        case some(v): printf("name: %s\n", v.as_ptr());
+        case none:    unsafe { printf("name: (not found)\n"); }
+        case some(v): { unsafe { printf("name: %s\n", v.as_ptr()); } v.free(); }
     }
 
     int removed = store.remove("kind");
-    printf("removed kind: %d\n", removed);
+    unsafe { printf("removed kind: %d\n", removed); }
 
     ?struct String kind = store.get("kind");
     match (kind) {
-        case none:    printf("kind: (not found, as expected)\n");
-        case some(v): printf("kind: %s\n", v.as_ptr());
+        case none:    unsafe { printf("kind: (not found, as expected)\n"); }
+        case some(v): { unsafe { printf("kind: %s\n", v.as_ptr()); } v.free(); }
     }
 
     return 0;

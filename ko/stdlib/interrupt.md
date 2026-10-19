@@ -41,11 +41,14 @@ void configure_uart(void* uart_base) {
 ## ISR 벡터 테이블 (`interrupt/isr.h`) {#isr-vector-table-interruptisrh}
 
 아래의 하드웨어 벡터 테이블과는 별개인 소프트웨어 디스패치 테이블 —
-`IsrTable`은 최대 `ISR_MAX`(256)개의 핸들러 함수 포인터를 담는다:
+`IsrTable`은 최대 `ISR_MAX`(256)개의 `fn void()` 핸들러를 담는다:
 
 ```c
+static void uart_rx_isr() { /* ... */ }
+
 struct IsrTable table = std::isr_init();
-unsafe { table.register_(3, (void*)my_handler); }  // 끝의 밑줄: 'register'는 C 키워드이므로
+table.register_(3, uart_rx_isr);   // trailing underscore: 'register' is a C keyword
+// re-registering an IRQ replaces its handler
 ...
 if (table.dispatch(3)) { /* 핸들러가 실행됨 */ }
 ```

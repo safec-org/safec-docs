@@ -9,7 +9,7 @@
 ## math {#math}
 
 ```c
-#include "math.h"
+#include <std/math.h>
 ```
 
 ### 명명 규칙 {#naming-convention}
@@ -79,8 +79,8 @@ const long long clamp_ll(long long v, long long lo, long long hi);
 ### 예제 {#example}
 
 ```c
-#include "math.h"
-#include "io.h"
+#include <std/math.h>
+#include <std/io.h>
 
 int main() {
     double r = 5.0;
@@ -103,7 +103,7 @@ int main() {
 ## complex {#complex}
 
 ```c
-#include "complex.h"
+#include <std/complex.h>
 ```
 
 복소수는 두 원소로 이루어진 배열로 표현됩니다: `float[2]` 또는 `double[2]`이며, 인덱스 0은 실수부, 인덱스 1은 허수부입니다. 모든 함수는 `cXXX_f`(float)와 `cXXX_d`(double) 명명 규칙을 따릅니다. 결과는 출력 배열 매개변수에 기록됩니다.
@@ -166,8 +166,8 @@ void ccos_d(double* out, const double* z);
 ### 예제 {#example-1}
 
 ```c
-#include "complex.h"
-#include "io.h"
+#include <std/complex.h>
+#include <std/io.h>
 
 int main() {
     double a[2];
@@ -195,7 +195,7 @@ int main() {
 ## bit {#bit}
 
 ```c
-#include "bit.h"
+#include <std/bit.h>
 ```
 
 C23 `<stdbit.h>`와 컴파일러 내장 함수를 기반으로 한 비트 조작 함수들입니다. 모든 함수는 `const`로 한정되며(순수 함수, 부작용 없음), 컴파일 타임 평가가 가능합니다.
@@ -266,8 +266,8 @@ const unsigned int       set_bits32(unsigned int x, int lo, int hi, unsigned int
 ### 예제 {#example-2}
 
 ```c
-#include "bit.h"
-#include "io.h"
+#include <std/bit.h>
+#include <std/io.h>
 
 int main() {
     unsigned int x = 0xFF00;

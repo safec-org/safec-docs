@@ -7,15 +7,9 @@ vtable도, 타입 소거도, 런타임 디스패치도 없다.
 구조체와 유니온도 제네릭이 될 수 있다 — `generic<T> struct Pair { T first; T second; };`
 — 제네릭 함수와 마찬가지로 구체 타입 인자마다 완전히 단형화된다.
 구조체 메서드와 별도 파일(out-of-line) 정의에 대해서는 아래
-[제네릭 메서드](#generic-structs-and-methods)를 참고. 표준 라이브러리 자체의
-컨테이너(`Vec`, `HashMap`, `BST`, ...)는 이 기능보다 먼저 만들어진
-것들이라 여전히 `void*` 기반 구조체와, 타입 안전한 접근을 위한
-`generic<T>` *래퍼 함수*(`vec_push_t<T>`, `map_get_t<T>`, ...)의
-조합을 사용하며, 진정한 의미의 제네릭 구조체 그 자체는 아니다 — 이
-패턴에 대해서는 [표준 라이브러리 개요](/ko/stdlib/#generic-pattern)를
-참고하라. 이는 그 자체로 여전히 정당한 접근법으로 남아 있다(예를 들어
-백업 저장소가 ABI 수준에서 원소 타입을 신경 쓸 필요가 전혀 없는
-컨테이너의 경우).
+[제네릭 메서드](#generic-structs-and-methods)를 참고. 표준 라이브러리의
+컨테이너도 이 방식으로 만들어졌다(`Vec<T>`, `HashMap<K, V>`, `BST<K, V, C>`, …) —
+[컬렉션](/ko/stdlib/collections) 참고.
 
 ## 제네릭 함수 {#generic-functions}
 
@@ -174,6 +168,8 @@ int first_int(T... args) {
 | `max<double>` | `__safec_max_double` |
 | `Pair<int>` | `__safec_Pair_int` |
 
+인스턴스화는 `linkonce_odr` 링키지로(ELF/COFF에서는 COMDAT 안에) 생성된다: `Vec<int>`를 사용하는 모든 번역 단위가 자기 사본을 내보내고, 링커는 정확히 하나만 남긴다. 제네릭 컨테이너가 헤더 안에서만 존재할 수 있는 것은 이 덕분이다.
+
 ### 코드 크기 {#code-size}
 
 각 고유한 인스턴스화는 별도의 코드를 생성한다. `max`를 5개의 서로
@@ -220,6 +216,52 @@ void Container::set(T new_value) {
 }
 ```
 
+### 타입 인자는 대상으로부터 추론된다 {#type-arguments-are-inferred-from-the-target}
+
+`f<int>(...)` 같은 호출 문법은 없다. 타입 인자는 항상 추론된다. 먼저 인자를 매개변수와 대조하고, 그래도 바인딩되지 않은 타입 매개변수는 호출의 *대상 타입* — 초기화되거나 대입되는 변수의 선언 타입 — 에서 가져온다:
+
+```c
+struct Vec<int> v = std::vec_new();                  // T from the declaration
+struct HashMap<int, long long> m = std::map_new();   // K and V likewise
+?&heap Packet p = std::pool_alloc_t(&pool);          // T = Packet
+```
+
+대상이 없는 호출(단독 문장, `match` 대상, 다른 제네릭의 인자)은 반환 타입에만 나타나는 매개변수를 추론할 수 없다: 먼저 타입이 지정된 변수에 바인딩하라.
+
+nullable 참조 매개변수(`?&T`)에 대응하는 단독 `null` 인자는 아무것도 바인딩하지 않으며, `T`는 다른 인자에서 온다: `std::thread_create(&tid, worker, null)`은 `worker`의 시그니처에서 `T`를 가져온다.
+
+추론은 인자가 매개변수 *패턴*에 들어맞는다는 것만 증명한다. 그 다음 각 인자는 비제네릭 호출과 똑같이 인스턴스화된 매개변수 타입에 대해 검사된다 — `&T`가 기대되는 곳에 구조체 값을 넘기면 조용한 복사가 아니라 오류다.
+
+### 중첩된 타입 인자 {#nested-type-arguments}
+
+타입 인자는 자유롭게 중첩되며, `>>`는 두 목록을 닫는다: `struct NodePool<struct ListNode<T>>`, `struct Vec<struct Vec<int>>`. 템플릿은 자기 자신의 인스턴스를 언급할 수 있고(`ListNode` 안의 `?&heap struct ListNode<T> next;`), 제네릭 구조체 안에서 타입 매개변수의 배열도 허용된다(`V vals[8];`).
+
+### 타입 매개변수를 통한 컴파일 타임 디스패치 {#compile-time-dispatch-through-a-type-parameter}
+
+타입 매개변수는 제네릭 코드가 메서드를 호출하는 *정책* 타입을 나타낼 수 있다. 단형화 후 그 호출은 해당 타입 메서드에 대한 직접 호출이 되고, 옵티마이저가 이를 인라인한다 — 함수 포인터를 넘기는 것의 비용 없는 대안이다:
+
+```c
+generic<T> struct Less { int unused_; int cmp(const &T a, const &T b) const; };
+generic<T> int Less::cmp(const &T a, const &T b) const { return *a < *b ? -1 : (*a > *b ? 1 : 0); }
+
+generic<K, V, C>          // C: any type with a matching cmp method
+struct BST { C ord; /* ... */ int insert(K key, V val); };
+
+// inside BST::insert:  int c = self.ord.cmp(&key, &n.key);   // inlined for Less<int>
+```
+
+`std/cmp.h`는 `Less<T>`, `Greater<T>`, `FnOrder<T>`(런타임 비교자)를 제공하며, `BST<K, V, C>`와 `vec_sort_by`가 이를 사용한다. `if const`와 조합하면 타입 인자의 속성에 따라 컴파일 타임에 코드를 선택할 수 있다. 죽은 분기는 타입 검사조차 되지 않는다:
+
+```c
+generic<K>
+unsigned int hash_key(const &K key) {
+    if const (sizeof(K) == 4UL || sizeof(K) == 8UL) {
+        // ... hash the key as one machine word ...
+    }
+    // ... byte-wise fallback for other sizes ...
+}
+```
+
 ## 리전과의 상호작용 {#interaction-with-regions}
 
 제네릭 타입은 리전 한정 참조와 결합될 수 있다:
@@ -243,10 +285,9 @@ generic<T>
   동적 디스패치는 없다.
 - **부분 특수화 없음**: 타입의 부분집합에 대해 특수화된 구현을 제공할
   수 없다.
-- **기본 타입 인자 없음**: 모든 타입 매개변수는 추론되거나 명시적으로
-  제공되어야 한다.
-- **추론은 호출 지점에서만 이루어짐**: 컴파일러는 함수 인자로부터
-  `T`를 추론한다. 반환 타입으로부터는 추론하지 않는다.
+- **기본 타입 인자 없음**: 모든 타입 매개변수는 추론되어야 한다.
+- **추론은 지역적임**: `T`는 인자 또는 호출의 대상 타입에서 온다 —
+  결과가 나중에 어떻게 쓰이는지로부터는 절대 추론하지 않는다.
 - **추론은 `T*`/`[]T` 매개변수를 고정 크기 배열 그대로의 인자와
   통합(unify)하지 않는다** — 이미 포인터/슬라이스 타입이 부여된 값을
   대신 전달하라. 정확히 이 경우를 다루는 예제는

@@ -4,15 +4,15 @@
 헬퍼.
 
 ```c
-#include <std/sched/io_nb_bsd.sc>  // 또는 io_nb_linux.sc / io_nb_win32.sc — 플랫폼에 맞는 백엔드를 선택
 #include <std/http/http.h>
-#include <std/http/http.sc>
 ```
+
+그 아래의 논블로킹 소켓 계층(`std/sched/io_nb.h`)은 플랫폼마다 하나의 백엔드(`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`)를 가지며, `safeguard`가 타깃에 맞는 것을 `libsafec_std.a`에 컴파일해 넣으므로 직접 포함하거나 선택할 것이 없습니다.
 
 ## 서버 {#server}
 
 ```c
-struct HttpResponse handle(struct HttpRequest* req) {
+struct HttpResponse handle(&HttpRequest req) {
     struct HttpResponse resp;
     resp.status = 200;
     resp.headers = std::string_new();
@@ -51,14 +51,14 @@ struct HttpResponse resp = std::http_get("example.com", 80, "/", &ok);
 
 ```c
 #include <std/http/cors.h>
-#include <std/http/cors.sc>
+#include <std/http/cors.h>
 ```
 
 래핑하는 미들웨어가 아니다(단순한 `HttpHandler` 함수 포인터에는 클로저
 슬롯이 없다) — 자신의 핸들러에서 직접 호출한다:
 
 ```c
-struct HttpResponse handle(struct HttpRequest* req) {
+struct HttpResponse handle(&HttpRequest req) {
     if (std::cors_is_preflight(req))
         return std::cors_preflight_response("*", "GET, POST, OPTIONS", "Content-Type, Authorization");
     struct HttpResponse resp = /* ... */;
@@ -71,7 +71,7 @@ struct HttpResponse handle(struct HttpRequest* req) {
 
 ```c
 #include <std/http/jwt.h>
-#include <std/http/jwt.sc>
+#include <std/http/jwt.h>
 ```
 
 `std/crypto/hmac.h` 위에 구축된 HS256(HMAC-SHA256) 압축 직렬화(compact
@@ -95,7 +95,7 @@ struct Value decoded = std::jwt_verify(token.as_ptr(), "my-secret-key", &ok);
 
 ```c
 #include <std/http/oauth2.h>
-#include <std/http/oauth2.sc>
+#include <std/http/oauth2.h>
 ```
 
 클라이언트 측 토큰 교환(RFC 6749) — 제공자에 구애받지 않으며, 실제

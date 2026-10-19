@@ -10,17 +10,17 @@ void      join(handle);
 long long spawn_scoped(fn, arg);   // spawn과 같지만, 컴파일러가 스코프 종료 전 join을 보장
 ```
 
-`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 `void*` 인자로 그대로 전달됩니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
+`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 인자로 그대로 전달됩니다. 스레드 함수는 nullable 참조를 받고 반환합니다(`?&T f(?&T arg)`). 인자는 리전 격리를 지켜야 합니다: 생성된 스레드가 참조 대상보다 오래 살거나 그 위에서 경쟁할 수 있으므로, 컴파일러는 `&static`이 아닌 가변 참조를 거부합니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
 
 ```c
 extern int printf(const char *fmt, ...);
 
-void* worker0(void* arg) { printf("thread 0\n"); return (void*)0; }
-void* worker1(void* arg) { printf("thread 1\n"); return (void*)0; }
+static ?&int worker0(?&int unused) { unsafe { printf("thread 0\n"); } return null; }
+static ?&int worker1(?&int unused) { unsafe { printf("thread 1\n"); } return null; }
 
 int main() {
-    long long h0 = spawn(worker0, 0);
-    long long h1 = spawn(worker1, 0);
+    long long h0 = spawn(worker0, null);
+    long long h1 = spawn(worker1, null);
 
     join(h0);
     join(h1);
@@ -53,7 +53,7 @@ int main() {
 이 페이지의 나머지 부분 — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — 는 위의 `spawn`/`join` 키워드 대신 OS 스레드를 직접 제어하고 싶을 때 사용하는, 별도로 명시적으로 호출하는 API입니다. 두 계층 모두 호스티드 타깃에서는 pthread/Win32 기반으로 동작합니다. `thread_create`의 핸들은 Win32에서 `spawn`의 핸들과 ABI 호환이지만, 그 외에는 두 API가 서로 독립적입니다(이 API는 훅 백엔드 계약의 일부가 아닙니다).
 
 ```c
-#include "thread.h"
+#include <std/thread.h>
 ```
 
 ## 핸들 표현 {#handle-representation}
@@ -66,7 +66,8 @@ int main() {
 ## 스레드 {#thread}
 
 ```c
-int  thread_create(unsigned long long* tid, void* fn, void* arg);
+generic<T>
+int  thread_create(&unsigned long long tid, fn ?&T(?&T) func, ?&T arg);
 int  thread_join(unsigned long long tid);
 int  thread_detach(unsigned long long tid);
 void thread_yield();
@@ -76,7 +77,9 @@ unsigned long long thread_self();
 
 ### thread_create {#thread_create}
 
-새 스레드를 생성합니다. 함수 시그니처는 POSIX에서는 `void* fn(void*)`, Win32에서는 `DWORD WINAPI fn(LPVOID)`여야 합니다. 스레드 ID는 `*tid`에 기록됩니다. 성공 시 0을 반환합니다.
+새 스레드에서 `func(arg)`를 시작하고 그 핸들을 `*tid`에 기록합니다. 성공 시 0을 반환합니다. 스레드 함수는 자신의 컨텍스트 타입에 대한 nullable 참조를 받고 반환하며 — `static ?&Job work(?&Job job)` — `T`는 이로부터 추론되므로, 잘못된 컨텍스트 타입을 넘기면 컴파일 오류입니다. 스레드에 인자가 필요 없으면 `null`을 넘기세요. 반환값은 버려집니다(`thread_join`은 기다리기만 합니다).
+
+그 아래의 타입 없는 OS 진입점(POSIX `void*(*)(void*)`, Win32 `LPTHREAD_START_ROUTINE`)은 `thread_create_raw_`입니다. 기계 수준에서 `?&T`는 평범한 포인터이므로 ABI가 동일합니다.
 
 ### thread_join {#thread_join}
 
@@ -101,11 +104,11 @@ unsigned long long thread_self();
 ## 뮤텍스 {#mutex}
 
 ```c
-int mutex_init(unsigned long long* m);
-int mutex_destroy(unsigned long long* m);
-int mutex_lock(unsigned long long* m);
-int mutex_trylock(unsigned long long* m);
-int mutex_unlock(unsigned long long* m);
+int mutex_init(&unsigned long long m);
+int mutex_destroy(&unsigned long long m);
+int mutex_lock(&unsigned long long m);
+int mutex_trylock(&unsigned long long m);
+int mutex_unlock(&unsigned long long m);
 ```
 
 ### mutex_init / mutex_destroy {#mutex_init-mutex_destroy}
@@ -123,12 +126,12 @@ int mutex_unlock(unsigned long long* m);
 ## 조건 변수 {#condition-variable}
 
 ```c
-int cond_init(unsigned long long* cv);
-int cond_destroy(unsigned long long* cv);
-int cond_wait(unsigned long long* cv, unsigned long long* m);
-int cond_timedwait_ms(unsigned long long* cv, unsigned long long* m, unsigned long ms);
-int cond_signal(unsigned long long* cv);
-int cond_broadcast(unsigned long long* cv);
+int cond_init(&unsigned long long cv);
+int cond_destroy(&unsigned long long cv);
+int cond_wait(&unsigned long long cv, &unsigned long long m);
+int cond_timedwait_ms(&unsigned long long cv, &unsigned long long m, unsigned long ms);
+int cond_signal(&unsigned long long cv);
+int cond_broadcast(&unsigned long long cv);
 ```
 
 ### cond_wait {#cond_wait}
@@ -146,14 +149,14 @@ int cond_broadcast(unsigned long long* cv);
 ## 읽기-쓰기 락 {#read-write-lock}
 
 ```c
-int rwlock_init(unsigned long long* rw);
-int rwlock_destroy(unsigned long long* rw);
-int rwlock_rdlock(unsigned long long* rw);
-int rwlock_wrlock(unsigned long long* rw);
-int rwlock_tryrdlock(unsigned long long* rw);
-int rwlock_trywrlock(unsigned long long* rw);
-int rwlock_rdunlock(unsigned long long* rw);
-int rwlock_wrunlock(unsigned long long* rw);
+int rwlock_init(&unsigned long long rw);
+int rwlock_destroy(&unsigned long long rw);
+int rwlock_rdlock(&unsigned long long rw);
+int rwlock_wrlock(&unsigned long long rw);
+int rwlock_tryrdlock(&unsigned long long rw);
+int rwlock_trywrlock(&unsigned long long rw);
+int rwlock_rdunlock(&unsigned long long rw);
+int rwlock_wrunlock(&unsigned long long rw);
 ```
 
 여러 개의 리더가 동시에 접근하는 것은 허용되지만, 라이터는 배타적으로 접근합니다. 공유 읽기 접근에는 `rdlock`/`rdunlock`을, 배타적 쓰기 접근에는 `wrlock`/`wrunlock`을 사용하세요.
@@ -161,39 +164,39 @@ int rwlock_wrunlock(unsigned long long* rw);
 ## 예제 {#example}
 
 ```c
-#include "thread.h"
-#include "io.h"
-#include "atomic.h"
+#include <std/thread.h>
+#include <std/io.h>
+#include <std/atomic.h>
 
-int counter = 0;
-unsigned long long mtx;
+static int counter = 0;
+static unsigned long long mtx = 0ULL;
 
-void* worker(void* arg) {
+static ?&int worker(?&int unused) {
     int i = 0;
     while (i < 1000) {
-        mutex_lock(&mtx);
+        std::mutex_lock(&mtx);
         counter = counter + 1;
-        mutex_unlock(&mtx);
+        std::mutex_unlock(&mtx);
         i = i + 1;
     }
-    return 0;
+    return null;
 }
 
 int main() {
-    mutex_init(&mtx);
+    std::mutex_init(&mtx);
 
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, worker, 0);
-    thread_create(&t2, worker, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, worker, null);
+    std::thread_create(&t2, worker, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    print("counter = ");
-    println_int(counter);  // 2000
+    std::print("counter = ");
+    std::println_int(counter);  // 2000
 
-    mutex_destroy(&mtx);
+    std::mutex_destroy(&mtx);
     return 0;
 }
 ```
@@ -201,48 +204,48 @@ int main() {
 ## 생산자-소비자 예제 {#producer-consumer-example}
 
 ```c
-#include "thread.h"
-#include "io.h"
+#include <std/thread.h>
+#include <std/io.h>
 
-int buffer = 0;
-int ready  = 0;
-unsigned long long mtx;
-unsigned long long cv;
+static int buffer = 0;
+static int ready  = 0;
+static unsigned long long mtx = 0ULL;
+static unsigned long long cv = 0ULL;
 
-void* producer(void* arg) {
-    mutex_lock(&mtx);
+static ?&int producer(?&int unused) {
+    std::mutex_lock(&mtx);
     buffer = 42;
     ready  = 1;
-    cond_signal(&cv);
-    mutex_unlock(&mtx);
-    return 0;
+    std::cond_signal(&cv);
+    std::mutex_unlock(&mtx);
+    return null;
 }
 
-void* consumer(void* arg) {
-    mutex_lock(&mtx);
+static ?&int consumer(?&int unused) {
+    std::mutex_lock(&mtx);
     while (ready == 0) {
-        cond_wait(&cv, &mtx);
+        std::cond_wait(&cv, &mtx);
     }
-    print("received: ");
-    println_int(buffer);  // 42
-    mutex_unlock(&mtx);
-    return 0;
+    std::print("received: ");
+    std::println_int(buffer);  // 42
+    std::mutex_unlock(&mtx);
+    return null;
 }
 
 int main() {
-    mutex_init(&mtx);
-    cond_init(&cv);
+    std::mutex_init(&mtx);
+    std::cond_init(&cv);
 
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, consumer, 0);
-    thread_create(&t2, producer, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, consumer, null);
+    std::thread_create(&t2, producer, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    cond_destroy(&cv);
-    mutex_destroy(&mtx);
+    std::cond_destroy(&cv);
+    std::mutex_destroy(&mtx);
     return 0;
 }
 ```

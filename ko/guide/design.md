@@ -154,14 +154,20 @@ int main() {
 ```c
 // 리전 선언은 최상위 레벨에서만 가능합니다 — 사용할 함수보다 먼저 선언해야
 // 하며, 처음 필요한 곳에 인라인으로 선언할 수 없습니다.
+#include <stdlib.h>
+
 region Pool { capacity: 1024 }
 
 int main() {
     int x = 10;
     &stack int r1 = &x;         // r1은 스택 메모리를 가리킴
 
-    &heap int r2 = (int*)malloc(sizeof(int));
-    *r2 = 20;                    // r2는 힙 메모리를 가리킴
+    ?&heap int r2 = null;       // 힙 할당은 실패할 수 있음: nullable
+    unsafe { r2 = (?&heap int)malloc(sizeof(int)); }
+    match (r2) {
+        case some(h): *h = 20;   // r2는 힙 메모리를 가리킴
+        case null:    return 1;
+    }
 
     &arena<Pool> int r3 = new<Pool> int;
     *r3 = 30;                    // r3는 arena 메모리를 가리킴

@@ -20,7 +20,7 @@ void addition_works() {
 
 int main(void) {
     struct TestSuite t = std::test_suite_init();
-    unsafe { t.add("addition works", (void*)addition_works); }
+    t.add("addition works", addition_works);
     t.run();
     return t.all_passed() ? 0 : 1;
 }
@@ -29,7 +29,7 @@ int main(void) {
 ## 단위 테스트 (`test/test.h`) {#unit-testing-testtesth}
 
 `TestSuite`(`test_suite_init()`로 생성, 용량 `TEST_MAX` = 256개 케이스):
-`add(name, func)`(`func`: `void func(void)`), `run()`(등록된 모든
+`add(name, func)`(`func`: `fn void()`), `run()`(등록된 모든
 테스트를 실행하며 각 결과를 출력), `print_summary()`(`"N passed, M
 failed."`), `all_passed()`. `test_run_and_exit(&stack suite)`는 실행 후
 요약을 출력하고, 실패가 하나라도 있으면 `exit(1)`을 호출한다 — 테스트용
@@ -43,7 +43,7 @@ failed."`), `all_passed()`. `test_run_and_exit(&stack suite)`는 실행 후
 | `ASSERT_TRUE(e)` / `ASSERT_FALSE(e)` | `test_assert_true` | 표현식이 0이(아니)다 |
 | `ASSERT_EQ(a,b)` / `ASSERT_NE(a,b)` | `test_assert_eq_i` | `long long`으로서 같음/다름 |
 | `ASSERT_STR_EQ(a,b)` | `test_assert_eq_s` | NUL로 끝나는 문자열이 같음 |
-| `ASSERT_NULL(p)` / `ASSERT_NOT_NULL(p)` | `test_assert_null`/`test_assert_not_null` | 포인터가 `NULL`이다/아니다 |
+| `ASSERT_NULL(p)` / `ASSERT_NOT_NULL(p)` | `test_assert_null`/`test_assert_not_null` | `?&T` nullable 참조가 null이다/아니다 (`T`에 대해 제네릭) |
 
 `test_assert_eq_u`(부호 없는 `long long` 동등 비교)는 매크로 래퍼가
 없으므로 직접 호출해야 한다.
@@ -51,15 +51,31 @@ failed."`), `all_passed()`. `test_run_and_exit(&stack suite)`는 실행 후
 ## 벤치마킹 (`test/bench.h`) {#benchmarking-testbenchh}
 
 `BenchSuite`(`bench_suite_init()`로 생성, 용량 `BENCH_MAX` = 64개
-케이스): `add(name, func, arg, iters)`는 케이스를 등록하고(`func`:
-`void func(void* arg)`, 실행당 `iters`번 호출됨), `run()`은 모든 케이스를
-실행하고 각 `BenchCase`에 `elapsed_s`/`ops_per_s`를 기록하며,
-`print_results()`는 결과 표를 출력한다.
+케이스): `bench_add(&suite, name, func, arg, iters)`는 케이스를
+등록한다 — `func`는 `fn void(?&T)`이고 `arg`는 그에 맞는 `?&T`(또는
+`null`)이며, 실행당 `iters`번 호출된다. `run()`은 모든 케이스를 실행하고
+각 `BenchCase`에 `elapsed_s`/`ops_per_s`를 기록하며, `print_results()`는
+결과 표를 출력한다.
+
+```c
+static void push_pop(?&Stack<int> s) {
+    match (s) { case some(st): { st.push(1); st.pop(); } case null: { } }
+}
+
+void bench() {
+    struct Stack<int> st = std::stack_new();
+    struct BenchSuite b = std::bench_suite_init();
+    unsafe { std::bench_add(&b, "stack push/pop", push_pop, (?&Stack<int>)&st, 1000000UL); }
+    b.run();
+    b.print_results();
+    st.free();
+}
+```
 
 ## 퍼징 (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
 `FuzzTarget`(`fuzz_target_init(func, iters)`로 생성, `func`:
-`void func(const unsigned char* data, unsigned long size)`) — 구조를
+`fn void(const &unsigned char data, unsigned long size)`) — 구조를
 인식하지 못하는 경량 인프로세스 뮤테이터다: `run(corpus, corpus_size)`는
 시드 코퍼스에서 시작해 `iters`번의 무작위 변이를 적용하고, 각 결과를
 대상 함수에 전달한다. 커버리지 기반이 아니므로 개발 중 간단하고 임시적인

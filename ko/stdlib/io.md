@@ -7,7 +7,7 @@
 ## io -- 콘솔 I/O {#io-console-io}
 
 ```c
-#include "io.h"
+#include <std/io.h>
 ```
 
 ### 상수 {#constants}
@@ -22,19 +22,19 @@
 ### 포맷된 출력 (stdout) {#formatted-output-stdout}
 
 ```c
-void print(const char* s);                // 문자열 출력
-void println(const char* s);              // 문자열 출력 + 개행
-void print_char(int c);                   // 단일 문자 출력
-void print_int(long long v);              // 부호 있는 정수 출력
-void print_uint(unsigned long long v);    // 부호 없는 정수 출력
-void print_float(double v);              // 부동소수점 출력
-void print_hex(unsigned long long v);    // 16진수 출력 (0x...)
-void print_oct(unsigned long long v);    // 8진수 출력
-void print_ptr(const void* p);          // 포인터 주소 출력
-void println_int(long long v);           // 정수 출력 + 개행
-void println_uint(unsigned long long v); // 부호 없는 정수 출력 + 개행
-void println_float(double v);           // 부동소수점 출력 + 개행
-void println_char(int c);               // 문자 출력 + 개행
+void print(const char* s);                // print string
+void println(const char* s);              // print string + newline
+void print_char(int c);                   // print single character
+void print_int(long long v);              // print signed integer
+void print_uint(unsigned long long v);    // print unsigned integer
+void print_float(double v);              // print floating-point
+void print_hex(unsigned long long v);    // print hex (0x...)
+void print_oct(unsigned long long v);    // print octal
+generic<T> void print_ptr(const ?&T p);  // print the address a reference points at
+void println_int(long long v);           // print int + newline
+void println_uint(unsigned long long v); // print uint + newline
+void println_float(double v);           // print float + newline
+void println_char(int c);               // print char + newline
 ```
 
 ### 포맷된 출력 (stderr) {#formatted-output-stderr}
@@ -79,9 +79,9 @@ int  io_scan_float(double* out);          // stdin에서 부동소수점을 파�
 ### 파일 시스템 연산 {#file-system-operations}
 
 ```c
-int   io_remove(const char* path);                     // 파일 삭제
-int   io_rename(const char* old_path, const char* new_path); // 이름 변경/이동
-void* io_tmpfile();                                     // 임시 파일 생성
+int   io_remove(const char* path);                     // delete a file
+int   io_rename(const char* old_path, const char* new_path); // rename/move
+?&File io_tmpfile();                                    // create temporary file; null on failure
 ```
 
 ### 플러시 {#flush}
@@ -96,82 +96,89 @@ void flush_stderr();
 ## io_file -- 파일 I/O {#io_file-file-io}
 
 ```c
-#include "io_file.h"
+#include <std/io_file.h>
 ```
 
-FILE\*는 C의 `FILE` 타입을 SafeC에 노출하지 않기 위해 `void*`로
-저장된다.
+핸들은 불투명 타입에 대한 `&File` 참조다 — 그 아래의 C `FILE`은 결코
+노출되지 않는다. `file_open`은 `?&File`(실패 시 null)을 반환하므로 사용
+전에 좁혀야 하며(`match`, `std::expect_ref`), 그 밖의 모든 함수는
+non-null `&File`을 받는다. 바이트 버퍼는 `&unsigned char` /
+`const &unsigned char`다.
 
 ### 열기 / 닫기 {#open-close}
 
 ```c
-void* file_open(const char* path, const char* mode);  // "r", "w", "a", "rb", "wb" 등
-int   file_close(void* f);                             // 성공 시 0을 반환
+?&File file_open(const char* path, const char* mode); // "r", "w", "a", "rb", "wb", etc.
+int   file_close(&File f);                             // returns 0 on success
 ```
 
 ### 읽기 {#read}
 
 ```c
-unsigned long file_read(void* f, void* buf, unsigned long n);  // 읽은 바이트 수를 반환
-int           file_getc(void* f);                               // 문자 또는 -1을 반환
-char*         file_gets(char* buf, int n, void* f);             // buf 또는 NULL을 반환
+unsigned long file_read(&File f, &unsigned char buf, unsigned long n);  // returns bytes read
+int           file_getc(&File f);                               // returns char or -1
+char*         file_gets(char* buf, int n, &File f);             // returns buf or NULL
 ```
 
 ### 쓰기 {#write}
 
 ```c
-unsigned long file_write(void* f, const void* buf, unsigned long n); // 쓴 바이트 수를 반환
-int           file_putc(int c, void* f);                              // c 또는 -1을 반환
-int           file_puts(const char* s, void* f);                      // 성공 시 0 이상을 반환
+unsigned long file_write(&File f, const &unsigned char buf, unsigned long n); // returns bytes written
+int           file_putc(int c, &File f);                              // returns c or -1
+int           file_puts(const char* s, &File f);                      // returns non-negative on success
 ```
 
 ### 탐색 / 위치 확인 {#seek-tell}
 
 ```c
-int       file_seek(void* f, long long offset, int whence);  // 0=SET, 1=CUR, 2=END
-long long file_tell(void* f);                                  // 현재 위치, 오류 시 -1
-void      file_rewind(void* f);                                // 시작 지점으로 되감기
+int       file_seek(&File f, long long offset, int whence);  // 0=SET, 1=CUR, 2=END
+long long file_tell(&File f);                                  // current position, -1 on error
+void      file_rewind(&File f);                                // rewind to start
 ```
 
 ### 상태 {#status}
 
 ```c
-int file_eof(void* f);    // 마지막 연산이 EOF에 도달했으면 0이 아닌 값
-int file_error(void* f);  // 오류 표시자가 설정되어 있으면 0이 아닌 값
-int file_flush(void* f);  // 버퍼링된 쓰기를 플러시; 성공 시 0
+int file_eof(&File f);    // non-zero if last op hit EOF
+int file_error(&File f);  // non-zero if error indicator set
+int file_flush(&File f);  // flush buffered writes; 0 on success
 ```
 
 ### 편의 함수 {#convenience}
 
 ```c
-long long file_size(void* f);  // 파일 크기(바이트), 오류 시 -1
+long long file_size(&File f);  // file size in bytes, -1 on error
 ```
 
 ## 예제 {#example}
 
 ```c
-#include "io.h"
-#include "io_file.h"
+#include <std/io.h>
+#include <std/io_file.h>
 
 int main() {
-    // 콘솔 출력
-    println("Writing to file...");
+    // Console output
+    std::println("Writing to file...");
 
-    // 파일 I/O
-    void* f = file_open("output.txt", "w");
-    if (f != 0) {
-        file_puts("Hello from SafeC!\n", f);
-        file_close(f);
+    // File I/O
+    match (std::file_open("output.txt", "w")) {
+        case some(f): {
+            std::file_puts("Hello from SafeC!\n", f);
+            std::file_close(f);
+        }
+        case null: std::println("cannot open output.txt");
     }
 
-    // 다시 읽어오기
-    void* g = file_open("output.txt", "r");
-    if (g != 0) {
-        char buf[256];
-        file_gets(buf, 256, g);
-        print("Read: ");
-        println(buf);
-        file_close(g);
+    // Read it back
+    match (std::file_open("output.txt", "r")) {
+        case some(g): {
+            char buf[256];
+            unsafe { std::file_gets(buf, 256, g); }
+            std::print("Read: ");
+            unsafe { std::println(buf); }
+            std::file_close(g);
+        }
+        case null: { }
     }
 
     return 0;

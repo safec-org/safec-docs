@@ -3,10 +3,10 @@
 `std/serial/`은 형식에 구애받지 않는 `Value` 트리와, 이 트리를 읽고 쓸 수 있는 다섯 가지 형식 백엔드(JSON, XML, HTML, CSV, YAML)를 제공합니다. SafeC에는 필드 이름 리플렉션이 없으므로(오직 개수만 알려주는 `fieldcount(T)`만 있고 이름은 알 수 없습니다), 구조체를 직렬화 가능하게 만들려면 자동 `#[derive]` 스타일 매크로 대신 `to_value()` 메서드를 직접 작성해야 합니다.
 
 ```c
-#include "serial/value.h"
-#include "serial/json.h"
-#include "serial/xml.h"
-#include "serial/html.h"
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/serial/xml.h>
+#include <std/serial/html.h>
 ```
 
 ## `Value` 트리 {#the-value-tree}
@@ -77,7 +77,12 @@ match (parsed.object_get("age")) {
 구조체 필드로부터 `Value` 트리를 만드는 `to_value()` 메서드를 작성하세요.
 
 ```c
-struct Point { double x; double y; };
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/collections/string.h>
+extern int printf(const char* fmt, ...);
+
+struct Point { double x; double y; struct Value to_value() const; };
 
 struct Value Point::to_value() const {
     struct Value v = value_object();
@@ -87,11 +92,11 @@ struct Value Point::to_value() const {
 }
 
 int main() {
-    Point p; p.x = 1.5; p.y = 2.5;
+    struct Point p; p.x = 1.5; p.y = 2.5;
 
     struct Value pv = p.to_value();
     struct String json = value_to_json(&pv);
-    printf("%s\n", json.as_ptr());   // {"x":1.5,"y":2.5}
+    unsafe { printf("%s\n", json.as_ptr()); }   // {"x":1.5,"y":2.5}
 
     json.free();
     value_free(&pv);
@@ -209,7 +214,7 @@ value_free(&v);
 ## CSV {#csv}
 
 ```c
-#include "serial/csv.h"
+#include <std/serial/csv.h>
 ```
 
 CSV 문서는 행(row)들의 `VAL_ARRAY`이며, 각 행 자체는 `VAL_STRING` 필드들의 `VAL_ARRAY`입니다 — CSV는 고유한 타입 체계가 없으므로(모든 필드가 텍스트), `json_parse`와 달리 int/float/bool 추론이 없습니다. 어떤 열이 숫자를 담고 있다고 알고 있다면 각 필드를 직접 변환하세요(`String::parse_int()`/`parse_float()`).
@@ -236,7 +241,7 @@ value_free(&rows);
 ## YAML {#yaml}
 
 ```c
-#include "serial/yaml.h"
+#include <std/serial/yaml.h>
 ```
 
 YAML 1.1의 블록 스타일 서브셋입니다: 블록 스칼라(평문, 각자의 이스케이프 규칙을 따르는 단일/이중 따옴표), 블록 시퀀스(`- item`, 맵 목록의 축약형인 `- key: value` 포함), 블록 매핑(`key: value`, 들여쓰기로 중첩), `#` 주석, `~`/`null`/`true`/`false`/숫자 코어 스키마 스칼라 형태.

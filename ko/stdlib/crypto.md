@@ -3,7 +3,7 @@
 SafeC는 대칭 암호화, 해싱, 난수 생성, 인증서 파싱, TLS 레코드 레이어 프레이밍을 제공하는 보안 라이브러리를 `std/crypto/`에 제공합니다.
 
 ```c
-#include "crypto/crypto.h"  // 마스터 헤더: 모든 모듈을 가져옴
+#include <std/crypto/crypto.h>  // master header: pulls in all modules
 ```
 
 ::: warning
@@ -15,7 +15,7 @@ SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하�
 ## AES {#aes}
 
 ```c
-#include "crypto/aes.h"
+#include <std/crypto/aes.h>
 ```
 
 ECB와 CBC 모드를 지원하는 AES-128, AES-256 블록 암호입니다. 완전한 S-box, 키 확장, MixColumns 구현을 포함합니다.
@@ -52,23 +52,27 @@ struct AesCtx aes256_init(const &stack unsigned char key);  // key: 32바이트
 ### 예제 {#example}
 
 ```c
-#include "crypto/aes.h"
+#include <std/crypto/aes.h>
 
 int main() {
-    unsigned char key[16] = {0x2b,0x7e,0x15,0x16, 0x28,0xae,0xd2,0xa6,
-                              0xab,0xf7,0x15,0x88, 0x09,0xcf,0x4f,0x3c};
-    unsigned char iv[16]  = {0};
-    unsigned char buf[32] = "Hello, SafeC! AES CBC test data.";
+    unsigned char key[16];
+    unsigned char iv[16];
+    unsigned char buf[32];
+    const char* text = "Hello, SafeC! AES CBC test data.";   // 32 bytes
+    unsafe {
+        int i = 0;
+        while (i < 16) { key[i] = (unsigned char)(i * 17); iv[i] = 0; i = i + 1; }
+        i = 0;
+        while (i < 32) { buf[i] = (unsigned char)text[i]; i = i + 1; }
+    }
 
-    struct AesCtx ctx = aes128_init(key);
-    ctx.set_iv(iv);
+    struct AesCtx ctx = std::aes128_init(&key[0]);
+    ctx.set_iv(&iv[0]);
+    ctx.cbc_encrypt(&buf[0], 32UL);   // buf is now ciphertext
 
-    ctx.cbc_encrypt(buf, 32);   // buf는 이제 암호문
-
-    // IV를 재설정하고 다시 복호화
-    ctx.set_iv(iv);
-    ctx.cbc_decrypt(buf, 32);   // buf가 평문으로 복원됨
-    return 0;
+    ctx.set_iv(&iv[0]);               // reset the IV and decrypt back
+    ctx.cbc_decrypt(&buf[0], 32UL);   // buf holds the plaintext again
+    unsafe { return buf[0] == (unsigned char)'H' ? 0 : 1; }
 }
 ```
 
@@ -77,7 +81,7 @@ int main() {
 ## SHA-256 {#sha-256}
 
 ```c
-#include "crypto/sha256.h"
+#include <std/crypto/sha256.h>
 ```
 
 스트리밍(update) 방식과 원샷 방식 인터페이스를 모두 지원하는 SHA-256, SHA-224입니다.
@@ -108,25 +112,24 @@ void sha256(const &stack unsigned char data, unsigned long len,
 ### 예제 {#example-1}
 
 ```c
-#include "crypto/sha256.h"
-#include "io.h"
+#include <std/crypto/sha256.h>
 
 int main() {
-    unsigned char digest[32];
+    unsigned char a[32];
+    unsigned char b[32];
+    unsigned char msg[5];
+    unsafe { msg[0] = 'h'; msg[1] = 'e'; msg[2] = 'l'; msg[3] = 'l'; msg[4] = 'o'; }
 
-    // 원샷 해시
-    unsigned char msg[] = "hello";
-    sha256(msg, 5, digest);
+    std::sha256(&msg[0], 5UL, &a[0]);              // one-shot
 
-    // 두 청크의 스트리밍 해시
-    struct Sha256Ctx ctx = sha256_init();
-    unsigned char part1[] = "hel";
-    unsigned char part2[] = "lo";
-    ctx.update(part1, 3);
-    ctx.update(part2, 2);
-    ctx.finish(digest);  // 위 원샷 결과와 동일
+    struct Sha256Ctx ctx = std::sha256_init();     // streaming, two chunks
+    ctx.update(&msg[0], 3UL);
+    unsafe { ctx.update(&msg[3], 2UL); }
+    ctx.finish(&b[0]);                             // same digest as the one-shot
 
-    return 0;
+    int same = 1;
+    unsafe { int i = 0; while (i < 32) { if (a[i] != b[i]) same = 0; i = i + 1; } }
+    return same ? 0 : 1;
 }
 ```
 
@@ -135,47 +138,42 @@ int main() {
 ## RNG — ChaCha20 CSPRNG {#rng-chacha20-csprng}
 
 ```c
-#include "crypto/rng.h"
+#include <std/crypto/rng.h>
 ```
 
 ChaCha20을 기반으로 한 암호학적으로 안전한 의사 난수 생성기입니다.
 
 ```c
 struct RngCtx {
-    unsigned int state[16];  // ChaCha20 상태
-}
+    void          fill(&unsigned char out, unsigned long len);   // len random bytes
+    unsigned int  rand32();
+    unsigned long rand64();
+    unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
+};
 
-// 호출자가 제공한 32바이트로 시드
-void rng_init(struct RngCtx* ctx, const unsigned char seed[32]);
+// Seed from hardware entropy (rdrand / /dev/urandom). 1 on success,
+// 0 if no entropy source is available (e.g. bare metal without a TRNG).
+int  rng_init(&RngCtx ctx);
 
-// 하드웨어 엔트로피로 시드:
-//   x86-64: rdrand | 호스티드: /dev/urandom | 프리스탠딩: no-op
-void rng_init_os(struct RngCtx* ctx);
-
-// `len` 바이트의 난수를 생성
-void rng_fill(struct RngCtx* ctx, void* out, unsigned long len);
-
-// 난수 값 하나를 생성
-unsigned int       rng_u32(struct RngCtx* ctx);
-unsigned long long rng_u64(struct RngCtx* ctx);
+// Deterministic seed (tests, reproducible simulations).
+void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 ```
 
 ### 예제 {#example-2}
 
 ```c
-#include "crypto/rng.h"
-#include "io.h"
+#include <std/crypto/rng.h>
+#include <std/io.h>
 
 int main() {
     struct RngCtx rng;
-    rng_init_os(&rng);
+    if (!std::rng_init(&rng)) { std::println("no entropy source"); return 1; }
 
-    unsigned int n = rng_u32(&rng);
-    print("random: ");
-    println_int(n);
+    std::print("dice: ");
+    std::println_int((long long)rng.rand_range(6UL) + 1LL);
 
     unsigned char key[32];
-    rng_fill(&rng, key, 32);  // 무작위 256비트 키 생성
+    rng.fill(&key[0], 32UL);   // a random 256-bit key
     return 0;
 }
 ```
@@ -185,7 +183,7 @@ int main() {
 ## SecureAllocator {#secureallocator}
 
 ```c
-#include "crypto/secure_alloc.h"
+#include <std/crypto/secure_alloc.h>
 ```
 
 슬랩 얼로케이터를 감싸 해제 시 제로화(zeroing-on-free)를 수행하므로, 민감한 데이터(키, 비밀번호)가 풀로 반환될 때 지워집니다.
@@ -207,7 +205,7 @@ void  secure_destroy(struct SecureAllocator* a);           // 풀 전체를 제�
 ## X.509 인증서 파서 {#x509-certificate-parser}
 
 ```c
-#include "crypto/x509.h"
+#include <std/crypto/x509.h>
 ```
 
 X.509v3 DER 인코딩 인증서를 파싱합니다. 주체/발급자 구분 이름, 유효기간, Subject Alternative Names(SAN), BasicConstraints, KeyUsage 확장을 추출합니다.
@@ -264,8 +262,8 @@ int x509_verify_chain(const struct X509Cert* cert,
 ### 예제 {#example-3}
 
 ```c
-#include "crypto/x509.h"
-#include "io.h"
+#include <std/crypto/x509.h>
+#include <std/io.h>
 
 void check_cert(const unsigned char* der, unsigned long len,
                 unsigned long long now) {
@@ -297,7 +295,7 @@ void check_cert(const unsigned char* der, unsigned long len,
 ## TLS 1.3 레코드 레이어 {#tls-13-record-layer}
 
 ```c
-#include "crypto/tls.h"
+#include <std/crypto/tls.h>
 ```
 
 TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드의 프레이밍, 암호화, 복호화를 처리합니다. 키 스케줄링과 핸드셰이크 프로토콜은 **포함되어 있지 않습니다** — 외부에서 핸드셰이크를 완료한 후 키를 공급해야 합니다.
@@ -315,45 +313,45 @@ TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드�
 
 ```c
 struct TlsTranscript {
-    Sha256Ctx hash;
+    struct Sha256Ctx hash;
 
-    void update(const void* data, unsigned long len);
-    void finish(unsigned char out[32]);  // 스냅샷 — ctx는 계속 사용 가능
-}
+    void update(const &unsigned char data, unsigned long len);
+    void finish(unsigned char out[32]);   // snapshot — the transcript stays usable
+};
 
 struct TlsSession {
-    unsigned char       write_key[32];
-    unsigned char       write_iv[12];
-    unsigned char       read_key[32];
-    unsigned char       read_iv[12];
-    unsigned long long  write_seq;
-    unsigned long long  read_seq;
-    int                 handshake_done;
-    TlsTranscript       transcript;
+    unsigned char      write_key[TLS_KEY_LEN];
+    unsigned char      write_iv[TLS_IV_LEN];
+    unsigned char      read_key[TLS_KEY_LEN];
+    unsigned char      read_iv[TLS_IV_LEN];
+    unsigned long long write_seq;
+    unsigned long long read_seq;
+    int                handshake_done;
+    struct TlsTranscript transcript;
 
-    // 대칭 키 설정 (핸드셰이크 완료 후 호출)
-    void install_keys(const unsigned char wk[32], const unsigned char wi[12],
-                      const unsigned char rk[32], const unsigned char ri[12]);
+    // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
+    // after install_keys: AES-256-CBC + PKCS#7. Returns bytes written, 0 on error.
+    unsigned long encode_record(unsigned char content_type,
+                                const &unsigned char payload, unsigned long payload_len,
+                                &unsigned char out, unsigned long out_cap);
 
-    // 레코드를 `out`(PacketBuf)으로 인코딩
-    // 핸드셰이크 이전: 평문. 핸드셰이크 이후: AES-256-CBC + PKCS#7
-    void encode_record(unsigned char content_type,
-                       const void* data, unsigned long len,
-                       struct PacketBuf* out);
+    // Decode one record from data[0..data_len); writes the plaintext to out.
+    // Returns the payload length, 0 on error or incomplete input.
+    unsigned long decode_record(const &unsigned char data, unsigned long data_len,
+                                &stack unsigned char content_type_out,
+                                &unsigned char out, unsigned long out_cap);
 
-    // `pkt`로부터 레코드를 디코딩
-    int  decode_record(struct PacketBuf* pkt,
-                       unsigned char* ct_out,
-                       void* buf, unsigned long max);
+    unsigned long build_alert(unsigned char level, unsigned char desc,
+                              &unsigned char out, unsigned long out_cap);
 
-    // TLS Alert 레코드 생성
-    void build_alert(unsigned char level, unsigned char desc,
-                     struct PacketBuf* out);
-
+    void install_keys(const unsigned char write_key[TLS_KEY_LEN],
+                      const unsigned char write_iv[TLS_IV_LEN],
+                      const unsigned char read_key[TLS_KEY_LEN],
+                      const unsigned char read_iv[TLS_IV_LEN]);
     int  is_established() const;
-}
+};
 
-TlsSession tls_session_init();
+struct TlsSession tls_session_init();
 ```
 
 ### 논스 유도 {#nonce-derivation}
@@ -369,24 +367,22 @@ nonce = write_iv XOR (제로 패딩된 빅엔디안 시퀀스 번호)
 ### 예제 {#example-4}
 
 ```c
-#include "crypto/tls.h"
+#include <std/crypto/tls.h>
 
 int main() {
-    TlsSession session = tls_session_init();
+    struct TlsSession session = std::tls_session_init();
+    // ... after the handshake: session.install_keys(wk, wi, rk, ri);
 
-    // TLS 1.3 핸드셰이크가 완료된 후 — 유도된 키를 공급
-    unsigned char wk[32] = { /* application_write_key */ };
-    unsigned char wi[12] = { /* application_write_iv  */ };
-    unsigned char rk[32] = { /* application_read_key  */ };
-    unsigned char ri[12] = { /* application_read_iv   */ };
-    session.install_keys(wk, wi, rk, ri);
-
-    // 애플리케이션 데이터 전송
-    struct PacketBuf out;
     const char* msg = "GET / HTTP/1.1\r\n";
-    session.encode_record(TLS_APPLICATION_DATA, msg, 16, &out);
-    // out을 TCP로 전송...
+    unsigned char record[256];
+    unsigned long n = 0UL;
+    unsafe { n = session.encode_record(TLS_APPLICATION_DATA, (const &unsigned char)msg, 16UL,
+                                       &record[0], 256UL); }
+    // transmit record[0..n) over TCP ...
 
-    return 0;
+    unsigned char type = 0;
+    unsigned char plain[256];
+    unsigned long got = session.decode_record(&record[0], n, &type, &plain[0], 256UL);
+    return (got == 16UL && type == (unsigned char)TLS_APPLICATION_DATA) ? 0 : 1;
 }
 ```

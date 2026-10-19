@@ -5,7 +5,7 @@
 consistency) 순서를 사용한다.
 
 ```c
-#include "atomic.h"
+#include <std/atomic.h>
 ```
 
 ## atomic_int (32비트 부호 있음) {#atomic_int-32-bit-signed}
@@ -76,32 +76,32 @@ void atomic_thread_fence();
 ## 예제: 락 프리 카운터 {#example-lock-free-counter}
 
 ```c
-#include "atomic.h"
-#include "thread.h"
-#include "io.h"
+#include <std/atomic.h>
+#include <std/thread.h>
+#include <std/io.h>
 
-int counter = 0;
+static int counter = 0;
 
-void* increment(void* arg) {
+static ?&int increment(?&int unused) {
     int i = 0;
     while (i < 10000) {
-        atomic_fetch_add_int(&counter, 1);
+        std::atomic_fetch_add_int(&counter, 1);
         i = i + 1;
     }
-    return 0;
+    return null;
 }
 
 int main() {
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, increment, 0);
-    thread_create(&t2, increment, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, increment, null);
+    std::thread_create(&t2, increment, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    print("counter = ");
-    println_int(atomic_load_int(&counter));  // 20000
+    std::print("counter = ");
+    std::println_int(std::atomic_load_int(&counter));  // 20000
     return 0;
 }
 ```
@@ -109,13 +109,13 @@ int main() {
 ## 예제: Compare-and-Swap 루프 {#example-compare-and-swap-loop}
 
 ```c
-#include "atomic.h"
-#include "io.h"
+#include <std/atomic.h>
+#include <std/io.h>
 
 int main() {
     int val = 10;
 
-    // 10 -> 20 으로 변경 시도
+    // Try to change 10 -> 20
     int expected = 10;
     int ok = atomic_cas_int(&val, &expected, 20);
     print("CAS succeeded: ");
@@ -123,13 +123,13 @@ int main() {
     print("val = ");
     println_int(val);         // 20
 
-    // 오래된 expected 값으로 다시 시도
+    // Try again with stale expected value
     expected = 10;
     ok = atomic_cas_int(&val, &expected, 30);
     print("CAS succeeded: ");
     println_int(ok);          // 0
     print("expected updated to: ");
-    println_int(expected);    // 20 (현재 값)
+    println_int(expected);    // 20 (current value)
 
     return 0;
 }

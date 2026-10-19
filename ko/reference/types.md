@@ -85,6 +85,7 @@ union Result {
 읽으십시오.
 
 ```c
+extern int printf(const char* fmt, ...);
 union Result {
     int ok;
     int err;
@@ -122,6 +123,16 @@ int main() {
 tuple(int, double) pair = (42, 3.14);
 int first = pair.0;
 double second = pair.1;
+```
+
+괄호로 감싼 쉼표 구분 목록은 튜플 타입이 기대되는 곳이라면 어디서든 **튜플 리터럴**입니다: 초기화식, 대입, `return`, 인자. 각 원소는 대응하는 멤버 타입으로 변환되므로, 리터럴은 일반 대입에서처럼 넓혀집니다:
+
+```c
+tuple(int, double) divmod(int a, int b) { return (a / b, (double)(a % b)); }
+int sum(tuple(int, int) t) { return t.0 + t.1; }
+
+tuple(long long, int) q = (1, 2);   // 1 widens to long long
+int s = sum((3, 4));
 ```
 
 튜플은 코드 생성 시 익명 LLVM 구조체 타입으로 lowering됩니다.
@@ -179,7 +190,8 @@ Nullable 참조도 동일한 `?` 문법을 사용합니다.
 | `x.is_null()` | `T*`, `?&region T` | `bool`을 반환; 존재 여부 검사만 하며 `x`의 타입을 좁히지 않음 |
 | `x.is_none()` | `?T` | `bool`을 반환; 옵셔널에서 `is_null()`에 대응 |
 | `x.default(fallback)` | 세 가지 모두 | 값이 있으면 내부 값을, 없으면 `fallback`을 평가하여 반환(내부 타입과 일치해야 함) |
-| `match (x) { case null / none: ...  case some(v): ... }` | 세 가지 모두 | `v`는 `some` 분기 안에서 내부 타입으로 직접 바인딩됨 |
+| `match (x) { case null / none: ...  case some(v): ... }` | 세 가지 모두 | `some` 분기 안에서 `v`는 좁혀진(narrowed) 값: `?&T`에 대해서는 non-null 참조 `&T`(`v`를 통한 쓰기는 참조 대상에 반영됨), `?T`에 대해서는 담긴 `T` |
+| `std::expect_ref(x, "msg")` (`std/panic.h`) | `?&T` | `&T`를 반환하거나, `x`가 null이면 `msg`와 함께 패닉 — 예상된 경우가 아니라 버그일 null에 사용 |
 | `unsafe { }` 안에서의 `x!` / `*x` / `x.field` / `x->field` | 세 가지 모두 | 위의 검사를 전부 우회함 |
 
 ```c
@@ -202,10 +214,12 @@ int describe(?&stack Node n) {
 int describe_match(?&stack Node n) {
     return match (n) {
         case null:    -1,
-        case some(v): v.value,   // v : Node (페이로드의 복사본) -- 참조가 아니라 값으로 바인딩됨
+        case some(v): v.value,   // v : &Node -- the narrowed, non-null reference
     };
 }
 ```
+
+nullable 참조는 non-null 참조로 *캐스트*할 수 없습니다: `?&T q`에 대한 `(&T)q`는 컴파일 오류입니다 — 그 캐스트는 `match`가 강제하는 바로 그 검사를 건너뛰게 되기 때문입니다. 반대 방향 캐스트나 다른 nullable 타입으로의 캐스트(`(?&T)p`)는 괜찮습니다.
 
 `?T`에 대한 `x.is_null()`(그리고 포인터/nullable 참조에 대한 `x.is_none()`)은 컴파일 오류입니다 — 리시버의 종류에 맞는 것을 사용하십시오. `null`/`some(x)` 패턴을 가진 `match`는 nullable 참조뿐 아니라 원시 포인터(`T*`)에도 동작합니다.
 

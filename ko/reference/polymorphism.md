@@ -118,6 +118,7 @@ fn_eval(object, func)
 원래 설계 의도가 이것입니다: `generic<T>` 함수 안에서 `fn_eval`을 호출하는 것. `T`가 단형화되는 각 인스턴스는 자신의 구체 타입에 대해 `fn_eval`을 다시 결정(re-resolve)합니다 — 트레이트 선언은 전혀 필요 없습니다. 검사 자체가 인스턴스화 시점에 (제네릭 타입 검사의 다른 모든 것과 똑같이) 이름+시그니처를 구조적으로 비교하기 때문입니다:
 
 ```c
+extern int printf(const char* fmt, ...);
 struct Circle {
     double radius;
     double area() const;
@@ -215,50 +216,61 @@ UserId id = (UserId)42;
 
 ## 수동 디스패치: 명시적인 "vtable" {#manual-dispatch-explicit-vtables}
 
-위의 모든 메커니즘은 컴파일 타임에 결정됩니다. 그중 어느 것도 `Circle`과 `Square`를 하나의 배열에 담아 같은 호출로 런타임에 디스패치하게 해주지는 않습니다 — 이질적인 컬렉션을 동적으로 디스패치하는 바로 그것이야말로 vtable 기반 언어가 자동으로 만들어주는 것이고, SafeC의 전체적인 입장은 이 비용이 자동으로 숨겨지는 게 아니라 눈에 보여야 한다는 것이기 때문입니다. 실제로 이것이 필요할 때는, 평범한 함수 포인터와 `void*`로 직접 만들면 됩니다 — 컴파일러가 숨겨주지 않을 뿐, 내부적으로 vtable이 하는 일과 정확히 같은 것입니다:
+위의 모든 메커니즘은 컴파일 타임에 결정됩니다. 그중 어느 것도 `Circle`과 `Square`를 하나의 배열에 담아 같은 호출로 런타임에 디스패치하게 해주지는 않습니다 — 이질적인 컬렉션을 동적으로 디스패치하는 바로 그것이야말로 vtable 기반 언어가 자동으로 만들어주는 것이고, SafeC의 전체적인 입장은 이 비용이 자동으로 숨겨지는 게 아니라 눈에 보여야 한다는 것이기 때문입니다. 실제로 이것이 필요할 때는 직접 만들면 됩니다: 객체와 그 객체를 다루는 함수를 함께 담는 구조체 — 컴파일러가 숨겨주지 않을 뿐, 내부적으로 vtable이 하는 일과 정확히 같은 것입니다.
+
+슬롯들이 하나의 구조체 타입을 공유하려면 객체의 타입이 소거되어야 합니다. 그 소거를 한 곳에 가두세요: *같은 타입에 대한* 객체와 함수만 받아들이는 제네릭 생성자를 두면, 존재하는 모든 `Shape`는 구성에 의해 타입이 올바르고 어떤 호출 지점도 캐스트하지 않습니다:
 
 ```c
-double circle_area(void* obj) {
-    struct Circle* c;
-    unsafe { c = (struct Circle*)obj; }
-    double r;
-    unsafe { r = c->radius; }
-    return 3.14159265 * r * r;
-}
-double square_area(void* obj) {
-    struct Square* s;
-    unsafe { s = (struct Square*)obj; }
-    double side;
-    unsafe { side = s->side; }
-    return side * side;
-}
+extern int printf(const char* fmt, ...);
+
+struct Circle { double radius; };
+struct Square { double side; };
+
+static double circle_area(&Circle c) { return 3.14159265 * c.radius * c.radius; }
+static double square_area(&Square s) { return s.side * s.side; }
 
 struct Shape {
-    void* data;
-    fn double(void*) area;
+    void* obj;    // erased; only ever written by make_shape
+    void* area;   // fn double(&T), same T as obj
+    double eval_area();
 };
 
+generic<T>
+struct Shape make_shape(&T obj, fn double(&T) area) {
+    struct Shape sh;
+    unsafe { sh.obj = (void*)obj; sh.area = (void*)area; }
+    return sh;
+}
+
+double Shape::eval_area() {
+    unsafe {
+        fn double(void*) f = (fn double(void*))self.area;   // the one cast, here only
+        return f(self.obj);
+    }
+}
+
+static struct Circle g_c;
+static struct Square g_sq;
+
 int main() {
-    struct Circle c; c.radius = 2.0;
-    struct Square sq; sq.side = 3.0;
-
+    g_c.radius = 2.0;
+    g_sq.side = 3.0;
     struct Shape shapes[2];
-    unsafe { shapes[0].data = (void*)&c; }
-    shapes[0].area = circle_area;
-    unsafe { shapes[1].data = (void*)&sq; }
-    shapes[1].area = square_area;
-
+    unsafe {
+        shapes[0] = make_shape(&g_c, circle_area);    // make_shape(&g_c, square_area) won't compile
+        shapes[1] = make_shape(&g_sq, square_area);
+    }
     int i = 0;
     while (i < 2) {
-        double a = shapes[i].area(shapes[i].data);
-        printf("shape[%d] area=%.4f\n", i, a);   // 12.5664, 이어서 9.0000
+        double a = 0.0;
+        unsafe { a = shapes[i].eval_area(); printf("shape[%d] area=%.4f\n", i, a); }   // 12.5664, then 9.0000
         i = i + 1;
     }
     return 0;
 }
 ```
 
-(검증됨: 컴파일 및 실행 성공, 두 도형 모두 올바른 출력.) 이것은 진짜 런타임 다형성입니다 — 루프는 `shapes[i]`가 `Circle`인지 `Square`인지 알지도 신경 쓰지도 않습니다 — 그 대가로 치른 것은 접근자마다 명시적인 `unsafe` 캐스트 하나뿐이며, 그 코드는 당신이 직접 작성했고 눈으로 볼 수 있습니다. 이는 또한 SafeC 자체 표준 라이브러리 컨테이너가 내부적으로 쓰는 패턴과 정확히 같습니다([표준 라이브러리 개요](/ko/stdlib/#generic-pattern) 참고): `void*` 기반 구조체에 타입이 있는 래퍼 함수를 얹은 것으로, `generic<T>` 구조체보다 먼저 있었고 지금도 함께 쓰이고 있습니다.
+이것은 진짜 런타임 다형성입니다 — 루프는 `shapes[i]`가 `Circle`인지 `Square`인지 알지도 신경 쓰지도 않습니다. 소거된 필드와 그것을 되돌리는 단 하나의 캐스트는 두 개의 짧은 함수 안에 있으며, 그 캐스트를 건전하게 만드는 것은 제네릭 생성자입니다. 이는 하나의 테이블이 서로 다른 컨텍스트 타입의 콜백을 담는 곳이면 어디서든 표준 라이브러리가 쓰는 패턴입니다: `timer_add`(`std/dsp/timer_wheel.h`), `widget_on_click`, `vfs_mount`, `task_spawn`.
 
 ## 빠른 참고표 {#quick-reference}
 
@@ -268,7 +280,7 @@ int main() {
 | 연산자 오버로딩 (`+`, `==`, ...) | 연산자 오버로드 메서드 (고정된 연산자 집합) |
 | 제네릭 클래스 / 템플릿 (`List<T>`) | `generic<T>` 구조체 |
 | 인터페이스 / 추상 기반 클래스 | 구조적으로 만족되는 `trait` |
-| 오버라이드된 가상 메서드를 호출하는 `Base*` 포인터 | 수동 함수 포인터 테이블 (`void*` + `fn` 필드) |
+| 오버라이드된 가상 메서드를 호출하는 `Base*` 포인터 | 소거된 객체 + 함수를 담는 구조체, 제네릭 생성자로만 채움 ([위 참고](#manual-dispatch-explicit-vtables)) |
 | "이 객체의 메서드를 값으로 달라"는 가벼운 리플렉션 | `fn_eval` |
 | 데이터를 가진 sealed 클래스 계층 / 닫힌 enum | 태그된 `union` + 완전성 검사된 `match` |
 | 강타입 ID 래퍼 (`UserId` vs raw `int`) | `newtype` |

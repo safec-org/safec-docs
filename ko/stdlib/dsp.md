@@ -3,7 +3,7 @@
 `std/dsp/`는 결정론적 고정소수점 산술, 스펙트럼 변환(DFT/FFT/DCT/STFT/CQT/CWT), 필터(FIR/IIR/biquad/comb), 컨볼루션, 리샘플링, 최소 위상 재구성, 일반적인 라플라스-Z(쌍선형) 변환 도구, 2D/이미징 프리미티브, 오디오 버퍼링, 실시간 타이머 스케줄링을 아우릅니다 — 총 20개의 모듈입니다.
 
 ```c
-#include "dsp/dsp_all.h"  // 마스터 헤더: 아래의 모든 모듈을 가져온다
+#include <std/dsp/dsp_all.h>  // master header: pulls in every module below
 ```
 
 의미 있는 고정소수점 형태를 갖는 모든 변환/필터는 **두 가지** 구현을 제공합니다 — `double` 정밀도 경로와, 이에 대응하는 Q8.24(`Fixed`) 경로(함수/타입 이름에 `f` 접두어가 붙습니다, 예: `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — 하나의 일관된 설계를 따릅니다: 한 번만 계산하면 되는 계수(FFT 트위들 팩터, 필터 계수)는 항상 `std/math.h`의 실제 초월함수를 사용해 `double` 정밀도로 유도된 다음 한 번에 `Fixed`로 양자화되고, 실제 샘플 단위 신호 처리 루프는 전부 Q8.24 산술로 실행됩니다. 이는 표준적인 관행입니다 — 하드웨어 FFT 가속기조차도 트위들 테이블을 오프라인에서 부동소수점으로 미리 계산합니다. 몇몇 더 새롭고 특수한 변환(STFT, CQT, CWT, 최소 위상, 이미징)은 `double` 전용입니다: 가우시안 윈도우 웨이블릿 커널이나 준동형 켑스트럼에는 자연스러운 고정소수점 형태가 없습니다 — 고정소수점 `sin()`이 없는 것과 마찬가지입니다.
@@ -13,7 +13,7 @@
 ## fixed — Q8.24 고정소수점 산술 {#fixed-q824-fixed-point-arithmetic}
 
 ```c
-#include "dsp/fixed.h"
+#include <std/dsp/fixed.h>
 ```
 
 `Fixed`는 **Q8.24** 고정소수점 타입입니다: 정수부 8비트, 소수부 24비트로, 32비트 부호 있는 int로 저장됩니다(서브 샘플 정밀도를 위해 24비트 오디오 샘플 깊이와 일치합니다). `int` 위의 `newtype`이므로, 컴파일러는 동일한 비트 표현을 사용하면서도 이를 별개 타입으로 취급합니다.
@@ -50,8 +50,8 @@ Fixed fixed_sqrt(Fixed x);           // 뉴턴-랩슨, 4회 반복; x는 0 이�
 ### 예제 {#example}
 
 ```c
-#include "dsp/fixed.h"
-#include "io.h"
+#include <std/dsp/fixed.h>
+#include <std/io.h>
 
 int main() {
     Fixed a = fixed_from_float(3.5);
@@ -72,7 +72,7 @@ int main() {
 ## dsp — 배열 프리미티브 {#dsp-array-primitives}
 
 ```c
-#include "dsp/dsp.h"
+#include <std/dsp/dsp.h>
 ```
 
 `std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed*` 배열 위에서 동작합니다.
@@ -107,7 +107,7 @@ double dsp_dot_f64(const double* a, const double* b, unsigned long n);
 ## complex_dsp — 복소수 {#complex_dsp-complex-numbers}
 
 ```c
-#include "dsp/complex_dsp.h"
+#include <std/dsp/complex_dsp.h>
 ```
 
 연산자 오버로딩을 갖춘 값 타입 복소수로, 아래의 스펙트럼 모듈들(FFT 버터플라이, 트위들 팩터, 주파수 영역 곱셈)을 위해 특별히 만들어졌습니다 — `std/complex.h`의 C99 스타일 `[re, im]` 출력 배열 API와는 다릅니다. `w * a + b`는 포인터를 써가며 이어지는 `cmul_d`/`cadd_d` 호출 체인 대신 수식이 읽히는 그대로 읽힙니다.
@@ -148,7 +148,7 @@ Complex  fcomplex_to_float(FComplex c);
 ## dft — 이산 푸리에 변환 (직접 계산, O(n²)) {#dft-discrete-fourier-transform-direct-on}
 
 ```c
-#include "dsp/dft.h"
+#include <std/dsp/dft.h>
 ```
 
 직접 합산 방식 DFT입니다: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. 2의 거듭제곱뿐 아니라 **임의의** N에 대해 동작합니다 — 임의 길이의 변환에는 이것을 사용하고, `fft.h` 자체의 정확성 검증이 대조하는 독립적인 기준으로도 사용됩니다.
@@ -166,7 +166,7 @@ void fidft(const struct FComplex* in, struct FComplex* out, unsigned long n);   
 ## fft — 고속 푸리에 변환 (radix-2 Cooley-Tukey) {#fft-fast-fourier-transform-radix-2-cooley-tukey}
 
 ```c
-#include "dsp/fft.h"
+#include <std/dsp/fft.h>
 ```
 
 제자리(in-place), 반복적인 시간 데시메이션 FFT입니다: `dft.h`의 O(n²) 대신 O(n log n)이지만, 그 대가로 `n`이 2의 거듭제곱이어야 합니다(그렇지 않으면 함수들은 0을 반환하고 `data`를 수정하지 않은 채로 둡니다 — 임의 길이에는 `dft.h`를 사용하세요).
@@ -183,15 +183,15 @@ int fifft(struct FComplex* data, unsigned long n);                   // Q8.24 �
 ### 예제 {#example-1}
 
 ```c
-#include "dsp/fft.h"
-#include "io.h"
+#include <std/dsp/fft.h>
+#include <std/io.h>
 
 int main() {
     struct Complex data[8];
     for (int i = 0; i < 8; i++) data[i] = complex_new((double)i, 0.0);
 
-    fft(data, 8);     // 제자리 순변환
-    ifft(data, 8);    // 제자리 역변환 -- 원래 신호로 왕복 복귀
+    fft(data, 8);     // in-place forward transform
+    ifft(data, 8);    // in-place inverse — round-trips back to the original signal
 
     print("data[1].re after round-trip (expect ~1.0): ");
     println_float(data[1].re);
@@ -204,7 +204,7 @@ int main() {
 ## convolution — 선형 컨볼루션 {#convolution-linear-convolution}
 
 ```c
-#include "dsp/convolution.h"
+#include <std/dsp/convolution.h>
 ```
 
 `y[n] = sum_k x[k]*h[n-k]`, 출력 길이는 `len_x + len_h - 1`입니다. 결과는 같지만 비용 트레이드오프가 다른 두 가지 구현이 있습니다:
@@ -230,7 +230,7 @@ void conv_fft(const double* x, unsigned long len_x,
 ## window — 윈도우 함수 {#window-window-functions}
 
 ```c
-#include "dsp/window.h"
+#include <std/dsp/window.h>
 ```
 
 FFT 이전 프레임을 테이퍼링하거나(스펙트럼 누설 감소) FIR 설계(윈도우 방법)를 위한 대칭 N포인트 분석 윈도우입니다. 네 함수 모두 호출자가 제공한 배열을 채우며, 할당은 하지 않습니다.
@@ -248,7 +248,7 @@ void window_apply(double* x, const double* w, unsigned long n);  // x[i] *= w[i]
 ## filter — 범용 스트리밍 FIR / IIR {#filter-general-streaming-fir-iir}
 
 ```c
-#include "dsp/filter.h"
+#include <std/dsp/filter.h>
 ```
 
 한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다.
@@ -291,8 +291,8 @@ void iir_process_block(struct IirFilter* f, const double* in, double* out, unsig
 ### 예제 — 3탭 이동 평균 {#example-3-tap-moving-average}
 
 ```c
-#include "dsp/filter.h"
-#include "io.h"
+#include <std/dsp/filter.h>
+#include <std/io.h>
 
 int main() {
     double coeffs[3] = { 0.333333, 0.333333, 0.333333 };
@@ -313,7 +313,7 @@ int main() {
 ## biquad — 2차 IIR 섹션 + RBJ 쿡북 {#biquad-2nd-order-iir-sections-rbj-cookbook}
 
 ```c
-#include "dsp/biquad.h"
+#include <std/dsp/biquad.h>
 ```
 
 `struct Biquad`는 단일 Direct-Form-II-Transposed 2차 섹션입니다(`a0`은 항상 1로 정규화됨):
@@ -365,13 +365,13 @@ struct FBiquad biquad_to_fixed(struct Biquad bq);   // double로 설계된 biqua
 ### 예제 {#example-2}
 
 ```c
-#include "dsp/biquad.h"
-#include "io.h"
+#include <std/dsp/biquad.h>
+#include <std/io.h>
 
 int main() {
     struct Biquad lp = biquad_lowpass(48000.0, 1000.0, 0.707);
 
-    // 단위 DC 게인 -- 저역통과 필터가 만족해야 하는 표준 불변식.
+    // Unity DC gain — the standard invariant a lowpass must satisfy.
     print("|H(0)| (expect 1.0): ");
     println_float(biquad_response_mag(&lp, 48000.0, 0.0));
 
@@ -388,7 +388,7 @@ int main() {
 ## dct — 이산 코사인 변환 (DCT-II / DCT-III) {#dct-discrete-cosine-transform-dct-ii-dct-iii}
 
 ```c
-#include "dsp/dct.h"
+#include <std/dsp/dct.h>
 ```
 
 `dct2`는 JPEG/MPEG에서 말하는 "그 DCT"입니다 — 실수 입력, 실수 출력, 에너지를 압축합니다. `idct3`는 그 정확한 역변환입니다. `dft.h`처럼 직접 O(n²) 합산 방식입니다.
@@ -405,7 +405,7 @@ void fidct3(const Fixed* in, Fixed* out, unsigned long n);     // Q8.24 역변�
 ## stft — 단시간 푸리에 변환 + 다중 해상도 STFT 손실 {#stft-short-time-fourier-transform-multi-resolution-stft-loss}
 
 ```c
-#include "dsp/stft.h"
+#include <std/dsp/stft.h>
 ```
 
 `stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
@@ -444,7 +444,7 @@ double mr_stft_loss(const double* x, const double* y, unsigned long len,
 ## resample — 업샘플링 / 다운샘플링 {#resample-upsampling-downsampling}
 
 ```c
-#include "dsp/resample.h"
+#include <std/dsp/resample.h>
 ```
 
 `inLen` 샘플 버퍼를 호출자가 지정한 크기의 `outLen` 샘플 버퍼로 매핑합니다 — `outLen > inLen`이면 업샘플링, `outLen < inLen`이면 다운샘플링이며, 어느 방향이든 같은 함수를 사용합니다.
@@ -472,7 +472,7 @@ void fresample_linear(const Fixed* in, unsigned long inLen, Fixed* out, unsigned
 ## ztransform — 범용 N차 쌍선형 변환 {#ztransform-general-n-th-order-bilinear-transform}
 
 ```c
-#include "dsp/ztransform.h"
+#include <std/dsp/ztransform.h>
 ```
 
 `biquad.h`의 `bilinear_2nd_order`/`biquad_response_*`를 임의 차수로 일반화한 것입니다 — biquad들의 종속 연결이 아니라 더 높은 차수의 IIR 섹션 하나를 직접 설계/분석할 때 사용합니다. 다항식 근 찾기 기능은 포함되어 있지 않습니다(별도의 반복적인 고유값/Durand-Kerner 알고리즘이 필요합니다); 대신 계수 배열을 직접 다룹니다.
@@ -495,7 +495,7 @@ double ztransform_response_phase(const double* b, const double* a, unsigned long
 ## comb — 콤 필터 + Karplus-Strong 현악기 합성 {#comb-comb-filters-karplus-strong-string-synthesis}
 
 ```c
-#include "dsp/comb.h"
+#include <std/dsp/comb.h>
 ```
 
 `CombFF`(피드포워드, `y[n] = x[n] + gain*x[n-delay]`)는 균등한 간격의 노치를 만들고; `CombFB`(피드백, `y[n] = x[n] + gain*y[n-delay]`)는 균등한 간격의 공진 피크를 만듭니다(대부분의 인공 리버브의 기반입니다 — 서로 다른 딜레이/게인을 가진 피드백 콤들의 뱅크).
@@ -534,18 +534,18 @@ struct KarplusStrong ks_init(double* buffer, unsigned long length, double dampin
 ### 예제 — 발현 현악기 {#example-plucked-string}
 
 ```c
-#include "dsp/comb.h"
-#include "io.h"
+#include <std/dsp/comb.h>
+#include <std/io.h>
 
 int main() {
-    double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // 노이즈 버스트
+    double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // noise burst
     double buf[8];
     struct KarplusStrong ks = ks_init(&buf[0], 8UL, 0.995);
     ks.reset(&excitation[0], 8UL);
 
     for (int i = 0; i < 16; i++) {
         double sample = ks.process();
-        println_float(sample);   // 감쇠하며 스스로 지속되는 "발현음"
+        println_float(sample);   // decaying, self-sustained "pluck"
     }
     return 0;
 }
@@ -556,7 +556,7 @@ int main() {
 ## minphase — 최소 위상 재구성 {#minphase-minimum-phase-reconstruction}
 
 ```c
-#include "dsp/minphase.h"
+#include <std/dsp/minphase.h>
 ```
 
 임펄스 응답(예: 목표 크기 응답으로부터 설계된 선형 위상 FIR)이 주어지면, **동일한 크기 스펙트럼**을 가지면서 가능한 최소 군지연(group delay)을 갖는 다른 임펄스 응답을 만들어냅니다 — 동일한 주파수 응답에 대해 선형 위상 필터의 지연 시간을 절반으로 줄입니다. 고전적인 준동형(실수 켑스트럼) 알고리즘입니다: 로그 크기 스펙트럼 -> 켑스트럼 -> 비인과 절반을 인과 절반 위로 접기(이것이 결과를 최소 위상으로 강제하는 부분) -> 스펙트럼 영역을 다시 거쳐 지수화.
@@ -574,7 +574,7 @@ void minimum_phase(const double* x, unsigned long n, unsigned long fftLen, doubl
 ## cqt — 상수-Q 변환 {#cqt-constant-q-transform}
 
 ```c
-#include "dsp/cqt.h"
+#include <std/dsp/cqt.h>
 ```
 
 DFT/FFT의 균일한 주파수 간격과 달리, CQT는 모든 빈(bin)에서 일정한 비율 `fk/bandwidth`("Q")를 유지하는 로그 간격 중심 주파수 `fk = fmin * 2^(k/binsPerOctave)`를 사용합니다 — 음악적 음정과 인간의 청각이 대략 주파수에 대해 로그적이라는 사실과 맞아떨어지며, 이것이 크로마그램과 음정 검출에서 (단순 DFT가 아니라) CQT가 표준적으로 선택되는 이유입니다. 직접 상관(direct-correlation) 형태입니다(Brown 1991): 각 빈 고유 길이의 Hann 윈도우가 적용된 복소 지수 커널이 신호의 시작 부분과 직접 상관되며 — FFT도, 커널 행렬의 사전 계산도 없이 — 호출당 O(numBins * 평균 커널 길이)입니다.
@@ -595,7 +595,7 @@ void cqt_forward(const double* signal, unsigned long signalLen, double fs,
 ## cwt — 연속 웨이블릿 변환 (Morlet) {#cwt-continuous-wavelet-transform-morlet}
 
 ```c
-#include "dsp/cwt.h"
+#include <std/dsp/cwt.h>
 ```
 
 CQT가 로그 간격 주파수 *빈*을 선택하는 반면, CWT는 (호출자가 선택하는, 보통 로그 간격인) *스케일* 집합을 직접 선택하고 스케일/이동된 Morlet 웨이블릿을 모든 샘플 위치에서 신호와 상관시켜, 프레임당 값 하나가 아니라 완전한 시간-스케일 "스칼로그램"을 만들어냅니다. 스케일 `s`는 대략 `f = w0*fs / (2*pi*s)` Hz의 중심 주파수에 대응합니다. 직접 상관 방식이며, 커널 지지(support)는 가우시안 포락선의 표준편차 ±4배로 잘립니다.
@@ -614,7 +614,7 @@ void cwt_morlet(const double* signal, unsigned long signalLen,
 ## imaging — 2D DSP {#imaging-2d-dsp}
 
 ```c
-#include "dsp/imaging.h"
+#include <std/dsp/imaging.h>
 ```
 
 위의 1D 빌딩 블록들에 대응하는 2D 버전입니다: `conv2d`는 제로 패딩된("same" 크기) 2D 컨볼루션이고; `fft2d`/`ifft2d`는 `fft.h`의 1D 변환을 모든 행에, 그다음 모든 열에 적용합니다(2D DFT는 분리 가능(separable)하므로 정확합니다); 커널 생성 함수들은 거의 모든 이미지 파이프라인에 필요한 두 가지 컨볼루션 커널을 다룹니다.
@@ -638,57 +638,61 @@ void sobel_y_kernel(double* kernel);
 ## AudioBuffer — 락프리 다중 채널 링 버퍼 {#audiobuffer-lock-free-multi-channel-ring-buffer}
 
 ```c
-#include "dsp/audio_buffer.h"
+#include <std/dsp/audio_buffer.h>
 ```
 
-인터리빙된 다중 채널 오디오 프레임을 위한 SPSC(단일 생산자/단일 소비자) 링 버퍼입니다. OS 락 없이 올바른 순서를 보장하기 위해 2의 거듭제곱 용량과 컴파일러 배리어를 사용합니다.
+인터리빙된 다중 채널 Q8.24(`Fixed`) 프레임을 인라인으로 저장하는 단일 생산자/단일 소비자 링입니다 — 힙을 쓰지 않습니다. 용량은 최대 `AUDIO_MAX_CHANNELS`(8)채널의 `AUDIO_BUF_FRAMES`(512)프레임이므로 구조체가 큽니다(16 KB). 작은 타깃에서는 정적 저장소에 두세요.
 
 ### 구조체 {#struct}
 
 ```c
 struct AudioBuffer {
-    Fixed*        buf;          // 인터리빙: frame0_ch0, frame0_ch1, ...
-    unsigned long cap_frames;   // 2의 거듭제곱이어야 함
+    Fixed         data[AUDIO_BUF_FRAMES * AUDIO_MAX_CHANNELS];   // interleaved frames
+    unsigned long cap_frames;
     unsigned long channels;
-    unsigned long head;         // 쓰기 커서 (volatile)
-    unsigned long tail;         // 읽기 커서 (volatile)
+    volatile unsigned long head;   // write cursor (frames)
+    volatile unsigned long tail;   // read cursor (frames)
 
-    unsigned long write_frames(const Fixed* frames, unsigned long count);
-    unsigned long read_frames(Fixed* out, unsigned long count);
-    unsigned long peek_frames(Fixed* out, unsigned long count) const;
-    void          mix_frames(const Fixed* frames, unsigned long count);
-    unsigned long readable() const;
-    unsigned long writable() const;
-}
+    unsigned long readable_frames() const;
+    unsigned long writable_frames() const;
+    unsigned long write_frames(&stack Fixed src, unsigned long n);   // returns frames written
+    unsigned long read_frames(&stack Fixed dst, unsigned long n);    // returns frames read
+    unsigned long peek_frames(&stack Fixed dst, unsigned long n) const;
+    void          mix_frames(&stack Fixed src, unsigned long n);
+    void          clear();
+    int           is_empty() const;
+    int           is_full() const;
+};
 
-AudioBuffer audio_buffer_new(unsigned long cap_frames, unsigned long channels);
-void        audio_buffer_free(struct AudioBuffer* ab);
+struct AudioBuffer audio_buf_init(unsigned long channels);
 ```
 
 ### 예제 — 생산자 / 소비자 {#example-producer-consumer}
 
 ```c
-#include "dsp/audio_buffer.h"
-#include "io.h"
+#include <std/dsp/audio_buffer.h>
+#include <std/io.h>
+
+static struct AudioBuffer g_ab;
 
 int main() {
-    // 256프레임 버퍼, 2채널 (스테레오)
-    AudioBuffer ab = audio_buffer_new(256, 2);
+    g_ab = std::audio_buf_init(2UL);          // stereo
 
-    // 생산자: 스테레오 프레임 하나를 쓴다
-    Fixed frame[2] = { fixed_from_float(0.5), fixed_from_float(-0.3) };
-    ab.write_frames(frame, 1);
+    Fixed frame[2];
+    unsafe {
+        frame[0] = std::fixed_from_float(0.5f);
+        frame[1] = std::fixed_from_float(-0.25f);
+    }
+    g_ab.write_frames(&frame[0], 1UL);        // producer
+    std::print("readable: ");
+    std::println_int((long long)g_ab.readable_frames());   // 1
 
-    print("readable: ");
-    println_int(ab.readable());  // 1
-
-    // 소비자: 다시 읽는다
     Fixed out[2];
-    ab.read_frames(out, 1);
-    print("L = "); println_float(fixed_to_float(out[0]));   //  0.5
-    print("R = "); println_float(fixed_to_float(out[1]));   // -0.3
-
-    audio_buffer_free(&ab);
+    g_ab.read_frames(&out[0], 1UL);           // consumer
+    unsafe {
+        std::print("L = "); std::println_float((double)std::fixed_to_float(out[0]));   //  0.5
+        std::print("R = "); std::println_float((double)std::fixed_to_float(out[1]));   // -0.25
+    }
     return 0;
 }
 ```
@@ -702,76 +706,60 @@ int main() {
 ## TimerWheel — O(1) 실시간 타이머 {#timerwheel-o1-real-time-timer}
 
 ```c
-#include "dsp/timer_wheel.h"
+#include <std/dsp/timer_wheel.h>
 ```
 
-최대 64개의 동시 타이머를 지원하는 256슬롯 타이머 휠입니다. `tick()`은 만료된 모든 타이머를 O(timers)로 발동시킵니다 — 우선순위 큐가 필요 없습니다.
+최대 `WHEEL_TIMERS`(64)개의 동시 타이머를 지원하는 타이머 스케줄러입니다. `tick()`은 시계를 1만큼 진행시키고 새 tick에 만료되는 모든 타이머를 실행합니다. 하나의 휠은 멀티테넌트이므로 — 서로 무관한 하위 시스템이 서로 다른 컨텍스트 타입으로 공유합니다 — 각 슬롯은 콜백을 타입 소거된 형태로 저장합니다. 제네릭 진입점 `timer_add`/`timer_add_periodic`은 짝이 맞는 `fn void(?&T)` / `?&T` 쌍을 받으므로 호출은 항상 타입이 올바릅니다.
 
-### 상수 {#constants-1}
-
-```c
-#define WHEEL_SLOTS      256
-#define WHEEL_MAX_TIMERS  64
-```
-
-### 구조체 {#struct-1}
+### API {#api}
 
 ```c
-struct TimerEntry {
-    void(*callback)(void* ctx);
-    void*         ctx;
-    unsigned long expires;  // 발동할 절대 tick
-    unsigned long period;   // 0 = 일회성; >0 = `period` tick마다 반복
-    int           active;
-}
+#define WHEEL_SLOTS   256
+#define WHEEL_TIMERS  64
 
 struct TimerWheel {
-    TimerEntry    entries[WHEEL_MAX_TIMERS];
-    unsigned long current_tick;
-    unsigned int  used;
+    struct WheelTimer timers[WHEEL_TIMERS];
+    unsigned long     current_tick;
 
-    int  add(void(*cb)(void*), void* ctx, unsigned long delay_ticks);
-    int  add_periodic(void(*cb)(void*), void* ctx, unsigned long period_ticks);
-    int  cancel(int id);
-    void tick();
-}
+    void          cancel(int id);    // ignores invalid ids
+    int           tick();            // advance one tick; returns how many timers fired
+    unsigned long now() const;
+};
 
-TimerWheel timer_wheel_new();
+void timer_wheel_init(&TimerWheel tw);
+
+// One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
+generic<T> int timer_add(&TimerWheel tw, unsigned long tick, fn void(?&T) cb, ?&T ctx);
+
+// Every `period` ticks, first at now() + period. Returns the id or 0 if full.
+generic<T> int timer_add_periodic(&TimerWheel tw, unsigned long period, fn void(?&T) cb, ?&T ctx);
 ```
-
-### 메서드 {#methods}
-
-| 메서드 | 설명 |
-|--------|-------------|
-| `add(cb, ctx, delay)` | 일회성 타이머; `delay` tick 후 발동. 타이머 id 또는 가득 찼으면 -1을 반환. |
-| `add_periodic(cb, ctx, period)` | 반복 타이머; `period` tick마다 발동하며 자동으로 재스케줄됨. |
-| `cancel(id)` | 타이머를 비활성화. 찾았으면 1, 아니면 0을 반환. |
-| `tick()` | `current_tick`을 전진시키고, `expires == current_tick`인 모든 타이머를 발동. |
 
 ### 예제 {#example-3}
 
 ```c
-#include "dsp/timer_wheel.h"
-#include "io.h"
+#include <std/dsp/timer_wheel.h>
+#include <std/io.h>
 
-int blink_count = 0;
-int done = 0;
+struct Led { int toggles; };
+static int g_done = 0;
 
-void blink(void* ctx)     { blink_count++; }
-void shutdown(void* ctx)  { done = 1; }
+static void blink(?&Led led) {
+    match (led) { case some(l): l.toggles = l.toggles + 1; case null: { } }
+}
+static void stop(?&int unused) { g_done = 1; }
+
+static struct TimerWheel g_tw;   // ~2 KB of slots: keep it off small stacks
 
 int main() {
-    TimerWheel tw = timer_wheel_new();
-
-    tw.add_periodic(blink, 0, 10);   // 10 tick마다 깜빡임
-    tw.add(shutdown, 0, 55);          // 55 tick 후 정지
-
-    while (!done) {
-        tw.tick();
-    }
-
-    print("blink count: ");
-    println_int(blink_count);  // 5 (10,20,30,40,50 tick)
+    std::timer_wheel_init(&g_tw);
+    struct Led led;
+    led.toggles = 0;
+    unsafe { std::timer_add_periodic(&g_tw, 10UL, blink, (?&Led)&led); }  // every 10 ticks
+    std::timer_add(&g_tw, 55UL, stop, null);                               // once, at tick 55
+    while (!g_done) { g_tw.tick(); }
+    std::print("blinks: ");
+    std::println_int(led.toggles);   // 5 (ticks 10, 20, 30, 40, 50)
     return 0;
 }
 ```

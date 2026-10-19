@@ -78,14 +78,15 @@ pc)`, `exit(code)`(`PROC_ZOMBIE`로 전이).
 
 `Mailbox`(`mailbox_init(owner_pid)`로 생성) — 고정 용량
 (`MAILBOX_CAPACITY` = 64개 메시지, `MSG_MAX_SIZE` = 256바이트 페이로드)
-메시지 큐. `send(sender_pid, type, payload, size)`, `recv(&stack
+메시지 큐. `send(sender_pid, type, payload, size)`(`payload`는
+`const ?&unsigned char`이며, 신호 전용 메시지는 `size` 0과 함께 `null`을 전달), `recv(&stack
 Message out)`, `peek(&stack Message out)`(비파괴적), `has_msg()`,
 `length()`, `clear()`.
 
 ## 시스템 콜 테이블 (`kernel/syscall.h`) {#syscall-table-kernelsyscallh}
 
-`SyscallTable`(`syscall_init()`로 생성) — 시그니처가
-`long long(long long, long long, long long)`인 핸들러를 최대
+`SyscallTable`(`syscall_init()`로 생성) — 타입이
+`fn long long(long long, long long, long long)`인 핸들러를 최대
 `SYSCALL_MAX`(256)개까지 등록. `register_(num, handler)`/
 `unregister_(num)`(끝의 밑줄: `register`는 C 키워드이므로),
 `dispatch(num, arg0, arg1, arg2)`(핸들러의 결과를 반환하며, 등록되지

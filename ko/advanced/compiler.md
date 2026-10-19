@@ -178,7 +178,7 @@ LLVM `TargetMachine`을 선택하며, 이는 (코드 생성 중 `sizeof`/구조�
 | iOS | AArch64 (디바이스 + 시뮬레이터) |
 | Android | AArch64, Aarch32, x86_64, x86 |
 | FreeBSD | x86_64, AArch64 |
-| 베어메탈 (`--freestanding`) | ARM Cortex-M (Thumb/Thumb2), RV32, RV64, AArch64 |
+| 베어메탈 (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M), RV32I/E, RV64I/E — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고 |
 | 포터블 / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
 
 Metal Shading Language는 `--target`으로 도달할 수 없습니다 — NVPTX/AMDGPU/SPIR-V와
@@ -186,6 +186,8 @@ Metal Shading Language는 `--target`으로 도달할 수 없습니다 — NVPTX/
 LLVM 타겟이 아닙니다. SPIR-V 출력에서의 유일한 상호운용 경로는
 서드파티 변환기(예: SPIRV-Cross)이며, `safec`이 직접 수행하는 것이
 아닙니다.
+
+타깃 관련 플래그: `--target=<alias|triple>`, `--target-cpu`, `--target-features`, `--target-abi`, `--list-targets`, `--print-target-clang-flags`, 그리고 `--provides=<fn,...>`(다른 번역 단위가 정의하는 함수 목록으로, 해당 함수에 대한 freestanding 호스트 호출 경고를 끕니다).
 
 이 위에 구축된 SIMD 라이브러리는 [`std::simd`](/ko/stdlib/simd)를,
 ARM Cortex-M의 세부 사항(HAL, DSP 확장 내장 함수, MVE)은

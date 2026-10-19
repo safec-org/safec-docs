@@ -112,10 +112,12 @@ std::string greet(std::string name) {
 
 ```c
 // SafeC: 모든 연산이 눈에 보입니다
-extern int snprintf(char* buf, long n, const char* fmt, ...);
+#include <std/collections/string.h>
 
-int greet(const char* name, char* out, int outLen) {
-    return snprintf(out, outLen, "Hello, %s!", name);
+// name은 읽기 전용으로 빌리고 out에는 덧붙입니다. 덧붙일 때마다
+// out의 버퍼를 늘릴 수 있는, 눈에 보이는 호출입니다
+int greet(const &String name, &String out) {
+    return out.push("Hello, ") && out.push(name.as_ptr()) && out.push("!");
 }
 ```
 
@@ -125,17 +127,17 @@ C++는 생성자, 소멸자, 복사/이동 연산자를 암묵적으로 생성�
 
 ```c
 struct Buffer {
-    char* data;
-    int size;
+    ?&heap char   data;   // 할당 전에는 null
+    unsigned long size;
 };
 
 // 암묵적 생성자 없음 — 필드를 명시적으로 초기화합니다
-Buffer b;
-b.data = (char*)malloc(1024);
-b.size = 1024;
+struct Buffer b;
+unsafe { b.data = (?&heap char)std::alloc(1024UL); }
+b.size = 1024UL;
 
 // 암묵적 소멸자 없음 — 명시적으로 해제합니다
-defer free(b.data);
+defer { unsafe { std::dealloc((void*)b.data); } }
 ```
 
 ### 예외 없음 {#no-exceptions}
@@ -360,11 +362,11 @@ fn readFile(path: []const u8) ![]u8 {
 
 ```c
 // SafeC
-int readFile(const char* path, char* buf, int bufLen) {
+int readFile(const &char path, &char buf, int bufLen) {
     int fd = open(path, 0);
     if (fd < 0) return -1;
     defer close(fd);
-    return (int)read(fd, buf, bufLen);  // read()는 long을 반환합니다 — 암묵적 축소 변환 없음
+    return (int)read(fd, buf, (unsigned long)bufLen);  // read()는 long을 반환합니다 — 암묵적 축소 변환 없음
 }
 ```
 

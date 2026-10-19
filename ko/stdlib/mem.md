@@ -8,7 +8,7 @@
 마찬가지로 여전히 `unsafe {}`가 필요하다.
 
 ```c
-#include "mem.h"
+#include <std/mem.h>
 ```
 
 ## 할당 {#allocation}
@@ -116,6 +116,17 @@ unsigned long checked_mul_size(unsigned long a, unsigned long b);
 반환되는 대신 얼로케이터 자체의 백킹 버퍼 안에 그대로 남아 있으므로,
 `alloc`/`dealloc`의 태그처럼 외부 요인에 의해 훼손될 수 없다).
 
+## 할당 성능 {#allocation-performance}
+
+호스트 타깃에서 `alloc`은 해제된 블록을 크기 클래스별로 나눈 스레드별 캐시를 유지하므로, 해제 직후 비슷한 크기를 할당하면 `malloc`을 호출하지 않고 처리된다:
+
+- **크기 클래스**는 1.5배씩 증가한다 — 16, 24, 32, 48, 64, 96, … 최대 1 MB까지(33개 클래스) — 따라서 요청은 최대 3분의 1까지만 패딩된다. 더 큰 요청은 곧장 `malloc`으로 간다.
+- **캐시 깊이**는 슬롯 개수가 아니라 바이트 예산이다: 작은 클래스는 최대 8,192개 블록, 큰 클래스는 그보다 적다(min(8192, 8 MB ÷ 클래스 크기), 최소 8). 모든 클래스는 약 0.96 MB 크기의 스레드별 평면 테이블 하나를 공유한다.
+- 캐시에 들어가지 못하는 블록은 위에서 설명한 격리(quarantine)를 거쳐 `malloc`으로 돌아간다.
+- 프리스탠딩 타깃에는 캐시가 없다(스레드 로컬 저장소와 테이블 메모리가 필요하기 때문). 모든 요청은 런타임의 `malloc`으로 간다.
+
+각 블록에는 여전히 16바이트 헤더가 붙으며, 이는 아주 작은 객체에서 가장 큰 영향을 준다: 24바이트 노드는 40바이트 요청을 차지한다. 그래서 노드 기반 컨테이너는 노드마다 할당하지 않는다 — `List`와 `BST`는 컨테이너별 [`NodePool`](/ko/stdlib/collections#node-pool)(프리 리스트를 갖춘 청크 단위 범프 할당)에서 노드를 가져오며, 이는 노드마다 C의 `malloc`/`free`를 쓰는 것보다 약 2배 빠르다([벤치마크](/ko/benchmarks#collections-stdcollections-throughput-1000000-elements) 참고). 직접 만든 고정 크기 객체에는 `std/alloc/slab.h`의 `slab_alloc_t<T>`와 아레나 리전(`new<R> T`)이 같은 효과를 준다.
+
 ## 메모리 연산 {#memory-operations}
 
 ### safe_memcpy {#safe_memcpy}
@@ -157,11 +168,11 @@ int safe_memcmp(const void* a, const void* b, unsigned long n);
 ## 예제 {#example}
 
 ```c
-#include "mem.h"
-#include "io.h"
+#include <std/mem.h>
+#include <std/io.h>
 
 int main() {
-    // 정수 10개를 위한 버퍼 할당
+    // Allocate a buffer for 10 ints
     int* buf;
     unsafe { buf = (int*)alloc(10UL * sizeof(int)); }
     unsafe { safe_memset((void*)buf, 0, 10UL * sizeof(int)); }
@@ -171,7 +182,7 @@ int main() {
         buf[1] = 99;
     }
 
-    // 새 버퍼로 복제
+    // Duplicate into a new buffer
     int* copy;
     unsafe { copy = (int*)alloc(10UL * sizeof(int)); }
     unsafe { safe_memcpy((void*)copy, (const void*)buf, 10UL * sizeof(int)); }
@@ -198,15 +209,15 @@ int main() {
 ### 이중 해제는 잡히지, 조용히 넘어가지 않는다 {#double-free-is-caught-not-silent}
 
 ```c
-#include "mem.h"
-#include "io.h"
+#include <std/mem.h>
+#include <std/io.h>
 
 int main() {
     void* p;
     unsafe { p = alloc(64UL); }
     unsafe { dealloc(p); }
     println("first dealloc OK");
-    unsafe { dealloc(p); }   // 중단: "dealloc() called twice on the same pointer"
+    unsafe { dealloc(p); }   // aborts: "dealloc() called twice on the same pointer"
     println("never reached");
     return 0;
 }

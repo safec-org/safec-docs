@@ -3,7 +3,7 @@
 SafeC는 `std/fs/`에 계층화된 파일시스템 스택을 제공합니다 — 원시 블록 장치부터 FAT32, ext2, 인메모리(tmpfs) 드라이버를 갖춘 VFS 추상화까지 아우릅니다.
 
 ```c
-#include "fs/fs.h"  // 마스터 헤더: 모든 모듈의 타입/시그니처를 가져온다
+#include <std/fs/fs.h>  // master header: pulls in all modules' types/signatures
 ```
 
 ::: warning `fs.h`는 타입/시그니처만 포함합니다
@@ -32,46 +32,56 @@ SafeC는 `std/fs/`에 계층화된 파일시스템 스택을 제공합니다 —
 ## BlockDevice {#blockdevice}
 
 ```c
-#include "fs/block.h"
+#include <std/fs/block.h>
 ```
 
-모든 블록 저장 장치(SD 카드, 플래시, RAM 디스크 등)를 위한 드라이버 인터페이스입니다:
+모든 블록 저장 장치(SD 카드, 플래시, RAM 디스크, …)를 위한 드라이버 인터페이스입니다. `block_device_new`로 만들며, 이 함수는 드라이버 컨텍스트와 그에 대해 타입이 지정된 두 콜백을 받습니다. 장치는 이들을 타입 소거된 형태로 저장하지만(하나의 VFS가 서로 다른 드라이버의 장치를 마운트할 수 있도록), 이를 설정하는 유일한 방법이 `block_device_new`이므로 짝이 맞는지는 컴파일 타임에 검사됩니다.
 
 ```c
 struct BlockDevice {
-    // 함수 포인터 필드 — 원시 C 포인터 (드라이버 인터페이스 경계)
-    void*          read_fn;   // int(*)(void* ctx, lba, unsigned char* buf, count)
-    void*          write_fn;  // int(*)(void* ctx, lba, const unsigned char* buf, count)
-    void*          ctx;
     unsigned long  sector_count;
-    unsigned long  sector_size;   // 보통 512
+    unsigned long  sector_size;   // typically 512
 
-    int  read(unsigned long lba, &stack unsigned char buf, unsigned long count);
+    int  read(unsigned long lba, &stack unsigned char buf, unsigned long count);         // 0 on success
     int  write(unsigned long lba, const &stack unsigned char buf, unsigned long count);
-    int  valid() const;  // read_fn != NULL 이고 sector_count > 0 이면 1
-}
-```
-
-함수 포인터를 채워 넣는 방식으로 드라이버를 구현합니다. 함수 포인터 시그니처는 C FFI 콜백이기 때문에 원시 `unsigned char*`를 사용합니다 — 원시 타입에서 안전 타입으로의 경계는 `BlockDevice::read/write` 내부에서 `unsafe {}` 안의 명시적 캐스트를 통해 넘어갑니다:
-
-```c
-int my_sd_read(void* ctx, unsigned long lba,
-               unsigned char* buf, unsigned long count) {
-    // ... `lba`에서 `count` 섹터를 읽어 `buf`에 저장 ...
-    return 0;  // 0 = 성공, 음수 = 오류
-}
-
-struct BlockDevice sd = {
-    .read_fn      = (void*)my_sd_read,
-    .write_fn     = (void*)my_sd_write,
-    .ctx          = (void*)0,
-    .sector_count = 8*1024*1024 / 512,
-    .sector_size  = 512
+    int  valid() const;
 };
 
-// 호출자는 안전 참조를 사용한다 — unsafe 캐스트는 메서드 내부에서 일어난다:
-unsigned char sector[512];
-sd.read(0, sector, 1);
+generic<T>
+struct BlockDevice block_device_new(&T ctx, unsigned long sector_count, unsigned long sector_size,
+                                    fn int(&T, unsigned long, &unsigned char, unsigned long) read,
+                                    fn int(&T, unsigned long, const &unsigned char, unsigned long) write);
+```
+
+```c
+#include <std/fs/block.h>
+#include <std/mem.h>
+
+struct RamDisk { unsigned char bytes[64 * 512]; };
+
+static int ram_read(&RamDisk d, unsigned long lba, &unsigned char buf, unsigned long count) {
+    if ((lba + count) * 512UL > 64UL * 512UL) return -1;
+    unsafe { std::safe_memcpy((void*)buf, (const void*)&d.bytes[lba * 512UL], count * 512UL); }
+    return 0;
+}
+
+static int ram_write(&RamDisk d, unsigned long lba, const &unsigned char buf, unsigned long count) {
+    if ((lba + count) * 512UL > 64UL * 512UL) return -1;
+    unsafe { std::safe_memcpy((void*)&d.bytes[lba * 512UL], (const void*)buf, count * 512UL); }
+    return 0;
+}
+
+static struct RamDisk g_disk;
+
+int main() {
+    struct BlockDevice dev = std::block_device_new(&g_disk, 64UL, 512UL, ram_read, ram_write);
+    unsigned char sector[512];
+    unsafe { sector[0] = 0x55; }
+    dev.write(3UL, &sector[0], 1UL);
+    unsafe { sector[0] = 0; }
+    dev.read(3UL, &sector[0], 1UL);
+    unsafe { return sector[0] == 0x55 ? 0 : 1; }
+}
 ```
 
 ---
@@ -79,7 +89,7 @@ sd.read(0, sector, 1);
 ## 파티션 테이블 (MBR) {#partition-table-mbr}
 
 ```c
-#include "fs/partition.h"
+#include <std/fs/partition.h>
 ```
 
 고전적인 4개 항목 MBR 파티션 테이블을 파싱합니다:
@@ -121,14 +131,14 @@ match (parts.get(0)) {
 ## VFS {#vfs}
 
 ```c
-#include "fs/vfs.h"
+#include <std/fs/vfs.h>
 ```
 
 VFS 계층은 최장 접두사 매칭(longest-prefix matching)을 사용해 경로를 등록된 파일시스템 드라이버로 라우팅합니다(예: `/mnt/sd`와 `/mnt`가 둘 다 마운트되어 있으면 `/mnt/sd/foo`는 `/mnt/sd`로 라우팅됩니다).
 
 ### VfsOps — 드라이버 인터페이스 {#vfsops-driver-interface}
 
-각 필드는 `fn ReturnType(Params) name;` 형태의 함수 포인터 필드입니다(SafeC의 타입이 지정된 콜백 문법이며, C의 `int(*name)(...)` 선언자 형태가 아닙니다) — `ctx`는 항상 드라이버 자신의 불투명(opaque) 컨텍스트이며, 모든 호출에서 다시 전달됩니다. 드라이버 콜백은 원시 `unsigned char*`(FFI 경계)를 받습니다; `VfsNode` 자신의 메서드가 이를 안전 참조로/안전 참조에서 캐스트한 뒤 콜백으로 전달합니다:
+파일시스템 드라이버가 채우는 테이블입니다(`tmpfs_ops()`, `fat_ops()`, `ext2_ops()`는 미리 만들어진 테이블을 반환합니다). 이는 드라이버 내부용입니다: `ctx`는 해당 드라이버 자신의 컨텍스트이며, 하나의 `Vfs`가 서로 다른 컨텍스트 타입의 드라이버를 마운트하므로 타입 소거된 형태로 저장됩니다. 애플리케이션 코드는 이를 직접 호출하지 않습니다 — `vfs_mount`, `Vfs::open`, `VfsNode` 메서드를 거칩니다.
 
 ```c
 struct VfsOps {
@@ -153,25 +163,28 @@ struct VfsNode {
     int           type;      // VFS_TYPE_FILE / VFS_TYPE_DIR
     unsigned long size;
     unsigned long inode;
-    void*         fs_ctx;    // 소유 VfsMount로 돌아가는 불투명 포인터
+    void*         fs_ctx;    // driver-internal: the owning VfsMount
 
-    // 안전 참조 메서드 — VfsOps로 전달할 때 unsafe{} 안에서 원시 타입으로 캐스트
     unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
     unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);
-    int           readdir(void* cb, void* user);
 }
+
+// Calls cb(entry, user) for each child of directory `dir`; returns the count, -1 on error.
+generic<T> int vfs_readdir(&VfsNode dir, fn void(&VfsNode, &T) cb, &T user);
 ```
 
 ### Vfs 전역 인스턴스 {#vfs-global}
 
-자유 함수(free function) 형태의 `vfs_mount`/`vfs_open` API는 없습니다 — 전역 `vfs_root` 인스턴스에 직접 메서드를 호출하세요:
+`vfs_mount`로 마운트하며, 드라이버 컨텍스트를 타입이 지정된 참조로 넘깁니다. open/unlink/mkdir은 전역 `vfs_root`의 메서드입니다:
 
 ```c
-extern struct Vfs vfs_root;  // 전역 VFS 인스턴스
-void vfs_init();             // 0으로 초기화; 어떤 마운트보다도 먼저 한 번 호출
+extern struct Vfs vfs_root;  // global VFS instance
+void vfs_init();             // zero it out; call once before any mount
+
+// ctx is the context the driver's ops expect (TmpfsCtx, FatCtx, Ext2Ctx, ...)
+generic<T> int vfs_mount(&Vfs v, const char* mountpoint, struct VfsOps ops, &T ctx);
 
 struct Vfs {
-    int  mount(const char* mountpoint, struct VfsOps ops, void* ctx);
     int  unmount(const char* mountpoint);
     int  open(const char* path, int flags, &stack VfsNode node_out);
     int  unlink(const char* path);
@@ -184,7 +197,7 @@ struct Vfs {
 ## FAT32 드라이버 {#fat32-driver}
 
 ```c
-#include "fs/fat.h"
+#include <std/fs/fat.h>
 ```
 
 8.3 파일명을 지원하는 읽기 전용 FAT32 드라이버입니다. `FatBpb`는 원시 온디스크 BIOS 파라미터 블록(FAT32가 정의하는 모든 필드)이며 — 직접 읽도록 만들어지지 않았습니다; `FatCtx` 자신의 `fat_lba`/`data_lba`/`root_cluster`/`bytes_per_cluster` 필드가 호출자가 실제로 필요로 하는, 이미 유도된 값입니다:
@@ -220,7 +233,7 @@ struct VfsOps fat_ops();
 ## ext2 드라이버 {#ext2-driver}
 
 ```c
-#include "fs/ext.h"
+#include <std/fs/ext.h>
 ```
 
 읽기 전용 ext2(second extended filesystem) 드라이버입니다. 직접 블록(4 KiB 블록 기준 파일 크기 48 KB 이하)을 지원합니다. 간접 블록은 지원하지 않습니다.
@@ -285,7 +298,7 @@ struct VfsOps ext2_ops();
 ## tmpfs — 인메모리 파일시스템 {#tmpfs-in-memory-filesystem}
 
 ```c
-#include "fs/tmpfs.h"
+#include <std/fs/tmpfs.h>
 ```
 
 완전히 메모리에서 동작하는 파일시스템입니다. 블록 장치가 필요 없습니다. 32개의 아이노드와 64 KiB의 데이터를 지원합니다. `/tmp`, 설정 스테이징, 테스트 픽스처 용도에 적합합니다.
@@ -323,21 +336,17 @@ struct VfsOps tmpfs_ops();
 tmpfs를 마운트하고 실제 쓰기/읽기 왕복을 수행합니다 — 실제 컴파일/실행으로 검증됨:
 
 ```c
-#include "fs/vfs.h"
-#include "fs/vfs.sc"
-#include "fs/tmpfs.h"
-#include "fs/tmpfs.sc"
+#include <std/fs/vfs.h>
+#include <std/fs/tmpfs.h>
 
 int main() {
     std::vfs_init();
 
     struct TmpfsCtx tmp;
     std::tmpfs_init(&tmp);
-    void* tmp_ctx;
-    unsafe { tmp_ctx = (void*)&tmp; }
-    std::vfs_root.mount("/tmp", std::tmpfs_ops(), tmp_ctx);
+    std::vfs_mount(&std::vfs_root, "/tmp", std::tmpfs_ops(), &tmp);
 
-    // 쓰기
+    // Write
     struct VfsNode node;
     std::vfs_root.open("/tmp/log.txt", VFS_O_WRITE | VFS_O_CREATE, &node);
     unsigned char msg[8];
@@ -345,7 +354,7 @@ int main() {
     msg[4]=' '; msg[5]='o'; msg[6]='k'; msg[7]='\n';
     node.write(0, msg, 8UL);
 
-    // 다시 읽기
+    // Read back
     struct VfsNode node2;
     std::vfs_root.open("/tmp/log.txt", VFS_O_READ, &node2);
     unsigned char buf[8];
@@ -359,45 +368,38 @@ int main() {
 실제 블록 장치를 마운트하는 것도 동일한 형태를 따릅니다 — 파티션 테이블을 파싱하고, 파티션의 시작 LBA로부터 드라이버 컨텍스트를 `fat_init`/`ext2_init`한 다음, tmpfs와 나란히 그 `VfsOps`를 `mount()`합니다(위의 최신 시그니처들에 대해 타입 검사는 되었지만, 실제 포맷된 디스크 이미지가 필요하므로 여기서 실행되지는 않았습니다):
 
 ```c
-#include "fs/fs.h"
-#include "fs/block.sc"
-#include "fs/partition.sc"
-#include "fs/fat.sc"
+#include <std/fs/fs.h>
 
-// sd_read/sd_write는 보드 HAL이 제공한다고 가정
-struct BlockDevice sd = {
-    .read_fn      = (void*)sd_read,
-    .write_fn     = (void*)sd_write,
-    .ctx          = (void*)0,
-    .sector_count = 16*1024*1024 / 512,
-    .sector_size  = 512
-};
+// The board HAL's SD driver: context type + two callbacks typed against it.
+struct SdCard { int spi_bus; };
+int sd_read(&SdCard sd, unsigned long lba, &unsigned char buf, unsigned long count);
+int sd_write(&SdCard sd, unsigned long lba, const &unsigned char buf, unsigned long count);
 
-int main() {
+static struct SdCard g_card;
+static struct FatCtx g_fat;      // FAT context holds a cluster buffer: keep it static
+
+int mount_sd() {
     std::vfs_init();
-
+    struct BlockDevice sd = std::block_device_new(&g_card, 16UL * 1024UL * 1024UL / 512UL, 512UL,
+                                                  sd_read, sd_write);
     struct PartTable parts;
-    std::partition_read(&sd, &parts);
+    if (std::partition_read(&sd, &parts) != 0) return -1;
 
-    unsigned long part0_lba = 0;
+    unsigned long part0_lba = 0UL;
     match (parts.get(0)) {
-        case null:    break;
+        case null:    return -1;
         case some(e): part0_lba = e.lba_start;
     }
 
-    struct FatCtx fat;
-    std::fat_init(&fat, &sd, part0_lba);
-    void* fat_ctx;
-    unsafe { fat_ctx = (void*)&fat; }
-    std::vfs_root.mount("/sd", std::fat_ops(), fat_ctx);
+    if (std::fat_init(&g_fat, &sd, part0_lba) != 0) return -1;
+    std::vfs_mount(&std::vfs_root, "/sd", std::fat_ops(), &g_fat);
 
     struct VfsNode node;
     if (std::vfs_root.open("/sd/config.txt", VFS_O_READ, &node) == 0) {
         unsigned char buf[256];
-        unsigned long n = node.read(0, buf, 256UL);
-        // buf[0..n]을 처리
+        unsigned long n = node.read(0UL, &buf[0], 256UL);
+        // process buf[0..n]
     }
-
     return 0;
 }
 ```

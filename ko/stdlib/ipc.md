@@ -5,10 +5,10 @@
 `LFQueue`는 [동기화](/ko/stdlib/sync)를 참고한다.
 
 ```c
-#include "ipc/pipe.h"
-#include "ipc/uds.h"
-// 또는 다음을 통해:
-#include "prelude.h"
+#include <std/ipc/pipe.h>
+#include <std/ipc/uds.h>
+// or via:
+#include <std/prelude.h>
 ```
 
 ---
@@ -37,43 +37,43 @@ struct Pipe {
     long long write_fd;
 };
 
-int  pipe_create(struct Pipe* out);   // 성공 시 0, 실패 시 -1
+int  pipe_create(&Pipe out);          // 0 on success, -1 on failure
 
-// 읽은 바이트 수를 반환 (0 = 쓰기 끝이 닫히고 파이프가 비워짐: EOF), 오류 시 -1.
-long long pipe_read(struct Pipe* p, void* buf, unsigned long count);
+// Returns bytes read (0 = write end closed and pipe drained: EOF), -1 on error.
+long long pipe_read(&Pipe p, &unsigned char buf, unsigned long count);
 
-// 쓴 바이트 수를 반환, 오류 시 -1.
-long long pipe_write(struct Pipe* p, const void* buf, unsigned long count);
+// Returns bytes written, or -1 on error.
+long long pipe_write(&Pipe p, const &unsigned char buf, unsigned long count);
 
-// 논블로킹 모드 (std::Reactor와 짝을 이룸 — await_fd(fd, SCHED_READ/WRITE)).
-int  pipe_set_read_nonblocking(struct Pipe* p);
-int  pipe_set_write_nonblocking(struct Pipe* p);
+// Non-blocking mode (pairs with std::Reactor — await_fd(fd, SCHED_READ/WRITE)).
+int  pipe_set_read_nonblocking(&Pipe p);
+int  pipe_set_write_nonblocking(&Pipe p);
 
-// 쓰기 끝을 닫으면, pipe_read에서 블록 중인(또는 SCHED_READ를 기다리는)
-// 리더가 파이프가 비워진 뒤 EOF와 함께 깨어난다. 각 끝을 정확히 한 번씩
-// close하는 것은 안전하다 — 두 번 close하는 것은, 다른 모든 이중 close(2)와
-// 마찬가지로 정의되지 않은 동작이다.
-int  pipe_close_read(struct Pipe* p);
-int  pipe_close_write(struct Pipe* p);
+// Closing the write end wakes a reader blocked in pipe_read (or awaiting
+// SCHED_READ) with EOF once the pipe drains. Safe to call each end's
+// close exactly once — closing twice is undefined, the same as any
+// double-close(2).
+int  pipe_close_read(&Pipe p);
+int  pipe_close_write(&Pipe p);
 ```
 
 ### 예제 {#example}
 
 ```c
-#include "ipc/pipe.h"
-#include "io.h"
+#include <std/ipc/pipe.h>
+#include <std/io.h>
 
 int main() {
     struct Pipe p;
     if (pipe_create(&p) != 0) { println("pipe_create failed"); return 1; }
 
     const char* msg = "hello";
-    unsafe { pipe_write(&p, (const void*)msg, 5UL); }
+    unsafe { std::pipe_write(&p, (const &unsigned char)msg, 5UL); }
 
     char buf[6];
     unsafe { buf[5] = (char)0; }
     long long n;
-    unsafe { n = pipe_read(&p, (void*)&buf[0], 5UL); }
+    unsafe { n = std::pipe_read(&p, (&unsigned char)&buf[0], 5UL); }
     print("read "); print_int(n); print(" bytes: ");
     unsafe { println(&buf[0]); }   // hello
 
@@ -148,8 +148,8 @@ int uds_unlink(const char* path);
 ### 예제 {#example-1}
 
 ```c
-#include "ipc/uds.h"
-#include "io.h"
+#include <std/ipc/uds.h>
+#include <std/io.h>
 
 extern int write(int fd, const void* buf, unsigned long count);
 extern long long read(int fd, void* buf, unsigned long count);
@@ -162,10 +162,9 @@ int main() {
     int listenFd = uds_listen_nb(path);
     int clientFd = uds_connect_nb(path);
 
-    // 논블로킹 accept: 대기 중인 연결이 나타날 때까지 재시도.
-    // 실제 프로그램이라면 이렇게 바쁜 폴링을 하는 대신
-    // TaskScheduler/Reactor를 통해 await_fd(listenFd, SCHED_READ)를
-    // 사용해야 한다.
+    // Non-blocking accept: retry until the pending connection shows up.
+    // A real program would await_fd(listenFd, SCHED_READ) via
+    // TaskScheduler/Reactor instead of busy-polling like this.
     int serverFd = -1;
     while (serverFd < 0) {
         serverFd = uds_accept_nb(listenFd);

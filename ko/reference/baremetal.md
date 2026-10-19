@@ -7,8 +7,10 @@ SafeC는 프리스탠딩(freestanding) 모드, 인터럽트 처리를 위한 함
 `--freestanding` 플래그는 표준 라이브러리를 비활성화하고 OS에 의존하지 않는 코드를 생성합니다.
 
 ```bash
-./build/safec firmware.sc --freestanding --emit-llvm -o firmware.ll
+safec firmware.sc --freestanding --emit-llvm -o firmware.ll
 ```
+
+(아래의 모든 `--target=<베어메탈 별칭>`은 `--freestanding`을 함의합니다.)
 
 프리스탠딩 모드에서는
 
@@ -16,6 +18,51 @@ SafeC는 프리스탠딩(freestanding) 모드, 인터럽트 처리를 위한 함
 - 시작 코드가 없습니다(`_start`/`main` 관례는 프로그래머가 정의합니다)
 - 표준 C 헤더 임포트가 없습니다
 - 프로그래머가 모든 런타임 지원을 제공합니다
+
+## 베어메탈 타깃 {#targets}
+
+`--target=<alias>`는 OS 없는 타깃을 이름으로 선택합니다: LLVM 트리플, CPU, ISA 기능, ABI를 고르고 `--freestanding`을 함의합니다. `safec --list-targets`가 다음 표를 출력합니다:
+
+| 별칭 | 트리플 | CPU / ISA | ABI | `size_t` / 포인터 |
+|---|---|---|---|---|
+| `x86` | `i686-unknown-none-elf` | i686 | i386 SysV | 32비트 |
+| `x86_64` | `x86_64-unknown-none-elf` | x86-64 | SysV | 64비트 |
+| `aarch32` | `armv7a-none-eabi` | ARMv7-A (ARM 상태) | AAPCS, soft-float | 32비트 |
+| `aarch64` | `aarch64-unknown-none-elf` | ARMv8-A | AAPCS64 | 64비트 |
+| `thumb` | `thumbv6m-none-eabi` | Cortex-M0 (Thumb) | AAPCS, soft-float | 32비트 |
+| `thumb2` | `thumbv7m-none-eabi` | Cortex-M3 (Thumb-2) | AAPCS, soft-float | 32비트 |
+| `arm-6m` | `thumbv6m-none-eabi` | Cortex-M0/M0+/M1 (ARMv6-M) | AAPCS, soft-float | 32비트 |
+| `arm-7m` | `thumbv7m-none-eabi` | Cortex-M3 (ARMv7-M) | AAPCS, soft-float | 32비트 |
+| `arm-7em` | `thumbv7em-none-eabi` | Cortex-M4/M7 (ARMv7E-M, DSP) | AAPCS, soft-float | 32비트 |
+| `arm-8m` | `thumbv8m.main-none-eabi` | Cortex-M33 (ARMv8-M Mainline) | AAPCS, soft-float | 32비트 |
+| `rv32i` | `riscv32-unknown-elf` | RV32I | `ilp32` | 32비트 |
+| `rv32e` | `riscv32-unknown-elf` | RV32E (레지스터 16개) | `ilp32e` | 32비트 |
+| `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64비트 |
+| `rv64e` | `riscv64-unknown-elf` | RV64E (레지스터 16개) | `lp64e` | 64비트 |
+
+그 밖의 LLVM 트리플도 `--target=<triple>`로 동작하며, `--target-cpu=<name>`, `--target-features=<+a,-b>`(LLVM `-mattr` 문법), `--target-abi=<name>`으로 세부 조정할 수 있습니다. 이 값들은 모듈에 기록되므로, 이후 `clang -c`가 만드는 오브젝트도 이와 일치해야 합니다: `safec --print-target-clang-flags --target=<alias>`는 그에 맞는 clang 플래그(`--target=…`, RISC-V의 `-march`/`-mabi`, ARM의 `-mcpu`/`-mfloat-abi`)를 한 줄에 하나씩 출력합니다.
+
+```bash
+safec firmware.sc -I /path/to/SafeC --target=arm-6m --emit-llvm -o firmware.ll
+clang -c firmware.ll $(safec --print-target-clang-flags --target=arm-6m) -o firmware.o
+ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a libclang_rt.builtins.a -o firmware.elf
+```
+
+`safeguard`에서는 `--target`이 이 모든 것을 해 줍니다 — [safeguard](/ko/advanced/safeguard#cross-targets) 참고.
+
+타깃마다 달라지는 것:
+
+- **포인터 너비.** `size_t`, `ptrdiff_t`, `uintptr_t`, `__SIZEOF_POINTER__`는 타깃을 따릅니다(위의 32비트 타깃에서는 4바이트). SafeC의 `long`은 항상 64비트이므로, 포인터 크기 정수가 필요한 코드는 `long`이 아니라 `size_t`/`uintptr_t`를 써야 합니다.
+- **C 구조체 반환 ABI.** 값으로 반환되는 집합체는 타깃의 규약으로 lowering됩니다: i386은 항상 숨겨진 포인터로 구조체를 반환하고, AAPCS32는 4바이트 초과일 때, RISC-V는 2×XLEN 초과일 때, x86-64와 AArch64는 16바이트 초과일 때(AArch64는 동종 부동소수점 집합체 제외), Win64는 1, 2, 4, 8바이트 이외의 모든 크기에서 그렇게 합니다. 큰 구조체 복사는 `memcpy`/`memset` 호출로 생성되며, 런타임이 이를 제공해야 합니다.
+- **런타임 헬퍼.** 하드웨어 곱셈/나눗셈이나 원자적 연산이 없는 타깃은 compiler-rt 내장 함수(`__muldi3`, `__udivdi3`, …)와 `__atomic_*` 라이브러리 함수를 호출합니다: 해당 타깃용 `libclang_rt.builtins.a`를 링크하고 원자적 연산을 제공하세요(단일 코어 런타임은 인터럽트를 마스킹한 채로 구현할 수 있습니다).
+
+### libc 이름에 대한 프리스탠딩 호출 {#provides}
+
+프리스탠딩 모드에서 호스트 전용 함수(`malloc`, `printf`, …)를 호출하면 이를 해결할 libc가 없으므로 경고가 납니다. 베어메탈 런타임은 그중 일부를 직접 정의하는 경우가 많습니다. 같은 번역 단위에서 정의된 함수는 경고가 나지 않으며, 다른 파일에서 정의된 함수는 `--provides=malloc,free,memcpy`로 나열하면 정확히 그 이름들에 대해서만 경고가 억제됩니다(`safeguard`는 프로젝트 자체의 정의를 자동으로 전달합니다).
+
+### 베어메탈에서 테스트하기 {#testing}
+
+표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). 현재 14개 타깃 모두 모든 검사를 통과합니다.
 
 ## 함수 속성 {#function-attributes}
 

@@ -3,7 +3,7 @@
 SafeC는 `std/net/`에 완전한 임베디드 네트워킹 스택을 제공합니다. 모든 모듈은 힙 할당 없이 고정 크기 바이트 버퍼인 `PacketBuf` 위에서 직접 동작합니다.
 
 ```c
-#include "net/net.h"  // 마스터 헤더: 아래의 모든 모듈을 가져온다
+#include <std/net/net.h>  // master header: pulls in all modules below
 ```
 
 ## 계층 지도 {#layer-map}
@@ -27,49 +27,53 @@ SafeC는 `std/net/`에 완전한 임베디드 네트워킹 스택을 제공합�
 ## net-core {#net-core}
 
 ```c
-#include "net/net_core.h"
+#include <std/net/net_core.h>
 ```
 
 **PacketBuf** — 기본 패킷 컨테이너:
 
 ```c
 struct PacketBuf {
-    unsigned char data[NET_MTU];  // 1514 바이트
+    unsigned char data[NET_MTU];  // 1514 bytes
     unsigned long len;
 
-    void* at(unsigned long off);  // data 내 오프셋 위치를 가리키는 포인터
-    void  reset();                 // 버퍼를 0으로 채우고 len = 0으로 설정
+    ?&unsigned char at(unsigned long off);  // the byte at off; null past NET_MTU
+    void  reset();                 // zero the buffer and set len = 0
 }
 ```
 
-**NetIf** — 추상 네트워크 인터페이스 핸들입니다. 자체 `rx`/`tx` `PacketBuf` 필드를 갖지 않습니다 — 호출자가 자신의 `PacketBuf`를 소유하고 그것을 `tx()`에 명시적으로 전달합니다:
+**NetIf** — 추상 네트워크 인터페이스입니다. 자체 `rx`/`tx` 버퍼를 갖지 않습니다: 각 프레임을 여러분 자신의 `struct PacketBuf`에 만들고(아래의 `udp_frame`/`eth_build`/… 사용) 그것을 `tx()`에 전달하세요. `netif_new`로 생성하며, 이 함수는 드라이버 컨텍스트와 그에 대해 타입이 지정된 송신 콜백을 받습니다. 인터페이스는 둘 다 타입 소거된 형태로 저장하지만(하나의 스택이 서로 다른 드라이버의 인터페이스를 운용할 수 있도록), 이를 기록하는 것은 `netif_new`뿐이므로 짝이 맞는지는 컴파일 타임에 검사됩니다.
 
 ```c
 struct NetIf {
-    unsigned char mac[6];      // 하드웨어 MAC 주소
-    unsigned int  ip4;         // 할당된 IPv4, 네트워크 바이트 순서
-    unsigned int  gateway;     // 기본 게이트웨이 IPv4, 네트워크 바이트 순서
-    unsigned int  netmask;     // 서브넷 마스크, 네트워크 바이트 순서
+    unsigned char mac[6];      // hardware MAC address
+    unsigned int  ip4;         // assigned IPv4 (numeric form, see net_ip4)
+    unsigned int  gateway;
+    unsigned int  netmask;
 
-    void*         tx_fn;       // 드라이버 송신 콜백, 호출 전에 캐스트 --
-                                // fn(void* iface_ctx, unsigned char* data, unsigned long len) -> int
-    void*         iface_ctx;   // 불투명 드라이버 컨텍스트, tx_fn의 첫 번째 인자로 전달됨
+    int  tx(&stack PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
+};
 
-    // 'pkt'를 전송한다. tx_fn을 캐스트한 뒤
-    // tx_fn(iface_ctx, pkt.data, pkt.len)로 호출한다. 성공 시 0, tx_fn이 설정되지 않았으면 -1을 반환한다.
-    int  tx(&stack PacketBuf pkt);
-}
+generic<T>
+struct NetIf netif_new(&T ctx, fn int(&T, const &unsigned char, unsigned long) tx);
 ```
 
-::: warning `tx_fn`은 타입이 지정된 함수 포인터가 아니라 `void*`입니다
-값을 대입하는 것과 드라이버를 구현하는 것 둘 다 명시적 캐스트를 거칩니다 —
-설정할 때는 `iface.tx_fn = (void*)my_driver_send;`(`unsafe {}` 안에서), `tx()`
-자체의 구현은 호출 전에 이를 다시 `fn int(void*, unsigned char*, unsigned long)`로
-캐스트합니다. 프레임을 직접 만들어 넣을 `PacketBuf rx`/`PacketBuf tx` 필드는
-없습니다 — 아래의 예제가 하는 것처럼, `udp_frame`/`eth_build`/등을 통해 여러분
-자신의 로컬 `struct PacketBuf pkt`에 프레임을 만들고 `&pkt`를 `iface.tx(...)`에
-전달하세요.
-:::
+```c
+struct Enc28j60 { int cs_pin; unsigned long sent; };
+
+static int enc_tx(&Enc28j60 nic, const &unsigned char frame, unsigned long len) {
+    // ... push `len` bytes of `frame` to the chip over SPI ...
+    nic.sent = nic.sent + 1UL;
+    return 0;
+}
+
+static struct Enc28j60 g_nic;
+
+void net_setup() {
+    struct NetIf eth0 = std::netif_new(&g_nic, enc_tx);
+    eth0.ip4 = std::net_ip4(192, 168, 1, 50);
+}
+```
 
 **바이트 순서 유틸리티:**
 
@@ -94,7 +98,7 @@ void net_mac_str(const unsigned char mac[6], char* out); // "aa:bb:cc:dd:ee:ff\0
 ## ethernet {#ethernet}
 
 ```c
-#include "net/ethernet.h"
+#include <std/net/ethernet.h>
 ```
 
 ```c
@@ -122,7 +126,7 @@ void eth_build(&stack PacketBuf pkt, const unsigned char dst[6],
 ## arp {#arp}
 
 ```c
-#include "net/arp.h"
+#include <std/net/arp.h>
 ```
 
 `ArpTable`은 최대 16개 항목(`ARP_TABLE_SIZE`)을 담습니다 — `entries[i].ip4 == 0`은 슬롯이 비어 있음을 뜻합니다; 별도의 `valid` 플래그나 항목 개수 필드는 없습니다.
@@ -166,7 +170,7 @@ int  arp_parse_packet(&stack PacketBuf pkt, unsigned long offset,
 ## ipv4 {#ipv4}
 
 ```c
-#include "net/ipv4.h"
+#include <std/net/ipv4.h>
 ```
 
 ```c
@@ -206,7 +210,7 @@ unsigned long  ipv4_build(&stack PacketBuf pkt, unsigned long offset,
 ## ipv6 {#ipv6}
 
 ```c
-#include "net/ipv6.h"
+#include <std/net/ipv6.h>
 ```
 
 ```c
@@ -258,7 +262,7 @@ unsigned long ipv6_frame(&stack PacketBuf pkt,
 ## udp {#udp}
 
 ```c
-#include "net/udp.h"
+#include <std/net/udp.h>
 ```
 
 ```c
@@ -297,7 +301,7 @@ unsigned long udp_frame(&stack PacketBuf pkt,
 ## tcp {#tcp}
 
 ```c
-#include "net/tcp.h"
+#include <std/net/tcp.h>
 ```
 
 `TcpConn`은 RFC 793의 완전한 11개 상태 TCP 상태 기계를 구현합니다. 자체 `iface`/`NetIf` 필드는 갖지 않습니다 — `build_segment`/`recv`는 각각 필요한 MAC 주소나 패킷 오프셋을 호출마다 직접 받습니다. 위의 `NetIf::tx()`와 동일한 "호출자가 `PacketBuf`를 소유한다"는 형태입니다:
@@ -368,7 +372,7 @@ unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
 ## dns {#dns}
 
 ```c
-#include "net/dns.h"
+#include <std/net/dns.h>
 ```
 
 ```c
@@ -399,7 +403,7 @@ int dns_parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset,
 ## dhcp {#dhcp}
 
 ```c
-#include "net/dhcp.h"
+#include <std/net/dhcp.h>
 ```
 
 ```c
@@ -461,49 +465,56 @@ struct DhcpClient {
 `iface.tx(...)`에 패킷을 넘기세요. 실제 컴파일/실행으로 검증됨:
 
 ```c
-#include <std/net/net_core.sc>
-#include <std/net/ethernet.sc>
-#include <std/net/ipv4.sc>
-#include <std/net/udp.sc>
+#include <std/net/net_core.h>
+#include <std/net/ethernet.h>
+#include <std/net/ipv4.h>
+#include <std/net/udp.h>
+extern int printf(const char* fmt, ...);
 
-// 실제 드라이버라면 이 바이트들을 하드웨어나 소켓에 넘기겠지만, 여기서는
-// 몇 바이트를 보내라고 요청받았는지만 알려준다.
-int my_driver_send(void* ctx, unsigned char* data, unsigned long len) {
-    printf("driver: sending %lu bytes\n", len);
+// A real driver would hand these bytes to hardware/a socket; this one just
+// reports how many bytes it was asked to send.
+struct LoopbackNic { unsigned long frames; };
+
+static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long len) {
+    nic.frames = nic.frames + 1UL;
+    unsafe { printf("driver: sending %lu bytes\n", len); }
     return 0;
 }
 
+static struct LoopbackNic g_nic;
+
 int main() {
-    struct NetIf iface;
-    iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
-    iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;
+    struct NetIf iface = std::netif_new(&g_nic, loop_send);
+    unsafe {
+        iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
+        iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;
+    }
     iface.ip4 = std::net_ip4(192, 168, 1, 10);
-    unsafe { iface.tx_fn = (void*)my_driver_send; }
-    iface.iface_ctx = (void*)0;   // 여기서는 드라이버 컨텍스트가 필요 없음
 
     unsigned char dst_mac[6];
-    dst_mac[0] = 0xFF; dst_mac[1] = 0xFF; dst_mac[2] = 0xFF;
-    dst_mac[3] = 0xFF; dst_mac[4] = 0xFF; dst_mac[5] = 0xFF;
-
-    unsigned int  src_ip  = std::net_ip4(192, 168, 1, 10);
-    unsigned int  dst_ip  = std::net_ip4(192, 168, 1, 255);
-    unsigned char payload[5];
-    payload[0] = 'h'; payload[1] = 'e'; payload[2] = 'l';
-    payload[3] = 'l'; payload[4] = 'o';
+    unsafe {
+        dst_mac[0] = 0xFF; dst_mac[1] = 0xFF; dst_mac[2] = 0xFF;
+        dst_mac[3] = 0xFF; dst_mac[4] = 0xFF; dst_mac[5] = 0xFF;
+    }
+    unsigned int src_ip = std::net_ip4(192, 168, 1, 10);
+    unsigned int dst_ip = std::net_ip4(192, 168, 1, 255);
 
     struct PacketBuf pkt;
     unsigned long offset = std::udp_frame(&pkt, iface.mac, dst_mac,
-                                          src_ip, dst_ip,
-                                          1234, 5678, 5);
-    unsafe {
-        unsigned char* d = (unsigned char*)pkt.at(offset);
-        int i = 0;
-        while (i < 5) { d[i] = payload[i]; i = i + 1; }
+                                          src_ip, dst_ip, 1234, 5678, 5);
+    const char* payload = "hello";
+    unsigned long i = 0UL;
+    while (i < 5UL) {
+        match (pkt.at(offset + i)) {
+            case some(b): unsafe { *b = (unsigned char)payload[i]; }
+            case null: { }
+        }
+        i = i + 1UL;
     }
 
-    int rc = iface.tx(&pkt);   // 드라이버를 통해 전송
-    printf("tx rc=%d\n", rc);
-    // driver: sending 47 bytes  (eth 14 + ipv4 20 + udp 8 + payload 5)
+    int rc = iface.tx(&pkt);   // transmit via the driver
+    unsafe { printf("tx rc=%d\n", rc); }
+    // driver: sending 47 bytes  (14 eth + 20 ipv4 + 8 udp + 5 payload)
     // tx rc=0
     return 0;
 }

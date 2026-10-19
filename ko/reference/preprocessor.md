@@ -20,6 +20,8 @@ SafeC는 C 전처리 지시문의 안전한 부분집합을 지원하는 전처�
 추출하는 `CHeaderImporter`를 통해 네이티브로 임포트된다. 자세한 내용은
 [C 상호운용](/ko/reference/ffi)을 참고.
 
+`#include`는 **헤더만** 지정한다. `.sc` 소스 파일을 포함하는 것은 컴파일 오류다: `.sc` 파일은 그 자체로 하나의 번역 단위이며, 다른 파일에 붙여 넣으면 그 안의 모든 정의가 중복된다 — 다중 정의 링크 오류가 나거나, `static` 상태가 서로 갈라지는 두 벌의 사본이 생긴다. 각 `.sc`는 따로 컴파일하고 그 `.h`를 포함하라. 모든 사용자가 인스턴스화해야 하는 제네릭 코드는 헤더 자체에 둔다(표준 라이브러리의 컨테이너가 헤더 전용인 이유가 바로 이것이다).
+
 포함 검색 경로를 추가하려면 `-I <dir>`를 사용한다.
 
 ### `#define` (객체형) {#define-object-like}
@@ -178,7 +180,13 @@ C와 달리 SafeC는 재현 가능한 빌드를 지원하기 위해 의도적으
 ./build/safec legacy.sc --compat-preprocessor --emit-llvm -o legacy.ll
 ```
 
-호환 모드에서는 함수형 매크로, 토큰 붙이기, 문자열화가 모두 허용된다.
+호환 모드에서는 함수형 매크로, 토큰 붙이기, 문자열화가 모두 허용되며, 전처리기가 `__SAFEC_COMPAT_PREPROCESSOR__`를 정의한다. 선택적인 함수형 편의 매크로를 제공하는 헤더는 이 매크로로 그것을 감싸서, 같은 헤더가 두 모드 모두에서 동작하게 한다 — 표준 라이브러리는 `ASSERT_*`(`std/test/test.h`), `RING_STATIC`, 로깅·패닉 헬퍼 등에서 이렇게 한다:
+
+```c
+#ifdef __SAFEC_COMPAT_PREPROCESSOR__   // function-like macro: compat mode only
+#define ASSERT_TRUE(e) test_assert_true((e) != 0, #e, __FILE__, __LINE__)
+#endif
+```
 
 ## 컴파일 타임 대안 {#compile-time-alternatives}
 

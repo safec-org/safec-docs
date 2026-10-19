@@ -3,7 +3,7 @@
 SafeC는 성능 측정, 코드 커버리지 추적, 하드웨어 디버그 통합을 위해 `std/debug/`에 세 가지 디버그 모듈을 제공합니다.
 
 ```c
-#include "debug/debug.h"  // 마스터 헤더: perf + coverage + jtag
+#include <std/debug/debug.h>  // 마스터 헤더: perf + coverage + jtag
 ```
 
 SafeC 컴파일러는 `--g` 옵션과 함께 호출되면 DWARF 디버그 정보도 내보냅니다.
@@ -19,7 +19,7 @@ SafeC 컴파일러는 `--g` 옵션과 함께 호출되면 DWARF 디버그 정보
 ## perf — 하드웨어 성능 카운터 {#perf-hardware-performance-counters}
 
 ```c
-#include "debug/perf.h"
+#include <std/debug/perf.h>
 ```
 
 `PerfCounter`는 마이크로초 이하 단위의 타이밍을 위해 아키텍처별 사이클 카운터를 읽습니다.
@@ -61,8 +61,8 @@ PerfCounter perf_counter_init();
 ### 예제 {#example}
 
 ```c
-#include "debug/perf.h"
-#include "io.h"
+#include <std/debug/perf.h>
+#include <std/io.h>
 
 int main() {
     struct PerfCounter pc = perf_counter_init();
@@ -83,7 +83,7 @@ int main() {
 ## coverage — 소스 레벨 코드 커버리지 {#coverage-source-level-code-coverage}
 
 ```c
-#include "debug/coverage.h"
+#include <std/debug/coverage.h>
 ```
 
 호출 지점을 단일 매크로로 계측합니다. 각 지점이 몇 번 도달했는지 추적합니다. 최대 1024개 지점까지 지원합니다.
@@ -134,8 +134,8 @@ int clamp(int v, int lo, int hi) {
 ### 예제 {#example-1}
 
 ```c
-#include "debug/coverage.h"
-#include "io.h"
+#include <std/debug/coverage.h>
+#include <std/io.h>
 
 int clamp(int v, int lo, int hi) {
     COV_SITE();
@@ -171,7 +171,7 @@ coverage: 100
 ## jtag — 하드웨어 디버그 헬퍼 {#jtag-hardware-debug-helpers}
 
 ```c
-#include "debug/jtag.h"
+#include <std/debug/jtag.h>
 ```
 
 아키텍처 조건부 브레이크포인트, 세미호스팅, Cortex-M ITM 스티뮬러스 포트 출력을 제공합니다. UART가 아직 준비되지 않은 초기 부트업 단계에서 유용합니다.
@@ -225,7 +225,7 @@ DBG_ASSERT(cond);
 ### 예제 {#example-2}
 
 ```c
-#include "debug/jtag.h"
+#include <std/debug/jtag.h>
 
 void uart_init(struct Uart* u) {
     DBG_ASSERT(u != 0);

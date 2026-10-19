@@ -9,7 +9,7 @@
 참고한다.
 
 ```c
-#include "str.h"
+#include <std/str.h>
 ```
 
 ## 길이 및 비교 {#length-comparison}
@@ -183,9 +183,9 @@ char* str_ndup(const char* s, unsigned long n);
 ## 예제 {#example}
 
 ```c
-#include "str.h"
-#include "io.h"
-#include "mem.h"
+#include <std/str.h>
+#include <std/io.h>
+#include <std/mem.h>
 
 int main() {
     const char* greeting = "Hello, SafeC!";
@@ -199,7 +199,7 @@ int main() {
     const char* pos = str_find(greeting, "SafeC");
     if (pos != 0) {
         print("Found at offset: ");
-        println_int(pos - greeting);  // 7
+        println_int(pos - greeting);  // 7 (pointer difference, as in C)
     }
 
     // 복제
@@ -214,7 +214,7 @@ int main() {
     char* tok = str_tok(buf, ",", &save);
     while (tok != 0) {
         println(tok);
-        tok = str_tok(0, ",", &save);
+        tok = str_tok((char*)0, ",", &save);
     }
 
     return 0;

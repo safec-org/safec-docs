@@ -127,7 +127,7 @@ void process2() {
 컴파일 타임에 잡힙니다.
 
 ```c
-#include <std/mem.sc>
+#include <std/mem.h>
 
 void f() {
     &heap int p = new int;

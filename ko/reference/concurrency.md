@@ -9,6 +9,7 @@ SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니
 `spawn(fn, arg)`은 주어진 함수를 주어진 인자와 함께 실행하는 새 스레드를 생성합니다. 스레드 핸들(`long long`, 내부적으로는 `pthread_t`)을 반환합니다.
 
 ```c
+extern int printf(const char* fmt, ...);
 void* worker(void *arg) {
     int *data = (int*)arg;
     unsafe {
@@ -213,6 +214,7 @@ void example2() {
 ```c
 #include <stdio.h>
 #include <stdlib.h>
+extern int printf(const char* fmt, ...);
 
 struct WorkItem {
     int *data;

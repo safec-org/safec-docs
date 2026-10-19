@@ -3,7 +3,7 @@
 // backend file list)
 #pragma once
 #include <std/sched/io_nb.h>
-#include <std/errno.sc>
+#include <std/errno.h>
 
 #define SCHED_O_CREAT     0x0200
 #define SCHED_O_NONBLOCK  0x0004
@@ -49,14 +49,8 @@ extern int setsockopt(int fd, int level, int optname, const void* optval, unsign
 
 #define SCHED_SOL_SOCKET    0xffff
 #define SCHED_SO_REUSEADDR  0x0004
-#define SCHED_SO_REUSEPORT  0x0200
 #define SCHED_IPPROTO_TCP   6
 #define SCHED_TCP_NODELAY   1
-
-// See io_nb_linux.sc's identical define for what this gates: letting
-// http_serve_reactor give each worker thread its own listening socket
-// on the same port instead of sharing one fd across every thread.
-#define SCHED_HAS_REUSEPORT 1
 
 inline unsigned short sched_htons(unsigned short host16) {
     return (unsigned short)(((host16 & (unsigned short)0xFF) << 8) |
@@ -131,16 +125,6 @@ inline int tcp_listen_nb(unsigned short port) {
         int reuseOpt = 1;
         setsockopt(fd, SCHED_SOL_SOCKET, SCHED_SO_REUSEADDR,
                    (const void*)&reuseOpt, 4U);
-    }
-    // See io_nb_linux.sc's tcp_listen_nb for what SO_REUSEPORT is for
-    // here: http_serve_reactor uses it to give each worker thread its
-    // own listening socket + accept queue on the same port, instead of
-    // every thread's kqueue watching one shared fd and racing accept()
-    // on it.
-    unsafe {
-        int reuseportOpt = 1;
-        setsockopt(fd, SCHED_SOL_SOCKET, SCHED_SO_REUSEPORT,
-                   (const void*)&reuseportOpt, 4U);
     }
 
     struct SockAddrIn addr;

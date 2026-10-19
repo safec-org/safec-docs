@@ -17,8 +17,8 @@
 다루며, 어느 쪽도 다른 쪽의 대체물이 아니다.
 
 ```c
-#include "sched/reactor.h"
-#include "sched/io_nb.h"   // 리액터와 짝을 이루도록 만들어진 논블로킹 소켓/파일 헬퍼
+#include <std/sched/reactor.h>
+#include <std/sched/io_nb.h>   // non-blocking socket/file helpers meant to pair with it
 ```
 
 ## 백엔드 {#backends}
@@ -108,34 +108,40 @@ OS가 실제로 보고할 것이 생기기 전까지 프로세스가 CPU를 전�
 ## 예제 {#example}
 
 ```c
-#include "sched/reactor.h"
-#include "sched/io_nb.h"
-#include "io.h"
+#include <std/sched/reactor.h>
+#include <std/sched/io_nb.h>
+#include <std/io.h>
 
-int echo_conn(void* arg, int resume_point) {
-    int fd = (int)(long long)arg;
-    if (resume_point == 0) {
-        // 소켓에 읽을 데이터가 생길 때까지 대기
-        // (실제 프로그램에서는 전역/정적 변수를 통해 스케줄러에 접근한다)
-        g_sched.await_fd(fd, SCHED_READ);
-        return 1;
+struct Conn { int fd; };
+
+static struct TaskScheduler g_sched;   // tasks reach the scheduler through a static
+
+static int echo_conn(?&Conn c, int resume_point) {
+    match (c) {
+        case null: return 0;
+        case some(conn): {
+            if (resume_point == 0) {
+                g_sched.await_fd(conn.fd, SCHED_READ);   // park until readable
+                return 1;
+            }
+            // ... read/write conn.fd here ...
+        }
     }
-    // ... 여기서 fd로 읽기/쓰기 ...
-    return 0;   // 완료
+    return 0;   // done
 }
 
 int main() {
-    struct TaskScheduler sched = task_sched_init();
-    struct Reactor reactor = reactor_init();
+    g_sched = std::task_sched_init();
+    struct Reactor reactor = std::reactor_init();
     reactor.init();
 
-    int listenfd = tcp_listen_nb(8080);
+    int listenfd = std::tcp_listen_nb(8080);
     reactor.add(listenfd, SCHED_READ);
 
-    // ... accept 루프가 연결마다 echo_conn을 spawn하고, 각 태스크는 자신의
-    //     연결 fd에 대해 await_fd를 호출한다 ...
+    // ... an accept task spawns echo_conn per connection:
+    //     std::task_spawn(&g_sched, echo_conn, conn_ref);
 
-    reactor_run(&sched, &reactor);
+    std::reactor_run(&g_sched, &reactor);
     reactor.close_();
     return 0;
 }

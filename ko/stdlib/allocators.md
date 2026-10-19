@@ -1,14 +1,12 @@
 # 결정론적 얼로케이터
 
-SafeC는 `std/alloc/`에 네 가지 결정론적 얼로케이터를 제공합니다. 각각 최악의 경우에도 O(1) 할당 및 해제를 보장하며, 예상치 못한 단편화가 없고, 숨겨진 malloc 호출도 없습니다.
+`std/alloc/`는 하나의 고정 버퍼를 관리하는 네 가지 얼로케이터를 제공합니다 — 버퍼는 여러분이 직접 공급하거나(`*_init`, 어떤 리전이든 가능: static, 스택, 아레나) 얼로케이터가 직접 할당합니다(`*_new`). 어느 것도 생성 이후에는 `malloc`을 호출하지 않습니다.
 
 ```c
-#include "alloc/bump.h"
-#include "alloc/slab.h"
-#include "alloc/pool.h"
-#include "alloc/tlsf.h"
-// 또는 네 가지 모두를 한 번에 가져오려면:
-#include "prelude.h"
+#include <std/alloc/bump.h>
+#include <std/alloc/slab.h>
+#include <std/alloc/pool.h>
+#include <std/alloc/tlsf.h>
 ```
 
 ## 비교 {#comparison}
@@ -16,242 +14,162 @@ SafeC는 `std/alloc/`에 네 가지 결정론적 얼로케이터를 제공합니
 | 얼로케이터 | 할당 | 해제 | 적합한 용도 |
 |-----------|-------|------|----------|
 | `BumpAllocator` | O(1) | 리셋 전용 | 프레임 단위 아레나, 스크래치 버퍼 |
-| `SlabAllocator` | O(1) | O(1) | 고정 크기 객체 다수 (예: 노드, 패킷) |
-| `PoolAllocator` | O(1) | O(1) | 다양한 내용을 담는 고정 크기 블록 |
+| `SlabAllocator` | O(1) | O(1) | 같은 크기의 객체 다수 (패킷, 노드) |
+| `PoolAllocator` | O(블록 수), first fit | O(블록 수), 병합 | 크기가 다양한 작은 힙 |
 | `TlsfAllocator` | O(1) | O(1) | 범용 실시간 힙 |
+
+## 타입 지정 할당 {#typed}
+
+모든 얼로케이터에는 **타입 지정 계층**이 있습니다 — 바이트 수준 메서드보다 이것을 우선 사용하세요. `T`는 대입받는 변수에서 오며, 결과는 nullable 참조(얼로케이터가 소진되면 `null`)이므로 사용 전에 좁혀야 합니다.
+
+```c
+generic<T> ?&heap T bump_alloc_t(&BumpAllocator a);                     // aligned for T
+generic<T> ?&heap T bump_alloc_array_t(&BumpAllocator a, unsigned long n);
+generic<T> ?&heap T slab_alloc_t(&SlabAllocator s);                     // null if T > obj_size
+generic<T> void     slab_free_t(&SlabAllocator s, &heap T obj);
+generic<T> ?&heap T pool_alloc_t(&PoolAllocator p);
+generic<T> void     pool_free_t(&PoolAllocator p, &heap T obj);
+generic<T> ?&heap T tlsf_alloc_t(&TlsfAllocator t);
+generic<T> ?&heap T tlsf_alloc_array_t(&TlsfAllocator t, unsigned long n);
+generic<T> void     tlsf_free_t(&TlsfAllocator t, &heap T obj);
+```
+
+바이트 수준 메서드(`alloc(size)`, `dealloc(ptr)`, …)는 사용자 정의 컨테이너의 저장 공간처럼 정말로 타입 없는 바이트를 다루는 코드를 위해 남아 있습니다.
+
+`destroy()`는 얼로케이터가 버퍼를 직접 할당한 경우(`*_new`)에만 버퍼를 해제합니다. `*_init`의 경우에는 버퍼를 잊기만 하며, 버퍼는 여전히 여러분의 것입니다.
 
 ---
 
-## BumpAllocator {#bumpallocator}
+## BumpAllocator {#bump}
 
-선형(범프 포인터) 얼로케이터입니다. 할당은 포인터를 전진시키며, 개별 객체 해제는 지원하지 않습니다 — 아레나 전체를 리셋해야 합니다.
-
-### 구조체 {#struct}
+선형 얼로케이터입니다: 할당은 오프셋을 전진시키고, 아레나 전체는 `reset()`으로 한 번에 회수됩니다. 객체별 해제는 없습니다.
 
 ```c
 struct BumpAllocator {
-    void*         base;
     unsigned long used;
     unsigned long cap;
 
-    void*         alloc(unsigned long size, unsigned long align);
-    void          reset();
+    &heap void    alloc(unsigned long size, unsigned long align);   // byte level; null if full
+    void          reset();                    // every earlier allocation becomes invalid
     unsigned long remaining() const;
     void          destroy();
-}
+};
+
+struct BumpAllocator bump_init(&unsigned char buffer, unsigned long cap);
+struct BumpAllocator bump_new(unsigned long cap);
 ```
 
-### 생성자 {#constructors}
-
 ```c
-// 호출자가 제공한 버퍼를 사용 (힙 없음)
-BumpAllocator bump_init(void* buffer, unsigned long cap);
+#include <std/alloc/bump.h>
+#include <std/io.h>
 
-// `cap` 바이트 크기의 백킹 버퍼를 힙에 할당
-BumpAllocator bump_new(unsigned long cap);
-```
+struct Particle { float x; float y; int life; };
 
-### 메서드 {#methods}
-
-| 메서드 | 설명 |
-|--------|-------------|
-| `alloc(size, align)` | 정렬된 포인터를 반환하고 `used`를 전진시킵니다. 꽉 찼으면 NULL을 반환합니다. |
-| `reset()` | `used = 0`으로 설정합니다. 이전에 할당된 모든 메모리는 무효화됩니다. |
-| `remaining() const` | `cap - used`를 반환합니다. |
-| `destroy()` | 힙에 할당된 경우 백킹 버퍼를 해제합니다. |
-
-### 예제 {#example}
-
-```c
-#include "alloc/bump.h"
-#include "io.h"
+static unsigned char g_frame[4096];          // per-frame scratch, no heap
 
 int main() {
-    unsigned char buf[4096];
-    BumpAllocator a = bump_init(buf, sizeof(buf));
-
-    int* x = a.alloc(sizeof(int), 4);
-    int* y = a.alloc(sizeof(int), 4);
-    *x = 10;
-    *y = 20;
-
-    print("remaining: ");
-    println_int(a.remaining());  // 4088
-
-    a.reset();  // 전부 무효화; 다음 프레임을 위한 준비
-    return 0;
+    struct BumpAllocator a = std::bump_init(&g_frame[0], 4096UL);
+    ?&heap Particle p = std::bump_alloc_t(&a);
+    ?&heap int counts = std::bump_alloc_array_t(&a, 16UL);
+    match (p) {
+        case some(x): { x.x = 1.0f; x.y = 2.0f; x.life = 30; }
+        case null:    std::println("arena full");
+    }
+    std::print("remaining: ");
+    std::println_int((long long)a.remaining());
+    a.reset();                               // next frame starts empty
+    return counts.is_null() ? 1 : 0;
 }
 ```
 
 ---
 
-## SlabAllocator {#slaballocator}
+## SlabAllocator {#slab}
 
-고정 크기 객체를 위한 프리리스트 기반 슬랩 얼로케이터입니다. 사전 할당된 풀을 기반으로 동작하며, 개별 할당/해제는 풀에 내장된 연결 프리리스트를 통해 O(1)로 이루어집니다.
-
-### 구조체 {#struct-1}
+버퍼 안에 내장된 프리 리스트에서 고정 크기 객체를 꺼냅니다: O(1) 할당과 해제. 힙 기반 슬랩(`slab_new`)은 모든 객체에 태그를 붙여 이중 해제나 외부 포인터를 만나면 중단(abort)합니다.
 
 ```c
 struct SlabAllocator {
-    void*         pool;
-    void*         freelist;
     unsigned long obj_size;
-    unsigned long count;
-
-    void*         alloc();
+    &heap void    alloc();                    // byte level; null if full
     void          dealloc(void* ptr);
-    unsigned long available() const;
+    unsigned long available() const;          // free slots
     void          destroy();
-}
+};
+
+struct SlabAllocator slab_init(&unsigned char buffer, unsigned long obj_size, unsigned long count);
+struct SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
 ```
 
-### 생성자 {#constructors-1}
-
 ```c
-// 호출자가 제공한 버퍼를 사용
-SlabAllocator slab_init(void* pool, unsigned long obj_size, unsigned long count);
-
-// `obj_size` 바이트 크기의 객체 `count`개를 위한 풀을 힙에 할당
-SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
-```
-
-### 메서드 {#methods-1}
-
-| 메서드 | 설명 |
-|--------|-------------|
-| `alloc()` | 프리리스트에서 객체 하나를 팝합니다. 꽉 찼으면 NULL을 반환합니다. |
-| `dealloc(ptr)` | 객체를 프리리스트로 다시 푸시합니다. 포인터는 반드시 이 얼로케이터에서 나온 것이어야 합니다. |
-| `available() const` | 남은 여유 슬롯 수입니다. |
-| `destroy()` | 힙에 할당된 경우 백킹 풀을 해제합니다. |
-
-### 예제 {#example-1}
-
-```c
-#include "alloc/slab.h"
-#include "io.h"
+#include <std/alloc/slab.h>
+#include <std/io.h>
 
 struct Packet { unsigned char data[64]; unsigned long len; };
 
 int main() {
-    SlabAllocator sa = slab_new(sizeof(struct Packet), 32);
-
-    struct Packet* p1 = sa.alloc();
-    struct Packet* p2 = sa.alloc();
-    struct Packet* p3 = sa.alloc();
-
-    p1->len = 10;
-
-    print("available: ");
-    println_int(sa.available());  // 29
-
-    sa.dealloc(p2);
-
-    print("available: ");
-    println_int(sa.available());  // 30
-
+    struct SlabAllocator sa = std::slab_new(sizeof(struct Packet), 32UL);
+    ?&heap Packet p1 = std::slab_alloc_t(&sa);
+    ?&heap Packet p2 = std::slab_alloc_t(&sa);
+    std::println_int((long long)sa.available());   // 30
+    match (p2) {
+        case some(p): std::slab_free_t(&sa, p);
+        case null: { }
+    }
+    std::println_int((long long)sa.available());   // 31
     sa.destroy();
-    return 0;
+    return p1.is_null() ? 1 : 0;
 }
 ```
 
 ---
 
-## PoolAllocator {#poolallocator}
+## PoolAllocator {#pool}
 
-고정 크기 블록 풀입니다. 슬랩 얼로케이터와 비슷하지만 모든 블록이 동일한 객체 타입을 담아야 한다는 제약이 없습니다 — `block_size` 바이트 이내에 들어맞는 데이터라면 무엇이든 같은 풀을 사용할 수 있습니다.
-
-### 구조체 {#struct-2}
+가변 크기 first-fit 얼로케이터입니다: 각 블록은 작은 헤더를 가지며, 해제 시 인접한 빈 블록을 병합합니다. 단순하고 작지만 할당과 해제가 블록 목록을 순회합니다 — O(1)이 필요하면 TLSF를 쓰세요.
 
 ```c
 struct PoolAllocator {
-    void*         base;
-    void*         next_free;
-    unsigned long block_size;
-    unsigned long capacity;
-
-    void*         alloc();
-    void          free(void* ptr);
-    unsigned long available() const;
+    unsigned long cap;
+    &heap void    alloc(unsigned long size);  // byte level; null if no block fits
+    void          dealloc(void* ptr);
+    unsigned long available() const;         // total free bytes
     void          destroy();
-}
+};
+
+struct PoolAllocator pool_init(&unsigned char buffer, unsigned long cap);
+struct PoolAllocator pool_new(unsigned long cap);
 ```
-
-### 생성자 {#constructors-2}
-
-```c
-// 호출자가 제공한 버퍼를 사용
-PoolAllocator pool_init(void* buffer, unsigned long block_size, unsigned long count);
-
-// 힙에 할당
-PoolAllocator pool_new(unsigned long block_size, unsigned long count);
-```
-
-### 메서드 {#methods-2}
-
-| 메서드 | 설명 |
-|--------|-------------|
-| `alloc()` | 다음 여유 블록을 반환합니다. 소진되었으면 NULL입니다. |
-| `free(ptr)` | 블록을 풀로 반환합니다. |
-| `available() const` | 여유 블록 수입니다. |
-| `destroy()` | 힙에 할당된 백킹 버퍼를 해제합니다. |
 
 ---
 
-## TlsfAllocator {#tlsfallocator}
+## TlsfAllocator {#tlsf}
 
-Two-Level Segregated Fit — **최악의 경우에도 O(1)**의 할당/해제를 보장하는 실시간 범용 얼로케이터입니다. `malloc`의 타이밍이 허용되지 않는 임베디드 펌웨어에 적합합니다.
-
-### 구조체 {#struct-3}
+Two-Level Segregated Fit: 크기 클래스에 대한 2단계 비트맵이 맞는 빈 블록을 O(1)에 찾고, 해제 시 물리적으로 인접한 블록과 O(1)에 병합합니다. 프리스탠딩 타깃에서 `std/heap.h`가 사용하는 것이 이것입니다.
 
 ```c
 struct TlsfAllocator {
-    void*         pool;
-    unsigned long pool_size;
-    // 내부 FL/SL 비트맵 (불투명)
+    unsigned long cap;
+    &heap void    alloc(unsigned long size);  // byte level; null if exhausted
+    void          free(&heap void ptr);
+    void          destroy();
+};
 
-    void* alloc(unsigned long size);
-    void  free(void* ptr);
-    void  destroy();
-}
+struct TlsfAllocator tlsf_init(&unsigned char buffer, unsigned long cap);
+struct TlsfAllocator tlsf_new(unsigned long cap);
 ```
 
-### 생성자 {#constructors-3}
-
 ```c
-// 호출자가 제공한 메모리 리전을 TLSF 힙으로 사용
-TlsfAllocator tlsf_init(void* pool, unsigned long size);
-
-// 시스템 얼로케이터로부터 `size` 바이트 크기의 풀을 힙에 할당
-TlsfAllocator tlsf_new(unsigned long size);
-```
-
-### 메서드 {#methods-3}
-
-| 메서드 | 설명 |
-|--------|-------------|
-| `alloc(size)` | `size` 바이트를 할당합니다. 적합한 블록이 없으면 NULL을 반환합니다. O(1)이 보장됩니다. |
-| `free(ptr)` | 이전에 할당된 블록을 해제합니다. O(1)이 보장됩니다. |
-| `destroy()` | 힙에 할당된 풀을 해제합니다. |
-
-### 예제 {#example-2}
-
-```c
-#include "alloc/tlsf.h"
-#include "io.h"
+#include <std/alloc/tlsf.h>
 
 int main() {
-    TlsfAllocator ta = tlsf_new(65536);  // 64 KiB 풀
-
-    void* a = ta.alloc(100);
-    void* b = ta.alloc(200);
-    void* c = ta.alloc(50);
-
-    ta.free(b);              // 병합되어 여유 풀로 돌아감
-    void* d = ta.alloc(180);  // 해제된 공간을 재사용
-
-    ta.free(a);
-    ta.free(c);
-    ta.free(d);
+    struct TlsfAllocator ta = std::tlsf_new(65536UL);   // 64 KiB
+    ?&heap double a = std::tlsf_alloc_array_t(&ta, 100UL);
+    ?&heap double b = std::tlsf_alloc_array_t(&ta, 200UL);
+    match (b) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }   // coalesced
+    ?&heap double c = std::tlsf_alloc_array_t(&ta, 180UL);                  // reuses b's space
+    match (a) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }
+    match (c) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }
     ta.destroy();
     return 0;
 }

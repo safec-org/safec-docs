@@ -1,5 +1,5 @@
 extern int printf(const char* fmt, ...);
-#include <std/mem.sc>
+#include <std/mem.h>
 
 struct Node {
     ?&heap Node left;
@@ -12,28 +12,28 @@ struct Node {
         n->left = make_tree(depth - 1);
         n->right = make_tree(depth - 1);
     } else {
-        unsafe { n->left = (?&heap Node)(struct Node*)0; n->right = (?&heap Node)(struct Node*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int checksum(&heap Node n) {
-    unsafe {
-        struct Node* raw = (struct Node*)n;
-        if (raw->left == (struct Node*)0) { return 1; }
-        return 1 + checksum((&heap Node)raw->left) + checksum((&heap Node)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + checksum(l) + checksum(r);
+                case null: return 1 + checksum(l);
+            }
+        }
     }
-    return 0;
+    return 1;
 }
 
 void free_tree(&heap Node n) {
-    unsafe {
-        struct Node* raw = (struct Node*)n;
-        if (raw->left != (struct Node*)0) {
-            free_tree((&heap Node)raw->left);
-            free_tree((&heap Node)raw->right);
-        }
-    }
+    match (n->left) { case some(l): free_tree(l); case null: { } }
+    match (n->right) { case some(r): free_tree(r); case null: { } }
     std::dealloc(n);
 }
 

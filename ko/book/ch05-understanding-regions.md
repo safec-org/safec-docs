@@ -65,8 +65,10 @@ SafeC의 모든 참조는 **리전**을 갖습니다 — 그 뒤의 데이터가
 | `&static T` | 프로그램 전체 | 결코 해제되지 않음 |
 
 ```c
+extern int printf(const char* fmt, ...);
+
 void print_x(&stack int ref) {
-    printf("%d\n", *ref);
+    unsafe { printf("%d\n", *ref); }
 }
 
 int main() {

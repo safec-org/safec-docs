@@ -112,10 +112,12 @@ std::string greet(std::string name) {
 
 ```c
 // SafeC: every operation is visible
-extern int snprintf(char* buf, long n, const char* fmt, ...);
+#include <std/collections/string.h>
 
-int greet(const char* name, char* out, int outLen) {
-    return snprintf(out, outLen, "Hello, %s!", name);
+// name is borrowed read-only, out is appended to; each append is a
+// visible call that may grow out's buffer
+int greet(const &String name, &String out) {
+    return out.push("Hello, ") && out.push(name.as_ptr()) && out.push("!");
 }
 ```
 
@@ -125,17 +127,17 @@ C++ generates constructors, destructors, copy/move operators implicitly. SafeC d
 
 ```c
 struct Buffer {
-    char* data;
-    int size;
+    ?&heap char   data;   // null until allocated
+    unsigned long size;
 };
 
 // No implicit constructor — you initialize fields explicitly
-Buffer b;
-b.data = (char*)malloc(1024);
-b.size = 1024;
+struct Buffer b;
+unsafe { b.data = (?&heap char)std::alloc(1024UL); }
+b.size = 1024UL;
 
 // No implicit destructor — you free explicitly
-defer free(b.data);
+defer { unsafe { std::dealloc((void*)b.data); } }
 ```
 
 ### No exceptions
@@ -360,11 +362,11 @@ fn readFile(path: []const u8) ![]u8 {
 
 ```c
 // SafeC
-int readFile(const char* path, char* buf, int bufLen) {
+int readFile(const &char path, &char buf, int bufLen) {
     int fd = open(path, 0);
     if (fd < 0) return -1;
     defer close(fd);
-    return (int)read(fd, buf, bufLen);  // read() returns long — no implicit narrowing
+    return (int)read(fd, buf, (unsigned long)bufLen);  // read() returns long — no implicit narrowing
 }
 ```
 

@@ -30,7 +30,7 @@ use-after-free가 없습니다: 리전 표기는 참조의 라이프타임을 �
 ```
 
 ```c
-#include <std/mem.sc>
+#include <std/mem.h>
 
 void heap_example() {
     &heap int p = new int;

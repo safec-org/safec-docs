@@ -7,19 +7,20 @@
 // the Vulkan 1.0 core spec's structure ordering, not copy-checked
 // against a real vulkan.h.
 //
-// Same shape as gpu_rocm.sc's HSACO gap: every op's SPIR-V module bytes
+// Every op's SPIR-V module bytes
 // ('spirvCode') are an explicit null placeholder, so every function
 // returns 0 immediately, before any of the real (but unverified) Vulkan
 // calls below that point would run. A real deployment replaces each
 // null with bytes from an offline 'glslc kernel.comp -o kernel.spv' (or
 // equivalent HLSL/WGSL-to-SPIR-V) build step.
 #pragma once
+#include <std/stddef.h>
 #include <std/ml/gpu_spirv.h>
 #include <std/mem.h>
 
 namespace std {
 
-extern void* memcpy(void* dst, const void* src, unsigned long n);
+extern void* memcpy(void* dst, const void* src, size_t n);
 
 // ── Vulkan core structs (hand-matched to vulkan_core.h's field order) ──────
 struct VkApplicationInfo {
@@ -586,7 +587,7 @@ int spirv_matmul_f32(const float* a, const float* b, float* out,
 }
 
 // ── Persistent-buffer tier (see gpu_spirv.h) ────────────────────────────────
-extern void* malloc(unsigned long size);
+extern void* malloc(size_t size);
 extern void free(void* ptr);
 
 static void* __spirv_persistent_instance_ = (void*)0;
@@ -597,7 +598,7 @@ struct __SpirvPersistentBuf { void* buffer; void* memory; };
 
 // Creates a shared VkInstance + VkDevice once and reuses them forever
 // after -- the Vulkan analogue of gpu_cuda.sc's __cuda_ensure_context and
-// gpu_rocm.sc's __rocm_ensure_device. Picks physical device 0 / queue
+// gpu_rocm.sc's rocm_ensure_. Picks physical device 0 / queue
 // family 0, same simplification spirv_available()/__vk_run_kernel above
 // already make.
 static int __spirv_ensure_device() {

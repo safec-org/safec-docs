@@ -1,7 +1,7 @@
 extern int printf(const char* fmt, ...);
 extern int sscanf(const char* s, const char* fmt, ...);
-#include <std/mem.sc>
-#include <std/thread.sc>
+#include <std/mem.h>
+#include <std/thread.h>
 
 #define NTHREADS 8
 
@@ -34,17 +34,23 @@ struct StretchNode {
         n->left = make_stretch(depth - 1);
         n->right = make_stretch(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<StretchPool> StretchNode)(struct StretchNode*)0; n->right = (?&arena<StretchPool> StretchNode)(struct StretchNode*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int stretch_checksum(&arena<StretchPool> StretchNode n) {
-    unsafe {
-        struct StretchNode* raw = (struct StretchNode*)n;
-        if (raw->left == (struct StretchNode*)0) { return 1; }
-        return 1 + stretch_checksum((&arena<StretchPool> StretchNode)raw->left) + stretch_checksum((&arena<StretchPool> StretchNode)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + stretch_checksum(l) + stretch_checksum(r);
+                case null: return 1 + stretch_checksum(l);
+            }
+        }
     }
+    return 1;
 }
 
 struct LNode {
@@ -58,17 +64,23 @@ struct LNode {
         n->left = make_ltree(depth - 1);
         n->right = make_ltree(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<LongLived> LNode)(struct LNode*)0; n->right = (?&arena<LongLived> LNode)(struct LNode*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int lchecksum(&arena<LongLived> LNode n) {
-    unsafe {
-        struct LNode* raw = (struct LNode*)n;
-        if (raw->left == (struct LNode*)0) { return 1; }
-        return 1 + lchecksum((&arena<LongLived> LNode)raw->left) + lchecksum((&arena<LongLived> LNode)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + lchecksum(l) + lchecksum(r);
+                case null: return 1 + lchecksum(l);
+            }
+        }
     }
+    return 1;
 }
 
 struct SNode0 {
@@ -82,20 +94,26 @@ struct SNode0 {
         n->left = make_stree0(depth - 1);
         n->right = make_stree0(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch0> SNode0)(struct SNode0*)0; n->right = (?&arena<Scratch0> SNode0)(struct SNode0*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum0(&arena<Scratch0> SNode0 n) {
-    unsafe {
-        struct SNode0* raw = (struct SNode0*)n;
-        if (raw->left == (struct SNode0*)0) { return 1; }
-        return 1 + schecksum0((&arena<Scratch0> SNode0)raw->left) + schecksum0((&arena<Scratch0> SNode0)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum0(l) + schecksum0(r);
+                case null: return 1 + schecksum0(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker0(void* arg) {
+?&int worker0(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -111,6 +129,7 @@ void worker0(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode1 {
@@ -124,20 +143,26 @@ struct SNode1 {
         n->left = make_stree1(depth - 1);
         n->right = make_stree1(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch1> SNode1)(struct SNode1*)0; n->right = (?&arena<Scratch1> SNode1)(struct SNode1*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum1(&arena<Scratch1> SNode1 n) {
-    unsafe {
-        struct SNode1* raw = (struct SNode1*)n;
-        if (raw->left == (struct SNode1*)0) { return 1; }
-        return 1 + schecksum1((&arena<Scratch1> SNode1)raw->left) + schecksum1((&arena<Scratch1> SNode1)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum1(l) + schecksum1(r);
+                case null: return 1 + schecksum1(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker1(void* arg) {
+?&int worker1(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -153,6 +178,7 @@ void worker1(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode2 {
@@ -166,20 +192,26 @@ struct SNode2 {
         n->left = make_stree2(depth - 1);
         n->right = make_stree2(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch2> SNode2)(struct SNode2*)0; n->right = (?&arena<Scratch2> SNode2)(struct SNode2*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum2(&arena<Scratch2> SNode2 n) {
-    unsafe {
-        struct SNode2* raw = (struct SNode2*)n;
-        if (raw->left == (struct SNode2*)0) { return 1; }
-        return 1 + schecksum2((&arena<Scratch2> SNode2)raw->left) + schecksum2((&arena<Scratch2> SNode2)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum2(l) + schecksum2(r);
+                case null: return 1 + schecksum2(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker2(void* arg) {
+?&int worker2(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -195,6 +227,7 @@ void worker2(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode3 {
@@ -208,20 +241,26 @@ struct SNode3 {
         n->left = make_stree3(depth - 1);
         n->right = make_stree3(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch3> SNode3)(struct SNode3*)0; n->right = (?&arena<Scratch3> SNode3)(struct SNode3*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum3(&arena<Scratch3> SNode3 n) {
-    unsafe {
-        struct SNode3* raw = (struct SNode3*)n;
-        if (raw->left == (struct SNode3*)0) { return 1; }
-        return 1 + schecksum3((&arena<Scratch3> SNode3)raw->left) + schecksum3((&arena<Scratch3> SNode3)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum3(l) + schecksum3(r);
+                case null: return 1 + schecksum3(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker3(void* arg) {
+?&int worker3(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -237,6 +276,7 @@ void worker3(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode4 {
@@ -250,20 +290,26 @@ struct SNode4 {
         n->left = make_stree4(depth - 1);
         n->right = make_stree4(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch4> SNode4)(struct SNode4*)0; n->right = (?&arena<Scratch4> SNode4)(struct SNode4*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum4(&arena<Scratch4> SNode4 n) {
-    unsafe {
-        struct SNode4* raw = (struct SNode4*)n;
-        if (raw->left == (struct SNode4*)0) { return 1; }
-        return 1 + schecksum4((&arena<Scratch4> SNode4)raw->left) + schecksum4((&arena<Scratch4> SNode4)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum4(l) + schecksum4(r);
+                case null: return 1 + schecksum4(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker4(void* arg) {
+?&int worker4(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -279,6 +325,7 @@ void worker4(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode5 {
@@ -292,20 +339,26 @@ struct SNode5 {
         n->left = make_stree5(depth - 1);
         n->right = make_stree5(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch5> SNode5)(struct SNode5*)0; n->right = (?&arena<Scratch5> SNode5)(struct SNode5*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum5(&arena<Scratch5> SNode5 n) {
-    unsafe {
-        struct SNode5* raw = (struct SNode5*)n;
-        if (raw->left == (struct SNode5*)0) { return 1; }
-        return 1 + schecksum5((&arena<Scratch5> SNode5)raw->left) + schecksum5((&arena<Scratch5> SNode5)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum5(l) + schecksum5(r);
+                case null: return 1 + schecksum5(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker5(void* arg) {
+?&int worker5(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -321,6 +374,7 @@ void worker5(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode6 {
@@ -334,20 +388,26 @@ struct SNode6 {
         n->left = make_stree6(depth - 1);
         n->right = make_stree6(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch6> SNode6)(struct SNode6*)0; n->right = (?&arena<Scratch6> SNode6)(struct SNode6*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum6(&arena<Scratch6> SNode6 n) {
-    unsafe {
-        struct SNode6* raw = (struct SNode6*)n;
-        if (raw->left == (struct SNode6*)0) { return 1; }
-        return 1 + schecksum6((&arena<Scratch6> SNode6)raw->left) + schecksum6((&arena<Scratch6> SNode6)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum6(l) + schecksum6(r);
+                case null: return 1 + schecksum6(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker6(void* arg) {
+?&int worker6(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -363,6 +423,7 @@ void worker6(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 struct SNode7 {
@@ -376,20 +437,26 @@ struct SNode7 {
         n->left = make_stree7(depth - 1);
         n->right = make_stree7(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch7> SNode7)(struct SNode7*)0; n->right = (?&arena<Scratch7> SNode7)(struct SNode7*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum7(&arena<Scratch7> SNode7 n) {
-    unsafe {
-        struct SNode7* raw = (struct SNode7*)n;
-        if (raw->left == (struct SNode7*)0) { return 1; }
-        return 1 + schecksum7((&arena<Scratch7> SNode7)raw->left) + schecksum7((&arena<Scratch7> SNode7)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum7(l) + schecksum7(r);
+                case null: return 1 + schecksum7(l);
+            }
+        }
     }
+    return 1;
 }
 
-void worker7(void* arg) {
+?&int worker7(?&int arg) {
     unsafe {
         int* slice = (int*)arg;
         int start = slice[0];
@@ -405,6 +472,7 @@ void worker7(void* arg) {
         }
         slice[3] = check;
     }
+    return null;
 }
 
 int workSlices[NTHREADS * 4];
@@ -436,14 +504,14 @@ int main() {
                 workSlices[t * 4 + 0] = start;
                 workSlices[t * 4 + 1] = end;
                 workSlices[t * 4 + 2] = depth;
-                if (t == 0) { std::thread_create(&tids[t], (void*)worker0, (void*)&workSlices[t * 4]); }
-                else if (t == 1) { std::thread_create(&tids[t], (void*)worker1, (void*)&workSlices[t * 4]); }
-                else if (t == 2) { std::thread_create(&tids[t], (void*)worker2, (void*)&workSlices[t * 4]); }
-                else if (t == 3) { std::thread_create(&tids[t], (void*)worker3, (void*)&workSlices[t * 4]); }
-                else if (t == 4) { std::thread_create(&tids[t], (void*)worker4, (void*)&workSlices[t * 4]); }
-                else if (t == 5) { std::thread_create(&tids[t], (void*)worker5, (void*)&workSlices[t * 4]); }
-                else if (t == 6) { std::thread_create(&tids[t], (void*)worker6, (void*)&workSlices[t * 4]); }
-                else if (t == 7) { std::thread_create(&tids[t], (void*)worker7, (void*)&workSlices[t * 4]); }
+                if (t == 0) { std::thread_create(&tids[t], worker0, (?&int)&workSlices[t * 4]); }
+                else if (t == 1) { std::thread_create(&tids[t], worker1, (?&int)&workSlices[t * 4]); }
+                else if (t == 2) { std::thread_create(&tids[t], worker2, (?&int)&workSlices[t * 4]); }
+                else if (t == 3) { std::thread_create(&tids[t], worker3, (?&int)&workSlices[t * 4]); }
+                else if (t == 4) { std::thread_create(&tids[t], worker4, (?&int)&workSlices[t * 4]); }
+                else if (t == 5) { std::thread_create(&tids[t], worker5, (?&int)&workSlices[t * 4]); }
+                else if (t == 6) { std::thread_create(&tids[t], worker6, (?&int)&workSlices[t * 4]); }
+                else if (t == 7) { std::thread_create(&tids[t], worker7, (?&int)&workSlices[t * 4]); }
             }
             nSpawned = nSpawned + 1;
             start = end;

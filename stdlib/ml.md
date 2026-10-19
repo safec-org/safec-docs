@@ -211,10 +211,71 @@ discrete memory model needs.
   currently segfaults (an apparent codegen gap with two consecutive
   struct-by-value Objective-C message-send arguments — see
   `gpu_mps.sc`'s header comment for the precise, bisected failure point).
-- **CUDA**/**ROCm**: written against the real Driver/Runtime API ABIs and
-  type-checked, but unverified — no NVIDIA/AMD GPU in the environment
-  this was built in (same status as `std/gui/gui_win32.sc`/`gui_x11.sc`).
+- **ROCm**: verified on an AMD Instinct MI100 (gfx908, ROCm 7.1) —
+  `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
+  combinations, graphs and the host-array API against CPU results (29
+  checks), and the [ML benchmarks](/benchmarks#machine-learning-gpu-backends-cuda-rocm-vulkanspir-v-webgpu)
+  train to the same loss as the CPU and MPS paths.
+- **CUDA**: written against the real Driver API ABI and type-checked, but
+  unverified — no NVIDIA GPU in the environments this was tested in.
 :::
+
+### ROCm / HIP (AMD)
+
+```c
+#include <std/ml/gpu_rocm.h>   // link: -lamdhip64 -lhiprtc -lrocblas
+```
+
+Data lives in `RocmBuf`s — GPU buffers described by a device address and an
+element count that every op checks — and ops are queued in order on one HIP
+stream, so a whole training step runs on the GPU and only the values you ask
+for (`rocm_read`) come back. Matmuls go to rocBLAS. Everything else runs this
+library's own HIP kernels — elementwise math, ReLU and its gradient, in-place
+SGD, sum reduction, and a fused MSE gradient (`dy = 2(y − t)` plus the summed
+loss in one pass) — compiled with hiprtc at first use for the GPU that is
+present, so one build runs on any ROCm GPU. On a machine with several GPUs
+the backend picks the one with the most compute units.
+
+| Group | Functions |
+|---|---|
+| Device | `rocm_available`, `rocm_device_name`, `rocm_sync` |
+| Buffers | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `rocm_free` |
+| Matmul | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, either operand transposed |
+| Elementwise | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
+| Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
+| Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
+| Host arrays | `rocm_add_f32` … `rocm_matmul_f32_blas` — upload, compute, read back in one call |
+
+One SGD step of a two-layer MLP, entirely on the GPU:
+
+```c
+// forward: Z1 = X W1, H = relu(Z1), Y = H W2
+std::rocm_gemm(X, 0, W1, 0, Z1, B, H_DIM, I);
+std::rocm_relu(Z1, H);
+std::rocm_gemm(H, 0, W2, 0, Y, B, O, H_DIM);
+// backward for loss = sum((Y - T)^2)
+std::rocm_mse_grad(Y, T, dY, loss);
+std::rocm_gemm(H, 1, dY, 0, dW2, H_DIM, O, B);     // dW2 = H^T dY
+std::rocm_gemm(dY, 0, W2, 1, dH, B, H_DIM, O);     // dH  = dY W2^T
+std::rocm_relu_grad(Z1, dH, dZ1);
+std::rocm_gemm(X, 1, dZ1, 0, dW1, I, H_DIM, B);    // dW1 = X^T dZ1
+std::rocm_sgd(W2, dW2, lr);
+std::rocm_sgd(W1, dW1, lr);
+```
+
+Record such a sequence once between `rocm_capture_begin()` and
+`rocm_capture_end()` and replay it with `rocm_graph_launch()` to launch the
+whole step at once; this pays off when the host doesn't wait on the GPU
+every step. `tensor_rocm.h` wraps the host-array ops as autograd `Tensor`
+functions (`tensor_add_rocm`, `tensor_matmul_rocm_blas`, …) with a CPU
+fallback.
+
+On rocBLAS versus a hand-written kernel: this library's own tiled SGEMM
+(`rocm_matmul_f32`) reaches about 9.5 TFLOPS at 4096³ on an MI100, while
+rocBLAS reaches 33.7 TFLOPS using the matrix cores, and rocBLAS is also
+faster at the small sizes a training loop uses (≈5 µs, close to the launch
+floor). So matmuls use rocBLAS, and the custom kernels cover the work rocBLAS
+doesn't do.
 
 ## LLM orchestration
 

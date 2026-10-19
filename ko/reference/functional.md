@@ -20,6 +20,7 @@ int result = op(3, 4);        // 7
 다른 함수를 받거나 반환하는 함수는 다른 매개변수/반환 타입과 완전히 똑같이 동작합니다 — `fn` 타입 자체 말고는 특별한 문법이 필요 없습니다:
 
 ```c
+extern int printf(const char* fmt, ...);
 generic<T>
 void map_inplace(T* arr, int n, fn T(T) f) {
     int i = 0;
@@ -154,6 +155,7 @@ double second = pair.1;
 `?T`는 SafeC의 Option 형태 타입입니다 — "존재할 수도, 존재하지 않을 수도 있음"을 나타내며, `{T, i1}` 쌍으로 로우어링되고, 똑같이 완전성이 검사되는 `match`(`none`/`some(v)` 갈래) 또는 작고 고정된 명시적 접근자 집합을 통해 읽어냅니다:
 
 ```c
+extern int printf(const char* fmt, ...);
 ?int safe_div(int a, int b) {
     if (b == 0) { return null; }   // 비어 있는 경우
     return a / b;                  // 암묵적으로 T -> ?T로 감싸짐

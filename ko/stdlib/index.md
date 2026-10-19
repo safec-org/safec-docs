@@ -1,9 +1,9 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h`(선언)와 `.sc`(구현) 파일 쌍으로 구성됩니다. `prelude.h`를 include하면 모든 모듈을 한 번에 가져올 수 있습니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 모든 모듈을 한 번에 가져올 수 있습니다.
 
 ```c
-#include "prelude.h"
+#include <std/prelude.h>
 
 int main() {
     println("Hello from SafeC stdlib!");
@@ -37,17 +37,18 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| slice | `collections/slice.h` | 경계 검사된 팻 포인터 + 제네릭 배열 함수 |
-| vec | `collections/vec.h` | push/pop/sort/filter/map을 지원하는 동적 배열 |
+| slice | `collections/slice.h` | `Slice<T>` 경계 검사 뷰 + `arr_*` 헬퍼 |
+| vec | `collections/vec.h` | `Vec<T>` 동적 배열; 인트로소트, 컴파일 타임 `vec_sort_by` |
 | string | `collections/string.h` | 가변, 힙 할당 성장형 문자열 (30개 이상의 메서드) |
-| stack | `collections/stack.h` | 성장형 배열 기반 LIFO 스택 |
-| queue | `collections/queue.h` | FIFO 원형 버퍼 큐 |
-| list | `collections/list.h` | 이중 연결 리스트 |
-| map | `collections/map.h` | 해시 맵 (오픈 어드레싱, 선형 탐사) |
-| bst | `collections/bst.h` | 불균형 이진 탐색 트리 |
-| btree | `collections/btree.h` | B-트리 정렬된 맵 (차수-4, 256노드 풀) |
-| ringbuffer | `collections/ringbuffer.h` | SPSC 락-프리 2의 거듭제곱 링 버퍼 |
-| static_collections | `collections/static_vec.h` | 헤더 전용 제로-힙 vec + map 매크로 |
+| stack | `collections/stack.h` | `Stack<T>` LIFO |
+| queue | `collections/queue.h` | `Queue<T>` FIFO 링 |
+| list | `collections/list.h` | 노드 풀 위의 `List<T>` 이중 연결 리스트 |
+| map | `collections/map.h` | `HashMap<K, V>` / `StrMap<V>` (오픈 어드레싱) |
+| bst | `collections/bst.h` | 컴파일 타임 순서 관계 `C`를 갖는 `BST<K, V, C>` |
+| btree | `collections/btree.h` | `BTree<V>` 정렬된 맵, 고정 256노드 풀 |
+| ringbuffer | `collections/ringbuffer.h` | SPSC 락-프리 2의 거듭제곱 바이트 링 |
+| node_pool | `collections/node_pool.h` | `NodePool<N>` 컨테이너별 노드 아레나 |
+| static_vec | `collections/static_vec.h` | 호출자 저장 공간 위의 `StaticVec<T>` / `StaticMap<V>` (힙 사용 없음) |
 
 ### [얼로케이터](/ko/stdlib/allocators) {#allocators}
 
@@ -55,7 +56,7 @@ int main() {
 |--------|--------|-------------|
 | bump | `alloc/bump.h` | 선형 범프-포인터 아레나; O(1) 할당, 리셋 전용 해제 |
 | slab | `alloc/slab.h` | 고정 크기 객체용 프리리스트 슬랩; O(1) 할당/해제 |
-| pool | `alloc/pool.h` | 혼합된 내용을 위한 고정 블록 풀; O(1) 할당/해제 |
+| pool | `alloc/pool.h` | 병합(coalescing)을 지원하는 가변 크기 first-fit 풀 |
 | tlsf | `alloc/tlsf.h` | Two-Level Segregated Fit; 최악의 경우도 O(1)인 범용 힙 |
 
 ### [동기화](/ko/stdlib/sync) {#synchronization}
@@ -63,10 +64,10 @@ int main() {
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
 | spinlock | `sync/spinlock.h` | 바쁜 대기(busy-wait) 상호 배제 (`__sync_lock_test_and_set`) |
-| lockfree | `sync/lockfree.h` | 컴파일러 배리어를 사용하는 대기-프리 SPSC 링 버퍼 |
-| channel | `sync/channel.h` | 언어 내장 바운디드 블로킹 MPMC 채널(`chan_create`/`chan_send`/`chan_recv`/`chan_close`)을 감싸는 타입 지정(`chan_send_t<T>`/`chan_recv_t<T>`) 래퍼 |
-| mpsc | `sync/mpsc.h` | 스핀락으로 보호되는 바운디드 MPSC 링 버퍼, 논블로킹 API |
-| task | `sync/task.h` | 협조적 라운드로빈 태스크 스케줄러 |
+| lockfree | `sync/lockfree.h` | `LFQueue<T>` 락-프리 SPSC 링 버퍼 |
+| channel | `sync/channel.h` | `Chan<T>`: `chan_*` 내장 함수 위의 타입 지정 바운디드 블로킹 MPMC 채널 |
+| mpsc | `sync/mpsc.h` | `MpscQueue<T>` 스핀락으로 보호되는 MPSC 링, 논블로킹 |
+| task | `sync/task.h` | 협조적 스케줄러; 타입 지정 `task_spawn` |
 | thread_bare | `sync/thread_bare.h` | 우선순위 기반 프리스탠딩 스레드 (OS 없음) |
 | bare_spawn | `sync/bare_spawn.sc` | 프리스탠딩 타깃에서 `spawn`/`join` 언어 키워드를 위한 참조 "훅" 백엔드 |
 
@@ -270,47 +271,45 @@ SVG 디코더/렌더러입니다.
 
 ## 제네릭 패턴 {#generic-pattern}
 
-표준 라이브러리 자체의 컬렉션들은 SafeC의 제네릭 구조체 지원([제네릭](/ko/reference/generics#generic-structs-and-methods) 참고 — 이제 구조체와 유니온도 제네릭이 될 수 있습니다)보다 먼저 만들어졌고, 아직 그쪽으로 마이그레이션되지 않았습니다. 여전히 내부 자료구조에는 `void*` 구조체를 사용하며, 타입 안전한 접근을 위한 `generic<T>` 래퍼 함수를 함께 씁니다. `T`는 호출 지점에서 `T*` 인자로부터 단형화(monomorphization)를 통해 추론됩니다. 이 방식은 요소 타입 `T`마다 하나씩이 아니라, 컬렉션 *타입*당 하나의 컴파일된 구조체만 유지합니다 — 이는 제네릭 구조체의 존재 여부와 무관한 실질적인 트레이드오프이며, 단순히 그 부재에 대한 임시방편이 아닙니다(전체 근거는 [컬렉션](/ko/stdlib/collections) 참고).
+컨테이너와 그 밖의 값을 담는 API는 요소 타입마다 단형화되는 제네릭 구조체와 함수입니다. 이들은 `?&T` 참조를 내주고(`match`, `.default(x)`, `std::expect_ref`로 좁힙니다), 값이 없을 수 있으면 `?T`를 반환하며, 타입이 지정된 `fn` 콜백을 받습니다 — 표준 라이브러리에는 `void*` 요소나 콜백 매개변수가 없습니다. `T`는 변수에 한 번만 쓰고, 생성자는 그 대상 타입에서 이를 추론합니다:
 
 ```c
-#include "collections/vec.h"
+#include <std/collections/vec.h>
 
 int main() {
-    struct Vec v = vec_new(sizeof(int));
-
-    // 타입 소거된 API
-    int x = 42;
-    vec_push(&v, &x);
-
-    // 제네릭 타입 래퍼 — T는 int* 인자로부터 추론됨
-    vec_push_t(&v, 100);
-    int* p = vec_at(&v, 0);  // int*를 반환
-
-    vec_free(&v);
-    return 0;
+    struct Vec<int> v = std::vec_new();
+    v.push(42);
+    v.push(100);
+    match (v.get(0UL)) {
+        case some(x): *x = *x + 1;      // 43, written in place
+        case null:    { }
+    }
+    int last = v.pop().default(-1);     // 100
+    v.free();
+    return last == 100 ? 0 : 1;
 }
 ```
 
-이 `void*`-plus-typed-wrapper 형태는 명시적 런타임 다형성(`void* data`와 `fn` 필드를 가진 구조체) 뒤에 있는 것과 동일한 일반적인 기법입니다 — [다형성 & OOP](/ko/reference/polymorphism#manual-dispatch-explicit-vtables) 참고.
+컨테이너가 *서로 다른* 컨텍스트 타입의 콜백을 동시에 담아야 하는 경우(타이머 휠, 위젯 트리, 여러 드라이버를 마운트하는 VFS), 슬롯은 그 쌍을 타입 소거된 형태로 저장하지만, 그것을 채우는 유일한 방법은 짝이 맞는 `fn(?&T)`와 `?&T`를 받는 제네릭 함수 — `timer_add`, `widget_on_click`, `vfs_mount`, `task_spawn` — 이므로 모든 호출은 여전히 컴파일 타임에 검사됩니다. `std/`에 남아 있는 `void*` 선언은 C ABI 경계입니다: libc/OS extern, `mem.h`의 원시 바이트 할당자, MMIO 기본 주소, GPU/WASM 외부 인터페이스.
 
 ## 표준 라이브러리 포함하기 {#including-the-standard-library}
 
 **개별 모듈:**
 ```c
-#include "mem.h"
-#include "io.h"
-#include "collections/vec.h"
+#include <std/mem.h>
+#include <std/io.h>
+#include <std/collections/vec.h>
 ```
 
 **모든 모듈을 한 번에:**
 ```c
-#include "prelude.h"
+#include <std/prelude.h>
 ```
 
 `safeguard` 패키지 매니저로 빌드할 때는 표준 라이브러리가 자동으로 `build/deps/libsafec_std.a`로 컴파일되어 링크됩니다.
 
-수동으로 빌드할 때는 `-I`로 std 디렉터리를 전달하세요.
+수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), `safeguard`가 빌드한(또는 모든 `std/**/*.sc`로 직접 빌드한) std 아카이브를 링크하세요:
 ```bash
-./build/safec myfile.sc -I /path/to/SafeC/std --emit-llvm -o myfile.ll
-clang myfile.ll -o myfile
+safec myfile.sc -I /path/to/SafeC -o myfile.ll
+clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile
 ```

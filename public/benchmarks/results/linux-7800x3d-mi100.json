@@ -1,0 +1,387 @@
+{
+ "machine": {
+  "safec": "safec 1.0.0",
+  "clang": "clang version 21.1.8 (https://github.com/llvm/llvm-project 2078da43e25a4623cab2d0d60decddf709aaea28)",
+  "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)",
+  "go": "go version go1.27.2 linux/amd64",
+  "zig": "0.16.0",
+  "python": "Python 3.12.3",
+  "torch": "2.9.1+rocm6.4",
+  "tensorflow": "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR",
+  "numpy": "2.5.4",
+  "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+  "os": "Ubuntu 24.04.5 LTS",
+  "cores": 16,
+  "gpu": "AMD Instinct MI100"
+ },
+ "fib": {
+  "safec": {
+   "debug": 0.1052,
+   "release": 0.0414,
+   "rss_mb": 2.0,
+   "compile_s": 0.033
+  },
+  "c": {
+   "debug": 0.0971,
+   "release": 0.0417,
+   "rss_mb": 1.9,
+   "compile_s": 0.029
+  },
+  "cpp": {
+   "debug": 0.0979,
+   "release": 0.0419,
+   "rss_mb": 3.8,
+   "compile_s": 0.051
+  },
+  "rust": {
+   "debug": 0.123,
+   "release": 0.0415,
+   "rss_mb": 2.0,
+   "compile_s": 0.052
+  },
+  "zig": {
+   "debug": 0.1962,
+   "release": 0.0428,
+   "rss_mb": 0.5,
+   "compile_s": 8.171
+  },
+  "go": {
+   "debug": 0.0936,
+   "release": 0.0886,
+   "rss_mb": 1.9,
+   "compile_s": 0.025
+  },
+  "python": {
+   "debug": 2.0001,
+   "release": 1.9972,
+   "rss_mb": 10.2,
+   "compile_s": null
+  }
+ },
+ "nbody": {
+  "safec": {
+   "debug": 0.4861,
+   "release": 0.0982,
+   "rss_mb": 1.9,
+   "compile_s": 0.049
+  },
+  "c": {
+   "debug": 0.2088,
+   "release": 0.0982,
+   "rss_mb": 1.9,
+   "compile_s": 0.053
+  },
+  "cpp": {
+   "debug": 0.2097,
+   "release": 0.0982,
+   "rss_mb": 3.9,
+   "compile_s": 0.097
+  },
+  "rust": {
+   "debug": 0.4474,
+   "release": 0.108,
+   "rss_mb": 2.1,
+   "compile_s": 0.071
+  },
+  "zig": {
+   "debug": 0.2366,
+   "release": 0.11,
+   "rss_mb": 0.5,
+   "compile_s": 8.279
+  },
+  "go": {
+   "debug": 0.2205,
+   "release": 0.1057,
+   "rss_mb": 1.9,
+   "compile_s": 0.075
+  },
+  "python": {
+   "debug": 7.7653,
+   "release": 7.757,
+   "rss_mb": 10.9,
+   "compile_s": null
+  }
+ },
+ "binarytrees": {
+  "safec": {
+   "debug": 0.234,
+   "release": 0.1378,
+   "rss_mb": 25.8,
+   "compile_s": 0.044
+  },
+  "c": {
+   "debug": 0.9549,
+   "release": 0.7995,
+   "rss_mb": 33.8,
+   "compile_s": 0.039
+  },
+  "cpp": {
+   "debug": 1.1773,
+   "release": 0.9159,
+   "rss_mb": 35.8,
+   "compile_s": 0.055
+  },
+  "rust": {
+   "debug": 1.745,
+   "release": 0.9115,
+   "rss_mb": 33.9,
+   "compile_s": 0.063
+  },
+  "zig": {
+   "debug": 5.0207,
+   "release": 0.8511,
+   "rss_mb": 33.6,
+   "compile_s": 9.851
+  },
+  "go": {
+   "debug": 1.8298,
+   "release": 0.723,
+   "rss_mb": 37.1,
+   "compile_s": 0.077
+  },
+  "python": {
+   "debug": 17.965,
+   "release": 17.9654,
+   "rss_mb": 82.6,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "debug": 0.9273,
+   "release": 0.7085,
+   "rss_mb": 50.8,
+   "compile_s": 0.044
+  }
+ },
+ "binarytrees_mt": {
+  "safec": {
+   "release": 0.0515,
+   "rss_mb": 98.2,
+   "compile_s": 0.072
+  },
+  "c": {
+   "release": 0.2149,
+   "rss_mb": 161.2,
+   "compile_s": 0.049
+  },
+  "cpp": {
+   "release": 0.2288,
+   "rss_mb": 163.5,
+   "compile_s": 0.148
+  },
+  "rust": {
+   "release": 0.2341,
+   "rss_mb": 162.0,
+   "compile_s": 0.142
+  },
+  "zig": {
+   "release": 0.222,
+   "rss_mb": 163.8,
+   "compile_s": 8.203
+  },
+  "go": {
+   "release": 0.2523,
+   "rss_mb": 94.7,
+   "compile_s": 0.076
+  },
+  "python": {
+   "release": 22.4751,
+   "rss_mb": 314.1,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "release": 0.2667,
+   "rss_mb": 260.3,
+   "compile_s": 0.047
+  }
+ },
+ "simd": {
+  "safec": {
+   "scalar": 0.0816,
+   "vec": 0.0758
+  },
+  "c": {
+   "scalar": 0.0782,
+   "vec": 0.0688
+  },
+  "cpp": {
+   "scalar": 0.0803,
+   "vec": 0.0757
+  },
+  "rust": {
+   "scalar": 0.0836,
+   "vec": 0.0754
+  },
+  "zig": {
+   "scalar": 0.0776,
+   "vec": 0.0706
+  },
+  "go": {
+   "scalar": 0.0877
+  },
+  "python": {
+   "scalar": 3.0217,
+   "vec": 0.1888
+  }
+ },
+ "collections": {
+  "safec": {
+   "vec push": 2.498,
+   "vec sort": 43.381,
+   "map insert": 39.141,
+   "map get": 8.389,
+   "list push+pop": 11.462,
+   "queue enq+deq": 3.408,
+   "bst insert": 177.118,
+   "bst get": 172.135
+  },
+  "c": {
+   "vec push": 1.829,
+   "vec sort": 83.591,
+   "map insert": 35.542,
+   "map get": 7.45,
+   "list push+pop": 22.534,
+   "queue enq+deq": 5.46,
+   "bst insert": 176.63,
+   "bst get": 174.183
+  }
+ },
+ "memalloc": {
+  "std_ns_per_pair": 3.66,
+  "malloc_ns_per_pair": 6.73,
+  "std_ms": 131.4,
+  "malloc_ms": 91.28
+ },
+ "ml": {
+  "small/safec_cpu": {
+   ":train_ms": 110.851,
+   ":last_loss": 100.333427,
+   ":inference_ms_per_1000": 285.985
+  },
+  "small/safec_blas": {
+   ":train_ms": 31.313,
+   ":last_loss": 100.33342,
+   ":inference_ms_per_1000": 55.336
+  },
+  "big/safec_cpu": {
+   ":train_ms": 1794.146,
+   ":last_loss": 95.428474,
+   ":inference_ms_per_200": 1503.334
+  },
+  "big/safec_blas": {
+   ":train_ms": 170.855,
+   ":last_loss": 95.424973,
+   ":inference_ms_per_200": 221.432
+  },
+  "rocm/safec": {
+   "small 128-256-64 plain": {
+    "train_ms": 7.252,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 828122.84,
+    "inference_ms_per_1000": 35.379,
+    "checksum": -98.959394
+   },
+   "big 512-1024-256 plain": {
+    "train_ms": 8.307,
+    "last_loss": 95.428131,
+    "throughput_samples_per_sec": 743171.6,
+    "inference_ms_per_200": 13.067,
+    "checksum": 0.721696
+   },
+   "small 128-256-64 graph": {
+    "train_ms": 7.041,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 860135.28,
+    "inference_ms_per_1000": 39.402,
+    "checksum": -98.959394
+   },
+   "big 512-1024-256 graph": {
+    "train_ms": 8.092,
+    "last_loss": 95.428116,
+    "throughput_samples_per_sec": 768955.91,
+    "inference_ms_per_200": 14.014,
+    "checksum": 0.721696
+   }
+  },
+  "small/pytorch_cpu": {
+   "cpu:train_ms": 13.962,
+   ":last_loss": 100.018272,
+   "cpu:inference_ms_per_1000": 21.971
+  },
+  "small/pytorch_cuda": {
+   "cuda:train_ms": 19.593,
+   ":last_loss": 103.071129,
+   "cuda:inference_ms_per_1000": 36.511
+  },
+  "big/pytorch_cpu": {
+   "cpu:train_ms": 38.198,
+   ":last_loss": 106.601181,
+   "cpu:inference_ms_per_200": 50.351
+  },
+  "big/pytorch_cuda": {
+   "cuda:train_ms": 10.141,
+   ":last_loss": 1868.155273,
+   "cuda:inference_ms_per_200": 13.3
+  },
+  "small/tensorflow_cpu": {
+   "cpu:train_ms": 79.781,
+   ":last_loss": 106.182999,
+   "cpu:inference_ms_per_1000": 207.192
+  },
+  "big/tensorflow_cpu": {
+   "cpu:train_ms": 107.292,
+   ":last_loss": 316.611603,
+   "cpu:inference_ms_per_200": 114.713
+  }
+ },
+ "web": {
+  "safec": {
+   "rps": 25262.8,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 5.1
+  },
+  "c": {
+   "rps": 24577.03,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 3.2
+  },
+  "cpp": {
+   "rps": 24837.19,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 5.0
+  },
+  "zig": {
+   "rps": 24766.02,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 7.0
+  },
+  "go": {
+   "rps": 23354.2,
+   "p50_ms": 2,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 15.8
+  },
+  "rust": {
+   "rps": 25027.15,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 4.4
+  },
+  "python": {
+   "rps": 5082.61,
+   "p50_ms": 10,
+   "p99_ms": 14,
+   "failed": 0,
+   "rss_mb": 46.0
+  }
+ }
+}

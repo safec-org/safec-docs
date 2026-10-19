@@ -4,7 +4,7 @@ extern void srand48(long seed);
 extern void* malloc(unsigned long size);
 extern void  free(void* ptr);
 #include <std/ml/gpu_mps.h>
-#include <std/time.sc>
+#include <std/time.h>
 
 #define BATCH 128UL
 #define IN_DIM 512UL

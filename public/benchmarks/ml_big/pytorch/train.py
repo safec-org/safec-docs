@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import time
 import torch
@@ -62,4 +64,10 @@ def run(device_name):
 
 if __name__ == "__main__":
     device_name = sys.argv[1] if len(sys.argv) > 1 else "cpu"
+    # Warm-up pass, not reported: the framework's first backward / first
+    # kernel launch pays one-time init (on the ROCm PyTorch build the first
+    # CPU backward alone takes ~10 s). run() reseeds, so the timed pass
+    # starts from the same weights.
+    with contextlib.redirect_stdout(io.StringIO()):
+        run(device_name)
     run(device_name)

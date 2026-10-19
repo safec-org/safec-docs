@@ -1,5 +1,5 @@
 extern int printf(const char* fmt, ...);
-#include <std/mem.sc>
+#include <std/mem.h>
 
 // maxDepth=18 -> a make_tree(18) tree has 2^19-1 = 524,287 nodes; the
 // stretch tree is make_tree(19) -> 2^20-1 = 1,048,575 nodes. Node is 2
@@ -30,17 +30,23 @@ struct LNode {
         n->left = make_stree(depth - 1);
         n->right = make_stree(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<Scratch> SNode)(struct SNode*)0; n->right = (?&arena<Scratch> SNode)(struct SNode*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int schecksum(&arena<Scratch> SNode n) {
-    unsafe {
-        struct SNode* raw = (struct SNode*)n;
-        if (raw->left == (struct SNode*)0) { return 1; }
-        return 1 + schecksum((&arena<Scratch> SNode)raw->left) + schecksum((&arena<Scratch> SNode)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + schecksum(l) + schecksum(r);
+                case null: return 1 + schecksum(l);
+            }
+        }
     }
+    return 1;
 }
 
 &arena<LongLived> LNode make_ltree(int depth) {
@@ -49,17 +55,23 @@ int schecksum(&arena<Scratch> SNode n) {
         n->left = make_ltree(depth - 1);
         n->right = make_ltree(depth - 1);
     } else {
-        unsafe { n->left = (?&arena<LongLived> LNode)(struct LNode*)0; n->right = (?&arena<LongLived> LNode)(struct LNode*)0; }
+        n->left = null;
+        n->right = null;
     }
     return n;
 }
 
 int lchecksum(&arena<LongLived> LNode n) {
-    unsafe {
-        struct LNode* raw = (struct LNode*)n;
-        if (raw->left == (struct LNode*)0) { return 1; }
-        return 1 + lchecksum((&arena<LongLived> LNode)raw->left) + lchecksum((&arena<LongLived> LNode)raw->right);
+    match (n->left) {
+        case null: return 1;
+        case some(l): {
+            match (n->right) {
+                case some(r): return 1 + lchecksum(l) + lchecksum(r);
+                case null: return 1 + lchecksum(l);
+            }
+        }
     }
+    return 1;
 }
 
 int main() {
