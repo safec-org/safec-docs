@@ -9,16 +9,16 @@ small but genuinely useful: an in-memory key-value store.
 ## Designing the type
 
 A key-value store needs somewhere to keep its entries and a handful of
-operations on them. `std::HashMap` (specifically its string-keyed
-convenience functions, `str_map_*`) does the heavy lifting; `Store`
-wraps it with the operations we actually want to expose:
+operations on them. `std::StrMap<V>` — the string-keyed hash map — does
+the heavy lifting; `Store` wraps it with the operations we actually want
+to expose:
 
 ```c
 #include <std/collections/map.h>
 #include <std/collections/string.h>
 
 struct Store {
-    struct HashMap entries;
+    struct StrMap<struct String> entries;
 
     void init();
     void set(const char* key, const char* value);
@@ -38,54 +38,52 @@ before getting at the value.
 
 ```c
 void Store::init() {
-    self.entries = std::str_map_new(sizeof(struct String));
+    self.entries = std::str_map_new();
 }
 
 void Store::set(const char* key, const char* value) {
-    struct String v = std::string_from(value);
-    unsafe { std::str_map_insert(&self.entries, key, (const void*)&v); }
+    match (self.entries.remove(key)) {          // replacing? free the old value
+        case some(old): old.free();
+        case none:      { }
+    }
+    self.entries.insert(key, std::string_from(value));
 }
 ```
 
-`str_map_insert` takes its value argument as a type-erased `const void*`
-(the map itself doesn't know or care that it's storing `struct String`s —
-that's `Store`'s job to remember), which is exactly the kind of raw
-pointer cast [Chapter 5](/book/ch05-understanding-regions) told you needs
-`unsafe`. `set` itself stays a small, honest wrapper — it's the one place
-that both knows the real element type and is willing to assert it.
+The map is generic, so it knows it stores `struct String`s — there is no
+casting anywhere. The map owns copies of the keys; the `String` values
+are owned by `Store`, which is why `set` frees a value it replaces.
 
 ```c
 ?struct String Store::get(const char* key) {
-    void* slot;
-    unsafe { slot = std::str_map_get(&self.entries, key); }
-    if (slot == (void*)0) {
-        return null;
+    match (self.entries.get(key)) {
+        case some(v): return v.clone();
+        case null:    return null;
     }
-    struct String* found;
-    unsafe { found = (struct String*)slot; }
-    return found->clone();
+    return null;
 }
 ```
 
-`str_map_get` returns `NULL` for a missing key, plain C-style — `get`
-translates that into the `?struct String` shape the rest of the program
-expects, at the one boundary where the type-erased map API meets the
-typed `Store` API. `.clone()` matters here: `slot` points *into* the
-map's own storage, and returning that pointer directly (rather than a
-copy) would hand the caller a reference whose lifetime depends on the map
-never resizing or the entry never being overwritten — exactly the kind of
-implicit lifetime dependency [Chapter 5](/book/ch05-understanding-regions)
-is designed to make explicit instead of implicit. A cloned, independently
-owned `String` sidesteps the question entirely.
+`get` on the map returns `?&String`: a reference *into* the map's own
+storage, or `null`. `Store::get` returns a clone rather than that
+reference, because the reference is only valid until the map next resizes
+or that entry is overwritten — exactly the kind of implicit lifetime
+dependency [Chapter 5](/book/ch05-understanding-regions) is about. A
+cloned, independently owned `String` sidesteps the question entirely.
 
 ```c
 int Store::remove(const char* key) {
-    int r;
-    unsafe { r = std::str_map_remove(&self.entries, key); }
-    return r;
+    match (self.entries.remove(key)) {
+        case some(old): { old.free(); return 1; }
+        case none:      return 0;
+    }
+    return 0;
 }
 
+static void free_value(const char* key, &String v) { v.free(); }
+
 void Store::free() {
+    self.entries.foreach(free_value);   // the values are ours to free
     self.entries.free();
 }
 ```
@@ -93,6 +91,8 @@ void Store::free() {
 ## Putting it together
 
 ```c
+extern int printf(const char* fmt, ...);
+
 int main() {
     struct Store store;
     store.init();
@@ -103,17 +103,17 @@ int main() {
 
     ?struct String name = store.get("name");
     match (name) {
-        case none:    printf("name: (not found)\n");
-        case some(v): printf("name: %s\n", v.as_ptr());
+        case none:    unsafe { printf("name: (not found)\n"); }
+        case some(v): { unsafe { printf("name: %s\n", v.as_ptr()); } v.free(); }
     }
 
     int removed = store.remove("kind");
-    printf("removed kind: %d\n", removed);
+    unsafe { printf("removed kind: %d\n", removed); }
 
     ?struct String kind = store.get("kind");
     match (kind) {
-        case none:    printf("kind: (not found, as expected)\n");
-        case some(v): printf("kind: %s\n", v.as_ptr());
+        case none:    unsafe { printf("kind: (not found, as expected)\n"); }
+        case some(v): { unsafe { printf("kind: %s\n", v.as_ptr()); } v.free(); }
     }
 
     return 0;

@@ -3,7 +3,7 @@
 SafeC provides a complete embedded networking stack in `std/net/`. All modules work directly on a `PacketBuf` — a fixed-size byte buffer — with no heap allocation required.
 
 ```c
-#include "net/net.h"  // master header: pulls in all modules below
+#include <std/net/net.h>  // master header: pulls in all modules below
 ```
 
 ## Layer Map
@@ -27,7 +27,7 @@ SafeC provides a complete embedded networking stack in `std/net/`. All modules w
 ## net-core
 
 ```c
-#include "net/net_core.h"
+#include <std/net/net_core.h>
 ```
 
 **PacketBuf** — the fundamental packet container:
@@ -37,39 +37,43 @@ struct PacketBuf {
     unsigned char data[NET_MTU];  // 1514 bytes
     unsigned long len;
 
-    void* at(unsigned long off);  // pointer into data at offset
+    ?&unsigned char at(unsigned long off);  // the byte at off; null past NET_MTU
     void  reset();                 // zero the buffer and set len = 0
 }
 ```
 
-**NetIf** — an abstract network interface handle. It has no `rx`/`tx` `PacketBuf` fields of its own — the caller owns its own `PacketBuf`(s) and passes one to `tx()` explicitly:
+**NetIf** — an abstract network interface. It has no `rx`/`tx` buffers of its own: build each frame into your own `struct PacketBuf` (via `udp_frame`/`eth_build`/…, below) and pass it to `tx()`. Create one with `netif_new`, which takes your driver context and a transmit callback typed against it; the interface stores both type-erased (a stack can run interfaces from different drivers), and `netif_new` is the only writer, so the pairing is checked at compile time.
 
 ```c
 struct NetIf {
     unsigned char mac[6];      // hardware MAC address
-    unsigned int  ip4;         // assigned IPv4, network byte order
-    unsigned int  gateway;     // default gateway IPv4, network byte order
-    unsigned int  netmask;     // subnet mask, network byte order
+    unsigned int  ip4;         // assigned IPv4 (numeric form, see net_ip4)
+    unsigned int  gateway;
+    unsigned int  netmask;
 
-    void*         tx_fn;       // driver send callback, cast before calling --
-                                // fn(void* iface_ctx, unsigned char* data, unsigned long len) -> int
-    void*         iface_ctx;   // opaque driver context, passed as tx_fn's first argument
+    int  tx(&stack PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
+};
 
-    // Transmit 'pkt'. Casts tx_fn and calls it as
-    // tx_fn(iface_ctx, pkt.data, pkt.len). Returns 0 on success, -1 if tx_fn is unset.
-    int  tx(&stack PacketBuf pkt);
-}
+generic<T>
+struct NetIf netif_new(&T ctx, fn int(&T, const &unsigned char, unsigned long) tx);
 ```
 
-::: warning `tx_fn` is `void*`, not a typed function pointer
-Assigning to it and implementing a driver both go through an explicit cast —
-`iface.tx_fn = (void*)my_driver_send;` to set it (inside `unsafe {}`), and
-`tx()`'s own implementation casts it back to
-`fn int(void*, unsigned char*, unsigned long)` before calling. There's no
-`PacketBuf rx`/`PacketBuf tx` field to build a frame into directly — build
-into your own local `struct PacketBuf pkt` (via `udp_frame`/`eth_build`/etc.,
-below) and pass `&pkt` to `iface.tx(...)`, as the end-to-end example does.
-:::
+```c
+struct Enc28j60 { int cs_pin; unsigned long sent; };
+
+static int enc_tx(&Enc28j60 nic, const &unsigned char frame, unsigned long len) {
+    // ... push `len` bytes of `frame` to the chip over SPI ...
+    nic.sent = nic.sent + 1UL;
+    return 0;
+}
+
+static struct Enc28j60 g_nic;
+
+void net_setup() {
+    struct NetIf eth0 = std::netif_new(&g_nic, enc_tx);
+    eth0.ip4 = std::net_ip4(192, 168, 1, 50);
+}
+```
 
 **Byte-order utilities:**
 
@@ -94,7 +98,7 @@ void net_mac_str(const unsigned char mac[6], char* out); // "aa:bb:cc:dd:ee:ff\0
 ## ethernet
 
 ```c
-#include "net/ethernet.h"
+#include <std/net/ethernet.h>
 ```
 
 ```c
@@ -122,7 +126,7 @@ void eth_build(&stack PacketBuf pkt, const unsigned char dst[6],
 ## arp
 
 ```c
-#include "net/arp.h"
+#include <std/net/arp.h>
 ```
 
 `ArpTable` holds up to 16 entries (`ARP_TABLE_SIZE`) — `entries[i].ip4 == 0` marks a slot empty; there's no separate `valid` flag or entry count field.
@@ -166,7 +170,7 @@ int  arp_parse_packet(&stack PacketBuf pkt, unsigned long offset,
 ## ipv4
 
 ```c
-#include "net/ipv4.h"
+#include <std/net/ipv4.h>
 ```
 
 ```c
@@ -206,7 +210,7 @@ unsigned long  ipv4_build(&stack PacketBuf pkt, unsigned long offset,
 ## ipv6
 
 ```c
-#include "net/ipv6.h"
+#include <std/net/ipv6.h>
 ```
 
 ```c
@@ -258,7 +262,7 @@ unsigned long ipv6_frame(&stack PacketBuf pkt,
 ## udp
 
 ```c
-#include "net/udp.h"
+#include <std/net/udp.h>
 ```
 
 ```c
@@ -297,7 +301,7 @@ unsigned long udp_frame(&stack PacketBuf pkt,
 ## tcp
 
 ```c
-#include "net/tcp.h"
+#include <std/net/tcp.h>
 ```
 
 `TcpConn` implements the full 11-state RFC 793 TCP state machine. It has no `iface`/`NetIf` field — `build_segment`/`recv` each take the MAC addresses or packet offset they need directly, per-call, the same "caller owns the `PacketBuf`" shape as `NetIf::tx()` above:
@@ -368,7 +372,7 @@ unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
 ## dns
 
 ```c
-#include "net/dns.h"
+#include <std/net/dns.h>
 ```
 
 ```c
@@ -399,7 +403,7 @@ int dns_parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset,
 ## dhcp
 
 ```c
-#include "net/dhcp.h"
+#include <std/net/dhcp.h>
 ```
 
 ```c
@@ -462,48 +466,55 @@ yourself, then hand the packet to `iface.tx(...)`. Verified against a real
 compile/run:
 
 ```c
-#include <std/net/net_core.sc>
-#include <std/net/ethernet.sc>
-#include <std/net/ipv4.sc>
-#include <std/net/udp.sc>
+#include <std/net/net_core.h>
+#include <std/net/ethernet.h>
+#include <std/net/ipv4.h>
+#include <std/net/udp.h>
+extern int printf(const char* fmt, ...);
 
 // A real driver would hand these bytes to hardware/a socket; this one just
 // reports how many bytes it was asked to send.
-int my_driver_send(void* ctx, unsigned char* data, unsigned long len) {
-    printf("driver: sending %lu bytes\n", len);
+struct LoopbackNic { unsigned long frames; };
+
+static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long len) {
+    nic.frames = nic.frames + 1UL;
+    unsafe { printf("driver: sending %lu bytes\n", len); }
     return 0;
 }
 
+static struct LoopbackNic g_nic;
+
 int main() {
-    struct NetIf iface;
-    iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
-    iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;
+    struct NetIf iface = std::netif_new(&g_nic, loop_send);
+    unsafe {
+        iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
+        iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;
+    }
     iface.ip4 = std::net_ip4(192, 168, 1, 10);
-    unsafe { iface.tx_fn = (void*)my_driver_send; }
-    iface.iface_ctx = (void*)0;   // no driver context needed here
 
     unsigned char dst_mac[6];
-    dst_mac[0] = 0xFF; dst_mac[1] = 0xFF; dst_mac[2] = 0xFF;
-    dst_mac[3] = 0xFF; dst_mac[4] = 0xFF; dst_mac[5] = 0xFF;
-
-    unsigned int  src_ip  = std::net_ip4(192, 168, 1, 10);
-    unsigned int  dst_ip  = std::net_ip4(192, 168, 1, 255);
-    unsigned char payload[5];
-    payload[0] = 'h'; payload[1] = 'e'; payload[2] = 'l';
-    payload[3] = 'l'; payload[4] = 'o';
+    unsafe {
+        dst_mac[0] = 0xFF; dst_mac[1] = 0xFF; dst_mac[2] = 0xFF;
+        dst_mac[3] = 0xFF; dst_mac[4] = 0xFF; dst_mac[5] = 0xFF;
+    }
+    unsigned int src_ip = std::net_ip4(192, 168, 1, 10);
+    unsigned int dst_ip = std::net_ip4(192, 168, 1, 255);
 
     struct PacketBuf pkt;
     unsigned long offset = std::udp_frame(&pkt, iface.mac, dst_mac,
-                                          src_ip, dst_ip,
-                                          1234, 5678, 5);
-    unsafe {
-        unsigned char* d = (unsigned char*)pkt.at(offset);
-        int i = 0;
-        while (i < 5) { d[i] = payload[i]; i = i + 1; }
+                                          src_ip, dst_ip, 1234, 5678, 5);
+    const char* payload = "hello";
+    unsigned long i = 0UL;
+    while (i < 5UL) {
+        match (pkt.at(offset + i)) {
+            case some(b): unsafe { *b = (unsigned char)payload[i]; }
+            case null: { }
+        }
+        i = i + 1UL;
     }
 
-    int rc = iface.tx(&pkt);   // transmit via driver
-    printf("tx rc=%d\n", rc);
+    int rc = iface.tx(&pkt);   // transmit via the driver
+    unsafe { printf("tx rc=%d\n", rc); }
     // driver: sending 47 bytes  (14 eth + 20 ipv4 + 8 udp + 5 payload)
     // tx rc=0
     return 0;

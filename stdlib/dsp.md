@@ -3,7 +3,7 @@
 `std/dsp/` covers deterministic fixed-point arithmetic, spectral transforms (DFT/FFT/DCT/STFT/CQT/CWT), filters (FIR/IIR/biquad/comb), convolution, resampling, minimum-phase reconstruction, general Laplace-to-Z (bilinear) transform tooling, 2D/imaging primitives, audio buffering, and real-time timer scheduling — twenty modules in total.
 
 ```c
-#include "dsp/dsp_all.h"  // master header: pulls in every module below
+#include <std/dsp/dsp_all.h>  // master header: pulls in every module below
 ```
 
 Every transform/filter that has a meaningful fixed-point form ships **two** implementations — a `double`-precision path and a parallel Q8.24 (`Fixed`) path (function/type names prefixed with `f`, e.g. `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — following one consistent design: coefficients that only need to be computed once (FFT twiddle factors, filter coefficients) are always derived in `double` precision using the real transcendental functions in `std/math.h`, then quantized to `Fixed` a single time; the actual per-sample signal-processing loop runs entirely in Q8.24 arithmetic. Standard practice — even hardware FFT accelerators precompute twiddle tables offline in floating point. A few of the newer, more specialized transforms (STFT, CQT, CWT, minimum-phase, imaging) are `double`-only: there's no natural fixed-point form for a Gaussian-windowed wavelet kernel or a homomorphic cepstrum, the same way there's no fixed-point `sin()`.
@@ -13,7 +13,7 @@ Every transform/filter that has a meaningful fixed-point form ships **two** impl
 ## fixed — Q8.24 Fixed-Point Arithmetic
 
 ```c
-#include "dsp/fixed.h"
+#include <std/dsp/fixed.h>
 ```
 
 `Fixed` is a **Q8.24** fixed-point type: 8 integer bits, 24 fractional bits, stored as a 32-bit signed int (matches 24-bit audio sample depth for sub-sample precision). It's a `newtype` over `int`, so the compiler treats it as a distinct type while using the same bit representation.
@@ -50,8 +50,8 @@ Fixed fixed_sqrt(Fixed x);           // Newton-Raphson, 4 iterations; x must be 
 ### Example
 
 ```c
-#include "dsp/fixed.h"
-#include "io.h"
+#include <std/dsp/fixed.h>
+#include <std/io.h>
 
 int main() {
     Fixed a = fixed_from_float(3.5);
@@ -72,7 +72,7 @@ int main() {
 ## dsp — Array Primitives
 
 ```c
-#include "dsp/dsp.h"
+#include <std/dsp/dsp.h>
 ```
 
 Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed*` arrays with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
@@ -103,7 +103,7 @@ double dsp_dot_f64(const double* a, const double* b, unsigned long n);
 ## complex_dsp — Complex Numbers
 
 ```c
-#include "dsp/complex_dsp.h"
+#include <std/dsp/complex_dsp.h>
 ```
 
 Value-type complex numbers with operator overloading, purpose-built for the spectral modules below (FFT butterflies, twiddle factors, frequency-domain multiply) — distinct from `std/complex.h`'s C99-style `[re, im]` out-array API. `w * a + b` reads the way the math does, instead of a chain of pointer-writing `cmul_d`/`cadd_d` calls.
@@ -144,7 +144,7 @@ Complex  fcomplex_to_float(FComplex c);
 ## dft — Discrete Fourier Transform (direct, O(n²))
 
 ```c
-#include "dsp/dft.h"
+#include <std/dsp/dft.h>
 ```
 
 Direct-summation DFT: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. Works for **any** N, not just powers of two — use this for arbitrary-length transforms, and as the independent reference `fft.h`'s own correctness checks are verified against.
@@ -162,7 +162,7 @@ void fidft(const struct FComplex* in, struct FComplex* out, unsigned long n);   
 ## fft — Fast Fourier Transform (radix-2 Cooley-Tukey)
 
 ```c
-#include "dsp/fft.h"
+#include <std/dsp/fft.h>
 ```
 
 In-place, iterative decimation-in-time FFT: O(n log n) instead of `dft.h`'s O(n²), at the cost of requiring `n` to be a power of two (functions return 0 and leave `data` unmodified otherwise — fall back to `dft.h` for arbitrary lengths).
@@ -179,8 +179,8 @@ int fifft(struct FComplex* data, unsigned long n);                   // Q8.24 in
 ### Example
 
 ```c
-#include "dsp/fft.h"
-#include "io.h"
+#include <std/dsp/fft.h>
+#include <std/io.h>
 
 int main() {
     struct Complex data[8];
@@ -200,7 +200,7 @@ int main() {
 ## convolution — Linear Convolution
 
 ```c
-#include "dsp/convolution.h"
+#include <std/dsp/convolution.h>
 ```
 
 `y[n] = sum_k x[k]*h[n-k]`, output length `len_x + len_h - 1`. Two implementations, same output, different cost trade-off:
@@ -226,7 +226,7 @@ void conv_fft(const double* x, unsigned long len_x,
 ## window — Window Functions
 
 ```c
-#include "dsp/window.h"
+#include <std/dsp/window.h>
 ```
 
 Symmetric N-point analysis windows, for tapering a frame before an FFT (reduces spectral leakage) or FIR design (window method). All four fill a caller-provided array; none allocate.
@@ -244,7 +244,7 @@ void window_apply(double* x, const double* w, unsigned long n);  // x[i] *= w[i]
 ## filter — General Streaming FIR / IIR
 
 ```c
-#include "dsp/filter.h"
+#include <std/dsp/filter.h>
 ```
 
 One-sample-at-a-time difference-equation filters, keeping their own history/state internally so a caller can feed real-time samples one at a time (e.g. inside a `std::Reactor` task) rather than needing the whole signal in memory the way `convolution.h` does.
@@ -287,8 +287,8 @@ void iir_process_block(struct IirFilter* f, const double* in, double* out, unsig
 ### Example — 3-tap moving average
 
 ```c
-#include "dsp/filter.h"
-#include "io.h"
+#include <std/dsp/filter.h>
+#include <std/io.h>
 
 int main() {
     double coeffs[3] = { 0.333333, 0.333333, 0.333333 };
@@ -309,7 +309,7 @@ int main() {
 ## biquad — 2nd-Order IIR Sections + RBJ Cookbook
 
 ```c
-#include "dsp/biquad.h"
+#include <std/dsp/biquad.h>
 ```
 
 `struct Biquad` is a single Direct-Form-II-Transposed 2nd-order section (`a0` always normalized to 1):
@@ -361,8 +361,8 @@ struct FBiquad biquad_to_fixed(struct Biquad bq);   // quantize a designed-in-do
 ### Example
 
 ```c
-#include "dsp/biquad.h"
-#include "io.h"
+#include <std/dsp/biquad.h>
+#include <std/io.h>
 
 int main() {
     struct Biquad lp = biquad_lowpass(48000.0, 1000.0, 0.707);
@@ -384,7 +384,7 @@ int main() {
 ## dct — Discrete Cosine Transform (DCT-II / DCT-III)
 
 ```c
-#include "dsp/dct.h"
+#include <std/dsp/dct.h>
 ```
 
 `dct2` is "the DCT" in the JPEG/MPEG sense — real-valued in, real-valued out, energy-compacting. `idct3` is its exact inverse. Direct O(n²) summation, like `dft.h`.
@@ -401,7 +401,7 @@ void fidct3(const Fixed* in, Fixed* out, unsigned long n);     // Q8.24 inverse
 ## stft — Short-Time Fourier Transform + Multi-Resolution STFT Loss
 
 ```c
-#include "dsp/stft.h"
+#include <std/dsp/stft.h>
 ```
 
 `stft_forward` slides a windowed frame across a signal and FFTs each one (`frameSize` must be a power of two), producing a spectrogram. `stft_inverse` reconstructs the signal via windowed overlap-add, normalized by the accumulated squared analysis window — exact whenever the window/hop combination satisfies the constant-overlap-add condition (e.g. Hann at 50%/75% overlap).
@@ -440,7 +440,7 @@ Lower is more similar; `0` for identical signals.
 ## resample — Upsampling / Downsampling
 
 ```c
-#include "dsp/resample.h"
+#include <std/dsp/resample.h>
 ```
 
 Maps an `inLen`-sample buffer onto a caller-sized `outLen`-sample buffer — `outLen > inLen` upsamples, `outLen < inLen` downsamples, same function either direction.
@@ -468,7 +468,7 @@ void fresample_linear(const Fixed* in, unsigned long inLen, Fixed* out, unsigned
 ## ztransform — General N-th Order Bilinear Transform
 
 ```c
-#include "dsp/ztransform.h"
+#include <std/dsp/ztransform.h>
 ```
 
 `biquad.h`'s `bilinear_2nd_order`/`biquad_response_*` generalized to arbitrary order — for designing/analyzing a single higher-order IIR section directly instead of as a cascade of biquads. No polynomial root-finder is included (that needs a separate iterative eigenvalue/Durand-Kerner algorithm); this works directly on coefficient arrays.
@@ -491,7 +491,7 @@ double ztransform_response_phase(const double* b, const double* a, unsigned long
 ## comb — Comb Filters + Karplus-Strong String Synthesis
 
 ```c
-#include "dsp/comb.h"
+#include <std/dsp/comb.h>
 ```
 
 `CombFF` (feedforward, `y[n] = x[n] + gain*x[n-delay]`) produces evenly-spaced notches; `CombFB` (feedback, `y[n] = x[n] + gain*y[n-delay]`) produces evenly-spaced resonant peaks (the basis of most artificial reverbs — a bank of feedback combs at different delays/gains).
@@ -530,8 +530,8 @@ struct KarplusStrong ks_init(double* buffer, unsigned long length, double dampin
 ### Example — plucked string
 
 ```c
-#include "dsp/comb.h"
-#include "io.h"
+#include <std/dsp/comb.h>
+#include <std/io.h>
 
 int main() {
     double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // noise burst
@@ -552,7 +552,7 @@ int main() {
 ## minphase — Minimum-Phase Reconstruction
 
 ```c
-#include "dsp/minphase.h"
+#include <std/dsp/minphase.h>
 ```
 
 Given an impulse response (e.g. a linear-phase FIR designed from a target magnitude response), produces a different impulse response with the **same magnitude spectrum** but minimum possible group delay — halves a linear-phase filter's latency for the same frequency response. Classic homomorphic (real-cepstrum) algorithm: log-magnitude spectrum -> cepstrum -> fold the anti-causal half onto the causal half (this is what forces the result minimum-phase) -> exponentiate back through the spectral domain.
@@ -571,7 +571,7 @@ void minimum_phase(const double* x, unsigned long n, unsigned long fftLen, doubl
 ## cqt — Constant-Q Transform
 
 ```c
-#include "dsp/cqt.h"
+#include <std/dsp/cqt.h>
 ```
 
 Unlike the DFT/FFT's uniform frequency spacing, the CQT uses logarithmically-spaced center frequencies `fk = fmin * 2^(k/binsPerOctave)` with a constant ratio `fk/bandwidth` ("Q") at every bin — matching how musical pitch and human hearing are roughly logarithmic in frequency, which is why the CQT (not the plain DFT) is the standard choice for chromagrams and pitch detection. Direct-correlation form (Brown 1991): each bin's own-length Hann-windowed complex-exponential kernel is correlated directly against the start of the signal — no FFT, no kernel-matrix precomputation, O(numBins * average-kernel-length) per call.
@@ -591,7 +591,7 @@ void cqt_forward(const double* signal, unsigned long signalLen, double fs,
 ## cwt — Continuous Wavelet Transform (Morlet)
 
 ```c
-#include "dsp/cwt.h"
+#include <std/dsp/cwt.h>
 ```
 
 Where the CQT picks log-spaced frequency *bins*, the CWT picks a set of *scales* directly (the caller chooses them, typically log-spaced) and correlates a scaled/shifted Morlet wavelet against the signal at every sample position, producing a full time-scale "scalogram" instead of one value per frame. A scale `s` corresponds to a center frequency of approximately `f = w0*fs / (2*pi*s)` Hz. Direct correlation, kernel support truncated to +/-4 standard deviations of the Gaussian envelope.
@@ -610,7 +610,7 @@ void cwt_morlet(const double* signal, unsigned long signalLen,
 ## imaging — 2D DSP
 
 ```c
-#include "dsp/imaging.h"
+#include <std/dsp/imaging.h>
 ```
 
 The 2D analogues of the 1D building blocks above: `conv2d` is zero-padded ("same"-size) 2D convolution; `fft2d`/`ifft2d` apply `fft.h`'s 1D transform to every row then every column (exact, since the 2D DFT is separable); the kernel generators cover the two convolution kernels almost every image pipeline needs.
@@ -634,57 +634,61 @@ void sobel_y_kernel(double* kernel);
 ## AudioBuffer — Lock-Free Multi-Channel Ring Buffer
 
 ```c
-#include "dsp/audio_buffer.h"
+#include <std/dsp/audio_buffer.h>
 ```
 
-A SPSC (single-producer / single-consumer) ring buffer for interleaved multi-channel audio frames. Uses power-of-two capacity and compiler barriers for correct ordering without OS locks.
+A single-producer / single-consumer ring of interleaved multi-channel Q8.24 (`Fixed`) frames, stored inline — no heap. Capacity is `AUDIO_BUF_FRAMES` (512) frames of up to `AUDIO_MAX_CHANNELS` (8) channels, so the struct is large (16 KB); keep it in static storage on small targets.
 
 ### Struct
 
 ```c
 struct AudioBuffer {
-    Fixed*        buf;          // interleaved: frame0_ch0, frame0_ch1, ...
-    unsigned long cap_frames;   // must be power of two
+    Fixed         data[AUDIO_BUF_FRAMES * AUDIO_MAX_CHANNELS];   // interleaved frames
+    unsigned long cap_frames;
     unsigned long channels;
-    unsigned long head;         // write cursor (volatile)
-    unsigned long tail;         // read cursor (volatile)
+    volatile unsigned long head;   // write cursor (frames)
+    volatile unsigned long tail;   // read cursor (frames)
 
-    unsigned long write_frames(const Fixed* frames, unsigned long count);
-    unsigned long read_frames(Fixed* out, unsigned long count);
-    unsigned long peek_frames(Fixed* out, unsigned long count) const;
-    void          mix_frames(const Fixed* frames, unsigned long count);
-    unsigned long readable() const;
-    unsigned long writable() const;
-}
+    unsigned long readable_frames() const;
+    unsigned long writable_frames() const;
+    unsigned long write_frames(&stack Fixed src, unsigned long n);   // returns frames written
+    unsigned long read_frames(&stack Fixed dst, unsigned long n);    // returns frames read
+    unsigned long peek_frames(&stack Fixed dst, unsigned long n) const;
+    void          mix_frames(&stack Fixed src, unsigned long n);
+    void          clear();
+    int           is_empty() const;
+    int           is_full() const;
+};
 
-AudioBuffer audio_buffer_new(unsigned long cap_frames, unsigned long channels);
-void        audio_buffer_free(struct AudioBuffer* ab);
+struct AudioBuffer audio_buf_init(unsigned long channels);
 ```
 
 ### Example — producer / consumer
 
 ```c
-#include "dsp/audio_buffer.h"
-#include "io.h"
+#include <std/dsp/audio_buffer.h>
+#include <std/io.h>
+
+static struct AudioBuffer g_ab;
 
 int main() {
-    // 256-frame buffer, 2 channels (stereo)
-    AudioBuffer ab = audio_buffer_new(256, 2);
+    g_ab = std::audio_buf_init(2UL);          // stereo
 
-    // Producer: write one stereo frame
-    Fixed frame[2] = { fixed_from_float(0.5), fixed_from_float(-0.3) };
-    ab.write_frames(frame, 1);
+    Fixed frame[2];
+    unsafe {
+        frame[0] = std::fixed_from_float(0.5f);
+        frame[1] = std::fixed_from_float(-0.25f);
+    }
+    g_ab.write_frames(&frame[0], 1UL);        // producer
+    std::print("readable: ");
+    std::println_int((long long)g_ab.readable_frames());   // 1
 
-    print("readable: ");
-    println_int(ab.readable());  // 1
-
-    // Consumer: read it back
     Fixed out[2];
-    ab.read_frames(out, 1);
-    print("L = "); println_float(fixed_to_float(out[0]));   //  0.5
-    print("R = "); println_float(fixed_to_float(out[1]));   // -0.3
-
-    audio_buffer_free(&ab);
+    g_ab.read_frames(&out[0], 1UL);           // consumer
+    unsafe {
+        std::print("L = "); std::println_float((double)std::fixed_to_float(out[0]));   //  0.5
+        std::print("R = "); std::println_float((double)std::fixed_to_float(out[1]));   // -0.25
+    }
     return 0;
 }
 ```
@@ -698,76 +702,60 @@ int main() {
 ## TimerWheel — O(1) Real-Time Timer
 
 ```c
-#include "dsp/timer_wheel.h"
+#include <std/dsp/timer_wheel.h>
 ```
 
-A 256-slot timer wheel supporting up to 64 concurrent timers. `tick()` fires all expired timers in O(timers) — no priority queue needed.
+A timer scheduler with up to `WHEEL_TIMERS` (64) concurrent timers. `tick()` advances the clock by one and fires every timer due at the new tick. One wheel is multi-tenant — unrelated subsystems share it with different context types — so each slot stores its callback type-erased; the generic `timer_add`/`timer_add_periodic` entry points take a matching `fn void(?&T)` / `?&T` pair, so the call is always well-typed.
 
-### Constants
-
-```c
-#define WHEEL_SLOTS      256
-#define WHEEL_MAX_TIMERS  64
-```
-
-### Struct
+### API
 
 ```c
-struct TimerEntry {
-    void(*callback)(void* ctx);
-    void*         ctx;
-    unsigned long expires;  // absolute tick when to fire
-    unsigned long period;   // 0 = one-shot; >0 = repeat every `period` ticks
-    int           active;
-}
+#define WHEEL_SLOTS   256
+#define WHEEL_TIMERS  64
 
 struct TimerWheel {
-    TimerEntry    entries[WHEEL_MAX_TIMERS];
-    unsigned long current_tick;
-    unsigned int  used;
+    struct WheelTimer timers[WHEEL_TIMERS];
+    unsigned long     current_tick;
 
-    int  add(void(*cb)(void*), void* ctx, unsigned long delay_ticks);
-    int  add_periodic(void(*cb)(void*), void* ctx, unsigned long period_ticks);
-    int  cancel(int id);
-    void tick();
-}
+    void          cancel(int id);    // ignores invalid ids
+    int           tick();            // advance one tick; returns how many timers fired
+    unsigned long now() const;
+};
 
-TimerWheel timer_wheel_new();
+void timer_wheel_init(&TimerWheel tw);
+
+// One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
+generic<T> int timer_add(&TimerWheel tw, unsigned long tick, fn void(?&T) cb, ?&T ctx);
+
+// Every `period` ticks, first at now() + period. Returns the id or 0 if full.
+generic<T> int timer_add_periodic(&TimerWheel tw, unsigned long period, fn void(?&T) cb, ?&T ctx);
 ```
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `add(cb, ctx, delay)` | One-shot timer; fires after `delay` ticks. Returns timer id or -1 if full. |
-| `add_periodic(cb, ctx, period)` | Repeating timer; fires every `period` ticks, rescheduled automatically. |
-| `cancel(id)` | Deactivate timer. Returns 1 if found, 0 otherwise. |
-| `tick()` | Advance `current_tick`, fire all timers with `expires == current_tick`. |
 
 ### Example
 
 ```c
-#include "dsp/timer_wheel.h"
-#include "io.h"
+#include <std/dsp/timer_wheel.h>
+#include <std/io.h>
 
-int blink_count = 0;
-int done = 0;
+struct Led { int toggles; };
+static int g_done = 0;
 
-void blink(void* ctx)     { blink_count++; }
-void shutdown(void* ctx)  { done = 1; }
+static void blink(?&Led led) {
+    match (led) { case some(l): l.toggles = l.toggles + 1; case null: { } }
+}
+static void stop(?&int unused) { g_done = 1; }
+
+static struct TimerWheel g_tw;   // ~2 KB of slots: keep it off small stacks
 
 int main() {
-    TimerWheel tw = timer_wheel_new();
-
-    tw.add_periodic(blink, 0, 10);   // blink every 10 ticks
-    tw.add(shutdown, 0, 55);          // stop after 55 ticks
-
-    while (!done) {
-        tw.tick();
-    }
-
-    print("blink count: ");
-    println_int(blink_count);  // 5 (ticks 10,20,30,40,50)
+    std::timer_wheel_init(&g_tw);
+    struct Led led;
+    led.toggles = 0;
+    unsafe { std::timer_add_periodic(&g_tw, 10UL, blink, (?&Led)&led); }  // every 10 ticks
+    std::timer_add(&g_tw, 55UL, stop, null);                               // once, at tick 55
+    while (!g_done) { g_tw.tick(); }
+    std::print("blinks: ");
+    std::println_int(led.toggles);   // 5 (ticks 10, 20, 30, 40, 50)
     return 0;
 }
 ```

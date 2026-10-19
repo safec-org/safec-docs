@@ -5,8 +5,8 @@
 This is a **hosted-only** module operating on real OS file descriptors through real syscalls — deliberately separate from [`std/net/tcp.sc`](/stdlib/net), which is a from-scratch, bare-metal-oriented packet-level TCP/IP stack with no OS socket syscalls at all. The two serve different targets (hosted userspace vs. no-OS-underneath embedded), and neither is a drop-in replacement for the other.
 
 ```c
-#include "sched/reactor.h"
-#include "sched/io_nb.h"   // non-blocking socket/file helpers meant to pair with it
+#include <std/sched/reactor.h>
+#include <std/sched/io_nb.h>   // non-blocking socket/file helpers meant to pair with it
 ```
 
 ## Backends
@@ -71,34 +71,40 @@ Drives `sched` to completion: ticks every runnable task, and whenever none are i
 ## Example
 
 ```c
-#include "sched/reactor.h"
-#include "sched/io_nb.h"
-#include "io.h"
+#include <std/sched/reactor.h>
+#include <std/sched/io_nb.h>
+#include <std/io.h>
 
-int echo_conn(void* arg, int resume_point) {
-    int fd = (int)(long long)arg;
-    if (resume_point == 0) {
-        // wait until the socket has data to read
-        // (the scheduler is reached via a global/static in a real program)
-        g_sched.await_fd(fd, SCHED_READ);
-        return 1;
+struct Conn { int fd; };
+
+static struct TaskScheduler g_sched;   // tasks reach the scheduler through a static
+
+static int echo_conn(?&Conn c, int resume_point) {
+    match (c) {
+        case null: return 0;
+        case some(conn): {
+            if (resume_point == 0) {
+                g_sched.await_fd(conn.fd, SCHED_READ);   // park until readable
+                return 1;
+            }
+            // ... read/write conn.fd here ...
+        }
     }
-    // ... read/write with fd here ...
     return 0;   // done
 }
 
 int main() {
-    struct TaskScheduler sched = task_sched_init();
-    struct Reactor reactor = reactor_init();
+    g_sched = std::task_sched_init();
+    struct Reactor reactor = std::reactor_init();
     reactor.init();
 
-    int listenfd = tcp_listen_nb(8080);
+    int listenfd = std::tcp_listen_nb(8080);
     reactor.add(listenfd, SCHED_READ);
 
-    // ... accept loop spawns echo_conn per connection, each calling
-    //     await_fd on its own connection fd ...
+    // ... an accept task spawns echo_conn per connection:
+    //     std::task_spawn(&g_sched, echo_conn, conn_ref);
 
-    reactor_run(&sched, &reactor);
+    std::reactor_run(&g_sched, &reactor);
     reactor.close_();
     return 0;
 }

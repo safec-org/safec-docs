@@ -10,17 +10,17 @@ void      join(handle);
 long long spawn_scoped(fn, arg);   // like spawn, but the compiler guarantees a join before scope exit
 ```
 
-`spawn`'s first argument must be a `&static` reference to a function (an ordinary top-level function name decays to one implicitly); its second argument is passed through as the thread's `void*` argument. Both `spawn` and `spawn_scoped` return a `long long` handle to pass to `join`.
+`spawn`'s first argument must be a `&static` reference to a function (an ordinary top-level function name decays to one implicitly); its second argument is passed through as the thread's argument. Thread functions take and return a nullable reference (`?&T f(?&T arg)`). The argument must respect region isolation: the compiler rejects a mutable reference that isn't `&static`, since the spawned thread could outlive the referent or race on it. Both `spawn` and `spawn_scoped` return a `long long` handle to pass to `join`.
 
 ```c
 extern int printf(const char *fmt, ...);
 
-void* worker0(void* arg) { printf("thread 0\n"); return (void*)0; }
-void* worker1(void* arg) { printf("thread 1\n"); return (void*)0; }
+static ?&int worker0(?&int unused) { unsafe { printf("thread 0\n"); } return null; }
+static ?&int worker1(?&int unused) { unsafe { printf("thread 1\n"); } return null; }
 
 int main() {
-    long long h0 = spawn(worker0, 0);
-    long long h1 = spawn(worker1, 0);
+    long long h0 = spawn(worker0, null);
+    long long h1 = spawn(worker1, null);
 
     join(h0);
     join(h1);
@@ -53,7 +53,7 @@ The **Hook** backend compiles `spawn`/`join` to calls against two fixed extern s
 The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a separate, explicitly-called API for when you want direct control over OS threads rather than the `spawn`/`join` keywords above. Both are pthread/Win32-backed on hosted targets; `thread_create`'s handle is ABI-compatible with `spawn`'s on Win32, but the two are otherwise independent (this API is not part of the Hook backend contract).
 
 ```c
-#include "thread.h"
+#include <std/thread.h>
 ```
 
 ## Handle Representation
@@ -66,7 +66,8 @@ All handles (thread IDs, mutexes, condition variables, read-write locks) are sto
 ## Thread
 
 ```c
-int  thread_create(unsigned long long* tid, void* fn, void* arg);
+generic<T>
+int  thread_create(&unsigned long long tid, fn ?&T(?&T) func, ?&T arg);
 int  thread_join(unsigned long long tid);
 int  thread_detach(unsigned long long tid);
 void thread_yield();
@@ -76,7 +77,9 @@ unsigned long long thread_self();
 
 ### thread_create
 
-Create a new thread. The function signature must be `void* fn(void*)` on POSIX or `DWORD WINAPI fn(LPVOID)` on Win32. The thread ID is written to `*tid`. Returns 0 on success.
+Start `func(arg)` on a new thread and write its handle to `*tid`; returns 0 on success. The thread function takes and returns a nullable reference to its context type — `static ?&Job work(?&Job job)` — and `T` is inferred from it, so passing the wrong context type is a compile error. Pass `null` when the thread needs no argument. The return value is discarded (`thread_join` only waits).
+
+The untyped OS entry point underneath (POSIX `void*(*)(void*)`, Win32 `LPTHREAD_START_ROUTINE`) is `thread_create_raw_`; it is ABI-identical, since `?&T` is a plain pointer at the machine level.
 
 ### thread_join
 
@@ -101,11 +104,11 @@ Return the calling thread's ID.
 ## Mutex
 
 ```c
-int mutex_init(unsigned long long* m);
-int mutex_destroy(unsigned long long* m);
-int mutex_lock(unsigned long long* m);
-int mutex_trylock(unsigned long long* m);
-int mutex_unlock(unsigned long long* m);
+int mutex_init(&unsigned long long m);
+int mutex_destroy(&unsigned long long m);
+int mutex_lock(&unsigned long long m);
+int mutex_trylock(&unsigned long long m);
+int mutex_unlock(&unsigned long long m);
 ```
 
 ### mutex_init / mutex_destroy
@@ -123,12 +126,12 @@ Attempt to acquire the mutex without blocking. Returns 0 if the lock was acquire
 ## Condition Variable
 
 ```c
-int cond_init(unsigned long long* cv);
-int cond_destroy(unsigned long long* cv);
-int cond_wait(unsigned long long* cv, unsigned long long* m);
-int cond_timedwait_ms(unsigned long long* cv, unsigned long long* m, unsigned long ms);
-int cond_signal(unsigned long long* cv);
-int cond_broadcast(unsigned long long* cv);
+int cond_init(&unsigned long long cv);
+int cond_destroy(&unsigned long long cv);
+int cond_wait(&unsigned long long cv, &unsigned long long m);
+int cond_timedwait_ms(&unsigned long long cv, &unsigned long long m, unsigned long ms);
+int cond_signal(&unsigned long long cv);
+int cond_broadcast(&unsigned long long cv);
 ```
 
 ### cond_wait
@@ -146,14 +149,14 @@ Wake one (`signal`) or all (`broadcast`) threads waiting on the condition variab
 ## Read-Write Lock
 
 ```c
-int rwlock_init(unsigned long long* rw);
-int rwlock_destroy(unsigned long long* rw);
-int rwlock_rdlock(unsigned long long* rw);
-int rwlock_wrlock(unsigned long long* rw);
-int rwlock_tryrdlock(unsigned long long* rw);
-int rwlock_trywrlock(unsigned long long* rw);
-int rwlock_rdunlock(unsigned long long* rw);
-int rwlock_wrunlock(unsigned long long* rw);
+int rwlock_init(&unsigned long long rw);
+int rwlock_destroy(&unsigned long long rw);
+int rwlock_rdlock(&unsigned long long rw);
+int rwlock_wrlock(&unsigned long long rw);
+int rwlock_tryrdlock(&unsigned long long rw);
+int rwlock_trywrlock(&unsigned long long rw);
+int rwlock_rdunlock(&unsigned long long rw);
+int rwlock_wrunlock(&unsigned long long rw);
 ```
 
 Multiple simultaneous readers are allowed; writers are exclusive. Use `rdlock`/`rdunlock` for shared read access, and `wrlock`/`wrunlock` for exclusive write access.
@@ -161,39 +164,39 @@ Multiple simultaneous readers are allowed; writers are exclusive. Use `rdlock`/`
 ## Example
 
 ```c
-#include "thread.h"
-#include "io.h"
-#include "atomic.h"
+#include <std/thread.h>
+#include <std/io.h>
+#include <std/atomic.h>
 
-int counter = 0;
-unsigned long long mtx;
+static int counter = 0;
+static unsigned long long mtx = 0ULL;
 
-void* worker(void* arg) {
+static ?&int worker(?&int unused) {
     int i = 0;
     while (i < 1000) {
-        mutex_lock(&mtx);
+        std::mutex_lock(&mtx);
         counter = counter + 1;
-        mutex_unlock(&mtx);
+        std::mutex_unlock(&mtx);
         i = i + 1;
     }
-    return 0;
+    return null;
 }
 
 int main() {
-    mutex_init(&mtx);
+    std::mutex_init(&mtx);
 
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, worker, 0);
-    thread_create(&t2, worker, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, worker, null);
+    std::thread_create(&t2, worker, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    print("counter = ");
-    println_int(counter);  // 2000
+    std::print("counter = ");
+    std::println_int(counter);  // 2000
 
-    mutex_destroy(&mtx);
+    std::mutex_destroy(&mtx);
     return 0;
 }
 ```
@@ -201,48 +204,48 @@ int main() {
 ## Producer-Consumer Example
 
 ```c
-#include "thread.h"
-#include "io.h"
+#include <std/thread.h>
+#include <std/io.h>
 
-int buffer = 0;
-int ready  = 0;
-unsigned long long mtx;
-unsigned long long cv;
+static int buffer = 0;
+static int ready  = 0;
+static unsigned long long mtx = 0ULL;
+static unsigned long long cv = 0ULL;
 
-void* producer(void* arg) {
-    mutex_lock(&mtx);
+static ?&int producer(?&int unused) {
+    std::mutex_lock(&mtx);
     buffer = 42;
     ready  = 1;
-    cond_signal(&cv);
-    mutex_unlock(&mtx);
-    return 0;
+    std::cond_signal(&cv);
+    std::mutex_unlock(&mtx);
+    return null;
 }
 
-void* consumer(void* arg) {
-    mutex_lock(&mtx);
+static ?&int consumer(?&int unused) {
+    std::mutex_lock(&mtx);
     while (ready == 0) {
-        cond_wait(&cv, &mtx);
+        std::cond_wait(&cv, &mtx);
     }
-    print("received: ");
-    println_int(buffer);  // 42
-    mutex_unlock(&mtx);
-    return 0;
+    std::print("received: ");
+    std::println_int(buffer);  // 42
+    std::mutex_unlock(&mtx);
+    return null;
 }
 
 int main() {
-    mutex_init(&mtx);
-    cond_init(&cv);
+    std::mutex_init(&mtx);
+    std::cond_init(&cv);
 
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, consumer, 0);
-    thread_create(&t2, producer, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, consumer, null);
+    std::thread_create(&t2, producer, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    cond_destroy(&cv);
-    mutex_destroy(&mtx);
+    std::cond_destroy(&cv);
+    std::mutex_destroy(&mtx);
     return 0;
 }
 ```

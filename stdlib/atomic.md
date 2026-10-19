@@ -3,7 +3,7 @@
 The `atomic` module provides lock-free atomic operations on shared integers, wrapping C11 `<stdatomic.h>`. All operations use sequential consistency ordering.
 
 ```c
-#include "atomic.h"
+#include <std/atomic.h>
 ```
 
 ## atomic_int (32-bit signed)
@@ -69,32 +69,32 @@ Issue a full sequential-consistency memory fence. This ensures that all memory o
 ## Example: Lock-Free Counter
 
 ```c
-#include "atomic.h"
-#include "thread.h"
-#include "io.h"
+#include <std/atomic.h>
+#include <std/thread.h>
+#include <std/io.h>
 
-int counter = 0;
+static int counter = 0;
 
-void* increment(void* arg) {
+static ?&int increment(?&int unused) {
     int i = 0;
     while (i < 10000) {
-        atomic_fetch_add_int(&counter, 1);
+        std::atomic_fetch_add_int(&counter, 1);
         i = i + 1;
     }
-    return 0;
+    return null;
 }
 
 int main() {
-    unsigned long long t1;
-    unsigned long long t2;
-    thread_create(&t1, increment, 0);
-    thread_create(&t2, increment, 0);
+    unsigned long long t1 = 0ULL;
+    unsigned long long t2 = 0ULL;
+    std::thread_create(&t1, increment, null);
+    std::thread_create(&t2, increment, null);
 
-    thread_join(t1);
-    thread_join(t2);
+    std::thread_join(t1);
+    std::thread_join(t2);
 
-    print("counter = ");
-    println_int(atomic_load_int(&counter));  // 20000
+    std::print("counter = ");
+    std::println_int(std::atomic_load_int(&counter));  // 20000
     return 0;
 }
 ```
@@ -102,8 +102,8 @@ int main() {
 ## Example: Compare-and-Swap Loop
 
 ```c
-#include "atomic.h"
-#include "io.h"
+#include <std/atomic.h>
+#include <std/io.h>
 
 int main() {
     int val = 10;

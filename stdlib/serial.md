@@ -3,10 +3,10 @@
 `std/serial/` provides a format-agnostic `Value` tree plus five format backends (JSON, XML, HTML, CSV, YAML) that all read and write it. Since SafeC has no field-name reflection (only `fieldcount(T)` — a count, no names), a struct becomes serializable by writing a `to_value()` method by hand rather than via an automatic `#[derive]`-style macro.
 
 ```c
-#include "serial/value.h"
-#include "serial/json.h"
-#include "serial/xml.h"
-#include "serial/html.h"
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/serial/xml.h>
+#include <std/serial/html.h>
 ```
 
 ## The `Value` Tree
@@ -77,7 +77,12 @@ match (parsed.object_get("age")) {
 Write a `to_value()` method that builds a `Value` tree from the struct's fields:
 
 ```c
-struct Point { double x; double y; };
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/collections/string.h>
+extern int printf(const char* fmt, ...);
+
+struct Point { double x; double y; struct Value to_value() const; };
 
 struct Value Point::to_value() const {
     struct Value v = value_object();
@@ -87,11 +92,11 @@ struct Value Point::to_value() const {
 }
 
 int main() {
-    Point p; p.x = 1.5; p.y = 2.5;
+    struct Point p; p.x = 1.5; p.y = 2.5;
 
     struct Value pv = p.to_value();
     struct String json = value_to_json(&pv);
-    printf("%s\n", json.as_ptr());   // {"x":1.5,"y":2.5}
+    unsafe { printf("%s\n", json.as_ptr()); }   // {"x":1.5,"y":2.5}
 
     json.free();
     value_free(&pv);
@@ -209,7 +214,7 @@ value_free(&v);
 ## CSV
 
 ```c
-#include "serial/csv.h"
+#include <std/serial/csv.h>
 ```
 
 A CSV document is a `VAL_ARRAY` of rows, each row itself a `VAL_ARRAY` of `VAL_STRING` fields — CSV has no native typing (every field is text), so unlike `json_parse` there's no int/float/bool inference; convert individual fields yourself (`String::parse_int()`/`parse_float()`) if a column is known to hold numbers.
@@ -236,7 +241,7 @@ value_free(&rows);
 ## YAML
 
 ```c
-#include "serial/yaml.h"
+#include <std/serial/yaml.h>
 ```
 
 A block-style subset of YAML 1.1: block scalars (plain, single- and double-quoted with their respective escaping rules), block sequences (`- item`, including the compact `- key: value` list-of-maps shorthand), block mappings (`key: value`, indentation-nested), `#` comments, and the `~`/`null`/`true`/`false`/numeric core-schema scalar forms.

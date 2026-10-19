@@ -20,6 +20,7 @@ int result = op(3, 4);        // 7
 Functions that take or return other functions work exactly like any other parameter/return type — no special syntax beyond the `fn` type itself:
 
 ```c
+extern int printf(const char* fmt, ...);
 generic<T>
 void map_inplace(T* arr, int n, fn T(T) f) {
     int i = 0;
@@ -154,6 +155,7 @@ A `match` **expression** (as opposed to a `match` statement) must be provably ex
 `?T` is SafeC's Option-shaped type — "may or may not be present," lowered to a `{T, i1}` pair, read back through the same exhaustive-`match` discipline (`none`/`some(v)` arms) or a small fixed set of explicit accessors:
 
 ```c
+extern int printf(const char* fmt, ...);
 ?int safe_div(int a, int b) {
     if (b == 0) { return null; }   // the empty case
     return a / b;                  // implicit T -> ?T wrap

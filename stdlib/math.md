@@ -9,7 +9,7 @@ This page covers three numeric modules:
 ## math
 
 ```c
-#include "math.h"
+#include <std/math.h>
 ```
 
 ### Naming Convention
@@ -79,8 +79,8 @@ All the same functions are available with the `_d` suffix operating on `double`:
 ### Example
 
 ```c
-#include "math.h"
-#include "io.h"
+#include <std/math.h>
+#include <std/io.h>
 
 int main() {
     double r = 5.0;
@@ -103,7 +103,7 @@ int main() {
 ## complex
 
 ```c
-#include "complex.h"
+#include <std/complex.h>
 ```
 
 Complex numbers are represented as two-element arrays: `float[2]` or `double[2]` where index 0 is the real part and index 1 is the imaginary part. All functions use the naming convention `cXXX_f` (float) and `cXXX_d` (double). Results are written to an output array parameter.
@@ -166,8 +166,8 @@ void ccos_d(double* out, const double* z);
 ### Example
 
 ```c
-#include "complex.h"
-#include "io.h"
+#include <std/complex.h>
+#include <std/io.h>
 
 int main() {
     double a[2];
@@ -195,7 +195,7 @@ int main() {
 ## bit
 
 ```c
-#include "bit.h"
+#include <std/bit.h>
 ```
 
 Bit manipulation functions based on C23 `<stdbit.h>` and compiler builtins. All functions are `const`-qualified (pure, no side effects) and eligible for compile-time evaluation.
@@ -266,8 +266,8 @@ Extract or set bits `[hi:lo]` (inclusive) in `x`.
 ### Example
 
 ```c
-#include "bit.h"
-#include "io.h"
+#include <std/bit.h>
+#include <std/io.h>
 
 int main() {
     unsigned int x = 0xFF00;

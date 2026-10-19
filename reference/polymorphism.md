@@ -118,6 +118,7 @@ fn_eval(object, func)
 The design case: call `fn_eval` inside a `generic<T>` function. Each monomorphized instantiation of `T` re-resolves `fn_eval` against its own concrete type — no trait declaration needed, since the check is structural (name + signature) at the point of instantiation, exactly like everything else in generic type-checking:
 
 ```c
+extern int printf(const char* fmt, ...);
 struct Circle {
     double radius;
     double area() const;
@@ -215,50 +216,61 @@ See [Types](/reference/types#newtype-distinct-types).
 
 ## Manual Dispatch: Explicit "Vtables" {#manual-dispatch-explicit-vtables}
 
-Every mechanism above is resolved at compile time. None of them gives you a single array holding a `Circle` and a `Square` dispatched through the same call at runtime — because that specific thing (a heterogeneous collection, dispatched dynamically) is exactly what a vtable-based language builds in automatically, and SafeC's whole stance is that this cost should be visible, not automatic. When you actually need it, you build it yourself out of plain function pointers and `void*` — precisely what a vtable *is*, under the hood, minus the compiler hiding it from you:
+Every mechanism above is resolved at compile time. None of them gives you a single array holding a `Circle` and a `Square` dispatched through the same call at runtime — because that specific thing (a heterogeneous collection, dispatched dynamically) is exactly what a vtable-based language builds in automatically, and SafeC's whole stance is that this cost should be visible, not automatic. When you actually need it, you build it yourself: a struct holding the object and the function that operates on it — precisely what a vtable *is*, under the hood, minus the compiler hiding it from you.
+
+The object's type has to be erased for the slots to share one struct type. Keep that erasure in one place: a generic constructor that only accepts an object and a function *for the same type*, so every `Shape` that exists is well-typed by construction and no call site ever casts:
 
 ```c
-double circle_area(void* obj) {
-    struct Circle* c;
-    unsafe { c = (struct Circle*)obj; }
-    double r;
-    unsafe { r = c->radius; }
-    return 3.14159265 * r * r;
-}
-double square_area(void* obj) {
-    struct Square* s;
-    unsafe { s = (struct Square*)obj; }
-    double side;
-    unsafe { side = s->side; }
-    return side * side;
-}
+extern int printf(const char* fmt, ...);
+
+struct Circle { double radius; };
+struct Square { double side; };
+
+static double circle_area(&Circle c) { return 3.14159265 * c.radius * c.radius; }
+static double square_area(&Square s) { return s.side * s.side; }
 
 struct Shape {
-    void* data;
-    fn double(void*) area;
+    void* obj;    // erased; only ever written by make_shape
+    void* area;   // fn double(&T), same T as obj
+    double eval_area();
 };
 
+generic<T>
+struct Shape make_shape(&T obj, fn double(&T) area) {
+    struct Shape sh;
+    unsafe { sh.obj = (void*)obj; sh.area = (void*)area; }
+    return sh;
+}
+
+double Shape::eval_area() {
+    unsafe {
+        fn double(void*) f = (fn double(void*))self.area;   // the one cast, here only
+        return f(self.obj);
+    }
+}
+
+static struct Circle g_c;
+static struct Square g_sq;
+
 int main() {
-    struct Circle c; c.radius = 2.0;
-    struct Square sq; sq.side = 3.0;
-
+    g_c.radius = 2.0;
+    g_sq.side = 3.0;
     struct Shape shapes[2];
-    unsafe { shapes[0].data = (void*)&c; }
-    shapes[0].area = circle_area;
-    unsafe { shapes[1].data = (void*)&sq; }
-    shapes[1].area = square_area;
-
+    unsafe {
+        shapes[0] = make_shape(&g_c, circle_area);    // make_shape(&g_c, square_area) won't compile
+        shapes[1] = make_shape(&g_sq, square_area);
+    }
     int i = 0;
     while (i < 2) {
-        double a = shapes[i].area(shapes[i].data);
-        printf("shape[%d] area=%.4f\n", i, a);   // 12.5664, then 9.0000
+        double a = 0.0;
+        unsafe { a = shapes[i].eval_area(); printf("shape[%d] area=%.4f\n", i, a); }   // 12.5664, then 9.0000
         i = i + 1;
     }
     return 0;
 }
 ```
 
-(Verified: compiles and runs, correct output for both shapes.) This is real runtime polymorphism — the loop doesn't know or care whether `shapes[i]` is backed by a `Circle` or a `Square` — bought with exactly one explicit `unsafe` cast per accessor, in code you wrote and can see. It's also exactly the pattern SafeC's own standard-library containers use internally (see [Standard Library Overview](/stdlib/#generic-pattern)): a `void*`-based struct plus typed wrapper functions, predating (and still coexisting with) `generic<T>` structs.
+This is real runtime polymorphism — the loop doesn't know or care whether `shapes[i]` is backed by a `Circle` or a `Square`. The erased fields and the single cast that undoes them live in two short functions, and the generic constructor is what makes that cast sound. It is the pattern the standard library uses wherever one table holds callbacks with different context types: `timer_add` (`std/dsp/timer_wheel.h`), `widget_on_click`, `vfs_mount`, `task_spawn`.
 
 ## Quick Reference
 
@@ -268,7 +280,7 @@ int main() {
 | Operator overloading (`+`, `==`, ...) | Operator-overload methods (fixed operator set) |
 | A generic class / template (`List<T>`) | `generic<T>` struct |
 | An interface / abstract base class | `trait`, structurally satisfied |
-| A `Base*` pointer calling an overridden virtual method | Manual function-pointer table (`void*` + `fn` field) |
+| A `Base*` pointer calling an overridden virtual method | A struct of erased object + function, filled only by a generic constructor ([above](#manual-dispatch-explicit-vtables)) |
 | Reflection-lite "get me this object's method as a value" | `fn_eval` |
 | A sealed class hierarchy / closed enum with data | Tagged `union` + exhaustive `match` |
 | A strongly-typed ID wrapper (`UserId` vs raw `int`) | `newtype` |

@@ -9,6 +9,7 @@ SafeC provides low-level, C-compatible concurrency primitives. Threads are creat
 `spawn(fn, arg)` creates a new thread that executes the given function with the given argument. It returns a thread handle (`long long`, which is the underlying `pthread_t`).
 
 ```c
+extern int printf(const char* fmt, ...);
 void* worker(void *arg) {
     int *data = (int*)arg;
     unsafe {
@@ -214,6 +215,7 @@ void example2() {
 ```c
 #include <stdio.h>
 #include <stdlib.h>
+extern int printf(const char* fmt, ...);
 
 struct WorkItem {
     int *data;

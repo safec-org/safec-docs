@@ -3,7 +3,7 @@
 SafeC provides three debug modules in `std/debug/` for performance measurement, code coverage tracking, and hardware debug integration.
 
 ```c
-#include "debug/debug.h"  // master header: perf + coverage + jtag
+#include <std/debug/debug.h>  // master header: perf + coverage + jtag
 ```
 
 The SafeC compiler also emits DWARF debug information when invoked with `--g`:
@@ -19,7 +19,7 @@ The SafeC compiler also emits DWARF debug information when invoked with `--g`:
 ## perf — Hardware Performance Counters
 
 ```c
-#include "debug/perf.h"
+#include <std/debug/perf.h>
 ```
 
 `PerfCounter` reads architecture-specific cycle counters for sub-microsecond timing.
@@ -61,8 +61,8 @@ PerfCounter perf_counter_init();
 ### Example
 
 ```c
-#include "debug/perf.h"
-#include "io.h"
+#include <std/debug/perf.h>
+#include <std/io.h>
 
 int main() {
     struct PerfCounter pc = perf_counter_init();
@@ -83,7 +83,7 @@ int main() {
 ## coverage — Source-Level Code Coverage
 
 ```c
-#include "debug/coverage.h"
+#include <std/debug/coverage.h>
 ```
 
 Instruments call sites with a single macro. Tracks how many times each site was reached. 1024 sites maximum.
@@ -134,8 +134,8 @@ int clamp(int v, int lo, int hi) {
 ### Example
 
 ```c
-#include "debug/coverage.h"
-#include "io.h"
+#include <std/debug/coverage.h>
+#include <std/io.h>
 
 int clamp(int v, int lo, int hi) {
     COV_SITE();
@@ -171,7 +171,7 @@ coverage: 100
 ## jtag — Hardware Debug Helpers
 
 ```c
-#include "debug/jtag.h"
+#include <std/debug/jtag.h>
 ```
 
 Arch-conditional breakpoints, semihosting, and Cortex-M ITM stimulus port output. Useful during early bring-up when a UART is not yet available.
@@ -225,7 +225,7 @@ DBG_ASSERT(cond);
 ### Example
 
 ```c
-#include "debug/jtag.h"
+#include <std/debug/jtag.h>
 
 void uart_init(struct Uart* u) {
     DBG_ASSERT(u != 0);

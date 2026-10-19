@@ -30,7 +30,7 @@ No use-after-free: region annotations tie reference lifetimes to allocation scop
 ```
 
 ```c
-#include <std/mem.sc>
+#include <std/mem.h>
 
 void heap_example() {
     &heap int p = new int;

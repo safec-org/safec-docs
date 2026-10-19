@@ -154,14 +154,20 @@ SafeC's approach to memory safety is fundamentally different from Rust's ownersh
 ```c
 // Region declarations are top-level only — declare before any function
 // that uses them, not inline where they're first needed.
+#include <stdlib.h>
+
 region Pool { capacity: 1024 }
 
 int main() {
     int x = 10;
     &stack int r1 = &x;         // r1 points to stack memory
 
-    &heap int r2 = (int*)malloc(sizeof(int));
-    *r2 = 20;                    // r2 points to heap memory
+    ?&heap int r2 = null;       // heap allocation can fail: nullable
+    unsafe { r2 = (?&heap int)malloc(sizeof(int)); }
+    match (r2) {
+        case some(h): *h = 20;   // r2 points to heap memory
+        case null:    return 1;
+    }
 
     &arena<Pool> int r3 = new<Pool> int;
     *r3 = 30;                    // r3 points to arena memory

@@ -3,7 +3,7 @@
 SafeC provides a security library in `std/crypto/` with symmetric encryption, hashing, random number generation, certificate parsing, and TLS record-layer framing.
 
 ```c
-#include "crypto/crypto.h"  // master header: pulls in all modules
+#include <std/crypto/crypto.h>  // master header: pulls in all modules
 ```
 
 ::: warning
@@ -15,7 +15,7 @@ SafeC's crypto modules provide correct algorithm implementations. They do not cu
 ## AES
 
 ```c
-#include "crypto/aes.h"
+#include <std/crypto/aes.h>
 ```
 
 AES-128 and AES-256 block cipher with ECB and CBC modes. Full S-box, key expansion, and MixColumns implementation.
@@ -52,23 +52,27 @@ struct AesCtx aes256_init(const &stack unsigned char key);  // key: 32 bytes
 ### Example
 
 ```c
-#include "crypto/aes.h"
+#include <std/crypto/aes.h>
 
 int main() {
-    unsigned char key[16] = {0x2b,0x7e,0x15,0x16, 0x28,0xae,0xd2,0xa6,
-                              0xab,0xf7,0x15,0x88, 0x09,0xcf,0x4f,0x3c};
-    unsigned char iv[16]  = {0};
-    unsigned char buf[32] = "Hello, SafeC! AES CBC test data.";
+    unsigned char key[16];
+    unsigned char iv[16];
+    unsigned char buf[32];
+    const char* text = "Hello, SafeC! AES CBC test data.";   // 32 bytes
+    unsafe {
+        int i = 0;
+        while (i < 16) { key[i] = (unsigned char)(i * 17); iv[i] = 0; i = i + 1; }
+        i = 0;
+        while (i < 32) { buf[i] = (unsigned char)text[i]; i = i + 1; }
+    }
 
-    struct AesCtx ctx = aes128_init(key);
-    ctx.set_iv(iv);
+    struct AesCtx ctx = std::aes128_init(&key[0]);
+    ctx.set_iv(&iv[0]);
+    ctx.cbc_encrypt(&buf[0], 32UL);   // buf is now ciphertext
 
-    ctx.cbc_encrypt(buf, 32);   // buf is now ciphertext
-
-    // reset IV and decrypt back
-    ctx.set_iv(iv);
-    ctx.cbc_decrypt(buf, 32);   // buf restored to plaintext
-    return 0;
+    ctx.set_iv(&iv[0]);               // reset the IV and decrypt back
+    ctx.cbc_decrypt(&buf[0], 32UL);   // buf holds the plaintext again
+    unsafe { return buf[0] == (unsigned char)'H' ? 0 : 1; }
 }
 ```
 
@@ -77,7 +81,7 @@ int main() {
 ## SHA-256
 
 ```c
-#include "crypto/sha256.h"
+#include <std/crypto/sha256.h>
 ```
 
 SHA-256 and SHA-224 with streaming (update) and one-shot interfaces.
@@ -108,25 +112,24 @@ void sha256(const &stack unsigned char data, unsigned long len,
 ### Example
 
 ```c
-#include "crypto/sha256.h"
-#include "io.h"
+#include <std/crypto/sha256.h>
 
 int main() {
-    unsigned char digest[32];
+    unsigned char a[32];
+    unsigned char b[32];
+    unsigned char msg[5];
+    unsafe { msg[0] = 'h'; msg[1] = 'e'; msg[2] = 'l'; msg[3] = 'l'; msg[4] = 'o'; }
 
-    // One-shot hash
-    unsigned char msg[] = "hello";
-    sha256(msg, 5, digest);
+    std::sha256(&msg[0], 5UL, &a[0]);              // one-shot
 
-    // Streaming hash of two chunks
-    struct Sha256Ctx ctx = sha256_init();
-    unsigned char part1[] = "hel";
-    unsigned char part2[] = "lo";
-    ctx.update(part1, 3);
-    ctx.update(part2, 2);
-    ctx.finish(digest);  // same result as one-shot above
+    struct Sha256Ctx ctx = std::sha256_init();     // streaming, two chunks
+    ctx.update(&msg[0], 3UL);
+    unsafe { ctx.update(&msg[3], 2UL); }
+    ctx.finish(&b[0]);                             // same digest as the one-shot
 
-    return 0;
+    int same = 1;
+    unsafe { int i = 0; while (i < 32) { if (a[i] != b[i]) same = 0; i = i + 1; } }
+    return same ? 0 : 1;
 }
 ```
 
@@ -135,47 +138,42 @@ int main() {
 ## RNG — ChaCha20 CSPRNG
 
 ```c
-#include "crypto/rng.h"
+#include <std/crypto/rng.h>
 ```
 
 A cryptographically secure pseudo-random number generator based on ChaCha20.
 
 ```c
 struct RngCtx {
-    unsigned int state[16];  // ChaCha20 state
-}
+    void          fill(&unsigned char out, unsigned long len);   // len random bytes
+    unsigned int  rand32();
+    unsigned long rand64();
+    unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
+};
 
-// Seed from caller-supplied 32 bytes
-void rng_init(struct RngCtx* ctx, const unsigned char seed[32]);
+// Seed from hardware entropy (rdrand / /dev/urandom). 1 on success,
+// 0 if no entropy source is available (e.g. bare metal without a TRNG).
+int  rng_init(&RngCtx ctx);
 
-// Seed from hardware entropy:
-//   x86-64: rdrand | hosted: /dev/urandom | freestanding: no-op
-void rng_init_os(struct RngCtx* ctx);
-
-// Generate `len` random bytes
-void rng_fill(struct RngCtx* ctx, void* out, unsigned long len);
-
-// Generate one random value
-unsigned int       rng_u32(struct RngCtx* ctx);
-unsigned long long rng_u64(struct RngCtx* ctx);
+// Deterministic seed (tests, reproducible simulations).
+void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 ```
 
 ### Example
 
 ```c
-#include "crypto/rng.h"
-#include "io.h"
+#include <std/crypto/rng.h>
+#include <std/io.h>
 
 int main() {
     struct RngCtx rng;
-    rng_init_os(&rng);
+    if (!std::rng_init(&rng)) { std::println("no entropy source"); return 1; }
 
-    unsigned int n = rng_u32(&rng);
-    print("random: ");
-    println_int(n);
+    std::print("dice: ");
+    std::println_int((long long)rng.rand_range(6UL) + 1LL);
 
     unsigned char key[32];
-    rng_fill(&rng, key, 32);  // generate a random 256-bit key
+    rng.fill(&key[0], 32UL);   // a random 256-bit key
     return 0;
 }
 ```
@@ -185,7 +183,7 @@ int main() {
 ## SecureAllocator
 
 ```c
-#include "crypto/secure_alloc.h"
+#include <std/crypto/secure_alloc.h>
 ```
 
 Wraps a slab allocator with zeroing-on-free, so sensitive data (keys, passwords) is erased when returned to the pool.
@@ -207,7 +205,7 @@ void  secure_destroy(struct SecureAllocator* a);           // zeros entire pool
 ## X.509 Certificate Parser
 
 ```c
-#include "crypto/x509.h"
+#include <std/crypto/x509.h>
 ```
 
 Parses X.509v3 DER-encoded certificates. Extracts subject/issuer distinguished names, validity period, Subject Alternative Names (SAN), BasicConstraints, and KeyUsage extensions.
@@ -264,8 +262,8 @@ int x509_verify_chain(const struct X509Cert* cert,
 ### Example
 
 ```c
-#include "crypto/x509.h"
-#include "io.h"
+#include <std/crypto/x509.h>
+#include <std/io.h>
 
 void check_cert(const unsigned char* der, unsigned long len,
                 unsigned long long now) {
@@ -297,7 +295,7 @@ void check_cert(const unsigned char* der, unsigned long len,
 ## TLS 1.3 Record Layer
 
 ```c
-#include "crypto/tls.h"
+#include <std/crypto/tls.h>
 ```
 
 Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encryption, and decryption of TLS records. Key scheduling and the handshake protocol are **not** included — supply keys after completing the handshake externally.
@@ -315,45 +313,45 @@ Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encrypt
 
 ```c
 struct TlsTranscript {
-    Sha256Ctx hash;
+    struct Sha256Ctx hash;
 
-    void update(const void* data, unsigned long len);
-    void finish(unsigned char out[32]);  // snapshot — ctx continues usable
-}
+    void update(const &unsigned char data, unsigned long len);
+    void finish(unsigned char out[32]);   // snapshot — the transcript stays usable
+};
 
 struct TlsSession {
-    unsigned char       write_key[32];
-    unsigned char       write_iv[12];
-    unsigned char       read_key[32];
-    unsigned char       read_iv[12];
-    unsigned long long  write_seq;
-    unsigned long long  read_seq;
-    int                 handshake_done;
-    TlsTranscript       transcript;
+    unsigned char      write_key[TLS_KEY_LEN];
+    unsigned char      write_iv[TLS_IV_LEN];
+    unsigned char      read_key[TLS_KEY_LEN];
+    unsigned char      read_iv[TLS_IV_LEN];
+    unsigned long long write_seq;
+    unsigned long long read_seq;
+    int                handshake_done;
+    struct TlsTranscript transcript;
 
-    // Set symmetric keys (call after handshake completes)
-    void install_keys(const unsigned char wk[32], const unsigned char wi[12],
-                      const unsigned char rk[32], const unsigned char ri[12]);
+    // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
+    // after install_keys: AES-256-CBC + PKCS#7. Returns bytes written, 0 on error.
+    unsigned long encode_record(unsigned char content_type,
+                                const &unsigned char payload, unsigned long payload_len,
+                                &unsigned char out, unsigned long out_cap);
 
-    // Encode a record into `out` (PacketBuf)
-    // Pre-handshake: plaintext. Post-handshake: AES-256-CBC + PKCS#7
-    void encode_record(unsigned char content_type,
-                       const void* data, unsigned long len,
-                       struct PacketBuf* out);
+    // Decode one record from data[0..data_len); writes the plaintext to out.
+    // Returns the payload length, 0 on error or incomplete input.
+    unsigned long decode_record(const &unsigned char data, unsigned long data_len,
+                                &stack unsigned char content_type_out,
+                                &unsigned char out, unsigned long out_cap);
 
-    // Decode a record from `pkt`
-    int  decode_record(struct PacketBuf* pkt,
-                       unsigned char* ct_out,
-                       void* buf, unsigned long max);
+    unsigned long build_alert(unsigned char level, unsigned char desc,
+                              &unsigned char out, unsigned long out_cap);
 
-    // Build a TLS Alert record
-    void build_alert(unsigned char level, unsigned char desc,
-                     struct PacketBuf* out);
-
+    void install_keys(const unsigned char write_key[TLS_KEY_LEN],
+                      const unsigned char write_iv[TLS_IV_LEN],
+                      const unsigned char read_key[TLS_KEY_LEN],
+                      const unsigned char read_iv[TLS_IV_LEN]);
     int  is_established() const;
-}
+};
 
-TlsSession tls_session_init();
+struct TlsSession tls_session_init();
 ```
 
 ### Nonce derivation
@@ -369,24 +367,22 @@ This is computed automatically inside `encode_record` / `decode_record`.
 ### Example
 
 ```c
-#include "crypto/tls.h"
+#include <std/crypto/tls.h>
 
 int main() {
-    TlsSession session = tls_session_init();
+    struct TlsSession session = std::tls_session_init();
+    // ... after the handshake: session.install_keys(wk, wi, rk, ri);
 
-    // After TLS 1.3 handshake completes — supply derived keys
-    unsigned char wk[32] = { /* application_write_key */ };
-    unsigned char wi[12] = { /* application_write_iv  */ };
-    unsigned char rk[32] = { /* application_read_key  */ };
-    unsigned char ri[12] = { /* application_read_iv   */ };
-    session.install_keys(wk, wi, rk, ri);
-
-    // Send application data
-    struct PacketBuf out;
     const char* msg = "GET / HTTP/1.1\r\n";
-    session.encode_record(TLS_APPLICATION_DATA, msg, 16, &out);
-    // transmit out via TCP...
+    unsigned char record[256];
+    unsigned long n = 0UL;
+    unsafe { n = session.encode_record(TLS_APPLICATION_DATA, (const &unsigned char)msg, 16UL,
+                                       &record[0], 256UL); }
+    // transmit record[0..n) over TCP ...
 
-    return 0;
+    unsigned char type = 0;
+    unsigned char plain[256];
+    unsigned long got = session.decode_record(&record[0], n, &type, &plain[0], 256UL);
+    return (got == 16UL && type == (unsigned char)TLS_APPLICATION_DATA) ? 0 : 1;
 }
 ```

@@ -7,14 +7,61 @@ SafeC supports bare-metal and embedded development through freestanding mode, fu
 The `--freestanding` flag disables the standard library and produces code that does not depend on an OS:
 
 ```bash
-./build/safec firmware.sc --freestanding --emit-llvm -o firmware.ll
+safec firmware.sc --freestanding --emit-llvm -o firmware.ll
 ```
+
+(Every `--target=<bare-metal alias>` below implies `--freestanding`.)
 
 In freestanding mode:
 - No implicit dependency on libc
 - No startup code (`_start` / `main` convention is programmer-defined)
 - No standard C header imports
 - The programmer provides all runtime support
+
+## Bare-Metal Targets {#targets}
+
+`--target=<alias>` selects a no-OS target by name: it picks the LLVM triple, the CPU, the ISA features and the ABI, and implies `--freestanding`. `safec --list-targets` prints the table:
+
+| Alias | Triple | CPU / ISA | ABI | `size_t` / pointer |
+|---|---|---|---|---|
+| `x86` | `i686-unknown-none-elf` | i686 | i386 SysV | 32-bit |
+| `x86_64` | `x86_64-unknown-none-elf` | x86-64 | SysV | 64-bit |
+| `aarch32` | `armv7a-none-eabi` | ARMv7-A (ARM state) | AAPCS, soft-float | 32-bit |
+| `aarch64` | `aarch64-unknown-none-elf` | ARMv8-A | AAPCS64 | 64-bit |
+| `thumb` | `thumbv6m-none-eabi` | Cortex-M0 (Thumb) | AAPCS, soft-float | 32-bit |
+| `thumb2` | `thumbv7m-none-eabi` | Cortex-M3 (Thumb-2) | AAPCS, soft-float | 32-bit |
+| `arm-6m` | `thumbv6m-none-eabi` | Cortex-M0/M0+/M1 (ARMv6-M) | AAPCS, soft-float | 32-bit |
+| `arm-7m` | `thumbv7m-none-eabi` | Cortex-M3 (ARMv7-M) | AAPCS, soft-float | 32-bit |
+| `arm-7em` | `thumbv7em-none-eabi` | Cortex-M4/M7 (ARMv7E-M, DSP) | AAPCS, soft-float | 32-bit |
+| `arm-8m` | `thumbv8m.main-none-eabi` | Cortex-M33 (ARMv8-M Mainline) | AAPCS, soft-float | 32-bit |
+| `rv32i` | `riscv32-unknown-elf` | RV32I | `ilp32` | 32-bit |
+| `rv32e` | `riscv32-unknown-elf` | RV32E (16 registers) | `ilp32e` | 32-bit |
+| `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64-bit |
+| `rv64e` | `riscv64-unknown-elf` | RV64E (16 registers) | `lp64e` | 64-bit |
+
+Any other LLVM triple also works with `--target=<triple>`; refine it with `--target-cpu=<name>`, `--target-features=<+a,-b>` (LLVM `-mattr` syntax) and `--target-abi=<name>`. These are recorded in the module, so the object a later `clang -c` produces has to agree with them: `safec --print-target-clang-flags --target=<alias>` prints the matching clang flags (`--target=…`, `-march`/`-mabi` for RISC-V, `-mcpu`/`-mfloat-abi` for ARM), one per line.
+
+```bash
+safec firmware.sc -I /path/to/SafeC --target=arm-6m --emit-llvm -o firmware.ll
+clang -c firmware.ll $(safec --print-target-clang-flags --target=arm-6m) -o firmware.o
+ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a libclang_rt.builtins.a -o firmware.elf
+```
+
+With `safeguard`, `--target` does all of this — see [safeguard](/advanced/safeguard#cross-targets).
+
+What changes per target:
+
+- **Pointer width.** `size_t`, `ptrdiff_t`, `uintptr_t` and `__SIZEOF_POINTER__` follow the target (4 bytes on the 32-bit targets above). SafeC's `long` is always 64-bit, so code that needs a pointer-sized integer should say `size_t`/`uintptr_t`, never `long`.
+- **C struct-return ABI.** Aggregates returned by value are lowered to the target's convention: i386 always returns structs through a hidden pointer; AAPCS32 does so above 4 bytes; RISC-V above 2×XLEN; x86-64 and AArch64 above 16 bytes (AArch64 excepting homogeneous float aggregates); Win64 for any size other than 1, 2, 4 or 8 bytes. Large struct copies are emitted as `memcpy`/`memset` calls, which the runtime must provide.
+- **Runtime helpers.** Targets without hardware multiply/divide or atomics call compiler-rt builtins (`__muldi3`, `__udivdi3`, …) and `__atomic_*` library functions: link `libclang_rt.builtins.a` for the target and provide the atomics (a single-core runtime can implement them with interrupts masked).
+
+### Freestanding calls to libc names {#provides}
+
+In freestanding mode a call to a hosted-only function (`malloc`, `printf`, …) gets a warning, since there is no libc to resolve it. A bare-metal runtime often defines some of those itself. Functions defined in the same translation unit never warn; for ones defined in another file, list them with `--provides=malloc,free,memcpy` and the warning is suppressed for exactly those names (`safeguard` passes the project's own definitions automatically).
+
+### Testing on bare metal {#testing}
+
+The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`). All 14 targets currently pass every check.
 
 ## Function Attributes
 

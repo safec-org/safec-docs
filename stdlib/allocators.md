@@ -1,257 +1,175 @@
 # Deterministic Allocators
 
-SafeC provides four deterministic allocators in `std/alloc/`. Each has O(1) alloc and dealloc in the worst case, zero fragmentation surprises, and no hidden malloc calls.
+`std/alloc/` provides four allocators that manage one fixed buffer — either one you supply (`*_init`, any region: static, stack, arena) or one they allocate (`*_new`). None of them calls `malloc` after construction.
 
 ```c
-#include "alloc/bump.h"
-#include "alloc/slab.h"
-#include "alloc/pool.h"
-#include "alloc/tlsf.h"
-// or pull all four via:
-#include "prelude.h"
+#include <std/alloc/bump.h>
+#include <std/alloc/slab.h>
+#include <std/alloc/pool.h>
+#include <std/alloc/tlsf.h>
 ```
 
-## Comparison
+## Comparison {#comparison}
 
 | Allocator | Alloc | Free | Best for |
 |-----------|-------|------|----------|
-| `BumpAllocator` | O(1) | Reset-only | Per-frame arenas, scratch buffers |
-| `SlabAllocator` | O(1) | O(1) | Many fixed-size objects (e.g. nodes, packets) |
-| `PoolAllocator` | O(1) | O(1) | Fixed-size blocks with varied content |
-| `TlsfAllocator` | O(1) | O(1) | General-purpose real-time heap |
+| `BumpAllocator` | O(1) | reset-only | per-frame arenas, scratch buffers |
+| `SlabAllocator` | O(1) | O(1) | many same-sized objects (packets, nodes) |
+| `PoolAllocator` | O(blocks), first fit | O(blocks), coalescing | small heaps with varied sizes |
+| `TlsfAllocator` | O(1) | O(1) | general-purpose real-time heap |
+
+## Typed allocation {#typed}
+
+Every allocator has a **typed layer** — use it in preference to the byte-level methods. `T` comes from the variable you assign to; the result is a nullable reference (`null` when the allocator is exhausted) that you narrow before use.
+
+```c
+generic<T> ?&heap T bump_alloc_t(&BumpAllocator a);                     // aligned for T
+generic<T> ?&heap T bump_alloc_array_t(&BumpAllocator a, unsigned long n);
+generic<T> ?&heap T slab_alloc_t(&SlabAllocator s);                     // null if T > obj_size
+generic<T> void     slab_free_t(&SlabAllocator s, &heap T obj);
+generic<T> ?&heap T pool_alloc_t(&PoolAllocator p);
+generic<T> void     pool_free_t(&PoolAllocator p, &heap T obj);
+generic<T> ?&heap T tlsf_alloc_t(&TlsfAllocator t);
+generic<T> ?&heap T tlsf_alloc_array_t(&TlsfAllocator t, unsigned long n);
+generic<T> void     tlsf_free_t(&TlsfAllocator t, &heap T obj);
+```
+
+The byte-level methods (`alloc(size)`, `dealloc(ptr)`, …) remain for code that genuinely handles untyped bytes, such as a custom container's storage.
+
+`destroy()` frees the buffer only if the allocator allocated it (`*_new`); for `*_init` it just forgets the buffer, which stays yours.
 
 ---
 
-## BumpAllocator
+## BumpAllocator {#bump}
 
-A linear (bump-pointer) allocator. Allocations advance a pointer; freeing individual objects is not supported — you reset the entire arena.
-
-### Struct
+A linear allocator: allocation advances an offset, and the whole arena is reclaimed at once with `reset()`. No per-object free.
 
 ```c
 struct BumpAllocator {
-    void*         base;
     unsigned long used;
     unsigned long cap;
 
-    void*         alloc(unsigned long size, unsigned long align);
-    void          reset();
+    &heap void    alloc(unsigned long size, unsigned long align);   // byte level; null if full
+    void          reset();                    // every earlier allocation becomes invalid
     unsigned long remaining() const;
     void          destroy();
-}
+};
+
+struct BumpAllocator bump_init(&unsigned char buffer, unsigned long cap);
+struct BumpAllocator bump_new(unsigned long cap);
 ```
 
-### Constructors
-
 ```c
-// Use a caller-supplied buffer (no heap)
-BumpAllocator bump_init(void* buffer, unsigned long cap);
+#include <std/alloc/bump.h>
+#include <std/io.h>
 
-// Heap-allocate a backing buffer of `cap` bytes
-BumpAllocator bump_new(unsigned long cap);
-```
+struct Particle { float x; float y; int life; };
 
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `alloc(size, align)` | Returns aligned pointer, advances `used`. Returns NULL if full. |
-| `reset()` | Sets `used = 0`. All previously allocated memory is invalidated. |
-| `remaining() const` | Returns `cap - used`. |
-| `destroy()` | Frees backing buffer if heap-allocated. |
-
-### Example
-
-```c
-#include "alloc/bump.h"
-#include "io.h"
+static unsigned char g_frame[4096];          // per-frame scratch, no heap
 
 int main() {
-    unsigned char buf[4096];
-    BumpAllocator a = bump_init(buf, sizeof(buf));
-
-    int* x = a.alloc(sizeof(int), 4);
-    int* y = a.alloc(sizeof(int), 4);
-    *x = 10;
-    *y = 20;
-
-    print("remaining: ");
-    println_int(a.remaining());  // 4088
-
-    a.reset();  // invalidate all; ready for next frame
-    return 0;
+    struct BumpAllocator a = std::bump_init(&g_frame[0], 4096UL);
+    ?&heap Particle p = std::bump_alloc_t(&a);
+    ?&heap int counts = std::bump_alloc_array_t(&a, 16UL);
+    match (p) {
+        case some(x): { x.x = 1.0f; x.y = 2.0f; x.life = 30; }
+        case null:    std::println("arena full");
+    }
+    std::print("remaining: ");
+    std::println_int((long long)a.remaining());
+    a.reset();                               // next frame starts empty
+    return counts.is_null() ? 1 : 0;
 }
 ```
 
 ---
 
-## SlabAllocator
+## SlabAllocator {#slab}
 
-A freelist-based slab allocator for fixed-size objects. Backed by a pre-allocated pool; individual alloc/dealloc is O(1) via a linked freelist embedded in the pool.
-
-### Struct
+Fixed-size objects from a free list embedded in the buffer: O(1) alloc and free. A heap-backed slab (`slab_new`) tags every object and aborts on a double free or a foreign pointer.
 
 ```c
 struct SlabAllocator {
-    void*         pool;
-    void*         freelist;
     unsigned long obj_size;
-    unsigned long count;
-
-    void*         alloc();
+    &heap void    alloc();                    // byte level; null if full
     void          dealloc(void* ptr);
-    unsigned long available() const;
+    unsigned long available() const;          // free slots
     void          destroy();
-}
+};
+
+struct SlabAllocator slab_init(&unsigned char buffer, unsigned long obj_size, unsigned long count);
+struct SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
 ```
 
-### Constructors
-
 ```c
-// Use a caller-supplied buffer
-SlabAllocator slab_init(void* pool, unsigned long obj_size, unsigned long count);
-
-// Heap-allocate a pool for `count` objects of `obj_size` bytes each
-SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
-```
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `alloc()` | Pops one object from freelist. Returns NULL if full. |
-| `dealloc(ptr)` | Pushes object back to freelist. Pointer must be from this allocator. |
-| `available() const` | Number of free slots remaining. |
-| `destroy()` | Frees backing pool if heap-allocated. |
-
-### Example
-
-```c
-#include "alloc/slab.h"
-#include "io.h"
+#include <std/alloc/slab.h>
+#include <std/io.h>
 
 struct Packet { unsigned char data[64]; unsigned long len; };
 
 int main() {
-    SlabAllocator sa = slab_new(sizeof(struct Packet), 32);
-
-    struct Packet* p1 = sa.alloc();
-    struct Packet* p2 = sa.alloc();
-    struct Packet* p3 = sa.alloc();
-
-    p1->len = 10;
-
-    print("available: ");
-    println_int(sa.available());  // 29
-
-    sa.dealloc(p2);
-
-    print("available: ");
-    println_int(sa.available());  // 30
-
+    struct SlabAllocator sa = std::slab_new(sizeof(struct Packet), 32UL);
+    ?&heap Packet p1 = std::slab_alloc_t(&sa);
+    ?&heap Packet p2 = std::slab_alloc_t(&sa);
+    std::println_int((long long)sa.available());   // 30
+    match (p2) {
+        case some(p): std::slab_free_t(&sa, p);
+        case null: { }
+    }
+    std::println_int((long long)sa.available());   // 31
     sa.destroy();
-    return 0;
+    return p1.is_null() ? 1 : 0;
 }
 ```
 
 ---
 
-## PoolAllocator
+## PoolAllocator {#pool}
 
-A fixed-size block pool. Like a slab allocator but without the constraint that all blocks hold identical object types — any data fitting within `block_size` bytes can use the same pool.
-
-### Struct
+A variable-size, first-fit allocator: each block carries a small header, and freeing coalesces adjacent free blocks. Simple and compact, but allocation and free walk the block list — use TLSF when you need O(1).
 
 ```c
 struct PoolAllocator {
-    void*         base;
-    void*         next_free;
-    unsigned long block_size;
-    unsigned long capacity;
-
-    void*         alloc();
-    void          free(void* ptr);
-    unsigned long available() const;
+    unsigned long cap;
+    &heap void    alloc(unsigned long size);  // byte level; null if no block fits
+    void          dealloc(void* ptr);
+    unsigned long available() const;         // total free bytes
     void          destroy();
-}
+};
+
+struct PoolAllocator pool_init(&unsigned char buffer, unsigned long cap);
+struct PoolAllocator pool_new(unsigned long cap);
 ```
-
-### Constructors
-
-```c
-// Use a caller-supplied buffer
-PoolAllocator pool_init(void* buffer, unsigned long block_size, unsigned long count);
-
-// Heap-allocate
-PoolAllocator pool_new(unsigned long block_size, unsigned long count);
-```
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `alloc()` | Returns next free block. NULL if exhausted. |
-| `free(ptr)` | Returns block to pool. |
-| `available() const` | Free block count. |
-| `destroy()` | Free heap-allocated backing buffer. |
 
 ---
 
-## TlsfAllocator
+## TlsfAllocator {#tlsf}
 
-Two-Level Segregated Fit — a real-time general-purpose allocator with **O(1) worst-case** alloc and free. Suitable for embedded firmware where `malloc` timing is unacceptable.
-
-### Struct
+Two-Level Segregated Fit: a two-level bitmap of size classes finds a fitting free block in O(1), and freeing coalesces with physical neighbours in O(1). This is what `std/heap.h` uses on freestanding targets.
 
 ```c
 struct TlsfAllocator {
-    void*         pool;
-    unsigned long pool_size;
-    // internal FL/SL bitmaps (opaque)
+    unsigned long cap;
+    &heap void    alloc(unsigned long size);  // byte level; null if exhausted
+    void          free(&heap void ptr);
+    void          destroy();
+};
 
-    void* alloc(unsigned long size);
-    void  free(void* ptr);
-    void  destroy();
-}
+struct TlsfAllocator tlsf_init(&unsigned char buffer, unsigned long cap);
+struct TlsfAllocator tlsf_new(unsigned long cap);
 ```
 
-### Constructors
-
 ```c
-// Use a caller-supplied memory region as the TLSF heap
-TlsfAllocator tlsf_init(void* pool, unsigned long size);
-
-// Heap-allocate a pool of `size` bytes from the system allocator
-TlsfAllocator tlsf_new(unsigned long size);
-```
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `alloc(size)` | Allocate `size` bytes. Returns NULL if no suitable block. O(1) guaranteed. |
-| `free(ptr)` | Free a previously allocated block. O(1) guaranteed. |
-| `destroy()` | Free heap-allocated pool. |
-
-### Example
-
-```c
-#include "alloc/tlsf.h"
-#include "io.h"
+#include <std/alloc/tlsf.h>
 
 int main() {
-    TlsfAllocator ta = tlsf_new(65536);  // 64 KiB pool
-
-    void* a = ta.alloc(100);
-    void* b = ta.alloc(200);
-    void* c = ta.alloc(50);
-
-    ta.free(b);              // coalesced back into free pool
-    void* d = ta.alloc(180);  // reuses freed space
-
-    ta.free(a);
-    ta.free(c);
-    ta.free(d);
+    struct TlsfAllocator ta = std::tlsf_new(65536UL);   // 64 KiB
+    ?&heap double a = std::tlsf_alloc_array_t(&ta, 100UL);
+    ?&heap double b = std::tlsf_alloc_array_t(&ta, 200UL);
+    match (b) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }   // coalesced
+    ?&heap double c = std::tlsf_alloc_array_t(&ta, 180UL);                  // reuses b's space
+    match (a) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }
+    match (c) { case some(x): std::tlsf_free_t(&ta, x); case null: { } }
     ta.destroy();
     return 0;
 }

@@ -24,6 +24,9 @@ For explicit control over width and signedness:
 | `int16_t` | `uint16_t` | 16-bit |
 | `int32_t` | `uint32_t` | 32-bit |
 | `int64_t` | `uint64_t` | 64-bit |
+| `intptr_t`, `ptrdiff_t` | `uintptr_t`, `size_t` | pointer width |
+
+`size_t` and friends follow the target's pointer width (`__SIZEOF_POINTER__`): 8 bytes on 64-bit targets, 4 on 32-bit ones such as `x86`, `aarch32`, Cortex-M and RV32. SafeC's own `long` is always 64-bit on every target, so it is *not* a pointer-sized integer — use `size_t`/`uintptr_t` for sizes and addresses. An integer argument to an `extern` C function's pointer-width integer parameter (a `size_t` on a 32-bit target) is converted at the call without a cast, so libc calls written with `unsigned long` sizes stay portable.
 
 ## Type Inference with `auto`
 
@@ -84,6 +87,7 @@ use one. Construct a union value with `TypeName.field(value)`, and read
 it back with `match`'s dot-prefixed variant patterns, `case .field(x):`:
 
 ```c
+extern int printf(const char* fmt, ...);
 union Result {
     int ok;
     int err;
@@ -124,6 +128,16 @@ Tuples are anonymous product types. Members are accessed by index using `.0`, `.
 tuple(int, double) pair = (42, 3.14);
 int first = pair.0;
 double second = pair.1;
+```
+
+A parenthesized, comma-separated list is a **tuple literal** wherever a tuple type is expected: an initializer, an assignment, a `return`, or an argument. Each element converts to the corresponding member type, so literals widen as they would in a plain assignment:
+
+```c
+tuple(int, double) divmod(int a, int b) { return (a / b, (double)(a % b)); }
+int sum(tuple(int, int) t) { return t.0 + t.1; }
+
+tuple(long long, int) q = (1, 2);   // 1 widens to long long
+int s = sum((3, 4));
 ```
 
 Tuples lower to anonymous LLVM struct types at codegen.
@@ -181,7 +195,8 @@ A pointer (`T*`), nullable reference (`?&region T` — "region" here also covers
 | `x.is_null()` | `T*`, `?&region T` | Returns `bool`; presence check only, does not narrow `x`'s type |
 | `x.is_none()` | `?T` | Returns `bool`; the optional's equivalent of `is_null()` |
 | `x.default(fallback)` | all three | Returns the inner value if present, else evaluates and returns `fallback` (must match the inner type) |
-| `match (x) { case null / none: ...  case some(v): ... }` | all three | `v` is bound directly as the inner type inside the `some` arm |
+| `match (x) { case null / none: ...  case some(v): ... }` | all three | Inside the `some` arm, `v` is the narrowed value: for `?&T`, the non-null reference `&T` (writes through `v` reach the referent); for `?T`, the contained `T` |
+| `std::expect_ref(x, "msg")` (`std/panic.h`) | `?&T` | Returns `&T`, or panics with `msg` when `x` is null — for a null that would be a bug, not an expected case |
 | `x!` / `*x` / `x.field` / `x->field` inside `unsafe { }` | all three | Bypasses the checks above entirely |
 
 ```c
@@ -204,10 +219,12 @@ int describe(?&stack Node n) {
 int describe_match(?&stack Node n) {
     return match (n) {
         case null:    -1,
-        case some(v): v.value,   // v : Node (a copy of the payload) -- bound by value, not by reference
+        case some(v): v.value,   // v : &Node -- the narrowed, non-null reference
     };
 }
 ```
+
+A nullable reference can't be *cast* to a non-null one: `(&T)q` on a `?&T q` is a compile error — the cast would skip exactly the check `match` forces. Casting the other way, or to another nullable type (`(?&T)p`), is fine.
 
 `x.is_null()` on a `?T` (and `x.is_none()` on a pointer/nullable reference) is a compile error — use the one matching the receiver's kind. `match` with `null`/`some(x)` patterns works on raw pointers (`T*`) too, not just nullable references.
 

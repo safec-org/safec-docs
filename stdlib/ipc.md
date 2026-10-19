@@ -3,10 +3,10 @@
 `std/ipc/` covers communicating with a *different process* rather than another thread within the same process — see [Synchronization](/stdlib/sync) for `Channel`/`MpscQueue`/`LFQueue`, which are all intra-process.
 
 ```c
-#include "ipc/pipe.h"
-#include "ipc/uds.h"
+#include <std/ipc/pipe.h>
+#include <std/ipc/uds.h>
 // or via:
-#include "prelude.h"
+#include <std/prelude.h>
 ```
 
 ---
@@ -25,43 +25,43 @@ struct Pipe {
     long long write_fd;
 };
 
-int  pipe_create(struct Pipe* out);   // 0 on success, -1 on failure
+int  pipe_create(&Pipe out);          // 0 on success, -1 on failure
 
 // Returns bytes read (0 = write end closed and pipe drained: EOF), -1 on error.
-long long pipe_read(struct Pipe* p, void* buf, unsigned long count);
+long long pipe_read(&Pipe p, &unsigned char buf, unsigned long count);
 
 // Returns bytes written, or -1 on error.
-long long pipe_write(struct Pipe* p, const void* buf, unsigned long count);
+long long pipe_write(&Pipe p, const &unsigned char buf, unsigned long count);
 
 // Non-blocking mode (pairs with std::Reactor — await_fd(fd, SCHED_READ/WRITE)).
-int  pipe_set_read_nonblocking(struct Pipe* p);
-int  pipe_set_write_nonblocking(struct Pipe* p);
+int  pipe_set_read_nonblocking(&Pipe p);
+int  pipe_set_write_nonblocking(&Pipe p);
 
 // Closing the write end wakes a reader blocked in pipe_read (or awaiting
 // SCHED_READ) with EOF once the pipe drains. Safe to call each end's
 // close exactly once — closing twice is undefined, the same as any
 // double-close(2).
-int  pipe_close_read(struct Pipe* p);
-int  pipe_close_write(struct Pipe* p);
+int  pipe_close_read(&Pipe p);
+int  pipe_close_write(&Pipe p);
 ```
 
 ### Example
 
 ```c
-#include "ipc/pipe.h"
-#include "io.h"
+#include <std/ipc/pipe.h>
+#include <std/io.h>
 
 int main() {
     struct Pipe p;
     if (pipe_create(&p) != 0) { println("pipe_create failed"); return 1; }
 
     const char* msg = "hello";
-    unsafe { pipe_write(&p, (const void*)msg, 5UL); }
+    unsafe { std::pipe_write(&p, (const &unsigned char)msg, 5UL); }
 
     char buf[6];
     unsafe { buf[5] = (char)0; }
     long long n;
-    unsafe { n = pipe_read(&p, (void*)&buf[0], 5UL); }
+    unsafe { n = std::pipe_read(&p, (&unsigned char)&buf[0], 5UL); }
     print("read "); print_int(n); print(" bytes: ");
     unsafe { println(&buf[0]); }   // hello
 
@@ -115,8 +115,8 @@ int uds_unlink(const char* path);
 ### Example
 
 ```c
-#include "ipc/uds.h"
-#include "io.h"
+#include <std/ipc/uds.h>
+#include <std/io.h>
 
 extern int write(int fd, const void* buf, unsigned long count);
 extern long long read(int fd, void* buf, unsigned long count);

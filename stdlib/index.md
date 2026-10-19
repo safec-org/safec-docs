@@ -1,9 +1,9 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` (declarations) + `.sc` (implementation) pair. Include `prelude.h` to pull in every module at once.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in every module at once.
 
 ```c
-#include "prelude.h"
+#include <std/prelude.h>
 
 int main() {
     println("Hello from SafeC stdlib!");
@@ -37,17 +37,18 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| slice | `collections/slice.h` | Bounds-checked fat pointer + generic array functions |
-| vec | `collections/vec.h` | Dynamic array with push/pop/sort/filter/map |
+| slice | `collections/slice.h` | `Slice<T>` bounds-checked view + `arr_*` helpers |
+| vec | `collections/vec.h` | `Vec<T>` dynamic array; introsort, compile-time `vec_sort_by` |
 | string | `collections/string.h` | Mutable, heap-allocated growable string (30+ methods) |
-| stack | `collections/stack.h` | LIFO stack backed by growable array |
-| queue | `collections/queue.h` | FIFO circular buffer queue |
-| list | `collections/list.h` | Doubly linked list |
-| map | `collections/map.h` | Hash map (open addressing, linear probing) |
-| bst | `collections/bst.h` | Unbalanced binary search tree |
-| btree | `collections/btree.h` | B-tree ordered map (order-4, 256-node pool) |
-| ringbuffer | `collections/ringbuffer.h` | SPSC lock-free power-of-two ring buffer |
-| static_collections | `collections/static_vec.h` | Header-only zero-heap vec + map macros |
+| stack | `collections/stack.h` | `Stack<T>` LIFO |
+| queue | `collections/queue.h` | `Queue<T>` FIFO ring |
+| list | `collections/list.h` | `List<T>` doubly linked list over a node pool |
+| map | `collections/map.h` | `HashMap<K, V>` / `StrMap<V>` (open addressing) |
+| bst | `collections/bst.h` | `BST<K, V, C>` with a compile-time ordering `C` |
+| btree | `collections/btree.h` | `BTree<V>` ordered map, fixed 256-node pool |
+| ringbuffer | `collections/ringbuffer.h` | SPSC lock-free power-of-two byte ring |
+| node_pool | `collections/node_pool.h` | `NodePool<N>` per-container node arena |
+| static_vec | `collections/static_vec.h` | `StaticVec<T>` / `StaticMap<V>` over caller storage (zero heap) |
 
 ### [Allocators](/stdlib/allocators)
 
@@ -55,7 +56,7 @@ int main() {
 |--------|--------|-------------|
 | bump | `alloc/bump.h` | Linear bump-pointer arena; O(1) alloc, reset-only free |
 | slab | `alloc/slab.h` | Freelist slab for fixed-size objects; O(1) alloc/dealloc |
-| pool | `alloc/pool.h` | Fixed-block pool for mixed content; O(1) alloc/free |
+| pool | `alloc/pool.h` | Variable-size first-fit pool with coalescing |
 | tlsf | `alloc/tlsf.h` | Two-Level Segregated Fit; O(1) worst-case general heap |
 
 ### [Synchronization](/stdlib/sync)
@@ -63,10 +64,10 @@ int main() {
 | Module | Header | Description |
 |--------|--------|-------------|
 | spinlock | `sync/spinlock.h` | Busy-wait mutual exclusion (`__sync_lock_test_and_set`) |
-| lockfree | `sync/lockfree.h` | Wait-free SPSC ring buffer with compiler barriers |
-| channel | `sync/channel.h` | Typed (`chan_send_t<T>`/`chan_recv_t<T>`) wrappers over the language's built-in bounded blocking MPMC channel (`chan_create`/`chan_send`/`chan_recv`/`chan_close`) |
-| mpsc | `sync/mpsc.h` | Spinlock-guarded bounded MPSC ring buffer, non-blocking API |
-| task | `sync/task.h` | Cooperative round-robin task scheduler |
+| lockfree | `sync/lockfree.h` | `LFQueue<T>` lock-free SPSC ring buffer |
+| channel | `sync/channel.h` | `Chan<T>`: typed bounded blocking MPMC channel over the `chan_*` built-ins |
+| mpsc | `sync/mpsc.h` | `MpscQueue<T>` spinlock-guarded MPSC ring, non-blocking |
+| task | `sync/task.h` | Cooperative scheduler; typed `task_spawn` |
 | thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
 | bare_spawn | `sync/bare_spawn.sc` | Reference "Hook" backend for the `spawn`/`join` language keywords on freestanding targets |
 
@@ -271,47 +272,45 @@ PNG (DEFLATE) and SVG decoders/renderers.
 
 ## Generic Pattern
 
-The standard library's own collections predate SafeC's generic-struct support (see [Generics](/reference/generics#generic-structs-and-methods) — structs and unions can be generic now) and haven't been migrated to it: they still use `void*` structs for the underlying data structure, with `generic<T>` wrapper functions for type-safe access. `T` is inferred from `T*` arguments at the call site via monomorphization. This keeps a single compiled struct per collection *type* rather than one per element type `T` — a real tradeoff independent of whether generic structs exist, not just a workaround for their absence (see [Collections](/stdlib/collections) for the full rationale).
+Containers and other value-holding APIs are generic structs and functions, monomorphized per element type. They hand out `?&T` references (narrow them with `match`, `.default(x)`, or `std::expect_ref`), return `?T` when there may be no value, and take typed `fn` callbacks — the standard library has no `void*` element or callback parameters. `T` is written once, on the variable, and the constructor infers it from that target type:
 
 ```c
-#include "collections/vec.h"
+#include <std/collections/vec.h>
 
 int main() {
-    struct Vec v = vec_new(sizeof(int));
-
-    // Type-erased API
-    int x = 42;
-    vec_push(&v, &x);
-
-    // Generic typed wrapper — T inferred from int* argument
-    vec_push_t(&v, 100);
-    int* p = vec_at(&v, 0);  // returns int*
-
-    vec_free(&v);
-    return 0;
+    struct Vec<int> v = std::vec_new();
+    v.push(42);
+    v.push(100);
+    match (v.get(0UL)) {
+        case some(x): *x = *x + 1;      // 43, written in place
+        case null:    { }
+    }
+    int last = v.pop().default(-1);     // 100
+    v.free();
+    return last == 100 ? 0 : 1;
 }
 ```
 
-This `void*`-plus-typed-wrapper shape is the same general technique behind explicit runtime polymorphism (a struct holding `void* data` plus a `fn` field) — see [Polymorphism & OOP](/reference/polymorphism#manual-dispatch-explicit-vtables).
+Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic function that takes a matching `fn(?&T)` and `?&T` — `timer_add`, `widget_on_click`, `vfs_mount`, `task_spawn` — so every call is still checked at compile time. The remaining `void*` declarations in `std/` are C ABI boundaries: libc/OS externs, `mem.h`'s raw byte allocator, MMIO base addresses, and GPU/WASM foreign interfaces.
 
 ## Including the Standard Library
 
 **Individual modules:**
 ```c
-#include "mem.h"
-#include "io.h"
-#include "collections/vec.h"
+#include <std/mem.h>
+#include <std/io.h>
+#include <std/collections/vec.h>
 ```
 
 **All modules at once:**
 ```c
-#include "prelude.h"
+#include <std/prelude.h>
 ```
 
 When building with the `safeguard` package manager, the standard library is automatically compiled to `build/deps/libsafec_std.a` and linked.
 
-When building manually, pass the std directory with `-I`:
+When building manually, put the SafeC checkout on the include path (headers are named `<std/...>`) and link the std archive that `safeguard` builds (or that you build from every `std/**/*.sc`):
 ```bash
-./build/safec myfile.sc -I /path/to/SafeC/std --emit-llvm -o myfile.ll
-clang myfile.ll -o myfile
+safec myfile.sc -I /path/to/SafeC -o myfile.ll
+clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile
 ```

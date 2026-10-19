@@ -4,15 +4,15 @@ An HTTP/1.1 client/server, plus CORS, JWT, and OAuth2 helpers for
 building a web API.
 
 ```c
-#include <std/sched/io_nb_bsd.sc>  // or io_nb_linux.sc / io_nb_win32.sc — pick your platform's backend
 #include <std/http/http.h>
-#include <std/http/http.sc>
 ```
+
+The non-blocking socket layer underneath (`std/sched/io_nb.h`) has one backend per platform (`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`); `safeguard` compiles the one matching the target into `libsafec_std.a`, so there is nothing to include or select by hand.
 
 ## Server
 
 ```c
-struct HttpResponse handle(struct HttpRequest* req) {
+struct HttpResponse handle(&HttpRequest req) {
     struct HttpResponse resp;
     resp.status = 200;
     resp.headers = std::string_new();
@@ -50,14 +50,14 @@ struct HttpResponse resp = std::http_get("example.com", 80, "/", &ok);
 
 ```c
 #include <std/http/cors.h>
-#include <std/http/cors.sc>
+#include <std/http/cors.h>
 ```
 
 Not a wrapping middleware (a bare `HttpHandler` function pointer has no
 closure slot) — call these directly from your own handler:
 
 ```c
-struct HttpResponse handle(struct HttpRequest* req) {
+struct HttpResponse handle(&HttpRequest req) {
     if (std::cors_is_preflight(req))
         return std::cors_preflight_response("*", "GET, POST, OPTIONS", "Content-Type, Authorization");
     struct HttpResponse resp = /* ... */;
@@ -70,7 +70,7 @@ struct HttpResponse handle(struct HttpRequest* req) {
 
 ```c
 #include <std/http/jwt.h>
-#include <std/http/jwt.sc>
+#include <std/http/jwt.h>
 ```
 
 HS256 (HMAC-SHA256) compact-serialization JWTs, built on `std/crypto/hmac.h`.
@@ -94,7 +94,7 @@ tampered-token rejection.
 
 ```c
 #include <std/http/oauth2.h>
-#include <std/http/oauth2.sc>
+#include <std/http/oauth2.h>
 ```
 
 Client-side token exchange (RFC 6749) — provider-agnostic, works against

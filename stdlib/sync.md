@@ -3,14 +3,12 @@
 SafeC provides six synchronization modules in `std/sync/` for both hosted (OS-based) and freestanding (bare-metal) environments — plus `bare_spawn.sc`, the reference "Hook" backend for the language-level `spawn`/`join` keywords on freestanding targets (see [thread](/stdlib/thread#backend-selection)).
 
 ```c
-#include "sync/spinlock.h"
-#include "sync/lockfree.h"
-#include "sync/channel.h"
-#include "sync/mpsc.h"
-#include "sync/task.h"
-#include "sync/thread_bare.h"
-// or via:
-#include "prelude.h"
+#include <std/sync/spinlock.h>
+#include <std/sync/lockfree.h>     // LFQueue<T>
+#include <std/sync/channel.h>      // Chan<T>
+#include <std/sync/mpsc.h>         // MpscQueue<T>
+#include <std/sync/task.h>         // TaskScheduler, task_spawn
+#include <std/sync/thread_bare.h>  // ThreadSched, thread_spawn
 ```
 
 For communicating with a *different process* rather than another thread, see [IPC](/stdlib/ipc) (`std/ipc/pipe.h`, `std/ipc/uds.h`).
@@ -39,7 +37,7 @@ struct Spinlock {
 ### Constructor
 
 ```c
-Spinlock spinlock_init();  // returns zeroed spinlock (unlocked)
+struct Spinlock spinlock_init();  // an unlocked spinlock
 ```
 
 ### Methods
@@ -54,22 +52,23 @@ Spinlock spinlock_init();  // returns zeroed spinlock (unlocked)
 ### Example
 
 ```c
-#include "sync/spinlock.h"
-#include "io.h"
+#include <std/sync/spinlock.h>
+#include <std/io.h>
 
-Spinlock g_lock = spinlock_init();
-int g_counter = 0;
+static struct Spinlock g_lock;   // zero-initialized == unlocked
+static int g_counter = 0;
 
 void increment() {
     g_lock.lock();
-    g_counter++;
+    g_counter = g_counter + 1;
     g_lock.unlock();
 }
 
 int main() {
+    g_lock = std::spinlock_init();
     increment();
     increment();
-    println_int(g_counter);  // 2
+    std::println_int(g_counter);  // 2
     return 0;
 }
 ```
@@ -80,352 +79,222 @@ Do not hold a spinlock across blocking calls, sleep, or any operation that may t
 
 ---
 
-## LFQueue — Lock-Free SPSC Ring Buffer
+## LFQueue\<T\> — Lock-Free SPSC Ring Buffer {#lfqueue}
 
-A single-producer / single-consumer wait-free queue. Uses compiler barriers for memory ordering. Capacity must be a power of two.
-
-### Struct
+A bounded single-producer / single-consumer queue. `head`/`tail` are monotonically increasing element counters updated with atomic stores (the element is written before `head` is published, and read before `tail` releases the slot); only the slot index is `counter & (cap - 1)`, so all `cap` slots are usable and "full" is told apart from "empty" without a sentinel slot.
 
 ```c
+generic<T>
 struct LFQueue {
-    &heap void    buffer;     // heap-backed element storage
-    unsigned long cap;        // power-of-two capacity
-    unsigned long elem_size;
-    long long     head;       // producer writes here (atomic)
-    long long     tail;       // consumer reads here (atomic)
+    int           enqueue(T val);   // producer; 1 on success, 0 if full
+    ?T            dequeue();        // consumer; null if empty
+    int           is_empty() const;
+    int           is_full() const;
+    unsigned long len() const;
+    void          destroy();        // frees the buffer if lfq_new allocated it
+};
 
-    int           enqueue(const void* elem);
-    int           dequeue(void* out);
+generic<T> struct LFQueue<T> lfq_new(unsigned long cap);                  // cap rounded UP to a power of two
+generic<T> struct LFQueue<T> lfq_init(&heap T buffer, unsigned long cap); // caller's buffer; cap rounded DOWN
+```
+
+```c
+struct LFQueue<long long> q = std::lfq_new(64UL);
+q.enqueue(5LL);                               // producer thread
+match (q.dequeue()) {                         // consumer thread
+    case some(v): use(v);
+    case none:    { }                         // empty right now
+}
+q.destroy();
+```
+
+Exactly one producer and one consumer; for several producers use `MpscQueue`.
+
+---
+
+## Chan\<T\> — Bounded Blocking Channel {#channel}
+
+The language's `chan_create`/`chan_send`/`chan_recv`/`chan_close` built-ins are untyped: the runtime (`channel.sc`, a mutex + condvar MPMC queue) carries fixed 8-byte slots. `Chan<T>` fixes the element type and pads each value into a full slot, so nothing reads or writes past a smaller `T`; `sizeof(T) <= 8` is a compile-time `static_assert`. Unlike the queues on this page, `send`/`recv` **block** while the channel is full/empty.
+
+```c
+generic<T>
+struct Chan {
+    int  send(T val);   // blocks while full; 0 once closed
+    ?T   recv();        // blocks while empty; null once closed *and* drained
+    void close();       // wakes every blocked sender/receiver
+};
+
+generic<T> struct Chan<T> chan_new(int cap);   // cap < 1 is clamped to 1
+```
+
+```c
+#include <std/sync/channel.h>
+#include <std/thread.h>
+
+static struct Chan<int> g_ch;
+
+static ?&int producer(?&int unused) {
+    int i = 1;
+    while (i <= 100) { g_ch.send(i); i = i + 1; }
+    g_ch.close();
+    return null;
+}
+
+int main() {
+    g_ch = std::chan_new(8);
+    unsigned long long tid = 0ULL;
+    std::thread_create(&tid, producer, null);
+    long long total = 0LL;
+    int more = 1;
+    while (more) {
+        match (g_ch.recv()) {
+            case some(v): total = total + (long long)v;
+            case none:    more = 0;                     // closed and drained
+        }
+    }
+    std::thread_join(tid);
+    return total == 5050LL ? 0 : 1;
+}
+```
+
+For a `T` larger than 8 bytes, send a `?&T` to it (a reference fits on every supported target) and keep the referent alive until it has been received.
+
+---
+
+## MpscQueue\<T\> — Multi-Producer / Single-Consumer Queue {#mpscqueue}
+
+The multi-producer sibling of `LFQueue`: still bounded and non-blocking (`enqueue`/`dequeue` return at once), but correct with any number of concurrent producers because a `Spinlock` guards every mutation. "Single consumer" is a documented contract, not enforced (concurrent `dequeue()` calls would still be serialized correctly).
+
+```c
+generic<T>
+struct MpscQueue {
+    int           enqueue(T val);   // any thread; 1 on success, 0 if full
+    ?T            dequeue();        // null if empty
     int           is_empty() const;
     int           is_full() const;
     unsigned long len() const;
     void          destroy();
-}
-```
-
-### Constructor
-
-```c
-struct LFQueue lfq_new(unsigned long elem_size, unsigned long cap);   // heap-allocates its own buffer
-struct LFQueue lfq_init(&heap void buffer, unsigned long elem_size, unsigned long cap);  // over caller-provided storage
-```
-
-`cap` must be a power of two (e.g. 64, 128, 256). A queue from `lfq_new` should be released with `.destroy()`; one from `lfq_init` owns nothing (the caller manages `buffer`'s lifetime).
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `enqueue(elem)` | Copy `elem` into queue. Returns 1 on success, 0 if full. Producer only. |
-| `dequeue(out)` | Copy front element into `out`. Returns 1 on success, 0 if empty. Consumer only. |
-| `is_empty() const` | Returns 1 if queue is empty. |
-| `is_full() const` | Returns 1 if queue is full. |
-| `len() const` | Current element count. |
-| `destroy()` | Frees the heap-backed buffer (only meaningful for a queue from `lfq_new`). |
-
-### Typed Generic Wrappers
-
-For a fixed element type, `lfq_enqueue_t`/`lfq_dequeue_t` avoid manually taking addresses of locals:
-
-```c
-generic<T> int lfq_enqueue_t(&stack LFQueue q, T val);
-generic<T> int lfq_dequeue_t(&stack LFQueue q, T* out);
-```
-
-### Example
-
-```c
-#include "sync/lockfree.h"
-#include "io.h"
-
-int main() {
-    LFQueue q = lfq_new(sizeof(int), 64);
-
-    // Producer
-    int a = 10;
-    int b = 20;
-    int c = 30;
-    unsafe {
-        q.enqueue((const void*)&a);
-        q.enqueue((const void*)&b);
-        q.enqueue((const void*)&c);
-    }
-
-    // Consumer
-    int val = 0;
-    while (!q.is_empty()) {
-        unsafe { q.dequeue((void*)&val); }
-        println_int((long long)val);  // 10, 20, 30
-    }
-
-    q.destroy();
-    return 0;
-}
-```
-
-::: tip
-In a real SPSC scenario, the producer and consumer run in separate threads or ISR contexts. This queue is safe without any additional locking as long as only one thread enqueues and only one thread dequeues.
-:::
-
----
-
-## Channel — Bounded Blocking MPMC Channel
-
-The language has its own channel *syntax* built in — `chan_create`/`chan_send`/`chan_recv`/`chan_close` are compiler built-ins, no `#include` needed — backed by `std/sync/channel.h`'s runtime (a bounded, blocking, multi-producer/multi-consumer channel implemented with a mutex + condvar from `thread.h`). Unlike `LFQueue`/`MpscQueue` below, `chan_send`/`chan_recv` **block** the calling thread when the channel is full/empty rather than returning a full/empty indicator immediately.
-
-```c
-#include "sync/channel.h"
-```
-
-The built-ins are deliberately untyped at the compiler level: `chan_create` only ever takes a capacity, never an element type, so the runtime picks one fixed convention — every channel carries 8-byte ("machine word") payload slots, and the raw `chan_send`/`chan_recv` always copy exactly 8 bytes at `*value_ptr`/`*out_ptr`. Passing a pointer to something smaller directly (e.g. a bare `int`) is a real out-of-bounds hazard, not just a style concern — `chan_send_t<T>`/`chan_recv_t<T>` are the safe way to use a channel for any `T` that actually fits (`static_assert`'d at compile time, so an oversized `T` is a compile error here instead of silent corruption at the raw built-ins):
-
-```c
-generic<T> int chan_send_t(void* ch, T val);
-generic<T> int chan_recv_t(void* ch, T* out);
-```
-
-### Example
-
-```c
-#include "sync/channel.h"
-#include "io.h"
-
-int main() {
-    void* ch = chan_create(16);      // still the raw built-in
-    std::chan_send_t(ch, 42);        // T=int inferred from the argument
-
-    int v = 0;
-    int ok;
-    unsafe { ok = std::chan_recv_t(ch, (int*)&v); }
-    if (ok) { println_int((long long)v); }   // 42
-
-    chan_close(ch);                  // still the raw built-in
-    return 0;
-}
-```
-
-::: warning
-The explicit `(int*)&v` cast (inside `unsafe`) on the receive side is not optional today — generic type inference doesn't unify a plain `&v` reference argument against a `T*` pointer parameter (a pre-existing compiler limitation, also affecting a few other `T*` out-parameter generics in the standard library). Passing `&v` alone fails with "cannot infer type arguments"; the explicit pointer cast is what makes `T` resolvable.
-
-For a `T` larger than 8 bytes, box it on the heap and send the pointer instead — a pointer is always exactly 8 bytes on every target this compiler supports, so `chan_send_t(ch, myStructPtr)` (`T` inferred as `MyStruct*`) still fits the fixed slot size.
-:::
-
----
-
-## MpscQueue — Multi-Producer / Single-Consumer Ring Buffer
-
-`LFQueue` above is the SPSC case: lock-free, but only correct with exactly one producer and one consumer — concurrent producers would race on the same `head` index with no coordination. `MpscQueue` is the multi-producer sibling: still a bounded ring buffer, still a non-blocking API (`enqueue`/`dequeue` return immediately with a full/empty indicator rather than blocking the caller — unlike `Channel` above), but correctness across multiple concurrent producers comes from a `Spinlock` guarding every mutation rather than a lock-free algorithm — a deliberate simplicity-over-cleverness choice over a hand-rolled CAS-based MPSC ring buffer.
-
-```c
-#include "sync/mpsc.h"
-```
-
-"Single-consumer" is a contract this type does not itself enforce (the spinlock would still serialize concurrent `dequeue()` calls correctly) — it's a naming/intent signal for callers, the same way `LFQueue`'s SPSC contract is documented rather than mechanically checked.
-
-### Struct
-
-```c
-struct MpscQueue {
-    &heap void      buffer;
-    unsigned long   cap;        // capacity in elements — need not be a power of two (unlike LFQueue)
-    unsigned long   elem_size;
-    unsigned long   head;       // consumer reads here
-    unsigned long   tail;       // producers write here
-    unsigned long   count;      // pending element count
-    struct Spinlock lock;       // guards head/tail/count and the buffer contents
-
-    int           enqueue(const void* elem);   // 1 on success, 0 if full
-    int           dequeue(void* out);          // 1 on success, 0 if empty
-    int           is_empty() const;
-    int           is_full() const;
-    unsigned long len() const;
-    void          destroy();                    // frees the backing buffer
-}
-
-struct MpscQueue mpsc_new(unsigned long elem_size, unsigned long cap);   // heap-allocates its own buffer
-```
-
-### Typed Generic Wrappers
-
-```c
-generic<T> int mpsc_enqueue_t(&stack MpscQueue q, T val);
-generic<T> int mpsc_dequeue_t(&stack MpscQueue q, T* out);
-```
-
-### Example
-
-```c
-#include "sync/mpsc.h"
-#include "io.h"
-
-int main() {
-    struct MpscQueue q = mpsc_new(sizeof(int), 64UL);
-
-    int a = 10;
-    int b = 20;
-    int c = 30;
-    unsafe {
-        q.enqueue((const void*)&a);
-        q.enqueue((const void*)&b);
-        q.enqueue((const void*)&c);
-    }
-
-    int val = 0;
-    while (!q.is_empty()) {
-        unsafe { q.dequeue((void*)&val); }
-        println_int((long long)val);  // 10, 20, 30
-    }
-
-    q.destroy();
-    return 0;
-}
-```
-
----
-
-## TaskScheduler — Cooperative Task Scheduler
-
-A stackless cooperative (non-preemptive) task scheduler. Tasks are **resumable functions**, not plain callbacks: each task function takes its own argument plus a `resume_point` and returns where to resume next time (or `0` when done), so a task can yield mid-work without needing its own OS stack. `tick()` runs one full round — every non-blocked, non-done task gets one turn.
-
-### Struct
-
-```c
-struct Task {
-    void* func;          // int(*)(void* arg, int resume_point)
-    void* arg;
-    int   state;         // TASK_READY / TASK_RUNNING / TASK_DONE
-    int   resume_point;
-    int   blocked;        // set by await_fd(); see std/sched/reactor.h
-    int   wait_fd;
-    int   wait_filter;
 };
 
+generic<T> struct MpscQueue<T> mpsc_new(unsigned long cap);   // any cap (not just powers of two)
+```
+
+```c
+static struct MpscQueue<int> g_q;
+
+static ?&int producer(?&int base) {
+    int b = base.default(0);
+    int i = 0;
+    while (i < 1000) {
+        while (!g_q.enqueue(b + i)) { std::thread_yield(); }   // full: back off
+        i = i + 1;
+    }
+    return null;
+}
+```
+
+---
+
+## TaskScheduler — Cooperative Task Scheduler {#taskscheduler}
+
+A stackless cooperative (non-preemptive) scheduler. Tasks are **resumable functions**: each takes its argument plus a `resume_point` and returns where to resume next time, or `0` when done, so a task can yield mid-work without an OS stack of its own. `tick()` runs one round — every non-blocked, non-done task gets one turn.
+
+```c
 struct TaskScheduler {
-    struct Task tasks[TASK_MAX];   // TASK_MAX = 64
+    struct Task tasks[TASK_MAX];   // TASK_MAX = 1024; finished slots are reused
     int         count;
     int         current;
 
-    int  spawn_task(void* func, void* arg);   // returns task index, or -1 if full
-    int  tick();                               // one round; returns count of still-active tasks
-    void run_all();                            // round-robin until every task is TASK_DONE
+    int  tick();                    // one round; returns the number of still-active tasks
+    void run_all();                 // round-robin until every task is done
     int  active_count() const;
 
-    // I/O-readiness blocking — see std/sched/reactor.h (std::Reactor / reactor_run)
-    void await_fd(int fd, int filter);          // called from *within* the current task's own turn
-    int  unblock_fd(int fd, int filter);         // called by the reactor when fd becomes ready
+    // I/O-readiness blocking — see std/sched/reactor.h
+    void await_fd(int fd, int filter);   // from *within* the running task's turn
+    int  unblock_fd(int fd, int filter); // called by the reactor
     int  has_blocked() const;
     int  has_ready() const;
-}
-```
+};
 
-### Constructor
-
-```c
 struct TaskScheduler task_sched_init();
+
+// Spawn func(arg, resume_point). Returns the task index, or -1 if full.
+generic<T> int task_spawn(&TaskScheduler s, fn int(?&T, int) func, ?&T arg);
 ```
 
-### Task function contract
+A task's argument type is whatever its function takes: `task_spawn` infers `T` from the function, so a mismatched argument is a compile error rather than a bad cast at run time. A `null` argument is fine — `T` still comes from the function.
 
 ```c
-int my_task(void* arg, int resume_point) {
-    // resume_point tells you where you left off; return >0 to yield with
-    // a new resume_point, or 0 when the task has finished.
-    if (resume_point == 0) {
-        // ... first chunk of work ...
-        return 1;               // yield, resume here at point 1 next tick
+#include <std/sync/task.h>
+#include <std/io.h>
+
+struct Blinker { int led; int times; };
+
+static int blink(?&Blinker b, int step) {
+    match (b) {
+        case some(x): { x.times = x.times + 1; }
+        case null:    return 0;
     }
-    // ... second chunk of work ...
-    return 0;                   // done
+    return step < 2 ? step + 1 : 0;          // yield twice, then finish
 }
-```
 
-A task that never yields (always returns via a path that isn't `0` after doing all its work in one call, or that blocks without calling `await_fd`) blocks the whole cooperative round — there's no preemption.
-
-### Example
-
-```c
-#include "sync/task.h"
-#include "io.h"
-
-int task_a(void* arg, int resume_point) {
-    println("Task A");
-    return 0;   // done after one turn
-}
-int task_b(void* arg, int resume_point) {
-    println("Task B");
+static int hello(?&int unused, int step) {
+    std::println("hello");
     return 0;
 }
 
 int main() {
-    struct TaskScheduler sched = task_sched_init();
-    sched.spawn_task((void*)task_a, 0);
-    sched.spawn_task((void*)task_b, 0);
-
-    sched.run_all();   // Task A, Task B
-    return 0;
+    struct TaskScheduler sched = std::task_sched_init();
+    struct Blinker b;
+    b.led = 13;
+    b.times = 0;
+    unsafe { std::task_spawn(&sched, blink, (?&Blinker)&b); }
+    std::task_spawn(&sched, hello, null);
+    sched.run_all();
+    return b.times == 3 ? 0 : 1;
 }
 ```
 
-### Blocking on I/O without stalling the scheduler
-
-A task that would otherwise block on I/O calls `await_fd(fd, filter)` on itself instead of actually blocking; `tick()` then skips it (no re-invocation, no busy-polling) until something calls `unblock_fd()` with a matching `(fd, filter)` — normally `std::Reactor` reporting the fd became ready. See [Real-Time Scheduler](/stdlib/sched) for the reactor that drives this. A scheduler with no reactor driving it will spin `run_all()` forever if any task calls `await_fd()` and is never unblocked.
+There is no preemption: a task that never returns stalls the whole round. A task that would block on I/O calls `await_fd(fd, filter)` instead; `tick()` then skips it until `unblock_fd()` — normally `std::Reactor` — reports the fd ready. See [Real-Time Scheduler](/stdlib/sched). Without a reactor, `run_all()` spins forever on a task that awaits and is never unblocked.
 
 ---
 
-## ThreadSched — Priority-Based Freestanding Threads
+## ThreadSched — Priority-Based Freestanding Threads {#threadsched}
 
-`thread_bare.h` wraps `TaskScheduler` with a per-slot priority array, adding priority ordering on top of the same resumable-function protocol — still fully cooperative (a running thread must still voluntarily yield; higher priority only means "served earlier within a tick", not preemption).
-
-```c
-#include "sync/thread_bare.h"
-```
-
-### Type
+`thread_bare.h` adds a per-slot priority to `TaskScheduler`, with the same resumable-function protocol. It is still cooperative: a higher priority only means "served earlier within a tick".
 
 ```c
-newtype Thread = int;   // index into the ThreadSched table; THREAD_NONE (-1) = spawn failed
-```
+#include <std/sync/thread_bare.h>
 
-### Struct
+newtype Thread = int;   // index into the table; THREAD_NONE (-1) = spawn failed
 
-```c
 struct ThreadSched {
     struct TaskScheduler inner;
-    int                  priority[THREAD_MAX];   // THREAD_MAX = TASK_MAX = 64
+    int                  priority[THREAD_MAX];   // THREAD_MAX = TASK_MAX
 
-    // func: int(*)(void* arg, int resume_point) — same protocol as TaskScheduler.
-    // Higher priority values are served earlier within each tick.
-    Thread spawn_thread(void* func, void* arg, int priority);
+    int  tick();                      // one pass in descending-priority order
+    void run_all();
+    int  is_active(Thread t) const;
+    void join_thread(Thread t);       // cooperative join: tick() until t is done
+    int  active_count() const;
+};
 
-    int    tick();                      // one pass, descending-priority order; returns active count
-    void   run_all();                   // run until every thread is done
-    int    is_active(Thread t) const;
-    void   join_thread(Thread t);       // cooperative join: calls tick() until t is done
-    int    active_count() const;
-}
-```
-
-### Constructor
-
-```c
 struct ThreadSched thread_sched_init();
-```
 
-### Example
+generic<T> Thread thread_spawn(&ThreadSched s, fn int(?&T, int) func, ?&T arg, int priority);
+```
 
 ```c
-#include "sync/thread_bare.h"
+static int urgent(?&int unused, int step)     { return 0; }
+static int background(?&int unused, int step) { return 0; }
 
-int high_task(void* arg, int resume_point) { /* urgent work */ return 0; }
-int low_task(void* arg, int resume_point)  { /* background work */ return 0; }
-
-int main() {
-    struct ThreadSched s = thread_sched_init();
-    Thread hi = s.spawn_thread((void*)high_task, 0, 10);
-    Thread lo = s.spawn_thread((void*)low_task,  0,  1);
-
+void run() {
+    struct ThreadSched s = std::thread_sched_init();
+    Thread hi = std::thread_spawn(&s, urgent, null, 10);
+    std::thread_spawn(&s, background, null, 1);
     s.join_thread(hi);
-    s.join_thread(lo);
-    return 0;
+    s.run_all();
 }
 ```
+
+A `ThreadSched` holds `TASK_MAX` task slots inline (tens of KB); on small targets keep it in static storage.

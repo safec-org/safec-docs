@@ -77,14 +77,15 @@ current READY, select next), `block_current()`, `unblock(idx)`,
 
 `Mailbox` (via `mailbox_init(owner_pid)`) — a fixed-capacity
 (`MAILBOX_CAPACITY` = 64 messages, `MSG_MAX_SIZE` = 256 bytes payload)
-message queue. `send(sender_pid, type, payload, size)`, `recv(&stack
+message queue. `send(sender_pid, type, payload, size)` (`payload` is a
+`const ?&unsigned char`; pass `null` with `size` 0 for a signal-only message), `recv(&stack
 Message out)`, `peek(&stack Message out)` (non-destructive), `has_msg()`,
 `length()`, `clear()`.
 
 ## Syscall Table (`kernel/syscall.h`)
 
 `SyscallTable` (via `syscall_init()`) — up to `SYSCALL_MAX` (256)
-handlers of signature `long long(long long, long long, long long)`.
+handlers typed `fn long long(long long, long long, long long)`.
 `register_(num, handler)`/`unregister_(num)` (trailing underscore:
 `register` is a C keyword), `dispatch(num, arg0, arg1, arg2)` (returns the
 handler's result, or `-1` if unregistered), `is_registered(num)`.

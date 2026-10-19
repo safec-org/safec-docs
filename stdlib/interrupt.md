@@ -41,11 +41,14 @@ Pure functions for register bit manipulation — `bf_extract32(val, lo, hi)`,
 ## ISR Vector Table (`interrupt/isr.h`)
 
 A software dispatch table distinct from the hardware vector table below —
-`IsrTable` holds up to `ISR_MAX` (256) handler function pointers:
+`IsrTable` holds up to `ISR_MAX` (256) `fn void()` handlers:
 
 ```c
+static void uart_rx_isr() { /* ... */ }
+
 struct IsrTable table = std::isr_init();
-unsafe { table.register_(3, (void*)my_handler); }  // trailing underscore: 'register' is a C keyword
+table.register_(3, uart_rx_isr);   // trailing underscore: 'register' is a C keyword
+// re-registering an IRQ replaces its handler
 ...
 if (table.dispatch(3)) { /* handler ran */ }
 ```

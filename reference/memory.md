@@ -127,7 +127,7 @@ next) — reading `p` after that point is a compile error, and freeing it
 again is a double-free, also caught at compile time:
 
 ```c
-#include <std/mem.sc>
+#include <std/mem.h>
 
 void f() {
     &heap int p = new int;

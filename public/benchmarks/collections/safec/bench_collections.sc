@@ -1,89 +1,99 @@
+// std::collections throughput, 1,000,000 elements (see benchmarks.md).
+// Same workloads, same key order and same algorithms as ../c/bench_collections.c.
 extern int printf(const char* fmt, ...);
-extern double drand48();
-extern void srand48(long seed);
 #include <std/mem.h>
-#include <std/mem.sc>
-#include <std/str.sc>
-#include <std/collections/bst.h>
-#include <std/collections/bst.sc>
-#include <std/collections/list.h>
-#include <std/collections/list.sc>
+#include <std/time.h>
+#include <std/collections/vec.h>
 #include <std/collections/map.h>
-#include <std/collections/map.sc>
-#include <std/time.sc>
+#include <std/collections/list.h>
+#include <std/collections/bst.h>
+#include <std/collections/queue.h>
 
 #define N 1000000UL
 
-double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
+static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
+
+static void report(const char* what, double ms, long long check) {
+    unsafe { printf("%-16s %9.3f ms  %12.0f ops/s  check=%lld\n", what, ms, (double)N / (ms / 1000.0), check); }
+}
+
+static int cmp_int(const &int a, const &int b) { return *a < *b ? -1 : (*a > *b ? 1 : 0); }
 
 int main() {
-  unsafe {
-    srand48(7L);
-    int* keys = (int*)alloc(sizeof(int) * N);
+    // Deterministic shuffle (xorshift64) so both versions see identical keys.
+    struct Vec<int> keys = std::vec_with_cap(N);
     unsigned long i = 0UL;
-    while (i < N) { keys[i] = (int)i; i = i + 1UL; }
-    // Shuffle so the BST isn't degenerate (sorted-order insert into an
-    // unbalanced BST is the documented worst case).
+    while (i < N) { keys.push((int)i); i = i + 1UL; }
+    unsigned long long s = 88172645463325252ULL;
     i = N - 1UL;
     while (i > 0UL) {
-        unsigned long j = (unsigned long)(drand48() * (double)(i + 1UL));
-        int tmp = keys[i]; keys[i] = keys[j]; keys[j] = tmp;
+        s = s ^ (s << 13); s = s ^ (s >> 7); s = s ^ (s << 17);
+        unsigned long j = (unsigned long)(s % (unsigned long long)(i + 1UL));
+        int tmp = *keys.at(i); *keys.at(i) = *keys.at(j); *keys.at(j) = tmp;
         i = i - 1UL;
     }
 
-    // ── BST ──────────────────────────────────────────────────────────────
-    struct BST t = std::bst_new((unsigned long)sizeof(int), (unsigned long)sizeof(int), (void*)std::bst_cmp_int);
+    // Vec: push + sort
     double t0 = now_ms();
+    struct Vec<int> v = std::vec_new();
     i = 0UL;
-    while (i < N) {
-        std::bst_insert(&t, (const void*)&keys[i], (const void*)&keys[i]);
-        i = i + 1UL;
-    }
+    while (i < N) { v.push(*keys.at(i)); i = i + 1UL; }
     double t1 = now_ms();
-    printf("bst    insert %lu: %.3fms (%.0f inserts/sec), len=%lu\n",
-           N, t1 - t0, (double)N / ((t1 - t0) / 1000.0), std::bst_len(&t));
-    std::bst_free(&t);
-
-    // ── List (push_back) ────────────────────────────────────────────────
-    struct List l = std::list_new((unsigned long)sizeof(int));
+    report("vec push", t1 - t0, (long long)v.length());
+    std::vec_sort(&v);
     double t2 = now_ms();
-    i = 0UL;
-    while (i < N) {
-        std::list_push_back(&l, (const void*)&keys[i]);
-        i = i + 1UL;
-    }
+    report("vec sort", t2 - t1, (long long)*v.at(N - 1UL));
+    v.free();
+
+    // HashMap<int,int>: insert, get
+    struct HashMap<int, int> m = std::map_new();
     double t3 = now_ms();
-    printf("list   push_back %lu: %.3fms (%.0f pushes/sec), len=%lu\n",
-           N, t3 - t2, (double)N / ((t3 - t2) / 1000.0), std::list_len(&l));
-    std::list_free(&l);
-
-    // ── HashMap ──────────────────────────────────────────────────────────
-    struct HashMap m = std::map_with_cap((unsigned long)sizeof(int), (unsigned long)sizeof(int), N);
+    i = 0UL;
+    while (i < N) { int k = *keys.at(i); m.insert(k, k); i = i + 1UL; }
     double t4 = now_ms();
+    report("map insert", t4 - t3, (long long)m.length());
+    long long sum = 0LL;
     i = 0UL;
-    while (i < N) {
-        m.insert((const void*)&keys[i], (const void*)&keys[i]);
-        i = i + 1UL;
-    }
+    while (i < N) { sum = sum + (long long)m.get(*keys.at(i)).default(0); i = i + 1UL; }
     double t5 = now_ms();
-    printf("map    insert %lu: %.3fms (%.0f inserts/sec), len=%lu\n",
-           N, t5 - t4, (double)N / ((t5 - t4) / 1000.0), m.length());
-
-    // Get, same key order (already inserted, so this is a pure lookup pass).
-    double t6 = now_ms();
-    long long checksum = 0LL;
-    i = 0UL;
-    while (i < N) {
-        int* v = (int*)m.get((const void*)&keys[i]);
-        checksum = checksum + (long long)(*v);
-        i = i + 1UL;
-    }
-    double t7 = now_ms();
-    printf("map    get %lu: %.3fms (%.0f gets/sec), checksum=%lld\n",
-           N, t7 - t6, (double)N / ((t7 - t6) / 1000.0), checksum);
+    report("map get", t5 - t4, sum);
     m.free();
 
-    dealloc((void*)keys);
+    // List<int>: push_back + pop_front
+    struct List<int> l = std::list_new();
+    double t6 = now_ms();
+    i = 0UL;
+    while (i < N) { l.push_back(*keys.at(i)); i = i + 1UL; }
+    sum = 0LL;
+    while (!l.is_empty()) { sum = sum + (long long)l.pop_front().default(0); }
+    double t7 = now_ms();
+    report("list push+pop", t7 - t6, sum);
+
+    // Queue<int>: enqueue + dequeue
+    struct Queue<int> q = std::queue_new();
+    double t8 = now_ms();
+    i = 0UL;
+    while (i < N) { q.enqueue(*keys.at(i)); i = i + 1UL; }
+    sum = 0LL;
+    while (!q.is_empty()) { sum = sum + (long long)q.dequeue().default(0); }
+    double t9 = now_ms();
+    report("queue enq+deq", t9 - t8, sum);
+    q.free();
+
+    // BST<int,int>: insert (shuffled, so not degenerate), then get
+    struct BST<int, int, Less<int>> t = std::bst_new();
+    double ta = now_ms();
+    i = 0UL;
+    while (i < N) { int k = *keys.at(i); t.insert(k, k); i = i + 1UL; }
+    double tb = now_ms();
+    report("bst insert", tb - ta, (long long)t.length());
+    sum = 0LL;
+    i = 0UL;
+    while (i < N) { sum = sum + (long long)t.get(*keys.at(i)).default(0); i = i + 1UL; }
+    double tc = now_ms();
+    report("bst get", tc - tb, sum);
+    t.free();
+
+    keys.free();
     return 0;
-  }
 }

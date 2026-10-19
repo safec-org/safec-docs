@@ -5,7 +5,7 @@ The `str` module provides C-string manipulation functions covering length, compa
 For a mutable, heap-allocated growable string type, see the [`String` collection](/stdlib/collections#string----mutable-string).
 
 ```c
-#include "str.h"
+#include <std/str.h>
 ```
 
 ## Length & Comparison
@@ -166,9 +166,9 @@ Return a heap-allocated copy of the first `n` bytes of `s`, NUL-terminated.
 ## Example
 
 ```c
-#include "str.h"
-#include "io.h"
-#include "mem.h"
+#include <std/str.h>
+#include <std/io.h>
+#include <std/mem.h>
 
 int main() {
     const char* greeting = "Hello, SafeC!";
@@ -182,7 +182,7 @@ int main() {
     const char* pos = str_find(greeting, "SafeC");
     if (pos != 0) {
         print("Found at offset: ");
-        println_int(pos - greeting);  // 7
+        println_int(pos - greeting);  // 7 (pointer difference, as in C)
     }
 
     // Duplication
@@ -197,7 +197,7 @@ int main() {
     char* tok = str_tok(buf, ",", &save);
     while (tok != 0) {
         println(tok);
-        tok = str_tok(0, ",", &save);
+        tok = str_tok((char*)0, ",", &save);
     }
 
     return 0;

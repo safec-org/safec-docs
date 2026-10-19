@@ -235,6 +235,22 @@ Slice accesses are always bounds-checked against the slice length:
 int x = s[i];                  // runtime check: if (i >= s.len) abort();
 ```
 
+## Pointer Arithmetic
+
+Raw pointers support C arithmetic in safe code — `p + n`, `p - n`, `p += n`, `p -= n`, `p++`/`p--`, comparisons, and `p - q` (the element distance, a signed 64-bit integer) — compiled exactly as in C (scaled by the element size). Computing an address is harmless; *using* it is not, so every access through a raw pointer (`*p`, `p[i]`, `p->field`) requires `unsafe`:
+
+```c
+void fill(int* p, int n) {
+    int* end = p + n;          // OK in safe code
+    while (p < end) {
+        unsafe { *p = 0; }     // the access is what needs unsafe
+        p += 1;
+    }
+}
+```
+
+References (`&T`, `?&T`) have no arithmetic at all: index through a slice or a container instead.
+
 ## The Unsafe Boundary
 
 When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing them. Inside an `unsafe` block:
@@ -242,7 +258,7 @@ When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing th
 - Bounds checks are suppressed (the `boundsCheckOmit` flag is set)
 - Region escape analysis is relaxed
 - Aliasing rules are not enforced
-- Raw pointer arithmetic is allowed
+- Raw pointers can be dereferenced (`*p`, `p[i]`, `p->f`)
 - Null dereferences are not prevented
 
 ```c

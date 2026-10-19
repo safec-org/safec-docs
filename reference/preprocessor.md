@@ -15,6 +15,8 @@ Include other SafeC files or C headers:
 
 System C headers are imported natively via the `CHeaderImporter`, which extracts function and typedef declarations from `clang -ast-dump=json`. See [C Interop](/reference/ffi) for details.
 
+`#include` names **headers only**. Including a `.sc` source file is a compile error: a `.sc` file is a translation unit of its own, and pasting it into another duplicates every definition it holds — multiple-definition link errors, or two diverging copies of its `static` state. Compile each `.sc` separately and include its `.h`; generic code that every user must instantiate lives in the header itself (the standard library's containers are header-only for exactly this reason).
+
 Use `-I <dir>` to add include search paths.
 
 ### `#define` (Object-Like)
@@ -169,7 +171,13 @@ When working with legacy C code or headers that require full macro support, enab
 ./build/safec legacy.sc --compat-preprocessor --emit-llvm -o legacy.ll
 ```
 
-In compatibility mode, function-like macros, token pasting, and stringification are all permitted.
+In compatibility mode, function-like macros, token pasting, and stringification are all permitted, and the preprocessor defines `__SAFEC_COMPAT_PREPROCESSOR__`. Headers that offer optional function-like convenience macros guard them with it, so the same header works in both modes — the standard library does this for `ASSERT_*` (`std/test/test.h`), `RING_STATIC`, the logging and panic helpers, and the rest:
+
+```c
+#ifdef __SAFEC_COMPAT_PREPROCESSOR__   // function-like macro: compat mode only
+#define ASSERT_TRUE(e) test_assert_true((e) != 0, #e, __FILE__, __LINE__)
+#endif
+```
 
 ## Compile-Time Alternatives
 

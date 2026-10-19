@@ -2,7 +2,7 @@
 
 SafeC generics are compile-time only. Every generic function is fully monomorphized — the compiler generates a separate copy for each concrete type used. There are no vtables, no type erasure, and no runtime dispatch.
 
-Structs and unions can be generic too — `generic<T> struct Pair { T first; T second; };` — fully monomorphized per concrete type argument, the same as generic functions; see [Generic Methods](#generic-structs-and-methods) below for struct methods and out-of-line definitions. The standard library's own containers (`Vec`, `HashMap`, `BST`, ...) predate this feature and still use a `void*`-based struct plus `generic<T>` *wrapper functions* for type-safe access (`vec_push_t<T>`, `map_get_t<T>`, ...) rather than being genuinely generic structs themselves — see [Standard Library Overview](/stdlib/#generic-pattern) for that pattern, which remains a legitimate approach in its own right (e.g. for a container whose backing storage genuinely shouldn't care about the element type at the ABI level).
+Structs and unions can be generic too — `generic<T> struct Pair { T first; T second; };` — fully monomorphized per concrete type argument, the same as generic functions; see [Generic Methods](#generic-structs-and-methods) below for struct methods and out-of-line definitions. The standard library's containers are built this way (`Vec<T>`, `HashMap<K, V>`, `BST<K, V, C>`, …) — see [Collections](/stdlib/collections).
 
 ## Generic Functions
 
@@ -140,6 +140,8 @@ Monomorphized functions follow the pattern `__safec_<name>_<type>`:
 | `max<double>` | `__safec_max_double` |
 | `Pair<int>` | `__safec_Pair_int` |
 
+Instantiations are emitted with `linkonce_odr` linkage (in a COMDAT on ELF/COFF): every translation unit that uses `Vec<int>` emits its own copy, and the linker keeps exactly one. That is what lets a generic container live entirely in a header.
+
 ### Code Size
 
 Each unique instantiation generates separate code. If you instantiate `max` with 5 different types, 5 separate functions are emitted. This trades binary size for runtime performance (no indirection).
@@ -183,6 +185,52 @@ void Container::set(T new_value) {
 }
 ```
 
+### Type arguments are inferred from the target
+
+There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned:
+
+```c
+struct Vec<int> v = std::vec_new();                  // T from the declaration
+struct HashMap<int, long long> m = std::map_new();   // K and V likewise
+?&heap Packet p = std::pool_alloc_t(&pool);          // T = Packet
+```
+
+A call with no target (a bare statement, a `match` subject, an argument to another generic) can't infer a parameter that appears only in the return type: bind it to a typed variable first.
+
+A bare `null` argument matched against a nullable-reference parameter (`?&T`) binds nothing, and `T` comes from the other arguments: `std::thread_create(&tid, worker, null)` takes `T` from `worker`'s signature.
+
+Inference only proves that the arguments fit the parameter *pattern*. Each argument is then checked against its instantiated parameter type exactly as for a non-generic call — passing a struct value where `&T` is expected is an error, not a silent copy.
+
+### Nested type arguments
+
+Type arguments nest freely, and `>>` closes two lists: `struct NodePool<struct ListNode<T>>`, `struct Vec<struct Vec<int>>`. A template can mention its own instance (`?&heap struct ListNode<T> next;` inside `ListNode`), and arrays of a type parameter are allowed in a generic struct (`V vals[8];`).
+
+### Compile-time dispatch through a type parameter
+
+A type parameter can stand for a *policy* type whose methods the generic code calls. After monomorphization the call is a direct call to that type's method, which the optimizer inlines — the zero-cost alternative to passing a function pointer:
+
+```c
+generic<T> struct Less { int unused_; int cmp(const &T a, const &T b) const; };
+generic<T> int Less::cmp(const &T a, const &T b) const { return *a < *b ? -1 : (*a > *b ? 1 : 0); }
+
+generic<K, V, C>          // C: any type with a matching cmp method
+struct BST { C ord; /* ... */ int insert(K key, V val); };
+
+// inside BST::insert:  int c = self.ord.cmp(&key, &n.key);   // inlined for Less<int>
+```
+
+`std/cmp.h` provides `Less<T>`, `Greater<T>` and `FnOrder<T>` (a run-time comparator); `BST<K, V, C>` and `vec_sort_by` use them. Combine with `if const` to select code by a property of the type argument at compile time; the dead branch isn't even type-checked:
+
+```c
+generic<K>
+unsigned int hash_key(const &K key) {
+    if const (sizeof(K) == 4UL || sizeof(K) == 8UL) {
+        // ... hash the key as one machine word ...
+    }
+    // ... byte-wise fallback for other sizes ...
+}
+```
+
 ## Interaction with Regions
 
 Generic types can be combined with region-qualified references:
@@ -203,8 +251,8 @@ Region qualifiers on references inside generic code follow the same rules as non
 
 - **No runtime dispatch**: generics are always monomorphized. There are no trait objects or dynamic dispatch.
 - **No partial specialization**: you cannot provide a specialized implementation for a subset of types.
-- **No default type arguments**: every type parameter must be inferred or explicitly provided.
-- **Inference is call-site only**: the compiler infers `T` from function arguments. It does not infer from the return type.
+- **No default type arguments**: every type parameter must be inferred.
+- **Inference is local**: `T` comes from the arguments or the call's target type — never from later uses of the result.
 - **Inference doesn't unify a `T*`/`[]T` parameter against a bare fixed-size array argument** — pass an already pointer/slice-typed value instead. See [Functional Programming](/reference/functional#higher-order-functions) for a worked example of this exact case.
 
 For everything else in SafeC's "no runtime dispatch" story — traits, the vtable-free `fn_eval` primitive, and how to build genuine heterogeneous runtime dispatch explicitly when generics alone can't — see [Polymorphism & OOP](/reference/polymorphism).

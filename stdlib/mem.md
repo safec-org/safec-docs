@@ -3,7 +3,7 @@
 The `mem` module wraps heap allocation and memory operations. `alloc`/`alloc_zeroed`/`dealloc`/`realloc_buf` are safe by construction against a specific set of runtime allocator-misuse bugs (see [Allocation Safety](#allocation-safety) below) — but they don't perform general bounds validation on every access; `unsafe {}` is still required to actually read/write through the returned pointer, same as any raw pointer in SafeC.
 
 ```c
-#include "mem.h"
+#include <std/mem.h>
 ```
 
 ## Allocation
@@ -65,6 +65,17 @@ This does **not** catch a use-after-free that only reads or writes through a sta
 
 `std/alloc/pool.h`/`slab.h`/`tlsf.h`'s allocators get the equivalent double-free/mismatched-pointer check using their own existing per-block metadata (no quarantine needed there — their freed blocks stay in the allocator's own backing buffer rather than being handed back to the system allocator, so their tag can't be clobbered by anything external the way `alloc`/`dealloc`'s can).
 
+## Allocation Performance
+
+On hosted targets `alloc` keeps a per-thread cache of freed blocks, bucketed by size class, so a free followed by an allocation of a similar size is served without calling `malloc`:
+
+- **Size classes** step by 1.5× — 16, 24, 32, 48, 64, 96, … up to 1 MB (33 classes) — so a request is padded by at most a third. Larger requests go straight to `malloc`.
+- **Cache depth** is a byte budget rather than a slot count: up to 8,192 blocks for small classes, fewer for large ones (min(8192, 8 MB ÷ class size), at least 8). All classes share one flat per-thread table of about 0.96 MB.
+- Blocks that don't fit the cache go through the quarantine described above, then back to `malloc`.
+- Freestanding targets have no cache (it needs thread-local storage and the table's memory); every request goes to the runtime's `malloc`.
+
+Each block still carries the 16-byte header, which matters most for very small objects: a 24-byte node occupies a 40-byte request. Node-based containers therefore don't allocate per node — `List` and `BST` take nodes from a per-container [`NodePool`](/stdlib/collections#node-pool) (chunked bump allocation with a free list), which is about 2× faster than C's `malloc`/`free` per node (see [Benchmarks](/benchmarks#collections-stdcollections-throughput-1000000-elements)). For your own fixed-size objects, `std/alloc/slab.h`'s `slab_alloc_t<T>` and the arena regions (`new<R> T`) give the same effect.
+
 ## Memory Operations
 
 ### safe_memcpy
@@ -105,8 +116,8 @@ Compare `n` bytes of memory at `a` and `b`. Returns:
 ## Example
 
 ```c
-#include "mem.h"
-#include "io.h"
+#include <std/mem.h>
+#include <std/io.h>
 
 int main() {
     // Allocate a buffer for 10 ints
@@ -142,8 +153,8 @@ int main() {
 ### Double-free is caught, not silent
 
 ```c
-#include "mem.h"
-#include "io.h"
+#include <std/mem.h>
+#include <std/io.h>
 
 int main() {
     void* p;

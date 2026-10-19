@@ -54,7 +54,7 @@ void addition_works() {
 
 int main(void) {
     struct TestSuite t = std::test_suite_init();
-    unsafe { t.add("addition works", (void*)addition_works); }
+    t.add("addition works", addition_works);
     std::test_run_and_exit(&t);   // exits 1 on any failure
 }
 ```
@@ -118,6 +118,20 @@ safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
 
 Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level diagnostics are found.
 
+## Cross targets {#cross-targets}
+
+`--target <alias|triple>` (on `build`, `check`, `test`) cross-compiles the project and its standard library for another machine. A bare-metal alias (`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `rv32i`, `rv32e`, `rv64i`, `rv64e` — see [Bare-Metal Targets](/reference/baremetal#targets)) implies freestanding mode; any LLVM triple is accepted too.
+
+```bash
+safeguard build --target arm-7em --release
+safeguard test --target rv32e        # builds every test for RV32E, doesn't run them
+```
+
+- The std archive is built per target under `build/deps/<target>/libsafec_std.a`, from just the sources that apply to it (OS-specific backends are skipped on bare metal).
+- Objects are compiled with the target's clang flags (`safec --print-target-clang-flags`), and bare-metal links use `ld.lld` with `-nostdlib -static`: supply the linker script, startup code and runtime (`memcpy`, `memset`, any `malloc`, compiler-rt builtins) through `[build] cflags`/`libs`.
+- Functions your project defines that freestanding mode would otherwise flag as hosted-only (a runtime's own `malloc`, say) are passed to the compiler as `--provides`, so they don't warn.
+- `test` builds the test binaries without running them (they're for another machine); `run` refuses a cross target.
+
 ## Package.toml
 
 Every SafeC project has a `Package.toml` at its root:
@@ -180,7 +194,7 @@ define with `safec`'s existing preprocessor — no new language syntax:
 ```c
 #ifdef SAFEC_FEATURE_BACKEND
 #include <std/http/http.h>
-#include <std/http/http.sc>
+#include <std/http/http.h>
 // ... server-only code ...
 #endif
 ```
@@ -249,6 +263,7 @@ extern "C" int sum_cpp(int a, int b) {
 ```
 
 ```c
+extern int printf(const char* fmt, ...);
 // src/main.sc
 extern int add_c(int a, int b);
 extern int sum_cpp(int a, int b);

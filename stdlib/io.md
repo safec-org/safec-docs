@@ -5,7 +5,7 @@ The `io` module provides formatted output to stdout/stderr, stdin input, and buf
 ## io -- Console I/O
 
 ```c
-#include "io.h"
+#include <std/io.h>
 ```
 
 ### Constants
@@ -28,7 +28,7 @@ void print_uint(unsigned long long v);    // print unsigned integer
 void print_float(double v);              // print floating-point
 void print_hex(unsigned long long v);    // print hex (0x...)
 void print_oct(unsigned long long v);    // print octal
-void print_ptr(const void* p);          // print pointer address
+generic<T> void print_ptr(const ?&T p);  // print the address a reference points at
 void println_int(long long v);           // print int + newline
 void println_uint(unsigned long long v); // print uint + newline
 void println_float(double v);           // print float + newline
@@ -78,7 +78,7 @@ int  io_scan_float(double* out);          // parse float from stdin
 ```c
 int   io_remove(const char* path);                     // delete a file
 int   io_rename(const char* old_path, const char* new_path); // rename/move
-void* io_tmpfile();                                     // create temporary file
+?&File io_tmpfile();                                    // create temporary file; null on failure
 ```
 
 ### Flush
@@ -93,81 +93,85 @@ void flush_stderr();
 ## io_file -- File I/O
 
 ```c
-#include "io_file.h"
+#include <std/io_file.h>
 ```
 
-FILE\* is stored as `void*` to avoid exposing the C `FILE` type to SafeC.
+Handles are `&File` references to an opaque type — the C `FILE` underneath is never exposed. `file_open` returns `?&File` (null on failure), so it must be narrowed (`match`, `std::expect_ref`) before use; every other function takes a non-null `&File`. Byte buffers are `&unsigned char` / `const &unsigned char`.
 
 ### Open / Close
 
 ```c
-void* file_open(const char* path, const char* mode);  // "r", "w", "a", "rb", "wb", etc.
-int   file_close(void* f);                             // returns 0 on success
+?&File file_open(const char* path, const char* mode); // "r", "w", "a", "rb", "wb", etc.
+int   file_close(&File f);                             // returns 0 on success
 ```
 
 ### Read
 
 ```c
-unsigned long file_read(void* f, void* buf, unsigned long n);  // returns bytes read
-int           file_getc(void* f);                               // returns char or -1
-char*         file_gets(char* buf, int n, void* f);             // returns buf or NULL
+unsigned long file_read(&File f, &unsigned char buf, unsigned long n);  // returns bytes read
+int           file_getc(&File f);                               // returns char or -1
+char*         file_gets(char* buf, int n, &File f);             // returns buf or NULL
 ```
 
 ### Write
 
 ```c
-unsigned long file_write(void* f, const void* buf, unsigned long n); // returns bytes written
-int           file_putc(int c, void* f);                              // returns c or -1
-int           file_puts(const char* s, void* f);                      // returns non-negative on success
+unsigned long file_write(&File f, const &unsigned char buf, unsigned long n); // returns bytes written
+int           file_putc(int c, &File f);                              // returns c or -1
+int           file_puts(const char* s, &File f);                      // returns non-negative on success
 ```
 
 ### Seek / Tell
 
 ```c
-int       file_seek(void* f, long long offset, int whence);  // 0=SET, 1=CUR, 2=END
-long long file_tell(void* f);                                  // current position, -1 on error
-void      file_rewind(void* f);                                // rewind to start
+int       file_seek(&File f, long long offset, int whence);  // 0=SET, 1=CUR, 2=END
+long long file_tell(&File f);                                  // current position, -1 on error
+void      file_rewind(&File f);                                // rewind to start
 ```
 
 ### Status
 
 ```c
-int file_eof(void* f);    // non-zero if last op hit EOF
-int file_error(void* f);  // non-zero if error indicator set
-int file_flush(void* f);  // flush buffered writes; 0 on success
+int file_eof(&File f);    // non-zero if last op hit EOF
+int file_error(&File f);  // non-zero if error indicator set
+int file_flush(&File f);  // flush buffered writes; 0 on success
 ```
 
 ### Convenience
 
 ```c
-long long file_size(void* f);  // file size in bytes, -1 on error
+long long file_size(&File f);  // file size in bytes, -1 on error
 ```
 
 ## Example
 
 ```c
-#include "io.h"
-#include "io_file.h"
+#include <std/io.h>
+#include <std/io_file.h>
 
 int main() {
     // Console output
-    println("Writing to file...");
+    std::println("Writing to file...");
 
     // File I/O
-    void* f = file_open("output.txt", "w");
-    if (f != 0) {
-        file_puts("Hello from SafeC!\n", f);
-        file_close(f);
+    match (std::file_open("output.txt", "w")) {
+        case some(f): {
+            std::file_puts("Hello from SafeC!\n", f);
+            std::file_close(f);
+        }
+        case null: std::println("cannot open output.txt");
     }
 
     // Read it back
-    void* g = file_open("output.txt", "r");
-    if (g != 0) {
-        char buf[256];
-        file_gets(buf, 256, g);
-        print("Read: ");
-        println(buf);
-        file_close(g);
+    match (std::file_open("output.txt", "r")) {
+        case some(g): {
+            char buf[256];
+            unsafe { std::file_gets(buf, 256, g); }
+            std::print("Read: ");
+            unsafe { std::println(buf); }
+            std::file_close(g);
+        }
+        case null: { }
     }
 
     return 0;

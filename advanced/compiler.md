@@ -178,13 +178,15 @@ across:
 | iOS | AArch64 (device + simulator) |
 | Android | AArch64, Aarch32, x86_64, x86 |
 | FreeBSD | x86_64, AArch64 |
-| Bare metal (`--freestanding`) | ARM Cortex-M (Thumb/Thumb2), RV32, RV64, AArch64 |
+| Bare metal (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M), RV32I/E, RV64I/E — see [Bare-Metal Targets](/reference/baremetal#targets) |
 | Portable / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
 
 Metal Shading Language is not reachable via `--target` — Apple's Metal
 compiler has no LLVM backend upstream, unlike NVPTX/AMDGPU/SPIR-V, which
 are real LLVM targets. The only interop path from SPIR-V output is a
 third-party translator (e.g. SPIRV-Cross), not something `safec` does.
+
+Target-related flags: `--target=<alias|triple>`, `--target-cpu`, `--target-features`, `--target-abi`, `--list-targets`, `--print-target-clang-flags`, and `--provides=<fn,...>` (functions another translation unit defines, which silences the freestanding hosted-call warning for them).
 
 See [`std::simd`](/stdlib/simd) for the SIMD library built on top of this,
 and [Bare-Metal](/reference/baremetal) for ARM Cortex-M specifics (HAL,

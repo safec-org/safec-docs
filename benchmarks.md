@@ -105,14 +105,29 @@ SafeC plain-heap variant, same three platforms: macOS 1.150s, WSL2 **0.620s (fas
 
 ## Collections — std::collections throughput (1,000,000 elements) {#collections-stdcollections-throughput-1000000-elements}
 
-| Operation | Throughput |
-|---|---|
-| `bst_insert` | 1,577,110/sec |
-| `list_push_back` | 65,427,899/sec |
-| `map_insert` | 4,365,783/sec |
-| `map_get` | 8,468,404/sec |
+The generic containers against a plain C implementation of the same algorithms: growable array + `qsort`, a linear-probing hash map with the same hash, a `malloc`-per-node doubly linked list, a power-of-two ring queue, and an unbalanced BST. Both sides use identical shuffled keys (xorshift64). AMD Ryzen 7 7800X3D, Linux, clang 21.1.8 `-O2` for both (`safeguard build --release`), best of 3.
 
-[bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc)
+| Operation | SafeC | C | SafeC / C |
+|---|---|---|---|
+| `Vec<int>` push | 2.45 ms | **1.61 ms** | 1.52× |
+| `vec_sort` (introsort, inlined `Less<int>`) vs `qsort` | **44.0 ms** | 83.6 ms | 0.53× |
+| `HashMap<int,int>` insert | 38.7 ms | **33.5 ms** | 1.16× |
+| `HashMap<int,int>` get | 8.24 ms | **7.26 ms** | 1.13× |
+| `List<int>` push_back + pop_front | **11.5 ms** | 22.4 ms | 0.51× |
+| `Queue<int>` enqueue + dequeue | **3.40 ms** | 5.49 ms | 0.62× |
+| `BST<int,int,Less<int>>` insert | **175.7 ms** | 178.7 ms | 0.98× |
+| `BST<int,int,Less<int>>` get | **170.7 ms** | 174.9 ms | 0.98× |
+
+What decides these:
+
+- **Sorting** beats `qsort` because the ordering is a type parameter: every comparison inlines, where `qsort` makes an indirect call per comparison.
+- **List** and **BST** nodes come from a per-container node pool (chunked bump allocation plus a free list), not one allocation per node; that avoids both `malloc`'s per-chunk overhead and `std::alloc`'s 16-byte safety header. BST lookups are dominated by cache misses on the random walk, the same for both.
+- **HashMap** keys of 1/2/4/8 bytes are hashed as one word (murmur3 finalizer) and compared with one integer compare, chosen with `if const` at compile time. The remaining gap is the tombstone bookkeeping on insert.
+- **Vec push** pays for bounds-checked access (`keys.at(i)`) and `std::alloc`'s checked `realloc` path.
+
+Earlier versions of this table (before the containers became generic) measured `bst_insert` at 1.6M ops/s and `map_get` at 8.5M ops/s on an M1 Pro; the generic versions above run at 5.7M and 121M ops/s — about 3.6× and 14× faster, though on different hardware.
+
+**Sources:** [bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc) · [bench_collections.c](/benchmarks/collections/c/bench_collections.c)
 
 ## Multithreaded — binary-trees, 8 threads {#multithreaded-binary-trees-8-threads}
 

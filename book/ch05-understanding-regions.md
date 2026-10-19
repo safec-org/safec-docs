@@ -63,8 +63,10 @@ lives, and therefore how long it stays valid:
 | `&static T` | The entire program | Never |
 
 ```c
+extern int printf(const char* fmt, ...);
+
 void print_x(&stack int ref) {
-    printf("%d\n", *ref);
+    unsafe { printf("%d\n", *ref); }
 }
 
 int main() {
