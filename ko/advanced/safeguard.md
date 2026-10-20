@@ -119,7 +119,7 @@ safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
 
 ## 크로스 타깃 {#cross-targets}
 
-`--target <alias|triple>`(`build`, `check`, `test`에서 사용)은 프로젝트와 그 표준 라이브러리를 다른 머신용으로 크로스 컴파일합니다. 베어메탈 별칭(`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고)은 freestanding 모드를 함의하며, 임의의 LLVM 트리플도 받아들입니다.
+`--target <alias|triple>`(`build`, `check`, `test`에서 사용)은 프로젝트와 그 표준 라이브러리를 다른 머신용으로 크로스 컴파일합니다. 베어메탈 별칭(`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `arm-81m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고)은 freestanding 모드를 함의하며, 임의의 LLVM 트리플도 받아들입니다.
 
 ```bash
 safeguard build --target arm-7em --release
@@ -298,7 +298,18 @@ libs       = ["m", "pthread"]   # 최종 링크에서 -l<name>
 lib_dirs   = ["/usr/local/lib"] # 최종 링크에서 -L<dir>
 lto        = "thin"             # "" (기본값, 꺼짐), "thin", 또는 "full"
 crate_type = "bin"              # "bin" (기본값), "staticlib", 또는 "cdylib"
+blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 ```
+
+`blas`는 [`sgemm`](/ko/stdlib/simd#gemm)(그리고 이를 통해 `tensor_matmul`과 `conv2d_forward`)이 쓸 CPU 벤더 BLAS를 고르며, 프로그램을 링크할 때 정해집니다:
+
+| `blas` | 링크 대상 |
+|---|---|
+| `"auto"` (기본값) | AMD CPU에서는 AOCL-BLAS, Intel CPU에서는 oneMKL, macOS에서는 Accelerate — 라이브러리를 찾은 경우. 못 찾으면 없음 |
+| `"aocl"` / `"mkl"` / `"openblas"` / `"accelerate"` | 그 라이브러리(못 찾으면 경고 후 std 내장 커널) |
+| `"none"` | 없음: std 내장 SIMD 커널 |
+
+라이브러리는 `AOCL_ROOT`, `MKLROOT`, `OPENBLAS_ROOT`(또는 그 아래 `lib/`, `lib_LP64/`, `lib/intel64/`)에서, 그다음 기본 설치 위치(`/opt/AMD/aocl/...`, `/opt/intel/oneapi/mkl/latest/lib`)에서 찾습니다. oneMKL은 GNU OpenMP 스레딩 계층으로 링크합니다. `SAFEC_BLAS`는 매니페스트의 선택을 덮어쓰고, `SAFEC_BLAS_LIBS`는 링크 플래그 자체를 대체합니다. 베어메탈, WebAssembly, Windows 빌드는 BLAS를 링크하지 않습니다. `--verbose`를 주면 어떤 것을 골랐는지 출력합니다.
 
 `crate_type`은 `safeguard build`가 무엇을 생성할지 선택합니다:
 

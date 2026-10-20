@@ -35,6 +35,7 @@ safec firmware.sc --freestanding --emit-llvm -o firmware.ll
 | `arm-7m` | `thumbv7m-none-eabi` | Cortex-M3 (ARMv7-M) | AAPCS, soft-float | 32비트 |
 | `arm-7em` | `thumbv7em-none-eabi` | Cortex-M4/M7 (ARMv7E-M, DSP) | AAPCS, soft-float | 32비트 |
 | `arm-8m` | `thumbv8m.main-none-eabi` | Cortex-M33 (ARMv8-M Mainline) | AAPCS, soft-float | 32비트 |
+| `arm-81m` | `thumbv8.1m.main-none-eabi` | Cortex-M55/M85 (ARMv8.1-M, Helium) | AAPCS, soft-float 호출 | 32비트 |
 | `rv32i` | `riscv32-unknown-elf` | RV32I | `ilp32` | 32비트 |
 | `rv32e` | `riscv32-unknown-elf` | RV32E (레지스터 16개) | `ilp32e` | 32비트 |
 | `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64비트 |

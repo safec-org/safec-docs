@@ -107,6 +107,19 @@ unsafe {
 
 일반 `a * b + c`는 반올림이 달라지므로 절대 FMA로 축약되지 않는다. 내적이나 행렬 커널처럼 융합해도 되는 곳에서 `__builtin_fmuladd`를 쓴다.
 
+## ISA 매크로와 `--target-cpu` {#isa-macros-and-target-cpu}
+
+컴파일러는 대상 CPU와 `--target-features`가 보장하는 기능에서 clang의 SIMD 기능 매크로를 정의한다:
+
+| 타깃 | 매크로 |
+|---|---|
+| x86 / x86-64 | `__SSE2__`, `__SSE3__`, `__SSSE3__`, `__SSE4_1__`, `__SSE4_2__`, `__AVX__`, `__AVX2__`, `__FMA__`, `__F16C__`, `__AVX512F__`, `__AVX512BW__`, `__AVX512DQ__`, `__AVX512VL__` |
+| AArch64 | `__ARM_NEON`, `__ARM_FEATURE_SVE`, `__ARM_FEATURE_SVE2`, `__ARM_FEATURE_FP16_VECTOR_ARITHMETIC` |
+| 32비트 ARM | `__ARM_NEON`, `__ARM_FEATURE_DSP`(Cortex-M4/M7/M33), `__ARM_FEATURE_MVE`(Helium: 1 = 정수, 3 = 정수와 부동소수점) |
+| WebAssembly | `__wasm_simd128__` |
+
+`--target-cpu=native`는 clang의 `-march=native`처럼 빌드 머신의 CPU와 그 모든 기능으로 빌드한다. `--target-cpu=znver4`, `--target-cpu=skylake-avx512` 등으로 특정 CPU를 지정할 수도 있다. 둘 다 없으면 x86-64 코드는 베이스라인(SSE2)을 대상으로 하며, std의 핵심 커널은 대신 실행 시점에 ISA 수준을 고른다([CPU SIMD 수준](/ko/stdlib/simd#cpu-levels) 참고).
+
 ## `std::simd`와의 관계 {#relationship-to-stdsimd}
 
 `vec<T,N>`는 컴파일러 수준의 빌딩 블록이다. [`std::simd`](/ko/stdlib/simd)는

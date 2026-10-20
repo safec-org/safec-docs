@@ -107,6 +107,19 @@ Such a pointer usually comes from an element address inside an array, which is o
 
 Plain `a * b + c` is never contracted into an FMA, because that changes the rounding. Use `__builtin_fmuladd` where fusing is acceptable, as in dot products and matrix kernels.
 
+## ISA macros and `--target-cpu`
+
+The compiler defines clang's SIMD feature macros from what the target CPU and `--target-features` guarantee:
+
+| Target | Macros |
+|---|---|
+| x86 / x86-64 | `__SSE2__`, `__SSE3__`, `__SSSE3__`, `__SSE4_1__`, `__SSE4_2__`, `__AVX__`, `__AVX2__`, `__FMA__`, `__F16C__`, `__AVX512F__`, `__AVX512BW__`, `__AVX512DQ__`, `__AVX512VL__` |
+| AArch64 | `__ARM_NEON`, `__ARM_FEATURE_SVE`, `__ARM_FEATURE_SVE2`, `__ARM_FEATURE_FP16_VECTOR_ARITHMETIC` |
+| 32-bit ARM | `__ARM_NEON`, `__ARM_FEATURE_DSP` (Cortex-M4/M7/M33), `__ARM_FEATURE_MVE` (Helium: 1 = integer, 3 = integer and float) |
+| WebAssembly | `__wasm_simd128__` |
+
+`--target-cpu=native` builds for the build machine's CPU with every feature it has, like clang's `-march=native`; `--target-cpu=znver4`, `--target-cpu=skylake-avx512` and so on name one. Without either, x86-64 code targets the baseline (SSE2), and std's hot kernels pick their ISA level at run time instead (see [CPU SIMD levels](/stdlib/simd#cpu-levels)).
+
 ## Relationship to `std::simd`
 
 `vec<T,N>` is the compiler-level building block. [`std::simd`](/stdlib/simd)

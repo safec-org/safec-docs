@@ -48,9 +48,20 @@ matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검
 통해 검증되었다.
 
 `tensor_matmul`과 그 역전파는 [`sgemm`](/ko/stdlib/simd#gemm) 위에서
-실행된다: 패킹된 SIMD 커널이며, 큰 곱은 [스레드 풀](/ko/stdlib/sync#parallel)에
-나뉘어 실행된다. 역전파는 기존 그래디언트에 바로 누적한다. 스레드 수를
-제한하려면 `SAFEC_NUM_THREADS`를 설정한다.
+실행된다: CPU의 가장 좋은 [SIMD 수준](/ko/stdlib/simd#cpu-levels)(AVX-512부터
+SSE2까지, SVE 또는 Neon)의 패킹된 SIMD 커널이며, 큰 곱은
+[스레드 풀](/ko/stdlib/sync#parallel)에 나뉘어 실행된다. CPU 벤더 BLAS가
+링크되어 있으면 — AMD에서는 AOCL-BLAS, Intel에서는 oneMKL, Apple에서는
+Accelerate이며, safeguard의 [`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)가
+찾으면 기본으로 링크한다 — 벤더 커널이 곱셈을 맡는다. 역전파는 기존
+그래디언트에 바로 누적한다. 스레드 수를 제한하려면 `SAFEC_NUM_THREADS`를
+설정한다.
+
+원소별 연산(`tensor_add`/`sub`/`mul`/`scale`/`fill`, ReLU, 모든 역전파 누적)은
+벡터화된 루프이며 65,536개 원소부터 풀에 나뉘어 실행된다. 초월 함수
+활성화 — sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU — 와 softmax는
+[`vmath.h`](/ko/stdlib/simd#vmath)의 벡터화된 `exp`/`tanh`/sigmoid를 쓰므로 더는
+원소마다 libm을 호출하지 않는다.
 
 ```c
 struct Tensor {
@@ -88,6 +99,31 @@ void tensor_zero_grad(&Tensor t);
 int  tensor_is_grad_enabled();
 void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
 ```
+
+### 텐서 아레나 {#tensor-arena}
+
+모든 연산은 출력을 새로 할당하므로, 학습 루프는 단계마다 연산마다 `malloc`(그리고 새 메모리라면 페이지 폴트)을 합니다. 작은 MLP에서는 그 비용이 계산보다 컸습니다. `TensorArena`는 한 단계의 임시 텐서를 위한 청크 단위 범프 할당자(64바이트 정렬)입니다. `tensor_arena_begin`과 `tensor_arena_end` 사이에 그 스레드에서 만든 모든 텐서(데이터, shape, 기울기)는 아레나에서 나옵니다. `tensor_arena_reset`은 그것들을 한꺼번에 버리고, 이미 페이지가 할당된 메모리는 다음 단계를 위해 남겨 둡니다.
+
+```c
+struct TensorArena tensor_arena_new(unsigned long chunkBytes);   // 0 = 16 MiB 청크
+void tensor_arena_begin(&TensorArena a);   // 이 스레드의 새 텐서는 a에서 할당
+void tensor_arena_end();                   // 다시 힙으로
+void tensor_arena_reset(&TensorArena a);   // 안의 텐서를 모두 버리고 메모리는 유지
+void tensor_arena_free(&TensorArena a);
+unsigned long tensor_arena_used(const &TensorArena a);   // 마지막 reset 이후 할당한 바이트
+
+struct TensorArena step = tensor_arena_new(0UL);
+while (s < steps) {
+    tensor_arena_begin(&step);
+    // ... 순전파, tensor_backward, 옵티마이저 갱신 ...
+    tensor_arena_end();
+    tensor_arena_reset(&step);   // 이 단계의 텐서는 사라짐
+    s = s + 1;
+}
+tensor_arena_free(&step);
+```
+
+매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
 
 ### 자동미분 연산과 옵티마이저 — `tensor_nn.h` {#autograd-ops-and-optimizer-tensor-nn-h}
 
@@ -278,6 +314,14 @@ void              xlstm_state_free(&XLSTMState s);
 동작한다. 손으로 계산한 3×3 커널 검사와 풀링 윈도우 검사를 통해
 검증되었다.
 
+3×3, stride 1 레이어(입출력 채널이 8개 이상)는 Winograd F(2×2, 3×3)
+(Lavin & Gray, arXiv:1509.09308)를 쓴다. 출력 2×2 블록 하나를 4×4 입력
+타일에서 채널 쌍마다 곱셈 36번 대신 16번으로 구한다. 변환한 타일과 필터로
+작업이 채널에 대한 GEMM 16개가 된다. 입력 변환, GEMM, 출력 변환은 각각
+스레드 풀에서 실행되며, 입력·출력 변환은 벡터 하나에 타일 여덟 개씩
+처리한다. 결과는 직접 합과 상대 오차 약 1e-6 이내로 일치한다. 그 밖의
+레이어는 im2col을 쓴다.
+
 `conv2d_forward`는 im2col + [`sgemm`](/ko/stdlib/simd#gemm)이다. 출력
 픽셀 블록마다 수용 영역을 스레드별 열 버퍼에 모아 가중치 행렬과 곱한다.
 블록들은 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행되므로 전체 im2col
@@ -467,7 +511,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 원소별 | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
-| fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과)과 `rocm_half_gemm_f32`(fp32 결과); `rocm_half_sgd(w, g, lr)` |
+| fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
 | 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
@@ -491,7 +535,18 @@ std::rocm_sgd(W1, dW1, lr);
 
 이런 연산열을 `rocm_capture_begin()`과 `rocm_capture_end()` 사이에서 한 번
 기록하고 `rocm_graph_launch()`로 재생하면 스텝 전체를 한 번에 실행한다.
-호스트가 매 스텝 GPU를 기다리지 않을 때 효과가 있다. `tensor_rocm.h`는
+호스트가 매 스텝 GPU를 기다리지 않을 때 효과가 있다.
+
+행렬곱(fp32와 16비트)은 rocBLAS `gemm_ex`를 거친다. rocBLAS가 어떤 크기에
+기본으로 고르는 솔루션은 가장 빠른 것보다 몇 배 느릴 수 있다: MI100에서
+128×256×1024 fp16 곱은 3.5배, 작은 bf16 곱은 2–3배. 그래서 (타입, 전치, 크기)
+조합마다 첫 호출에서 rocBLAS가 내놓는 솔루션을 그 호출의 버퍼로 모두 재고
+(MIOpen의 Find처럼) 가장 빠른 것을 캐시한다. 크기 하나에 약 0.1초가 걸린다.
+캡처 안에서 처음 보는 크기는 기본 솔루션을 쓰므로, 각 크기를
+`rocm_capture_begin()` 전에 한 번 실행해 두자. 선택이 시간 측정에서 나오므로,
+두 번의 실행이 다른 솔루션을 골라 마지막 비트가 다를 수 있다.
+
+`tensor_rocm.h`는
 호스트 배열 연산을 자동 미분 `Tensor` 함수(`tensor_add_rocm`,
 `tensor_matmul_rocm_blas`, …)로 감싸며 CPU 대체 경로가 있다.
 

@@ -17,7 +17,8 @@ through these environment variables:
   ROCM_PATH    ROCm install for the AMD GPU rows (default /opt/rocm)
   CUDA_PATH    CUDA toolkit for the NVIDIA GPU rows (default /usr/local/cuda)
 """
-import argparse, json, os, platform, re, shutil, signal, socket, subprocess, sys, time
+import argparse
+import glob, json, os, platform, re, shutil, signal, socket, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 IS_MAC = platform.system() == "Darwin"
@@ -120,11 +121,44 @@ def std_archive():
     return _std_archive
 
 
+def _shared_lib(d, name):
+    """Path to lib<name>.so (or the highest lib<name>.so.N) in d, else None."""
+    if not d or not os.path.isdir(d):
+        return None
+    plain = os.path.join(d, f"lib{name}.so")
+    if os.path.exists(plain):
+        return plain
+    hits = sorted(f for f in os.listdir(d) if f.startswith(f"lib{name}.so."))
+    return os.path.join(d, hits[-1]) if hits else None
+
+
+def vendor_blas():
+    """{label: link flags} for the CPU vendor BLAS libraries found through
+    AOCL_ROOT / MKLROOT -- the same link lines safeguard's [build] blas uses.
+    std's sgemm picks cblas_sgemm up through a weak reference."""
+    out = {}
+    aocl = os.environ.get("AOCL_ROOT")
+    for d in ([aocl, os.path.join(aocl, "lib"), os.path.join(aocl, "lib_LP64")] if aocl else []):
+        lib = _shared_lib(d, "blis-mt")
+        if lib:
+            out["aocl"] = [f"-Wl,-rpath,{d}", "-Wl,--no-as-needed", lib, "-lgomp"]
+            break
+    mkl = os.environ.get("MKLROOT")
+    for d in ([mkl, os.path.join(mkl, "lib"), os.path.join(mkl, "lib", "intel64")] if mkl else []):
+        libs = [_shared_lib(d, n) for n in ("mkl_intel_lp64", "mkl_gnu_thread", "mkl_core")]
+        if all(libs):
+            out["mkl"] = [f"-Wl,-rpath,{d}", "-Wl,--no-as-needed"] + libs + ["-lgomp"]
+            break
+    return out
+
+
 def safec_cmds(src, out, release, extra_libs=(), defines=()):
     ll = out + ".bc"
     # --no-incremental: time a real compile, not a hit in safec's bitcode cache
     c1 = [SAFEC, src, "-I", SAFEC_HOME, "--no-incremental", "-o", ll] + (["-O2"] if release else []) + [f"-D{d}" for d in defines]
     c2 = [CLANG, "-w", "-O2" if release else "-O0", ll, std_archive(), "-o", out, "-lm", "-lpthread"] + list(extra_libs)
+    if IS_MAC:
+        c2 += ["-framework", "Accelerate"]   # std's sgemm uses it (a weak reference, resolved at link time)
     return [c1, c2]
 
 
@@ -275,6 +309,9 @@ def bench_ml(runs):
         ("big/safec_cpu", "ml_big/safec/train_cpu.sc", [], None),
         ("big/safec_blas", "ml_big/safec/train_cpu_blas.sc", BLAS, None),
     ]
+    for vendor, flags in vendor_blas().items():   # same sources, sgemm on the vendor's kernels
+        cases += [(f"small/safec_cpu_{vendor}", "ml/safec/train.sc", flags, None),
+                  (f"big/safec_cpu_{vendor}", "ml_big/safec/train_cpu.sc", flags, None)]
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
         rocm = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]
         cases.append(("rocm/safec", "ml/safec/train_rocm.sc", rocm, None))
@@ -368,6 +405,7 @@ def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_sr
     PyTorch-ROCm on an AMD machine."""
     res = {}
     cases = [("safec_cpu", cpu_src, [])]
+    cases += [(f"safec_cpu_{v}", cpu_src, flags) for v, flags in vendor_blas().items()]
     if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
         cases.append(("safec_cuda", cuda_src, [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas",
                                                 "-lcublasLt", "-lnvrtc"] + cuda_libs))
@@ -399,8 +437,84 @@ def bench_conv(runs):
 
 
 def bench_fft(runs):
-    return cpu_vs_cuda("fft", "fft/safec/fft_cpu.sc", "fft/safec/fft_cuda.sc", ["-lcufft"],
-                       "fft/pytorch/fft.py", runs, "fft/safec/fft_rocm.sc", ["-lhipfft"])
+    res = cpu_vs_cuda("fft", "fft/safec/fft_cpu.sc", "fft/safec/fft_cuda.sc", ["-lcufft"],
+                      "fft/pytorch/fft.py", runs, "fft/safec/fft_rocm.sc", ["-lhipfft"])
+    res.update(thirdparty_runs("fft", runs))
+    return res
+
+
+# Third-party CPU libraries for the FFT/DSP comparison, each built and linked
+# only into its own benchmark program (never into SafeC's std). Install
+# prefixes come from the environment; a library that isn't there is skipped.
+#   FFTW_ROOT        FFTW 3 (--enable-threads)        fft: 1 and 16 threads
+#   KFR_ROOT         KFR 7 install (static libs)      fft and dsp
+#   Q_ROOT           cycfi/q source tree             dsp (biquad)
+#   MADRONALIB_ROOT  madronalib source tree          dsp (biquad)
+#   (RustFFT and dasp come from crates.io through cargo)  fft and dsp
+def thirdparty_runs(kind, runs):
+    res = {}
+    T = os.environ
+    out_dir = os.path.join(BUILD, "thirdparty")
+    os.makedirs(out_dir, exist_ok=True)
+
+    def run(key, build, cmd):
+        try:
+            timed_build(build)
+            res[key] = best_labeled([sh(cmd) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  {kind} {key} {res[key]}", flush=True)
+
+    if kind == "fft" and T.get("FFTW_ROOT"):
+        f = T["FFTW_ROOT"]
+        exe = os.path.join(out_dir, "fftw_bench")
+        build = [[CLANG, "-O2", os.path.join(HERE, "fft/c/fftw_bench.c"), f"-I{f}/include", f"-L{f}/lib",
+                  f"-Wl,-rpath,{f}/lib", "-lfftw3f_threads", "-lfftw3f", "-lfftw3_threads", "-lfftw3", "-lm", "-lpthread", "-o", exe]]
+        run("fftw_1t", build, [exe, "1"])
+        run("fftw_16t", [], [exe, str(os.cpu_count() or 16)])
+    if T.get("KFR_ROOT"):
+        k = T["KFR_ROOT"]
+        exe = os.path.join(out_dir, "kfr_bench")
+        libs = sorted(glob.glob(os.path.join(k, "lib", "*.a")))
+        build = [[CLANGXX, "-std=c++20", "-O2", "-march=native", "-w", os.path.join(HERE, "dsp/cpp/kfr_bench.cpp"),
+                  f"-I{k}/include", "-Wl,--start-group"] + libs + ["-Wl,--end-group", "-lpthread", "-o", exe]]
+        run("kfr", build, [exe])
+    if kind == "dsp" and T.get("Q_ROOT") and T.get("MADRONALIB_ROOT"):
+        q, m = T["Q_ROOT"], T["MADRONALIB_ROOT"]
+        incs = [f"-I{d}" for d, _, _ in os.walk(os.path.join(m, "source"))]
+        exe = os.path.join(out_dir, "audio_libs_bench")
+        build = [[CLANGXX, "-std=c++20", "-O2", "-march=native", "-w", os.path.join(HERE, "dsp/cpp/audio_libs_bench.cpp"),
+                  f"-I{q}/q_lib/include", f"-I{q}/infra/include"] + incs + [f"-I{m}/include", "-o", exe]]
+        run("q_madronalib", build, [exe])
+    if shutil.which(CARGO) or os.path.exists(CARGO):
+        tgt = os.path.join(out_dir, "cargo")
+        build = [[CARGO, "build", "--release", "--manifest-path", os.path.join(HERE, "dsp/rust/Cargo.toml"),
+                  "--target-dir", tgt]]
+        run("rust", build, [os.path.join(tgt, "release", "dsp_rust_bench")])
+    return res
+
+
+def bench_dsp(runs):
+    """SafeC's std/dsp on the CPU (and with a vendor library linked) against
+    NumPy/SciPy, same workloads (dsp/safec/dsp_cpu.sc, dsp/python/dsp_scipy.py)."""
+    res = {}
+    cases = [("safec_cpu", [])] + [(f"safec_cpu_{v}", f) for v, f in vendor_blas().items()]
+    for key, libs in cases:
+        out = os.path.join(BUILD, "dsp", key)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, "dsp/safec/dsp_cpu.sc"), out, True, extra_libs=libs))
+            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  dsp {key} {res[key]}", flush=True)
+    try:
+        res["scipy"] = best_labeled([sh([MLPY, os.path.join(HERE, "dsp/python/dsp_scipy.py")]) for _ in range(runs)])
+    except Exception as e:
+        res["scipy"] = {"error": str(e).splitlines()[0][:200]}
+    print(f"  dsp scipy {res['scipy']}", flush=True)
+    res.update(thirdparty_runs("dsp", runs))
+    return res
 
 
 # ── web service ───────────────────────────────────────────────────────────────
@@ -516,6 +630,7 @@ BENCHES = {
     "ml": bench_ml,
     "conv": bench_conv,
     "fft": bench_fft,
+    "dsp": bench_dsp,
     "web": bench_web,
 }
 

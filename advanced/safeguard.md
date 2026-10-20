@@ -120,7 +120,7 @@ Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level 
 
 ## Cross targets {#cross-targets}
 
-`--target <alias|triple>` (on `build`, `check`, `test`) cross-compiles the project and its standard library for another machine. A bare-metal alias (`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — see [Bare-Metal Targets](/reference/baremetal#targets)) implies freestanding mode; any LLVM triple is accepted too.
+`--target <alias|triple>` (on `build`, `check`, `test`) cross-compiles the project and its standard library for another machine. A bare-metal alias (`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `arm-81m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — see [Bare-Metal Targets](/reference/baremetal#targets)) implies freestanding mode; any LLVM triple is accepted too.
 
 ```bash
 safeguard build --target arm-7em --release
@@ -297,7 +297,18 @@ libs       = ["m", "pthread"]   # -l<name> at the final link
 lib_dirs   = ["/usr/local/lib"] # -L<dir> at the final link
 lto        = "thin"             # "" (off, default), "thin", or "full"
 crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
+blas       = "auto"             # CPU BLAS for std's sgemm (see below)
 ```
+
+`blas` picks the CPU vendor's BLAS that [`sgemm`](/stdlib/simd#gemm) — and through it `tensor_matmul` and `conv2d_forward` — uses, chosen when the program is linked:
+
+| `blas` | Links |
+|---|---|
+| `"auto"` (default) | AOCL-BLAS on AMD CPUs, oneMKL on Intel CPUs, Accelerate on macOS — if the library is found; otherwise none |
+| `"aocl"` / `"mkl"` / `"openblas"` / `"accelerate"` | that library (a warning and std's built-in kernel if it isn't found) |
+| `"none"` | nothing: std's built-in SIMD kernel |
+
+Libraries are looked up in `AOCL_ROOT`, `MKLROOT` and `OPENBLAS_ROOT` (or their `lib/`, `lib_LP64/` and `lib/intel64/` subdirectories), then in the default install locations (`/opt/AMD/aocl/...`, `/opt/intel/oneapi/mkl/latest/lib`). oneMKL is linked with its GNU OpenMP threading layer. `SAFEC_BLAS` overrides the manifest's choice and `SAFEC_BLAS_LIBS` replaces the link flags outright. Bare-metal, WebAssembly and Windows builds don't link a BLAS. `--verbose` prints which one was picked.
 
 `crate_type` selects what `safeguard build` produces:
 
