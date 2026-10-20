@@ -97,25 +97,29 @@ void process() {
 변환은 없습니다([타입](/ko/reference/types) 참고).
 :::
 
-`<mem.h>`의 `malloc_defer(n)`은 위의 할당-후-`defer free()` 패턴을
+`<std/mem.h>`의 `malloc_defer(n)`은 위의 할당-후-`defer dealloc` 패턴을
 하나의 호출로 설탕 처리(sugar)합니다. `malloc_defer`는 실제 함수가
 아닙니다 — 변수 선언의 초기화식으로만 인식되는 파서 수준의 문법 설탕이며,
-선언 부분은 `std::alloc(n)`으로, 그 바로 뒤에는 합성된
-`defer std::dealloc(buf);`로 탈설탕(desugar)됩니다. `std::alloc`을
-기반으로 하기 때문에, `alloc()`이 `std/` 전역에서 그렇듯 선언되는 변수의
-타입은 `void*`입니다. 따라서 이를 타입이 있는 포인터로 사용하려면
-여전히 명시적인 `unsafe` 캐스트가 필요합니다.
+선언 부분은 `std::alloc_raw_(n)`(제네릭 `std::alloc` 뒤에 있는 타입 소거
+할당자)으로, 그 바로 뒤에는 합성된 `defer std::dealloc_raw_(buf);`로
+탈설탕(desugar)됩니다. 결과는 원시 `void*`이므로, 타입이 있고 널 검사가
+되는 뷰를 얻으려면 변수를 널 가능 힙 참조로 선언하십시오:
 
 ```c
-#include <mem.h>
+#include <std/mem.h>
 
 void process2() {
-    auto buf = malloc_defer(4096UL);   // void*, 스코프 종료 시 자동으로 해제됨
-    int* typed;
-    unsafe { typed = (int*)buf; }
-    // ... typed 사용 ...
-}   // std::dealloc(buf)가 여기서 합성된 defer를 통해 실행됨
+    ?&heap int buf = malloc_defer(4096UL);   // 스코프 종료 시 자동으로 해제됨
+    match (buf) {
+        case some(p): { *p = 1; }   // ... p 사용 ...
+        case null:    { }           // 메모리 부족
+    }
+}   // std::dealloc_raw_(buf)가 여기서 합성된 defer를 통해 실행됨
 ```
+
+지연된 해제는 스코프가 끝날 때 실행되므로, 그 뒤의 문장들에 대해서는
+참조를 해제한 것으로 치지 않습니다 — 이미 실행된 명시적 `dealloc`만
+그렇습니다(아래 참고).
 
 ### 컴파일 타임 해제 후 사용 및 이중 해제 검사 {#compile-time-use-after-free-and-double-free-checking}
 

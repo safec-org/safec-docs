@@ -54,7 +54,7 @@
 ## 사용 형태 {#usage-shape}
 
 1. 평소처럼 `std::TaskScheduler`에 태스크를 spawn한다([동기화](/ko/stdlib/sync)
-   참고) — 각 태스크는 동일한 `int(void* arg, int resume_point)` yield
+   참고) — 각 태스크는 동일한 `int(?&T arg, int resume_point)` yield
    프로토콜을 따른다.
 2. 원래라면 I/O에서 블록되었을 태스크는, 자신의 차례 안에서 실제로
    블록되는 대신 자기 자신에 대해 `sched->await_fd(fd, SCHED_READ)`

@@ -298,7 +298,7 @@ struct SecureAllocator {
     struct SlabAllocator slab;
 
     &heap void    alloc();               // one slot; null when full
-    void          dealloc(&heap void ptr);    // zeroes the slot, then frees it
+    void          dealloc(?&heap void ptr);  // zeroes the slot, then frees it; null is a no-op
     unsigned long available() const;
     void          destroy();             // zeroes everything, frees the backing buffer
 };

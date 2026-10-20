@@ -27,7 +27,7 @@ All three implement the exact same surface, so calling code never needs to know 
 
 ## Usage Shape
 
-1. Spawn tasks on a `std::TaskScheduler` as usual (see [Synchronization](/stdlib/sync)) — each task follows the same `int(void* arg, int resume_point)` yield protocol.
+1. Spawn tasks on a `std::TaskScheduler` as usual (see [Synchronization](/stdlib/sync)) — each task follows the same `int(?&T arg, int resume_point)` yield protocol.
 2. A task that would otherwise block on I/O calls `sched->await_fd(fd, SCHED_READ)` (or `SCHED_WRITE`/`SCHED_SIGNAL`) on itself, from within its own turn, instead of actually blocking.
 3. Drive the whole thing with `std::reactor_run(sched, reactor)` instead of `TaskScheduler::run_all()`.
 

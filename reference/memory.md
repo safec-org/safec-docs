@@ -97,25 +97,30 @@ an `unsigned long` (`size_t`), and there's no implicit `int` →
 `unsigned long` conversion (see [Types](/reference/types)).
 :::
 
-`<mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer free()` pattern
+`<std/mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer dealloc` pattern
 above into a single call. `malloc_defer` isn't a real function — it's
 parser-level sugar recognized only as a var-decl initializer, and it
-desugars into `std::alloc(n)` for the declaration plus a synthesized
-`defer std::dealloc(buf);` right after it. Because it's backed by
-`std::alloc`, the declared variable's type is `void*` (same as `alloc()`
-everywhere else in `std/`), so an explicit `unsafe` cast is still needed to
-use it as a typed pointer:
+desugars into `std::alloc_raw_(n)` (the type-erased allocator behind the
+generic `std::alloc`) for the declaration plus a synthesized
+`defer std::dealloc_raw_(buf);` right after it. The result is a raw
+`void*`, so declare the variable as a nullable heap reference to get a
+typed, null-checked view:
 
 ```c
-#include <mem.h>
+#include <std/mem.h>
 
 void process2() {
-    auto buf = malloc_defer(4096UL);   // void*, freed automatically at scope exit
-    int* typed;
-    unsafe { typed = (int*)buf; }
-    // ... use typed ...
-}   // std::dealloc(buf) runs here via the synthesized defer
+    ?&heap int buf = malloc_defer(4096UL);   // freed automatically at scope exit
+    match (buf) {
+        case some(p): { *p = 1; }   // ... use p ...
+        case null:    { }           // out of memory
+    }
+}   // std::dealloc_raw_(buf) runs here via the synthesized defer
 ```
+
+A deferred free runs when the scope exits, so it doesn't count as freeing
+the reference for the statements after it — only an explicit `dealloc`
+that has already run does (see below).
 
 ### Compile-Time Use-After-Free and Double-Free Checking
 

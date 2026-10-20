@@ -67,7 +67,7 @@ int           utf8_encoded_len(unsigned int cp);  // 1-4, or 0 if invalid
 #include <std/io.h>
 
 int main() {
-    const char* s = "héllo";
+    const &char s = "héllo";
     unsigned long pos = 0UL;
     unsigned int cp = 0U;
     int count = 0;
