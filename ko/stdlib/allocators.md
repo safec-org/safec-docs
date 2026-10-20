@@ -183,6 +183,8 @@ int main() {
 
 ---
 
+인덱스 크기: `TLSF_FL_MAX`(1단계 클래스 32개) × `TLSF_SL_COUNT`(2단계 분할 16개).
+
 ## 얼로케이터 선택하기 {#choosing-an-allocator}
 
 ```

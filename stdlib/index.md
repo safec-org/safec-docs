@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in every module at once.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, encoding, HTTP/RPC/wasm, the real-time scheduler, ML and SIMD are included by their own headers.
 
 ```c
 #include <std/prelude.h>
@@ -242,7 +242,7 @@ int main() {
 | url | `encoding/url.h` | RFC 3986 percent-encoding (component style) |
 | base64 | `encoding/base64.h` | RFC 4648 Base64 with padding |
 
-### Utilities
+### [Utilities](/stdlib/utilities)
 
 | Header | Description |
 |--------|-------------|
@@ -257,7 +257,7 @@ int main() {
 | `sys.h` | Process-control constants (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG constants |
 | `complex.h` | Complex numbers (C99 `<complex.h>`) as `[real, imag]` float/double pairs |
 
-### C Compatibility Headers
+### [C Compatibility Headers](/stdlib/utilities#c-type-and-limit-headers)
 
 | Header | Description |
 |--------|-------------|
@@ -308,7 +308,7 @@ Where a container must hold callbacks with *different* context types at once (a 
 #include <std/collections/vec.h>
 ```
 
-**All modules at once:**
+**Most modules at once:**
 ```c
 #include <std/prelude.h>
 ```

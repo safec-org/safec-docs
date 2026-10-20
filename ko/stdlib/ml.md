@@ -10,12 +10,10 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 
 ::: warning 범위
 이것은 기존 프레임워크를 이식한 것이 아니라, 처음부터 단일 세션으로
-작성된 구현이다. `tensor.h`는 1D/2D `f64` 텐서와 아래 모듈들에 필요한
-연산을 다루며, 범용 n차원 배열 라이브러리는 아니다. 정확히 무엇이
-검증되었고 무엇이 의도적으로 보류되었는지(DPM-Solver-v3의 캘리브레이션에
-의존하는 설계, EDM 고유의 VE 방식 샘플러, 위치 인코딩, 패치화)는
-저장소의 `std/ml/ROADMAP.md`를 참고한다 — 각각이 왜 조작된 것이 아니라
-범위 밖인지 그 이유도 그 파일에 나와 있다.
+작성된 구현이다. `tensor.h`는 1D/2D float32 텐서와 아래 모듈들에 필요한
+연산을 다루며, 범용 n차원 배열 라이브러리는 아니다. 의도적으로 구현하지
+않은 것: DPM-Solver-v3(실제 학습된 모델에서 캘리브레이션한 통계가 필요한
+설계), EDM 고유의 VE 방식 샘플러, 위치 인코딩, 패치화.
 :::
 
 아래의 모든 함수는 `Tensor`(및 여기 나오는 다른 구조체들)를 리전 없는
@@ -33,7 +31,7 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 #include <std/ml/tensor.h>
 ```
 
-역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D, `double`) — PyTorch 스타일의
+역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D, `float` — PyTorch의 기본값이자 Metal이 지원하는 유일한 정밀도인 float32) — PyTorch 스타일의
 사용감: `requiresGrad` 텐서에 연산을 호출해 암묵적으로 계산 그래프를
 만들고, 그다음 `tensor_backward()`를 호출한다.
 
@@ -48,17 +46,97 @@ tensor_backward(y);                         // 이제 x.grad는 2x를 담고 있
 matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검사를
 통해 검증되었다.
 
+```c
+struct Tensor {
+    &heap float         data;          // flat row-major, length == size
+    &heap unsigned long shape;
+    unsigned long       ndim;          // 1 or 2
+    unsigned long       size;
+    int                 requiresGrad;
+    &heap float         grad;          // allocated only when requiresGrad
+    // ... autograd bookkeeping (gradFn, parents, visited)
+
+    float at1(unsigned long i) const;
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+};
+
+&Tensor tensor_new_1d(unsigned long n, int requiresGrad);
+&Tensor tensor_new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
+&Tensor tensor_from_1d(const &float values, unsigned long n, int requiresGrad);
+&Tensor tensor_from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+&Tensor tensor_zeros_like(const &Tensor t);
+&Tensor tensor_fill(&Tensor t, float v);
+
+&Tensor tensor_add(const &Tensor a, const &Tensor b);
+&Tensor tensor_sub(const &Tensor a, const &Tensor b);
+&Tensor tensor_mul(const &Tensor a, const &Tensor b);   // elementwise
+&Tensor tensor_scale(const &Tensor a, float k);
+&Tensor tensor_matmul(const &Tensor a, const &Tensor b);
+&Tensor tensor_sum(const &Tensor a);
+
+void tensor_backward(&Tensor t);
+void tensor_zero_grad(&Tensor t);
+int  tensor_is_grad_enabled();
+void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
+```
+
+### 자동미분 연산과 옵티마이저 — `tensor_nn.h` {#autograd-ops-and-optimizer-tensor-nn-h}
+
+```c
+#include <std/ml/tensor_nn.h>
+```
+
+역방향 패스를 갖춘 활성화 함수(모든 GPU 백엔드가 쓰는 것), 1D 풀링, Adam입니다.
+
+```c
+&Tensor tensor_relu(const &Tensor a);
+&Tensor tensor_sigmoid(const &Tensor a);
+&Tensor tensor_tanh_t(const &Tensor a);
+&Tensor tensor_softmax(const &Tensor a);
+&Tensor tensor_elu(const &Tensor a, float alpha);
+&Tensor tensor_gelu(const &Tensor a);
+&Tensor tensor_silu(const &Tensor a);
+&Tensor tensor_glu(const &Tensor a);      // split last axis into [a1, a2]: a1 * sigmoid(a2)
+&Tensor tensor_swiglu(const &Tensor a);   // silu(a1) * a2 — output has half the columns
+&Tensor tensor_maxpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
+&Tensor tensor_avgpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
+
+struct AdamState {
+    &heap float m; &heap float v;
+    unsigned long size;
+    float lr; float beta1; float beta2; float eps;
+    unsigned long t;
+};
+struct AdamState adam_new(unsigned long size, float lr, float beta1, float beta2, float eps);
+struct AdamState adam_new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
+void adam_step(&AdamState state, &Tensor param);                   // uses param.grad
+void adam_free(&AdamState state);
+```
+
 ## 활성화 함수 {#activations}
 
 ```c
 #include <std/ml/activations.h>
 ```
 
-원소 단위의 `tensor_sigmoid`/`tensor_tanh`/`tensor_silu`/
-`tensor_gelu`; `tensor_layernorm_rows`(행 단위 평균 0/분산 1 정규화,
+순방향 전용 원소 단위 활성화 함수(자동미분 없음 — 추론 레이어용이며,
+자동미분 버전은 위의 `tensor_nn.h`에 있다); `tensor_layernorm_rows`(행 단위 평균 0/분산 1 정규화,
 어파인 변환 없음 — AdaLN 방식 컨디셔닝에는 직접 스케일/시프트를 적용할
 것, 아래 DiT 참고); `tensor_residual_add`(residual/skip 연결 호출부를
 위한, `tensor_add`에 이름을 붙인 별칭).
+
+```c
+&Tensor tensor_relu_fwd(const &Tensor a);
+&Tensor tensor_sigmoid_fwd(const &Tensor a);
+&Tensor tensor_tanh_fwd(const &Tensor a);
+&Tensor tensor_silu_fwd(const &Tensor a);
+&Tensor tensor_gelu_fwd(const &Tensor a);
+&Tensor tensor_layernorm_rows(const &Tensor x, float eps);
+&Tensor tensor_residual_add(const &Tensor x, const &Tensor sublayerOut);
+```
 
 ## 어텐션 {#attention}
 
@@ -81,6 +159,21 @@ matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검
   행렬을 결코 구체화하지 않는다. `kvLen`을 고르게 나누지 않는 블록
   크기에 대해서도 `attention_forward`의 출력과 허용 오차 내에서
   일치함이 검증되었다.
+
+```c
+&Tensor softmax_rows(const &Tensor x);
+&Tensor tensor_transpose(const &Tensor in);
+&Tensor tensor_slice_cols(const &Tensor in, unsigned long startCol, unsigned long numCols);
+void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
+
+&Tensor attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
+&Tensor mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long numHeads);
+&Tensor gated_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, const &Tensor gateLogits);
+&Tensor gated_mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+                          unsigned long numHeads, const &Tensor gateLogits);
+&Tensor linear_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
+&Tensor flash_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long kvBlockSize);
+```
 
 전체적으로 순방향 전용이다(추론 중심, 역방향 패스 없음). 손으로 계산한
 2×2 예제, `mha_forward`와 수동 헤드별 슬라이싱 간의 자기 일관성 검사,
@@ -110,6 +203,24 @@ matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검
 수동 그룹별/윈도우별 재구성에 대한 자기 일관성 검사와, Gated
 DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되었다.
 
+```c
+&Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
+                    const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
+&Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
+                       struct Tensor** WukGroups, struct Tensor** WuvGroups,   // numGroups each
+                       unsigned long numGroups, unsigned long headsPerGroup);
+&Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+                                   unsigned long windowSize, unsigned long shift);
+
+struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
+struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
+&Tensor gated_deltanet_forward(const &GatedDeltaNet layer, const &Tensor X,
+                               const &Tensor Q, const &Tensor K, const &Tensor V);
+void    gated_deltanet_free(&GatedDeltaNet layer);
+```
+
+`eg_mla_forward`는 그룹별 가중치 테이블을 텐서 포인터 배열로 받는다.
+
 ## RNN 계열 {#rnn-family}
 
 ```c
@@ -122,6 +233,31 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 벡터 관례를 따른다(`x_t`는 `[1, inputSize]`). xLSTM의 mLSTM(행렬 메모리)
 변형은 구현되지 않았다 — sLSTM만 지원된다. 각 셀은 실제 순방향 패스에
 대한 손으로 계산한 게이트 값으로 검증되었다.
+
+```c
+struct RNNCell  rnn_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+&Tensor         rnn_cell_forward(const &RNNCell cell, const &Tensor x_t, const &Tensor h_prev);
+void            rnn_cell_free(&RNNCell cell);
+
+struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+&Tensor         gru_cell_forward(const &GRUCell cell, const &Tensor x_t, const &Tensor h_prev);
+void            gru_cell_free(&GRUCell cell);
+
+struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+// Returns h_t; the new cell state is written to *c_out.
+&Tensor         lstm_cell_forward(const &LSTMCell cell, const &Tensor x_t,
+                                  const &Tensor h_prev, const &Tensor c_prev,
+                                  struct Tensor** c_out);
+void            lstm_cell_free(&LSTMCell cell);
+
+struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
+struct XLSTMCell  xlstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+struct XLSTMState xlstm_cell_forward(const &XLSTMCell cell, const &Tensor x_t, const &XLSTMState prev);
+void              xlstm_cell_free(&XLSTMCell cell);
+void              xlstm_state_free(&XLSTMState s);
+```
+
+각 셀의 가중치 텐서는 공개 필드(`W_ih`, `W_hh`, … — 게이트별 이름)이므로 학습된 가중치를 넣을 수 있다.
 
 ## CNN {#cnn}
 
@@ -136,6 +272,28 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 동작한다. 손으로 계산한 3×3 커널 검사와 풀링 윈도우 검사를 통해
 검증되었다.
 
+```c
+struct FeatureMap {
+    &heap float   data;      // channels × height × width, channels-first
+    unsigned long channels;
+    unsigned long height;
+    unsigned long width;
+};
+struct FeatureMap feature_map_new(unsigned long channels, unsigned long height, unsigned long width);
+void              feature_map_free(&FeatureMap fm);
+
+struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
+                         unsigned long kH, unsigned long kW,
+                         unsigned long stride, unsigned long padding);
+struct FeatureMap conv2d_forward(const &Conv2D layer, const &FeatureMap input);
+void              conv2d_free(&Conv2D layer);
+
+struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
+struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
+struct FeatureMap upsample2x_nearest(const &FeatureMap input);
+struct FeatureMap concat_channels(const &FeatureMap a, const &FeatureMap b);
+```
+
 ## U-Net {#u-net}
 
 ```c
@@ -146,6 +304,13 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 — 전형적인 DDPM 스타일 디퓨전 디노이저 백본이다. 출력 형태 검사와,
 `unet_forward`의 호출 순서를 수동으로 재현한 것과의 완전한 자기
 일관성 검사를 통해 검증되었다.
+
+```c
+struct UNet unet_new(unsigned long inChannels, unsigned long c1, unsigned long c2,
+                     unsigned long outChannels);
+struct FeatureMap unet_forward(&UNet net, const &FeatureMap input);
+void unet_free(&UNet net);
+```
 
 ## 디퓨전 {#diffusion}
 
@@ -168,7 +333,35 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 
 DPM-Solver-v3는 구현되지 않았다(이 방식의 핵심 아이디어는 실제로
 학습된 모델을 실제 데이터에 대해 캘리브레이션한 "경험적 모델 통계"를
-필요로 한다 — `std/ml/ROADMAP.md` 참고).
+필요로 한다).
+
+```c
+void edm_karras_sigmas(unsigned long numSteps, float sigmaMin, float sigmaMax, float rho,
+                       &float outSigmas);                         // numSteps values
+void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd,
+                          &float outBeta, &float outAlphaBar);    // numSteps values each
+
+&Tensor ddpm_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+                          float beta_t, float alphaBar_t, const &Tensor noise);
+&Tensor ddim_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+                          float alphaBar_t, float alphaBar_prev);
+&Tensor dpm_solver_1_step(const &Tensor x_cur, const &Tensor epsPred,
+                          float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+&Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
+                             float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+
+// Order-2 solvers call your model again at the midpoint.
+typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) EpsModelFn;
+typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) DataModelFn;
+&Tensor dpm_solver_2_step(EpsModelFn model, void* userData,
+                          const &Tensor x_cur, const &Tensor epsPred,
+                          float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+&Tensor dpm_solver_pp_2_step(DataModelFn model, void* userData,
+                             const &Tensor x_cur, const &Tensor x0Pred,
+                             float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+```
+
+모델 콜백은 `EpsModelFn`/`DataModelFn`이 선언한 포인터 타입을 그대로 유지하므로, 모델 함수도 그 매개변수 타입으로 작성해야 한다.
 
 ## 트랜스포머 (DiT / JiT) {#transformer-dit-jit}
 
@@ -185,12 +378,28 @@ DPM-Solver-v3는 구현되지 않았다(이 방식의 핵심 아이디어는 실
   변조와 달리) 토큰 임베딩에 처음 한 번만 더하는, 평범한 pre-LN
   트랜스포머다 — 이 구현이 둘 사이에 두는 아키텍처적 구분이다.
 
+```c
+struct DiTBlock dit_block_new(unsigned long dModel, unsigned long dHidden,
+                              unsigned long dModelCond, unsigned long numHeads);
+&Tensor dit_block_forward(const &DiTBlock block, const &Tensor x, const &Tensor c);  // c = conditioning
+void    dit_block_free(&DiTBlock block);
+
+struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
+&Tensor jit_block_forward(const &JiTBlock block, const &Tensor x);
+void    jit_block_free(&JiTBlock block);
+// Patch embedding + conditioning, then numBlocks blocks.
+&Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
+                    &JiTBlock blocks, unsigned long numBlocks);
+```
+
 ## GPU 백엔드 {#gpu-backends}
 
 ```c
 #include <std/ml/gpu_mps.h>   // Apple Silicon/macOS — [features] "mps"
 #include <std/ml/gpu_cuda.h>  // NVIDIA — [features] "cuda"
 #include <std/ml/gpu_rocm.h>  // AMD — [features] "rocm"
+#include <std/ml/gpu_spirv.h> // Vulkan/SPIR-V (incomplete, see Backend status)
+#include <std/ml/gpu_webgpu.h>// WebGPU
 ```
 
 ML 개요서에서 말하는 "통합 메모리" 부분: MPS의 기본 버퍼 저장 모드는
@@ -199,15 +408,12 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 호스트↔디바이스 복사가 없다.
 
 ::: warning 검증 상태
-- **MPS**: `mps_available()`은 실제 Apple Silicon 하드웨어에서 완전히
-  검증되었다. `mps_add_f32()`의 파이프라인 — 디바이스/큐 생성, 실제로
-  런타임에 컴파일된 Metal Shading Language 커널, 파이프라인 상태,
-  버퍼 할당, 인코더 설정 — 은 마지막 단계인
-  `dispatchThreadgroups:threadsPerThreadgroup:` 호출을 제외한 모든
-  단계에서 검증되었으며, 이 마지막 호출은 현재 세그폴트를 일으킨다
-  (연속된 두 개의 구조체 값 전달 Objective-C 메시지 전송 인자와
-  관련된 것으로 보이는 코드 생성상의 결함 — 정확하고 이분 탐색으로
-  좁혀진 실패 지점은 `gpu_mps.sc`의 헤더 주석 참고).
+- **MPS**: 실제 Apple Silicon 하드웨어에서 종단 간 검증되었다 — 올바른
+  출력을 내는 실제 GPU 디스패치(`mps_add_f32`, 그리고 대표 사례로
+  `mps_sub_f32`/`mps_mul_f32`; 다른 원소 단위 연산은 같은 코드 경로를
+  공유한다). 예전에 `dispatchThreadgroups:threadsPerThreadgroup:`에서
+  나던 세그폴트는 함수 포인터 캐스트를 통해 큰 구조체를 값으로 넘길 때의
+  컴파일러 버그였으며, 코드 생성기에서 수정되었다.
 - **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
   그래프, 호스트 배열 API를 CPU 결과와 비교하며(검사 29개),
@@ -271,6 +477,104 @@ rocBLAS와 직접 작성한 커널의 비교: 이 라이브러리의 타일 SGEM
 더 빠르다(≈5 µs, 실행 시작 하한에 가까움). 그래서 행렬곱은 rocBLAS를 쓰고,
 사용자 커널은 rocBLAS가 하지 않는 일을 맡는다.
 
+### 호스트 배열 API (MPS, CUDA, SPIR-V, WebGPU) {#host-array-api-mps-cuda-spir-v-webgpu}
+
+각 백엔드는 일반 `float` 배열에 대해 같은 계열의 함수를 `mps_`, `cuda_`, `spirv_`, `webgpu_` 접두어로 제공합니다. 각각 업로드, 실행, 복사를 한 번에 하며, 성공하면 1, 실패하면(장치 없음, 컴파일 오류) 0을 반환하고 `out`은 건드리지 않습니다. ROCm의 대응 함수(`rocm_*_f32`)는 위의 표에 있습니다.
+
+```c
+// <p> = mps | cuda | spirv | webgpu
+int <p>_available();
+
+int <p>_add_f32(const &float a, const &float b, &float out, unsigned long n);   // also sub, mul, div, pow
+int <p>_relu_f32(const &float a, &float out, unsigned long n);                  // also log, exp, sqrt
+int <p>_scale_f32(const &float a, float k, &float out, unsigned long n);
+int <p>_sum_f32(const &float a, &float out, unsigned long n);                   // out[0] = sum
+int <p>_matmul_f32(const &float a, const &float b, &float out,
+                   unsigned long M, unsigned long K, unsigned long N);          // [M,K] x [K,N]
+int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
+                         unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
+```
+
+호스트 배열은 첫 원소에 대한 참조로 넘기며, 아래의 장치 버퍼는 GPU 자체의 외부 인터페이스인 불투명한 `void*` 핸들입니다.
+
+**영구 버퍼**는 가중치를 호출 사이에 장치에 남겨 두어 학습 루프가 다시 업로드하지 않게 합니다:
+
+```c
+void* <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
+void  <p>_release_persistent(void* buf);                               // MPS: (void* buf, unsigned long bytes)
+int   <p>_persistent_available();                                      // cuda, spirv, webgpu
+int   <p>_matmul_f32_persistent(void* bufA, void* bufB, &float out,
+                                unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
+int   cuda_sgd_update_f32(void* devW, void* devGrad, float lr, unsigned long n);    // in place
+int   webgpu_sgd_update_f32(void* bufW, void* bufGrad, float lr, unsigned long n);
+```
+
+**반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환).
+
+```c
+void* mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
+int   mps_matmul_f16_persistent(void* bufA, void* bufB, &unsigned short out,
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
+int   cuda_sgd_update_f16(void* devW, void* devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+int   mps_matmul_f16(const &float a, const &float b, &float out,
+                     unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
+int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
+```
+
+**MPS 배칭.** `mps_batch_begin()`과 `mps_batch_end()` 사이에서는 MPS 연산이 각자 커밋하고 기다리는 대신 하나의 공유 커맨드 버퍼에 인코딩되므로, 순전파 + 손실 + 역전파를 묶은 스텝이 GPU 제출 한 번으로 실행됩니다. `*_chained` 변형은 이전 연산의 출력 버퍼(`mps_batch_last_output_buffer()`)를 호스트 메모리를 거치지 않고 입력으로 받습니다.
+
+```c
+void  mps_batch_begin();
+void  mps_batch_end();                      // commit, wait, run finalizers
+int   mps_batch_is_active();
+typedef fn void(void* ctx) MpsFinalizeFn;
+void  mps_batch_register_finalize(MpsFinalizeFn finalizeFn, void* ctx);  // runs after mps_batch_end's wait
+void* mps_batch_last_output_buffer();
+
+// Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
+int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
+int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
+int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, unsigned long n);
+
+// Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
+//   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
+//   mps_square_f32_chained, mps_sum_f32_chained, mps_scale_f32_chained, mps_gated_gelu_f32_chained,
+//   mps_matmul_abt_f32_chained, mps_matmul_atb_f32_chained, mps_matmul_atb_f32_chained_ab,
+//   mps_relu_backward_f32_chained, mps_relu_backward_f32_chained_ab, mps_matmul_abt_f32_persistent,
+//   mps_sgd_update_f32_chained;
+//   mps_relu_{f16,bf16}_chained, mps_sub_{f16,bf16}_chained, mps_scale_{f16,bf16}_chained,
+//   mps_matmul_atb_{f16,bf16}_chained_ab, mps_matmul_abt_{f16,bf16}_persistent,
+//   mps_relu_backward_{f16,bf16}_chained_ab, mps_sgd_update_{f16,bf16}_chained
+```
+
+`_ab` 접미사는 두 입력이 모두 이미 GPU 버퍼라는 뜻입니다. 각 함수의 인자 순서는 `std/ml/gpu_mps.h`를 참고하세요.
+
+### 텐서 래퍼 {#tensor-wrappers}
+
+순전파를 백엔드에서 실행하고 CPU 역전파를 재사용하는 자동미분 `Tensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다.
+
+| 헤더 | 함수 | 장치 |
+|--------|-----------|--------|
+| `tensor_gpu.h` | `tensor_{add,sub,mul,scale,relu,square,sum,matmul}_gpu` | MPS |
+| `tensor_cuda.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_cuda`, `tensor_matmul_cuda_blas` | CUDA |
+| `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
+| `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
+| `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
+| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
+| `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
+| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 naive / vDSP / BLAS 선택 |
+
+`tensor_gpu.h`는 텐서 수준에서 MPS 배칭과 영구 버퍼도 제어합니다:
+
+```c
+void tensor_gpu_batch_begin();
+void tensor_gpu_batch_end();
+void tensor_gpu_mark_persistent(const &Tensor t);   // keep t's data resident on the GPU
+void tensor_gpu_release_all_persistent();
+```
+
+`tensor_auto.h`는 의도적으로 CPU 전용입니다: 측정한 모든 크기(2×2×2부터 128×128×128까지의 행렬곱, 그리고 128×512×1024×256 학습 스텝)에서 BLAS가 naive 루프에 진 적이 없고 MPS가 BLAS를 이긴 적이 없으므로 "auto"는 GPU를 고르지 않습니다. 필요하면 `tensor_matmul_on(..., DEVICE_MPS)`로 명시하세요.
+
 ### 백엔드 상태 {#backend-status}
 
 | 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
@@ -294,6 +598,20 @@ SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니�
 | 표현 가능한 값의 fp16 왕복 변환 | 정확 |
 | bf16 왕복 변환 (구조상 손실 있음 — 가수 7비트) | 상대 오차 ~0.4% 이내 |
 
+```c
+#include <std/ml/float16.h>
+
+unsigned short f32_to_fp16(float v);          // round to nearest even
+float          fp16_to_f32(unsigned short h);
+unsigned short f32_to_bf16(float v);
+float          bf16_to_f32(unsigned short b);
+
+void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
+void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
+void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+```
+
 
 ## 장치 선택 {#device-selection}
 
@@ -304,6 +622,24 @@ SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니�
 | CPU | 0.900000 | 1.300000 |
 | CPU + BLAS | 0.900000 | 1.300000 |
 | MPS | 0.900000 | 1.300000 |
+
+```c
+#include <std/ml/tensor_dispatch.h>
+
+enum Device {
+    DEVICE_CPU = 0, DEVICE_CPU_BLAS = 1, DEVICE_MPS = 2,
+    DEVICE_CUDA = 3, DEVICE_CUDA_BLAS = 4,
+    DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
+    DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
+};
+&Tensor tensor_matmul_on(const &Tensor a, const &Tensor b, enum Device device);
+&Tensor tensor_relu_on(const &Tensor a, enum Device device);
+
+#include <std/ml/transformer_dispatch.h>
+&Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
+&Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
+                       &JiTBlock blocks, unsigned long numBlocks, enum Device device);
+```
 
 이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `tensor_sigmoid`/`tensor_relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
 
@@ -337,6 +673,39 @@ SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니�
   연결되어 `"__end__"`까지 실행된다.
 - **`Tracer`** — 이름 붙은 입력/출력/타이밍 이벤트를 담는 인메모리,
   JSON으로 덤프 가능한 로그(LangSmith 스타일).
+
+```c
+struct LlmMessage { struct String role; struct String content; };
+struct LlmClient  { struct String host; unsigned short port; struct String model; struct String apiKey; };
+
+struct LlmClient llm_client_new(const &char host, unsigned short port,
+                                const &char model, const &char apiKey);
+// The assistant's reply text; *ok = 0 on transport or response-shape failure.
+struct String llm_chat(&LlmClient client, &Vec<struct LlmMessage> messages, ?&int ok);
+
+struct String prompt_template_render(const &char tmpl, const &Value vars);   // {name} -> vars.name
+
+typedef fn struct Value(const &Value input) ChainStepFn;
+struct Chain chain_new();
+void         chain_add_step(&Chain c, ChainStepFn step);
+struct Value chain_run(&Chain c, const &Value input);
+void         chain_free(&Chain c);
+
+typedef fn struct Value(const &Value state) GraphNodeFn;
+typedef fn struct String(const &Value state) GraphRouterFn;   // name of the next node, or "__end__"
+struct Graph graph_new(const &char entryNode);
+void         graph_add_node(&Graph g, const &char name, GraphNodeFn nodeFn, const &char nextNode);
+void         graph_add_conditional_node(&Graph g, const &char name, GraphNodeFn nodeFn, GraphRouterFn router);
+struct Value graph_run(&Graph g, struct Value initialState, int maxSteps);
+void         graph_free(&Graph g);
+
+struct TraceEvent { struct String name; struct String inputJson; struct String outputJson; double durationMs; };
+struct Tracer tracer_new();
+void          tracer_record(&Tracer t, const &char name, const &Value input,
+                            const &Value output, double durationMs);
+struct String tracer_to_json(const &Tracer t);
+void          tracer_free(&Tracer t);
+```
 
 다섯 가지 모두 종단 간(end-to-end)으로 검증되었으며, `LlmClient`는
 실제 LLM 엔드포인트를 대신하는 실제 로컬 모의(mock) HTTP 서버에 대해

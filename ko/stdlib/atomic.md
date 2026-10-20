@@ -13,8 +13,8 @@ consistency) 순서를 사용한다.
 ### 로드 / 스토어 {#load-store}
 
 ```c
-int  atomic_load_int(const int* addr);
-void atomic_store_int(int* addr, int val);
+int  atomic_load_int(const &int addr);
+void atomic_store_int(&int addr, int val);
 ```
 
 `*addr`를 원자적으로 읽거나 쓴다.
@@ -22,11 +22,11 @@ void atomic_store_int(int* addr, int val);
 ### 페치 후 변경 (Fetch-and-Modify) {#fetch-and-modify}
 
 ```c
-int atomic_fetch_add_int(int* addr, int delta);
-int atomic_fetch_sub_int(int* addr, int delta);
-int atomic_fetch_and_int(int* addr, int mask);
-int atomic_fetch_or_int(int* addr, int mask);
-int atomic_fetch_xor_int(int* addr, int mask);
+int atomic_fetch_add_int(&int addr, int delta);
+int atomic_fetch_sub_int(&int addr, int delta);
+int atomic_fetch_and_int(&int addr, int mask);
+int atomic_fetch_or_int(&int addr, int mask);
+int atomic_fetch_xor_int(&int addr, int mask);
 ```
 
 각 함수는 연산을 원자적으로 적용하고 **이전** 값을 반환한다.
@@ -34,7 +34,7 @@ int atomic_fetch_xor_int(int* addr, int mask);
 ### 교환 (Exchange) {#exchange}
 
 ```c
-int atomic_exchange_int(int* addr, int val);
+int atomic_exchange_int(&int addr, int val);
 ```
 
 `*addr`를 `val`로 원자적으로 교체하고 이전 값을 반환한다.
@@ -42,7 +42,7 @@ int atomic_exchange_int(int* addr, int val);
 ### Compare-and-Swap (CAS) {#compare-and-swap-cas}
 
 ```c
-int atomic_cas_int(int* addr, int* expected, int desired);
+int atomic_cas_int(&int addr, &int expected, int desired);
 ```
 
 `*addr == *expected`이면 `desired`를 `*addr`에 원자적으로 저장하고 1(성공)을
@@ -52,12 +52,12 @@ int atomic_cas_int(int* addr, int* expected, int desired);
 ## atomic_long (64비트 부호 있음) {#atomic_long-64-bit-signed}
 
 ```c
-long long  atomic_load_ll(const long long* addr);
-void       atomic_store_ll(long long* addr, long long val);
-long long  atomic_fetch_add_ll(long long* addr, long long delta);
-long long  atomic_fetch_sub_ll(long long* addr, long long delta);
-long long  atomic_exchange_ll(long long* addr, long long val);
-int        atomic_cas_ll(long long* addr, long long* expected, long long desired);
+long long  atomic_load_ll(const &long long addr);
+void       atomic_store_ll(&long long addr, long long val);
+long long  atomic_fetch_add_ll(&long long addr, long long delta);
+long long  atomic_fetch_sub_ll(&long long addr, long long delta);
+long long  atomic_exchange_ll(&long long addr, long long val);
+int        atomic_cas_ll(&long long addr, &long long expected, long long desired);
 ```
 
 `_int` 변형과 동일한 의미를 가지며, `long long`(64비트) 값에 대해

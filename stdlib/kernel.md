@@ -44,6 +44,8 @@ Flags: `PAGE_PRESENT`, `PAGE_WRITABLE`, `PAGE_USER`, `PAGE_WRITE_THRU`,
 `unmap(idx)`, `is_present(idx)`, `get_phys(idx)`, `get_flags(idx)`,
 `set_flags(idx, flags)`.
 
+`PAGE_SIZE` is 4096 bytes and `PAGE_TABLE_SIZE` is 512 entries per table.
+
 ## MMU Context (`kernel/mmu.h`)
 
 `MmuContext` is a full 2-level (Sv30-style: 9+9+12 bits, 1 GiB address
@@ -56,6 +58,8 @@ without modifying), `tlb_flush_all()`/`tlb_flush_page(virt)`, and
 `activate()` — each of the last three is architecture-dispatched
 internally (x86-64: `CR3`/`invlpg`; RISC-V: `sfence.vma`/`satp`; AArch64:
 `TTBR0_EL1`/`TLBI`).
+
+A context holds up to `MMU_L2_MAX` (512) second-level tables.
 
 ## Process Control Block (`kernel/process.h`)
 

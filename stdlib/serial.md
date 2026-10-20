@@ -1,4 +1,4 @@
-# serial -- Serialization (JSON / XML / HTML / CSV / YAML)
+# serial -- Serialization (JSON / XML / HTML / CSV / YAML / Markdown / Protobuf)
 
 `std/serial/` provides a format-agnostic `Value` tree plus five format backends (JSON, XML, HTML, CSV, YAML) that all read and write it. Since SafeC has no field-name reflection (only `fieldcount(T)` — a count, no names), a struct becomes serializable by writing a `to_value()` method by hand rather than via an automatic `#[derive]`-style macro.
 
@@ -38,19 +38,19 @@ struct Value {
     unsigned long   array_len() const;
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
-    ?&Value         object_get(const char* key) const;   // empty (null) if the key isn't present
+    ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
 }
 
 struct Value value_null();
 struct Value value_bool(int v);
 struct Value value_int(long long v);
 struct Value value_float(double v);
-struct Value value_string(const char* s);   // copies s
+struct Value value_string(const &char s);   // copies s
 struct Value value_array();                 // empty; grow with value_array_push
 struct Value value_object();                // empty; grow with value_object_set
 
 void value_array_push(&Value arr, struct Value v);
-void value_object_set(&Value obj, const char* key, struct Value v);
+void value_object_set(&Value obj, const &char key, struct Value v);
 
 struct Value value_clone(const &Value v);
 void value_free(&Value v);
@@ -112,7 +112,7 @@ A `from_value(const &Value)` method covers the decode direction the same way —
 void json_write(const &Value v, &String out);   // appends; doesn't clear 'out' first
 struct String value_to_json(const &Value v);      // convenience: fresh String
 
-struct Value json_parse(const char* text, int* ok);
+struct Value json_parse(const &char text, ?&int ok);
     // *ok = 1 and the parsed tree on success; *ok = 0 and value_null() on
     // failure. Ignores trailing content after the first complete value.
 ```
@@ -143,10 +143,10 @@ value_free(&parsed);
 ## XML
 
 ```c
-void xml_write(const &Value v, const char* tag, &String out);
-struct String value_to_xml(const &Value v, const char* root_tag);
+void xml_write(const &Value v, const &char tag, &String out);
+struct String value_to_xml(const &Value v, const &char root_tag);
 
-struct Value xml_parse(const char* text, int* ok);   // root tag itself is not returned, only its content
+struct Value xml_parse(const &char text, ?&int ok);   // root tag itself is not returned, only its content
 ```
 
 Mapping:
@@ -181,11 +181,11 @@ value_free(&parsed);
 ## HTML
 
 ```c
-void html_escape(&String out, const char* s);   // usable standalone, independent of the Value renderer
+void html_escape(&String out, const &char s);   // usable standalone, independent of the Value renderer
 void html_write(const &Value v, &String out);
 struct String value_to_html(const &Value v);
 
-struct Value html_parse(const char* text, int* ok);
+struct Value html_parse(const &char text, ?&int ok);
 ```
 
 Unlike JSON/XML, HTML isn't a data-interchange format — `html_write` renders a `Value` tree as a human-readable document fragment:
@@ -223,7 +223,7 @@ A CSV document is a `VAL_ARRAY` of rows, each row itself a `VAL_ARRAY` of `VAL_S
 void csv_write(const &Value v, &String out);   // 'v' must be VAL_ARRAY of VAL_ARRAY
 struct String value_to_csv(const &Value v);
 
-struct Value csv_parse(const char* text, int* ok);
+struct Value csv_parse(const &char text, ?&int ok);
 ```
 
 Fields containing a comma, double quote, or newline are quoted per RFC 4180, with embedded double quotes doubled (`""`). Both `"\n"` and `"\r\n"` line endings are accepted on parse; a trailing newline is optional. On a malformed quoted field (an opening `"` with no matching close), `*ok` is set to 0 and the return value is whatever was parsed so far.
@@ -252,7 +252,7 @@ A block-style subset of YAML 1.1: block scalars (plain, single- and double-quote
 void yaml_write(const &Value v, &String out);
 struct String value_to_yaml(const &Value v);
 
-struct Value yaml_parse(const char* text, int* ok);
+struct Value yaml_parse(const &char text, ?&int ok);
     // *ok = 0 on a structural error (inconsistent indentation, an
     // unterminated quoted scalar, a line that's neither a valid
     // sequence/mapping entry nor a bare scalar where one is expected) --
@@ -272,6 +272,144 @@ printf("%s", yaml.as_ptr());
 yaml.free();
 value_free(&v);
 ```
+
+## Markdown
+
+```c
+#include <std/serial/markdown.h>
+```
+
+Markdown is document markup, not key/value data, so it has its own small AST instead of the `Value` tree. Parse a CommonMark-like subset, then render it to HTML (for example as an [HTTP](/stdlib/http) response body) or back to Markdown.
+
+Supported blocks: `#`–`######` headings, paragraphs, flat unordered (`-`, `*`, `+`) and ordered (`1.`) lists, fenced code blocks, blockquotes, horizontal rules. Supported inline: `**bold**`/`__bold__`, `*italic*`/`_italic_`, `` `code` ``, `[text](url)`. Not supported: tables, images, raw HTML, reference-style links, nested lists.
+
+```c
+#define MD_DOC        0
+#define MD_HEADING    1
+#define MD_PARAGRAPH  2
+#define MD_LIST       3   // 'ordered' tells - from 1.
+#define MD_LIST_ITEM  4
+#define MD_CODE_BLOCK 5
+#define MD_BLOCKQUOTE 6
+#define MD_HR         7
+#define MD_TEXT       8   // inline text in 'text'
+#define MD_BOLD       9
+#define MD_ITALIC     10
+#define MD_CODE_SPAN  11  // inline code in 'text'
+#define MD_LINK       12  // children are the link text; 'text' is the URL
+
+struct MdNode {
+    int kind;
+    int level;                          // MD_HEADING: 1-6
+    int ordered;                        // MD_LIST
+    struct String text;
+    struct Vec<&heap MdNode> children;
+};
+
+&heap MdNode  md_parse(const &char text);                  // MD_DOC root; free with md_free()
+struct String md_render_html(const &heap MdNode doc);      // text is HTML-escaped
+struct String md_render_markdown(const &heap MdNode doc);  // canonical form, e.g. *b* -> **b**
+void          md_free(&heap MdNode node);
+```
+
+```c
+#include <std/serial/markdown.h>
+#include <std/io.h>
+
+int main() {
+    &heap MdNode doc = std::md_parse("# Title\n\nSome **bold** text.\n");
+    struct String html = std::md_render_html(doc);
+    std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
+    html.free();
+    std::md_free(doc);
+    return 0;
+}
+```
+
+## Protobuf
+
+```c
+#include <std/serial/protobuf.h>
+```
+
+Protocol Buffers proto3 binary wire format — varints, tags, zigzag, length-delimited, fixed32/fixed64 — exactly as `protoc`-generated code produces it, so it interoperates with protobuf in other languages. There is no `.proto` compiler: write `to_proto()`/`from_proto()` by hand using your schema's field numbers. Pairs with [RPC](/stdlib/http#rpc).
+
+```c
+#define PB_WIRE_VARINT  0   // int32/int64/uint32/uint64/sint32/sint64/bool/enum
+#define PB_WIRE_FIXED64 1   // fixed64/sfixed64/double
+#define PB_WIRE_LEN     2   // string/bytes/embedded messages/packed repeated
+#define PB_WIRE_FIXED32 5   // fixed32/sfixed32/float
+// Group wire types 3/4 are not supported (proto3 never emits them).
+
+// Writer: each *_field call appends its own tag, then the value.
+void pb_write_varint(&String out, unsigned long long v);
+void pb_write_tag(&String out, int field_num, int wire_type);
+void pb_write_int64_field(&String out, int field_num, long long v);   // negative values take 10 bytes, like protoc
+void pb_write_uint64_field(&String out, int field_num, unsigned long long v);
+void pb_write_sint64_field(&String out, int field_num, long long v);  // zigzag
+void pb_write_bool_field(&String out, int field_num, int v);
+void pb_write_double_field(&String out, int field_num, double v);
+void pb_write_float_field(&String out, int field_num, float v);
+void pb_write_string_field(&String out, int field_num, const &char s);
+void pb_write_bytes_field(&String out, int field_num, const &unsigned char data, unsigned long len); // also nested messages
+
+// Reader: a zero-copy cursor over an existing buffer.
+struct PbReader {
+    const unsigned char* data;
+    unsigned long        len;
+    unsigned long        pos;
+};
+
+struct PbReader pb_reader_new(const &unsigned char data, unsigned long len);
+int pb_reader_has_more(const &PbReader r);
+
+// Each returns 1 on success, 0 on truncated or malformed input.
+int pb_read_varint(&PbReader r, &unsigned long long out);
+int pb_read_tag(&PbReader r, &int field_num, &int wire_type);
+int pb_read_int64(&PbReader r, &long long out);
+int pb_read_uint64(&PbReader r, &unsigned long long out);
+int pb_read_sint64(&PbReader r, &long long out);
+int pb_read_bool(&PbReader r, &int out);
+int pb_read_double(&PbReader r, &double out);
+int pb_read_float(&PbReader r, &float out);
+// *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
+int pb_read_length_delimited(&PbReader r, const unsigned char** dataOut, &unsigned long lenOut);
+int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
+```
+
+`pb_read_length_delimited` hands back a pointer into the reader's own buffer, which is why it keeps the C-style `const unsigned char**` out-parameter.
+
+```c
+#include <std/serial/protobuf.h>
+
+// .proto: message Point { int32 x = 1; int32 y = 2; }
+struct Point { int x; int y; };
+
+int main() {
+    struct String buf = std::string_new();
+    std::pb_write_int64_field(&buf, 1, 3LL);
+    std::pb_write_int64_field(&buf, 2, -4LL);
+
+    struct Point p;
+    p.x = 0; p.y = 0;
+    struct PbReader r;
+    // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
+    unsafe { r = std::pb_reader_new((const unsigned char*)buf.as_ptr(), buf.length()); }
+    while (std::pb_reader_has_more(&r)) {
+        int field = 0; int wire = 0;
+        if (!std::pb_read_tag(&r, &field, &wire)) break;
+        long long v = 0LL;
+        if (wire == PB_WIRE_VARINT && std::pb_read_int64(&r, &v)) {
+            if (field == 1) p.x = (int)v;
+            if (field == 2) p.y = (int)v;
+        } else if (!std::pb_skip_field(&r, wire)) break;
+    }
+    buf.free();
+    return (p.x == 3 && p.y == -4) ? 0 : 1;
+}
+```
+
+`std/serial/serial.h` includes only `value.h`, `json.h`, `xml.h` and `html.h`; include `csv.h`, `yaml.h`, `markdown.h` and `protobuf.h` directly.
 
 ## Round-Trip Fidelity
 

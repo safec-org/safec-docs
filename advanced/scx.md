@@ -20,7 +20,7 @@ Markup may appear in exactly one place: as the entire operand of a `return`
 statement.
 
 ```c
-struct String render_home(const char* visitor_name) {
+struct String render_home(const &char visitor_name) {
     return <html>
         <head><title>My Page</title></head>
         <body>
@@ -46,7 +46,10 @@ struct String render_home(const char* visitor_name) {
   comments are scanned over untouched, so a stray `<` or `return` inside
   one is never mistaken for markup.
 
-Every `{expr}`/`{!expr}` expression must evaluate to `const char*` — scx
+Every `{expr}`/`{!expr}` expression must evaluate to a C string,
+`const &char` — a string literal, a `const &char` parameter, or a
+`String`'s `as_ptr()`. Format numbers into a buffer first (for example with
+[`std::fmt_int`](/stdlib/utilities#fmt-formatting-into-buffers)). scx
 does no type-checking of its own (it runs as a text-level pass, before
 Sema ever runs), so a type mismatch surfaces as an ordinary `safec` compile
 error on the generated code, pointing at the synthesized call site.
@@ -77,17 +80,20 @@ function from another — render the child first, then splice its already-
 built HTML in with `{!...}`:
 
 ```c
-struct String render_item(const char* name, int qty) {
-    return <li>{name} &times; {qty}</li>;
+struct String render_item(const &char name, int qty) {
+    char qty_text[24];
+    std::fmt_int(&qty_text[0], 24UL, (long long)qty);
+    return <li>{name} &times; {qty_text}</li>;
 }
 
-struct String render_cart(struct String items_html) {
+struct String render_cart(const &String items_html) {
     return <ul>{!items_html.as_ptr()}</ul>;
 }
 ```
 
 The caller builds `items_html` with ordinary SafeC code (a loop over
-`render_item(...)` calls, concatenated with `String::push_str`), then
+`render_item(...)` calls, each appended with `push(item.as_ptr())`) and
+passes it by reference, then
 interpolates the finished, already-escaped-where-it-needed-to-be result raw
 with `{!...}` — `{...}` would double-escape it. This mirrors how a
 templating engine without a virtual DOM has to compose: build inner content
@@ -100,17 +106,18 @@ Generated code calls into a small runtime under `std/scx/scx.h`:
 
 ```c
 namespace std {
-void scx_append_esc(&String buf, const char* s); // HTML-escape + append
+void scx_append_esc(&String buf, const &char s); // HTML-escape + append
 }
 ```
 
 `safeguard` injects `#include <std/scx/scx.h>` and
 `#include <std/collections/string.h>` automatically into any file that used
-markup — hand-written `.scx` source never includes these itself. Static
-text and attributes (known at transpile time) are HTML-escaped once, up
-front, and coalesced into a single `String::push("...")` call per run of
-static content; only `{expr}` interpolation sites cost a runtime call —
-generated code looks like:
+markup — hand-written `.scx` source never includes these itself. Literal
+text between tags is author-written and emitted as-is, like JSX (so an
+entity such as `&times;` passes straight through); static attribute
+values are HTML-escaped once at transpile time. Each run of static content
+becomes a single `String::push("...")` call, and only `{expr}`
+interpolation sites cost a runtime call — generated code looks like:
 
 ```c
 struct String __scx0 = std::string_new();
@@ -151,7 +158,7 @@ scx-rendered pages conditionally, not from excluding the file:
 ```c
 // src/main.sc
 #ifdef SAFEC_FEATURE_FRONTEND
-struct String render_home(const char* visitor_name); // src/pages.scx
+struct String render_home(const &char visitor_name); // src/pages.scx
 #endif
 
 int main() {

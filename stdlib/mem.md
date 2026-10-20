@@ -48,6 +48,14 @@ unsigned long checked_mul_size(unsigned long a, unsigned long b);
 
 Multiplies two allocation-size factors (typically an element count and an element size) and aborts with a diagnostic instead of silently wrapping if the product overflows `unsigned long` — the classic "`count * elem_size`" integer-overflow-to-undersized-allocation bug. Every allocation site in the standard library that multiplies a caller-controlled count by an element size (`Vec`, `HashMap`'s buckets, `Queue`, `MpscQueue`, `LFQueue`, ...) is routed through this instead of a bare `*`; use it the same way anywhere a size passed to `alloc`/`alloc_zeroed`/`realloc_buf` is a product of two runtime values rather than a small compile-time-provable constant.
 
+### checked_add_size
+
+```c
+unsigned long checked_add_size(unsigned long a, unsigned long b);
+```
+
+The addition counterpart of `checked_mul_size`: aborts instead of wrapping when the sum overflows `unsigned long`. Use it when adding several field sizes into one combined allocation.
+
 ## Allocation Safety
 
 `alloc`/`alloc_zeroed` prefix every allocation with a small 16-byte header tagging it live or freed. `dealloc`/`realloc_buf` check that tag before acting:
@@ -112,6 +120,25 @@ Compare `n` bytes of memory at `a` and `b`. Returns:
 - `< 0` if `a` is less than `b`
 - `0` if equal
 - `> 0` if `a` is greater than `b`
+
+## Cache and Alignment Helpers
+
+```c
+#define MEM_CACHE_LINE_SIZE  64   // bytes (typical x86 / ARM / RISC-V L1)
+
+unsigned long mem_align_up(unsigned long addr, unsigned long align);   // align is a power of two
+unsigned long mem_align_down(unsigned long addr, unsigned long align);
+int           mem_is_aligned(unsigned long addr, unsigned long align);
+void*         mem_align_ptr(void* ptr, unsigned long align);            // null if it can't be aligned
+int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if [addr, addr+size) stays in one 4 KiB page
+
+// locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
+void          mem_prefetch(const void* addr, int write, int locality);
+void          mem_clflush(const void* addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
+void          mem_zero_secure(void* ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
+```
+
+These take addresses as `unsigned long` or `void*` because they work on raw memory, like the `safe_mem*` functions above.
 
 ## Example
 

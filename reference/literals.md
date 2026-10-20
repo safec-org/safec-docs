@@ -120,7 +120,7 @@ const double PI = 3.14159265358979;
 `const` on function parameters prevents modification of the argument:
 
 ```c
-int length(const char *str) {
+int length(const &char str) {
     // str contents cannot be modified
 }
 ```

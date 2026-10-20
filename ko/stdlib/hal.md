@@ -31,6 +31,8 @@ void blink(void* gpio_base, int pin) {
 | Timer | `hal/timer.h` | `Timer` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
 | Watchdog | `hal/watchdog.h` | `Watchdog` | `watchdog_init(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |
 
+상수: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C 결과 `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3`(CPOL/CPHA = 00, 01, 10, 11).
+
 모두 원시 MMIO 주소에 직접 작동하는 폴링 기반 드라이버다(인터럽트 기반
 변형은 없음) — 주변장치가 완료를 비동기적으로 알려야 할 경우 인터럽트를
 다루는 쪽은 [`std::interrupt`](/ko/stdlib/interrupt)(ISR 등록, 벡터
@@ -42,6 +44,45 @@ void blink(void* gpio_base, int pin) {
 위치한 전역 인스턴스로 제공한다. 전체 설명(HAL 사용법, DSP 확장
 내장 함수, MVE)은 [베어메탈 → ARM Cortex-M](/ko/reference/baremetal#arm-cortex-m)을
 참고한다.
+
+```c
+#define NVIC_BASE     0xE000E100UL
+#define SYSTICK_BASE  0xE000E010UL
+#define SCB_BASE      0xE000ED00UL
+
+struct Nvic {                      // global instance: nvic (nvic_init())
+    void* base;
+    void  enable(unsigned int irq);
+    void  disable(unsigned int irq);
+    int   is_pending(unsigned int irq) const;
+    void  clear_pending(unsigned int irq);
+    void  set_priority(unsigned int irq, unsigned char priority);
+    unsigned char get_priority(unsigned int irq) const;
+};
+
+struct SysTick {                   // global instance: systick (systick_init())
+    void* base;
+    void  start(unsigned int reload, int use_core_clock);
+    void  stop();
+    unsigned int read() const;
+    int   flag_set() const;        // COUNTFLAG: wrapped since last read
+};
+
+struct Scb {                       // global instance: scb (scb_init())
+    void* base;
+    void  system_reset();
+    void  enable_fault(unsigned int fault_mask);   // SCB_FAULT_* bits
+    void  disable_fault(unsigned int fault_mask);
+    void  set_vtor(unsigned int addr);             // relocate the vector table
+    int   in_handler_mode() const;                 // 1 inside an exception handler
+    void  set_psp(unsigned int addr);              // process stack pointer
+    void  set_msp(unsigned int addr);              // main stack pointer
+};
+
+#define SCB_FAULT_USAGE  (1u << 18)
+#define SCB_FAULT_BUS    (1u << 17)
+#define SCB_FAULT_MEM    (1u << 16)
+```
 
 ## AArch64 {#aarch64}
 
@@ -60,11 +101,13 @@ ARMv8-A 애플리케이션 코어(Cortex-A53/A57/A72/A55/A76)를 대상으로 �
 `set_tval()`, `enable()`/`disable()`, `fire_pending()`.
 
 **GIC**(GICv2 호환; `GicDist`/`GicCpu`, 전역 인스턴스 `gic_dist`/
-`gic_cpu`, `gic_init(dist_base, cpu_base)`로 초기화): 분배기(distributor)
-쪽의 `enable_irq`/`disable_irq`, `set_priority`, `set_target`(CPU
-어피니티 마스크), `set_config`(에지 트리거 대 레벨 트리거),
+`gic_cpu`, `gic_init(dist_base, cpu_base)`로 초기화; 기본 주소는
+`GIC_DIST_BASE` = `0x08000000`, `GIC_CPU_BASE` = `0x08010000`으로 QEMU
+`virt` / Juno 배치): 분배기(distributor) 쪽의 `enable_group0`,
+`enable_irq`/`disable_irq`, `set_priority`, `set_target`(CPU 어피니티
+마스크), `set_config`(에지 트리거 대 레벨 트리거),
 `is_pending`/`clear_pending`; CPU 인터페이스 쪽의 `ack()`(대기 중인 IRQ
-번호를 반환)/`eoi()`(인터럽트 종료).
+번호를 반환), `eoi()`(인터럽트 종료), `running_priority()`.
 
 ## RISC-V {#risc-v}
 
@@ -78,10 +121,10 @@ ARMv8-A 애플리케이션 코어(Cortex-A53/A57/A72/A55/A76)를 대상으로 �
 `rv_csr_read_instret`, 그리고 `rv_global_irq_enable`/
 `rv_global_irq_disable`.
 
-**CLINT**(`Clint`, 전역 인스턴스 `clint`, `clint_init(base)`로 생성):
+**CLINT**(`Clint`, 전역 인스턴스 `clint`, `clint_init(base)`로 생성; 기본 주소 `CLINT_BASE` = `0x02000000`):
 `set_msip`/`clear_msip`(하트별 소프트웨어 인터럽트), `set_mtimecmp`/
 `read_mtime`, `schedule(delta)`(`delta` 틱 뒤에 타이머 인터럽트 발생).
 
-**PLIC**(`Plic`, 전역 인스턴스 `plic`, `plic_init(base)`로 생성):
+**PLIC**(`Plic`, 전역 인스턴스 `plic`, `plic_init(base)`로 생성; 기본 주소 `PLIC_BASE` = `0x0C000000`, IRQ는 `PLIC_MAX_IRQ` = 53까지):
 `set_priority`, `enable`/`disable`, `set_threshold`, `claim()`(우선순위가
 가장 높은 대기 중 IRQ, 0이면 없음), `complete(irq)`.

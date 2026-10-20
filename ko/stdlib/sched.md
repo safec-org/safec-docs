@@ -80,7 +80,7 @@ struct Reactor {
     int  init();                                             // 백엔드를 열고/초기화; 성공 0, 실패 -1
     void add(int fd, int filter);                             // 영구적인, 레벨 트리거 관심 등록
     void remove(int fd, int filter);
-    int  poll(struct TaskScheduler* sched, long long timeout_ms);
+    int  poll(&TaskScheduler sched, long long timeout_ms);
         // timeout_ms: 0 = 대기 중인 것이 없으면 즉시 반환, 음수 = 무기한 블록.
         // 준비된 (fd, filter)마다 sched->unblock_fd()를 호출한다. 처리된
         // OS 이벤트 수를 반환한다(여러 태스크가 같은 fd를 기다린다면
@@ -94,7 +94,7 @@ struct Reactor reactor_init();
 ## `reactor_run` — 스케줄러 그 자체 {#reactor_run-the-scheduler-itself}
 
 ```c
-void reactor_run(struct TaskScheduler* sched, struct Reactor* r);
+void reactor_run(&TaskScheduler sched, &Reactor r);
 ```
 
 `sched`를 완료까지 구동한다: 실행 가능한 모든 태스크를 틱하고, 즉시
@@ -174,7 +174,8 @@ unsigned int   sched_htonl(unsigned int host32);
 unsigned int   sched_ipv4(unsigned char a, unsigned char b, unsigned char c, unsigned char d);
 
 int fd_set_nonblocking(int fd);                         // 열린 fd에 대해 논블로킹 모드 활성화
-int fd_open_nb(const char* path, int flags, int mode);   // 지원되는 곳에서 논블로킹 모드로 open()
+int fd_set_blocking(int fd);                            // 블로킹 모드로 복귀 (연결 진행 중에도 안전)
+int fd_open_nb(const &char path, int flags, int mode);   // 지원되는 곳에서 논블로킹 모드로 open()
 
 int tcp_listen_nb(unsigned short port);                  // socket+bind+listen, 논블로킹; 리스닝 fd 또는 -1
 int tcp_accept_nb(int listenfd);

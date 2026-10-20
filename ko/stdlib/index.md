@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 모든 모듈을 한 번에 가져올 수 있습니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 인코딩, HTTP/RPC/wasm, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>
@@ -242,7 +242,7 @@ int main() {
 | url | `encoding/url.h` | RFC 3986 퍼센트 인코딩 (컴포넌트 방식) |
 | base64 | `encoding/base64.h` | 패딩을 포함한 RFC 4648 Base64 |
 
-### 유틸리티 {#utilities}
+### [유틸리티](/ko/stdlib/utilities) {#utilities}
 
 | 헤더 | 설명 |
 |--------|-------------|
@@ -257,7 +257,7 @@ int main() {
 | `sys.h` | 프로세스 제어 상수 (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG 상수 |
 | `complex.h` | 복소수 (C99 `<complex.h>`), `[real, imag]` float/double 쌍 |
 
-### C 호환 헤더 {#c-compatibility-headers}
+### [C 호환 헤더](/ko/stdlib/utilities#c-type-and-limit-headers) {#c-compatibility-headers}
 
 | 헤더 | 설명 |
 |--------|-------------|
@@ -308,7 +308,7 @@ int main() {
 #include <std/collections/vec.h>
 ```
 
-**모든 모듈을 한 번에:**
+**대부분의 모듈을 한 번에:**
 ```c
 #include <std/prelude.h>
 ```

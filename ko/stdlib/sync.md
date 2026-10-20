@@ -259,6 +259,8 @@ int main() {
 
 ---
 
+태스크 상태: `TASK_READY`(0), `TASK_RUNNING`(1), `TASK_DONE`(2). 스케줄러 하나는 태스크를 최대 `TASK_MAX`(1024)개 보관합니다.
+
 ## ThreadSched — 우선순위 기반 프리스탠딩 스레드 {#threadsched}
 
 `thread_bare.h`는 같은 재개 가능 함수 프로토콜을 유지하면서 `TaskScheduler`에 슬롯별 우선순위를 추가합니다. 여전히 협력형입니다: 우선순위가 높다는 것은 "한 tick 안에서 먼저 처리된다"는 뜻일 뿐입니다.

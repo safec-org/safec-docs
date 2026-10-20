@@ -49,6 +49,8 @@ thread-local pointer):
 `test_assert_eq_u` (unsigned `long long` equality) has no macro wrapper —
 call it directly.
 
+Test names are truncated to `TEST_NAME_MAX` (64) characters.
+
 ## Benchmarking (`test/bench.h`)
 
 `BenchSuite` (via `bench_suite_init()`, capacity `BENCH_MAX` = 64 cases):
@@ -72,6 +74,8 @@ void bench() {
     st.free();
 }
 ```
+
+Benchmark names are truncated to `BENCH_NAME_MAX` (64) characters.
 
 ## Fuzzing (`test/fuzz.h`)
 

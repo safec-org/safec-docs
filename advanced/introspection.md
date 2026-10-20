@@ -161,7 +161,7 @@ Compile-time conditional branching. The condition must be a constant expression.
 
 const int DEBUG = 1;
 
-void log_message(const char *msg) {
+void log_message(const &char msg) {
     if const (DEBUG) {
         println(msg);
     }

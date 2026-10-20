@@ -26,7 +26,7 @@ void configure_uart(void* uart_base) {
 
 | `MmioReg` 메서드 | 대응하는 자유 함수 |
 |---|---|
-| `read32()` / 없음(쓰기 전용 자유 함수) | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
+| `read32()` / `write32(val)` | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
 | — | `mmio_read16`/`mmio_write16`, `mmio_read8`/`mmio_write8` |
 | `set_bits(mask)` / `clear_bits(mask)` | `mmio_set_bits32(addr, mask)` / `mmio_clear_bits32(addr, mask)` |
 | `read_field(lo, hi)` / `write_field(lo, hi, val)` | `mmio_read_field32(addr, lo, hi)` / `mmio_write_field32(addr, lo, hi, val)` |
@@ -73,6 +73,8 @@ if (table.dispatch(3)) { /* 핸들러가 실행됨 */ }
 `vtable_init()`은 사용 전에 모든 슬롯을 `vtable_default_handler`(프로젝트별로
 재정의하도록 만들어진, 약한 심벌(weak)의 무한 루프 폴트 핸들러)로
 설정한다.
+
+`VTABLE_MAX_VECTORS`는 256개입니다(Cortex-M: 코어 예외 16개 + 외부 IRQ 최대 240개).
 
 ## 클럭 설정 (`interrupt/clock.h`) {#clock-configuration-interruptclockh}
 

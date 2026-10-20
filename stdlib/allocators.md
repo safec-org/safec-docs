@@ -183,6 +183,8 @@ int main() {
 
 ---
 
+Index sizes: `TLSF_FL_MAX` (32 first-level classes) × `TLSF_SL_COUNT` (16 second-level subdivisions).
+
 ## Choosing an Allocator
 
 ```

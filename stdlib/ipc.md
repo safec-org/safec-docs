@@ -94,7 +94,7 @@ Two backends: `uds_bsd.sc` (macOS, iOS, FreeBSD — `struct sockaddr_un` has a l
 // fd, or -1 on failure (EADDRINUSE if 'path' already exists as a socket
 // file from a previous run that didn't clean up — call uds_unlink first
 // if that's a possibility).
-int uds_listen_nb(const char* path);
+int uds_listen_nb(const &char path);
 
 // Non-blocking accept(): a connected client fd (itself non-blocking), or
 // -1/EAGAIN if none pending yet — await_fd(listenfd, SCHED_READ) and retry.
@@ -103,13 +103,13 @@ int uds_accept_nb(int listenfd);
 // socket()+connect() to 'path', non-blocking: returns immediately with
 // EINPROGRESS rather than waiting for the handshake — await_fd(fd,
 // SCHED_WRITE) and treat the fd becoming writable as "connect finished".
-int uds_connect_nb(const char* path);
+int uds_connect_nb(const &char path);
 
 // Removes a stale socket file at 'path' — bind() fails EADDRINUSE if the
 // filesystem path from a previous, uncleanly-terminated run still
 // exists, unlike a TCP port which the OS simply releases. 0 on success
 // (including "path didn't exist"), -1 on a real failure.
-int uds_unlink(const char* path);
+int uds_unlink(const &char path);
 ```
 
 ### Example

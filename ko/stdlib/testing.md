@@ -48,6 +48,8 @@ failed."`), `all_passed()`. `test_run_and_exit(&stack suite)`는 실행 후
 `test_assert_eq_u`(부호 없는 `long long` 동등 비교)는 매크로 래퍼가
 없으므로 직접 호출해야 한다.
 
+테스트 이름은 `TEST_NAME_MAX`(64)자로 잘립니다.
+
 ## 벤치마킹 (`test/bench.h`) {#benchmarking-testbenchh}
 
 `BenchSuite`(`bench_suite_init()`로 생성, 용량 `BENCH_MAX` = 64개
@@ -71,6 +73,8 @@ void bench() {
     st.free();
 }
 ```
+
+벤치마크 이름은 `BENCH_NAME_MAX`(64)자로 잘립니다.
 
 ## 퍼징 (`test/fuzz.h`) {#fuzzing-testfuzzh}
 

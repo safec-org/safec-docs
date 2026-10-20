@@ -22,8 +22,8 @@
 ### 포맷된 출력 (stdout) {#formatted-output-stdout}
 
 ```c
-void print(const char* s);                // print string
-void println(const char* s);              // print string + newline
+void print(const &char s);                // print string
+void println(const &char s);              // print string + newline
 void print_char(int c);                   // print single character
 void print_int(long long v);              // print signed integer
 void print_uint(unsigned long long v);    // print unsigned integer
@@ -40,8 +40,8 @@ void println_char(int c);               // print char + newline
 ### 포맷된 출력 (stderr) {#formatted-output-stderr}
 
 ```c
-void eprint(const char* s);
-void eprintln(const char* s);
+void eprint(const &char s);
+void eprintln(const &char s);
 void eprint_int(long long v);
 void eprint_float(double v);
 ```
@@ -51,12 +51,12 @@ void eprint_float(double v);
 모두 (NUL을 제외하고) 기록된 문자 수를 반환하거나, 오류 시 -1을 반환한다.
 
 ```c
-int io_fmt_int(char* buf, int n, long long v);
-int io_fmt_uint(char* buf, int n, unsigned long long v);
-int io_fmt_float(char* buf, int n, double v);
-int io_fmt_float_prec(char* buf, int n, double v, int prec);
-int io_fmt_hex(char* buf, int n, unsigned long long v);
-int io_fmt_str(char* buf, int n, const char* s);
+int io_fmt_int(&char buf, int n, long long v);
+int io_fmt_uint(&char buf, int n, unsigned long long v);
+int io_fmt_float(&char buf, int n, double v);
+int io_fmt_float_prec(&char buf, int n, double v, int prec);
+int io_fmt_hex(&char buf, int n, unsigned long long v);
+int io_fmt_str(&char buf, int n, const &char s);
 ```
 
 ### 입력 (stdin) {#input-stdin}
@@ -64,11 +64,11 @@ int io_fmt_str(char* buf, int n, const char* s);
 ```c
 int  io_getchar();                        // 문자 하나를 읽음; 끝에 도달하면 SC_EOF 반환
 int  io_ungetc(int c);                    // 문자를 stdin으로 되돌려 놓음
-int  io_read_line(char* buf, int n);      // 한 줄을 읽음 (최대 n-1자 + NUL)
-int  io_read_token(char* buf, int n);     // 공백으로 구분된 토큰을 읽음
-int  io_scan_int(long long* out);         // stdin에서 10진 정수를 파싱
-int  io_scan_uint(unsigned long long* out); // stdin에서 부호 없는 정수를 파싱
-int  io_scan_float(double* out);          // stdin에서 부동소수점을 파싱
+int  io_read_line(&char buf, int n);      // 한 줄을 읽음 (최대 n-1자 + NUL)
+int  io_read_token(&char buf, int n);     // 공백으로 구분된 토큰을 읽음
+int  io_scan_int(&long long out);         // stdin에서 10진 정수를 파싱
+int  io_scan_uint(&unsigned long long out); // stdin에서 부호 없는 정수를 파싱
+int  io_scan_float(&double out);          // stdin에서 부동소수점을 파싱
 ```
 
 `io_read_line`은 (NUL을 제외하고) 읽은 문자 수를 반환하거나, EOF/오류
@@ -79,8 +79,8 @@ int  io_scan_float(double* out);          // stdin에서 부동소수점을 파�
 ### 파일 시스템 연산 {#file-system-operations}
 
 ```c
-int   io_remove(const char* path);                     // delete a file
-int   io_rename(const char* old_path, const char* new_path); // rename/move
+int   io_remove(const &char path);                     // delete a file
+int   io_rename(const &char old_path, const &char new_path); // rename/move
 ?&File io_tmpfile();                                    // create temporary file; null on failure
 ```
 
@@ -108,7 +108,7 @@ non-null `&File`을 받는다. 바이트 버퍼는 `&unsigned char` /
 ### 열기 / 닫기 {#open-close}
 
 ```c
-?&File file_open(const char* path, const char* mode); // "r", "w", "a", "rb", "wb", etc.
+?&File file_open(const &char path, const &char mode); // "r", "w", "a", "rb", "wb", etc.
 int   file_close(&File f);                             // returns 0 on success
 ```
 
@@ -117,7 +117,7 @@ int   file_close(&File f);                             // returns 0 on success
 ```c
 unsigned long file_read(&File f, &unsigned char buf, unsigned long n);  // returns bytes read
 int           file_getc(&File f);                               // returns char or -1
-char*         file_gets(char* buf, int n, &File f);             // returns buf or NULL
+char*         file_gets(&char buf, int n, &File f);             // returns buf or NULL
 ```
 
 ### 쓰기 {#write}
@@ -125,7 +125,7 @@ char*         file_gets(char* buf, int n, &File f);             // returns buf o
 ```c
 unsigned long file_write(&File f, const &unsigned char buf, unsigned long n); // returns bytes written
 int           file_putc(int c, &File f);                              // returns c or -1
-int           file_puts(const char* s, &File f);                      // returns non-negative on success
+int           file_puts(const &char s, &File f);                      // returns non-negative on success
 ```
 
 ### 탐색 / 위치 확인 {#seek-tell}

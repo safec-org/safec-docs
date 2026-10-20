@@ -21,9 +21,9 @@ struct Store {
     struct StrMap<struct String> entries;
 
     void init();
-    void set(const char* key, const char* value);
-    ?struct String get(const char* key);
-    int remove(const char* key);
+    void set(const &char key, const &char value);
+    ?struct String get(const &char key);
+    int remove(const &char key);
     void free();
 };
 ```
@@ -42,7 +42,7 @@ void Store::init() {
     self.entries = std::str_map_new();
 }
 
-void Store::set(const char* key, const char* value) {
+void Store::set(const &char key, const &char value) {
     match (self.entries.remove(key)) {          // replacing? free the old value
         case some(old): old.free();
         case none:      { }
@@ -57,7 +57,7 @@ void Store::set(const char* key, const char* value) {
 해제합니다.
 
 ```c
-?struct String Store::get(const char* key) {
+?struct String Store::get(const &char key) {
     match (self.entries.get(key)) {
         case some(v): return v.clone();
         case null:    return null;
@@ -75,7 +75,7 @@ void Store::set(const char* key, const char* value) {
 질문 자체를 완전히 비켜갑니다.
 
 ```c
-int Store::remove(const char* key) {
+int Store::remove(const &char key) {
     match (self.entries.remove(key)) {
         case some(old): { old.free(); return 1; }
         case none:      return 0;

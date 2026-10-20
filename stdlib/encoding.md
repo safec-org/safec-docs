@@ -20,8 +20,8 @@ Functions that can fail on bad input take an `int* ok` out-parameter, the same c
 ## ASCII — `ascii.h`
 
 ```c
-int ascii_is_valid(const char* s);                     // 1 if every byte of the NUL-terminated string is 0..127
-int ascii_is_valid_n(const char* s, unsigned long len); // same, for a raw byte range (no NUL needed)
+int ascii_is_valid(const &char s);                     // 1 if every byte of the NUL-terminated string is 0..127
+int ascii_is_valid_n(const &char s, unsigned long len); // same, for a raw byte range (no NUL needed)
 
 int ascii_is_alpha(char c);
 int ascii_is_digit(char c);
@@ -46,15 +46,15 @@ A codepoint is a Unicode scalar value (0..0x10FFFF, excluding surrogates 0xD800.
 ```c
 // Writes 1-4 bytes to out (needs room for 4). Returns the byte count,
 // or 0 if cp is not a valid scalar value.
-int utf8_encode(unsigned int cp, char* out);
+int utf8_encode(unsigned int cp, &char out);
 
 // Decodes one codepoint at s[pos]. Returns bytes consumed (1-4), or 0 on a
 // malformed sequence: bad continuation byte, overlong form, encoded surrogate,
 // or a sequence cut off by NUL.
-int utf8_decode(const char* s, unsigned long pos, unsigned int* cp_out);
+int utf8_decode(const &char s, unsigned long pos, &unsigned int cp_out);
 
-int           utf8_is_valid(const char* s);       // 1 if the whole string is well-formed
-unsigned long utf8_len(const char* s);            // codepoints, not bytes; 0 if invalid
+int           utf8_is_valid(const &char s);       // 1 if the whole string is well-formed
+unsigned long utf8_len(const &char s);            // codepoints, not bytes; 0 if invalid
 int           utf8_encoded_len(unsigned int cp);  // 1-4, or 0 if invalid
 ```
 
@@ -90,11 +90,11 @@ Percent-encoding per RFC 3986, component style (like JavaScript's `encodeURIComp
 
 ```c
 // Encodes every byte except A-Z a-z 0-9 - _ . ~   Space becomes "%20".
-struct String url_encode(const char* s);
+struct String url_encode(const &char s);
 
 // "%XX" becomes byte 0xXX. "+" stays "+". On a bad escape, *ok = 0 and
 // decoding stops there.
-struct String url_decode(const char* s, int* ok);
+struct String url_decode(const &char s, ?&int ok);
 ```
 
 `+` is not treated as a space in either direction — that is an `application/x-www-form-urlencoded` rule, not part of RFC 3986. A form decoder should replace `+` with a space before calling `url_decode`.
@@ -109,11 +109,11 @@ Standard alphabet with `=` padding (RFC 4648).
 
 ```c
 // No line wrapping in the output.
-struct String base64_encode(const unsigned char* data, unsigned long len);
+struct String base64_encode(const &unsigned char data, unsigned long len);
 
 // Whitespace between groups is skipped. Any other invalid byte, or '=' that
 // isn't trailing padding, sets *ok = 0 and returns an empty Vec.
-struct Vec<unsigned char> base64_decode(const char* s, int* ok);
+struct Vec<unsigned char> base64_decode(const &char s, ?&int ok);
 ```
 
 Free the results with `.free()` like any other `String` or `Vec`.

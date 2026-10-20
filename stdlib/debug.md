@@ -58,6 +58,15 @@ PerfCounter perf_counter_init();
 
 **Freestanding**: sets `freq_hz = 0`; `ns()` returns 0.
 
+### One-shot reads
+
+```c
+unsigned long long perf_read_cycle();   // raw cycle counter for this arch
+unsigned long long perf_read_ns();      // nanoseconds; 0 on freestanding without a known frequency
+```
+
+`PERF_BEGIN(ctr)` / `PERF_END(ctr)` wrap `ctr.start()` / `ctr.stop()` in [compat preprocessor mode](/reference/preprocessor).
+
 ### Example
 
 ```c
@@ -108,7 +117,7 @@ struct Coverage {
     CovSite       sites[COV_MAX_SITES];  // 1024
     unsigned int  used;
 
-    int           register_site(const char* file, int line);
+    int           register_site(const &char file, int line);
     void          hit(int idx);
     unsigned long get(int idx) const;
     unsigned long covered_count() const;
@@ -196,7 +205,7 @@ Emits the native breakpoint instruction:
 Semihosting lets a Cortex-M or Cortex-A target send output to the host debugger (J-Link, OpenOCD) via the debug connection — no UART needed.
 
 ```c
-void debug_semihost_puts(const char* s);  // SYS_WRITE0 — NUL-terminated
+void debug_semihost_puts(const &char s);  // SYS_WRITE0 — NUL-terminated
 void debug_semihost_putc(char c);         // SYS_WRITEC — single character
 ```
 
@@ -204,12 +213,14 @@ These are **no-ops** on x86-64 and RISC-V.
 
 ### ITM Stimulus Ports (Cortex-M only)
 
+Registers at `ITM_STIMULUS_BASE` (`0xE0000000`) and `ITM_TCR_BASE` (`0xE0000E80`).
+
 Instrumentation Trace Macrocell — sends data over the SWO pin for capture by a J-Link or similar probe.
 
 ```c
-void itm_enable_port(int port);           // set bit in ITM TER (0xE0000E00)
-void itm_putc(int port, char c);          // write byte to stimulus register
-void itm_put32(int port, unsigned int v); // write 32-bit word
+void itm_enable_port(unsigned char port);                 // set bit in ITM TER (0xE0000E00)
+void itm_putc(unsigned char port, unsigned char c);       // write byte to stimulus register
+void itm_put32(unsigned char port, unsigned int word);    // write 32-bit word
 ```
 
 `itm_putc` and `itm_put32` poll until the stimulus register is ready (bit 0 == 1) before writing. They are no-ops if the ITM is not enabled or the port is not enabled.
@@ -219,23 +230,24 @@ void itm_put32(int port, unsigned int v); // write 32-bit word
 ```c
 DBG_ASSERT(cond);
 // Calls debug_break() if cond is false.
-// Compiled away completely when NDEBUG is defined.
 ```
+
+A function-like macro, so it exists only in [compat preprocessor mode](/reference/preprocessor). In safe mode write `if (!cond) { std::debug_break(); }`.
 
 ### Example
 
 ```c
 #include <std/debug/jtag.h>
 
-void uart_init(struct Uart* u) {
-    DBG_ASSERT(u != 0);
+void board_bringup(int clocks_ok) {
+    if (!clocks_ok) { std::debug_break(); }   // stop in the debugger
 
-    // Early startup output via semihost before UART is ready
-    debug_semihost_puts("uart_init called\n");
+    // Early startup output via semihost before the UART is ready
+    std::debug_semihost_puts("bring-up started\n");
 
-    // After UART is up, switch to ITM for lightweight tracing
-    itm_enable_port(0);
-    itm_putc(0, 'A');
+    // Once the probe is attached, switch to ITM for lightweight tracing
+    std::itm_enable_port(0);
+    std::itm_putc(0, 'A');
 }
 ```
 

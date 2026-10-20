@@ -58,7 +58,7 @@ returns," because nothing does):
 ```c
 #include <stdlib.h>
 
-noreturn void die(const char* msg) {
+noreturn void die(const &char msg) {
     printf("PANIC: %s\n", msg);
     abort();
 }

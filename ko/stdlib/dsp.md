@@ -91,7 +91,7 @@ Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqr
 // 필요한데, std::simd의 정수 FMA는 이를 제공하지 않는다. convolution.h의
 // conv_direct가 커널을 뒤집어 연속적인 접근 패턴으로 만든 뒤 내부적으로
 // 사용한다; 직접 사용하는 것도 가능하다.
-double dsp_dot_f64(const double* a, const double* b, unsigned long n);
+double dsp_dot_f64(const &double a, const &double b, unsigned long n);
 ```
 
 ::: tip
@@ -154,11 +154,11 @@ Complex  fcomplex_to_float(FComplex c);
 직접 합산 방식 DFT입니다: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. 2의 거듭제곱뿐 아니라 **임의의** N에 대해 동작합니다 — 임의 길이의 변환에는 이것을 사용하고, `fft.h` 자체의 정확성 검증이 대조하는 독립적인 기준으로도 사용됩니다.
 
 ```c
-void dft(const struct Complex* in, struct Complex* out, unsigned long n);       // 순변환, 복소수 -> 복소수
-void dft_real(const double* in, struct Complex* out, unsigned long n);          // 순변환, 실수 -> 복소수
-void idft(const struct Complex* in, struct Complex* out, unsigned long n);      // 역변환 (1/N 포함)
-void fdft(const struct FComplex* in, struct FComplex* out, unsigned long n);    // Q8.24 순변환
-void fidft(const struct FComplex* in, struct FComplex* out, unsigned long n);   // Q8.24 역변환
+void dft(const &Complex in, &Complex out, unsigned long n);       // 순변환, 복소수 -> 복소수
+void dft_real(const &double in, &Complex out, unsigned long n);          // 순변환, 실수 -> 복소수
+void idft(const &Complex in, &Complex out, unsigned long n);      // 역변환 (1/N 포함)
+void fdft(const &FComplex in, &FComplex out, unsigned long n);    // Q8.24 순변환
+void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역변환
 ```
 
 ---
@@ -173,11 +173,11 @@ void fidft(const struct FComplex* in, struct FComplex* out, unsigned long n);   
 
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1이고 2의 거듭제곱이면
-int fft(struct Complex* data, unsigned long n);                      // 제자리 순변환, 1=성공/0=2의거듭제곱아님
-int ifft(struct Complex* data, unsigned long n);                     // 제자리 역변환 (1/N 포함)
-int fft_real(const double* in, struct Complex* out, unsigned long n); // 실수 -> 복소수 편의 함수
-int ffft(struct FComplex* data, unsigned long n);                    // Q8.24 순변환
-int fifft(struct FComplex* data, unsigned long n);                   // Q8.24 역변환
+int fft(&Complex data, unsigned long n);                      // 제자리 순변환, 1=성공/0=2의거듭제곱아님
+int ifft(&Complex data, unsigned long n);                     // 제자리 역변환 (1/N 포함)
+int fft_real(const &double in, &Complex out, unsigned long n); // 실수 -> 복소수 편의 함수
+int ffft(&FComplex data, unsigned long n);                    // Q8.24 순변환
+int fifft(&FComplex data, unsigned long n);                   // Q8.24 역변환
 ```
 
 ### 예제 {#example-1}
@@ -211,16 +211,16 @@ int main() {
 
 ```c
 // O(len_x * len_h), 할당 없음 -- 짧은 커널에 가장 적합.
-void conv_direct(const double* x, unsigned long len_x,
-                  const double* h, unsigned long len_h, double* out);
-void fconv_direct(const Fixed* x, unsigned long len_x,
-                   const Fixed* h, unsigned long len_h, Fixed* out);
+void conv_direct(const &double x, unsigned long len_x,
+                  const &double h, unsigned long len_h, &double out);
+void fconv_direct(const &Fixed x, unsigned long len_x,
+                   const &Fixed h, unsigned long len_h, &Fixed out);
 
 // fft.h를 통한 O(n log n) (제로 패딩 FFT, 원소별 곱셈, 역 FFT)
 // -- 직접 컨볼루션의 O(len_x*len_h) 비용이 부담이 되는 긴 입력/커널에 가장 적합.
 // double 정밀도 전용.
-void conv_fft(const double* x, unsigned long len_x,
-              const double* h, unsigned long len_h, double* out);
+void conv_fft(const &double x, unsigned long len_x,
+              const &double h, unsigned long len_h, &double out);
 ```
 
 세 함수 모두 `out`은 `len_x + len_h - 1` 샘플을 담을 공간이 있어야 합니다. `conv_direct`의 내부 루프는 SIMD로 가속됩니다: 커널을 미리 한 번 뒤집어서 누산이 `dsp_dot_f64`에 대한 연속 구간 호출이 되도록 합니다.
@@ -236,11 +236,11 @@ void conv_fft(const double* x, unsigned long len_x,
 FFT 이전 프레임을 테이퍼링하거나(스펙트럼 누설 감소) FIR 설계(윈도우 방법)를 위한 대칭 N포인트 분석 윈도우입니다. 네 함수 모두 호출자가 제공한 배열을 채우며, 할당은 하지 않습니다.
 
 ```c
-void window_rectangular(double* w, unsigned long n);  // w[i] = 1 (테이퍼링 없음 -- 누설 기준선)
-void window_hann(double* w, unsigned long n);         // 0.5*(1 - cos(2*pi*i/(n-1)))
-void window_hamming(double* w, unsigned long n);       // 0.54 - 0.46*cos(2*pi*i/(n-1))
-void window_blackman(double* w, unsigned long n);      // 0.42 - 0.5*cos(2*pi*i/(n-1)) + 0.08*cos(4*pi*i/(n-1))
-void window_apply(double* x, const double* w, unsigned long n);  // x[i] *= w[i], 제자리 연산
+void window_rectangular(&double w, unsigned long n);  // w[i] = 1 (테이퍼링 없음 -- 누설 기준선)
+void window_hann(&double w, unsigned long n);         // 0.5*(1 - cos(2*pi*i/(n-1)))
+void window_hamming(&double w, unsigned long n);       // 0.54 - 0.46*cos(2*pi*i/(n-1))
+void window_blackman(&double w, unsigned long n);      // 0.42 - 0.5*cos(2*pi*i/(n-1)) + 0.08*cos(4*pi*i/(n-1))
+void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i], 제자리 연산
 ```
 
 ---
@@ -268,8 +268,8 @@ struct FirFilter {
     double process(double x);
     void   reset();          // 이력을 0으로 초기화
 };
-struct FirFilter fir_init(const double* coeffs, unsigned long numTaps, double* history);
-void fir_process_block(struct FirFilter* f, const double* in, double* out, unsigned long n);
+struct FirFilter fir_init(const &double coeffs, unsigned long numTaps, &double history);
+void fir_process_block(&FirFilter f, const &double in, &double out, unsigned long n);
 
 struct IirFilter {           // 임의 차수, direct form I
     const double* b; unsigned long numB;   // 피드포워드
@@ -280,10 +280,10 @@ struct IirFilter {           // 임의 차수, direct form I
     double process(double x);
     void   reset();
 };
-struct IirFilter iir_init(const double* b, unsigned long numB,
-                           const double* a, unsigned long numA,
-                           double* xHistory, double* yHistory);
-void iir_process_block(struct IirFilter* f, const double* in, double* out, unsigned long n);
+struct IirFilter iir_init(const &double b, unsigned long numB,
+                           const &double a, unsigned long numA,
+                           &double xHistory, &double yHistory);
+void iir_process_block(&IirFilter f, const &double in, &double out, unsigned long n);
 ```
 
 `struct FFirFilter`/`ffir_init`/`ffir_process_block`과 `struct FIirFilter`/`fiir_init`/`fiir_process_block`은 `double*` 대신 `Fixed*`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다.
@@ -351,8 +351,8 @@ struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
 
 // freqHz에서의 Z영역 주파수 응답: 크기(선형)와 위상(라디안).
-double biquad_response_mag(const struct Biquad* bq, double fs, double freqHz);
-double biquad_response_phase(const struct Biquad* bq, double fs, double freqHz);
+double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
+double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
 
 struct FBiquad {   // Q8.24 대응 버전
     Fixed b0, b1, b2, a1, a2, z1, z2;
@@ -394,10 +394,10 @@ int main() {
 `dct2`는 JPEG/MPEG에서 말하는 "그 DCT"입니다 — 실수 입력, 실수 출력, 에너지를 압축합니다. `idct3`는 그 정확한 역변환입니다. `dft.h`처럼 직접 O(n²) 합산 방식입니다.
 
 ```c
-void dct2(const double* in, double* out, unsigned long n);    // X[k] = sum x[n]*cos(pi/N*(n+0.5)*k)
-void idct3(const double* in, double* out, unsigned long n);   // dct2의 정확한 역변환
-void fdct2(const Fixed* in, Fixed* out, unsigned long n);      // Q8.24 순변환
-void fidct3(const Fixed* in, Fixed* out, unsigned long n);     // Q8.24 역변환
+void dct2(const &double in, &double out, unsigned long n);    // X[k] = sum x[n]*cos(pi/N*(n+0.5)*k)
+void idct3(const &double in, &double out, unsigned long n);   // dct2의 정확한 역변환
+void fdct2(const &Fixed in, &Fixed out, unsigned long n);      // Q8.24 순변환
+void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 역변환
 ```
 
 ---
@@ -419,22 +419,22 @@ void fidct3(const Fixed* in, Fixed* out, unsigned long n);     // Q8.24 역변�
 unsigned long stft_num_frames(unsigned long signalLen, unsigned long frameSize, unsigned long hopSize);
 
 // out: stft_num_frames(...) * frameSize개의 Complex 값을 담을 공간.
-void stft_forward(const double* signal, unsigned long signalLen,
+void stft_forward(const &double signal, unsigned long signalLen,
                    unsigned long frameSize, unsigned long hopSize,
-                   int windowType, struct Complex* out);
+                   int windowType, &Complex out);
 
 // outSignal: (numFrames-1)*hopSize + frameSize개 샘플을 담을 공간, 호출자가
 // 0으로 초기화 (stft_inverse가 그 안에 누적함).
-void stft_inverse(const struct Complex* frames, unsigned long numFrames,
+void stft_inverse(const &Complex frames, unsigned long numFrames,
                    unsigned long frameSize, unsigned long hopSize,
-                   int windowType, double* outSignal);
+                   int windowType, &double outSignal);
 ```
 
 `mr_stft_loss`는 신경 보코더 문헌(Yamamoto 등, Parallel WaveGAN)에서 말하는 "다중 해상도 STFT 손실"을 계산합니다: `numResolutions`개의 각 프레임 크기(각각 2의 거듭제곱, hop = frameSize/4, Hann 윈도우)에 대해, 같은 길이의 두 신호 사이의 스펙트럼 수렴도와 평균 L1 로그 크기 오차를 계산한 뒤 여러 해상도에 걸쳐 평균 냅니다:
 
 ```c
-double mr_stft_loss(const double* x, const double* y, unsigned long len,
-                     const unsigned long* frameSizes, unsigned long numResolutions);
+double mr_stft_loss(const &double x, const &double y, unsigned long len,
+                     const &unsigned long frameSizes, unsigned long numResolutions);
 ```
 
 값이 낮을수록 더 유사합니다; 동일한 신호라면 `0`입니다.
@@ -450,21 +450,21 @@ double mr_stft_loss(const double* x, const double* y, unsigned long len,
 `inLen` 샘플 버퍼를 호출자가 지정한 크기의 `outLen` 샘플 버퍼로 매핑합니다 — `outLen > inLen`이면 업샘플링, `outLen < inLen`이면 다운샘플링이며, 어느 방향이든 같은 함수를 사용합니다.
 
 ```c
-void resample_nearest(const double* in, unsigned long inLen, double* out, unsigned long outLen);
-void resample_linear(const double* in, unsigned long inLen, double* out, unsigned long outLen);
+void resample_nearest(const &double in, unsigned long inLen, &double out, unsigned long outLen);
+void resample_linear(const &double in, unsigned long inLen, &double out, unsigned long outLen);
 
 // 윈도우가 적용된 sinc(대역 제한): 가장 품질이 높은 옵션. 다운샘플링할
 // 때는 커널의 컷오프가 새로운(더 낮은) 나이퀴스트 레이트에 맞춰 자동으로
 // 스케일되므로, 앤티에일리어싱 필터 역할도 겸합니다. kernelHalfWidth의
 // 기본값으로는 8-16이 적당합니다.
-void resample_sinc(const double* in, unsigned long inLen, double* out, unsigned long outLen,
+void resample_sinc(const &double in, unsigned long inLen, &double out, unsigned long outLen,
                     unsigned long kernelHalfWidth);
 
 // Q8.24 nearest/linear. sinc 대응 버전은 없다 -- 윈도우 적용된 sinc
 // 커널은 런타임의 소수 위치에 대해 탭마다 sin/cos를 계산해야 하는데,
 // 이는 일반적인 설계 시점-float/런타임-fixed 분리 방식에 맞지 않는다.
-void fresample_nearest(const Fixed* in, unsigned long inLen, Fixed* out, unsigned long outLen);
-void fresample_linear(const Fixed* in, unsigned long inLen, Fixed* out, unsigned long outLen);
+void fresample_nearest(const &Fixed in, unsigned long inLen, &Fixed out, unsigned long outLen);
+void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned long outLen);
 ```
 
 ---
@@ -481,12 +481,12 @@ void fresample_linear(const Fixed* in, unsigned long inLen, Fixed* out, unsigned
 // B, A: order+1개의 아날로그(s영역) 계수, s의 오름차순 거듭제곱.
 // bOut, aOut: 음의 z 거듭제곱 표기법(aOut[0] = 1)에서의 order+1개
 // 디지털 계수 -- filter.h의 iir_init에 그대로 넣으면 된다.
-void bilinear_nth_order(const double* B, const double* A, unsigned long order,
-                         double fs, double* bOut, double* aOut);
+void bilinear_nth_order(const &double B, const &double A, unsigned long order,
+                         double fs, &double bOut, &double aOut);
 
-double ztransform_response_mag(const double* b, const double* a, unsigned long order,
+double ztransform_response_mag(const &double b, const &double a, unsigned long order,
                                 double fs, double freqHz);
-double ztransform_response_phase(const double* b, const double* a, unsigned long order,
+double ztransform_response_phase(const &double b, const &double a, unsigned long order,
                                   double fs, double freqHz);
 ```
 
@@ -511,8 +511,8 @@ struct CombFB {
     double process(double x);
     void   reset();
 };
-struct CombFF comb_ff_init(double* history, unsigned long delay, double gain);
-struct CombFB comb_fb_init(double* history, unsigned long delay, double gain);
+struct CombFF comb_ff_init(&double history, unsigned long delay, double gain);
+struct CombFB comb_fb_init(&double history, unsigned long delay, double gain);
 ```
 
 `KarplusStrong`은 고전적인 발현(plucked-string)/타악기 합성 알고리즘입니다(Karplus & Strong, 1983): 피드백 경로가 단순 스칼라 게인이 아니라 2탭 평균 저역통과인 피드백 콤입니다 — 이 평균화가 루프를 돌 때마다 고주파 에너지를 점진적으로 제거하여, 현악기 특유의 밝게 시작했다가 감쇠하는 음색을 만들어냅니다.
@@ -524,9 +524,9 @@ struct KarplusStrong {
     double damping;         // 0..1, 1에 가까울수록 감쇠가 느림 (보통 0.99-0.999)
 
     double process();       // 입력 없음 -- 스스로 지속되는 발현음
-    void   reset(const double* excitation, unsigned long n);  // 새 발현음으로 시딩
+    void   reset(const &double excitation, unsigned long n);  // 새 발현음으로 시딩
 };
-struct KarplusStrong ks_init(double* buffer, unsigned long length, double damping);
+struct KarplusStrong ks_init(&double buffer, unsigned long length, double damping);
 ```
 
 `struct FCombFF`/`FCombFB`/`FKarplusStrong`과 `comb_ff_init_fixed`/`comb_fb_init_fixed`/`ks_init_fixed`는 Q8.24 대응 버전입니다.
@@ -566,7 +566,7 @@ int main() {
 // 켑스트럴 리프터링을 위해 n보다 충분히 커야 함 (경험적으로 4-8배 정도가
 // 적당함). outMinPhase: fftLen개 샘플을 담을 공간 -- 에너지가 시작 부분에
 // 집중되며, 호출자는 보통 처음 n개 정도의 샘플만 남겨서 사용함.
-void minimum_phase(const double* x, unsigned long n, unsigned long fftLen, double* outMinPhase);
+void minimum_phase(const &double x, unsigned long n, unsigned long fftLen, &double outMinPhase);
 ```
 
 ---
@@ -585,9 +585,9 @@ DFT/FFT의 균일한 주파수 간격과 달리, CQT는 모든 빈(bin)에서 �
 // 그렇지 않으면 해당 빈의 커널이 signalLen에 맞춰 조용히 잘린다
 // (오류가 아니라 해당 빈의 해상도 저하). out: numBins개의 Complex 값을
 // 담을 공간.
-void cqt_forward(const double* signal, unsigned long signalLen, double fs,
+void cqt_forward(const &double signal, unsigned long signalLen, double fs,
                   double fmin, unsigned long numBins, unsigned long binsPerOctave,
-                  struct Complex* out);
+                  &Complex out);
 ```
 
 ---
@@ -604,9 +604,9 @@ CQT가 로그 간격 주파수 *빈*을 선택하는 반면, CWT는 (호출자�
 // scales: numScales개 항목 (각각 0보다 커야 함). w0: Morlet 중심 주파수
 // 파라미터 (5-6이 표준). out: numScales*signalLen개의 Complex 값을 담을
 // 공간, 스케일 기준 행 우선(row-major) 순서.
-void cwt_morlet(const double* signal, unsigned long signalLen,
-                 const double* scales, unsigned long numScales,
-                 double w0, struct Complex* out);
+void cwt_morlet(const &double signal, unsigned long signalLen,
+                 const &double scales, unsigned long numScales,
+                 double w0, &Complex out);
 ```
 
 ---
@@ -622,15 +622,15 @@ void cwt_morlet(const double* signal, unsigned long signalLen,
 ```c
 // img: h*w개, 행 우선; kernel: kh*kw개, 행 우선 (kh/kw는 홀수여야 함);
 // out: h*w개의 double을 담을 공간. 범위를 벗어난 커널 탭은 0으로 취급.
-void conv2d(const double* img, unsigned long h, unsigned long w,
-            const double* kernel, unsigned long kh, unsigned long kw, double* out);
+void conv2d(const &double img, unsigned long h, unsigned long w,
+            const &double kernel, unsigned long kh, unsigned long kw, &double out);
 
-void fft2d(struct Complex* img, unsigned long h, unsigned long w);   // 제자리 연산, h와 w는 2의 거듭제곱이어야 함
-void ifft2d(struct Complex* img, unsigned long h, unsigned long w);
+void fft2d(&Complex img, unsigned long h, unsigned long w);   // 제자리 연산, h와 w는 2의 거듭제곱이어야 함
+void ifft2d(&Complex img, unsigned long h, unsigned long w);
 
-void gaussian_kernel(double* kernel, unsigned long size, double sigma);  // 정규화됨 (합이 1)
-void sobel_x_kernel(double* kernel);   // 고정 3x3, 9개의 double을 담을 공간
-void sobel_y_kernel(double* kernel);
+void gaussian_kernel(&double kernel, unsigned long size, double sigma);  // 정규화됨 (합이 1)
+void sobel_x_kernel(&double kernel);   // 고정 3x3, 9개의 double을 담을 공간
+void sobel_y_kernel(&double kernel);
 ```
 
 ---

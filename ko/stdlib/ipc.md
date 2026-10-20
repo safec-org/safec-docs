@@ -125,7 +125,7 @@ Windows의 네이티브 대응물이며, 이 함수 시그니처들에 끼워 �
 // 반환하거나, 실패 시 -1 (정리되지 않은 이전 실행에서 남은 소켓 파일로
 // 'path'가 이미 존재하면 EADDRINUSE — 그럴 가능성이 있으면 먼저
 // uds_unlink를 호출).
-int uds_listen_nb(const char* path);
+int uds_listen_nb(const &char path);
 
 // 논블로킹 accept(): 연결된(그 자체로 논블로킹인) 클라이언트 fd, 또는
 // 아직 대기 중인 것이 없으면 -1/EAGAIN — await_fd(listenfd, SCHED_READ) 후
@@ -136,13 +136,13 @@ int uds_accept_nb(int listenfd);
 // 기다리지 않고 즉시 EINPROGRESS와 함께 반환 — await_fd(fd,
 // SCHED_WRITE)를 사용하고, fd가 쓰기 가능해지는 것을 "연결 완료"로
 // 취급한다.
-int uds_connect_nb(const char* path);
+int uds_connect_nb(const &char path);
 
 // 'path'에 있는 오래된 소켓 파일을 제거한다 — 정리되지 않고 종료된
 // 이전 실행의 파일 시스템 경로가 여전히 존재하면, TCP 포트는 OS가
 // 단순히 반환하는 것과 달리 bind()가 EADDRINUSE로 실패한다. 성공 시
 // 0("경로가 존재하지 않았음"도 포함), 실제 실패 시 -1.
-int uds_unlink(const char* path);
+int uds_unlink(const &char path);
 ```
 
 ### 예제 {#example-1}

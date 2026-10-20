@@ -89,11 +89,13 @@ unsigned int   net_ntohl(unsigned int x);
 ```c
 unsigned int net_ip4(unsigned char a, unsigned char b,
                      unsigned char c, unsigned char d);
-void net_ip4_str(unsigned int ip, char* out);   // "192.168.1.1\0"
-void net_mac_str(const unsigned char mac[6], char* out); // "aa:bb:cc:dd:ee:ff\0"
+void net_ip4_str(unsigned int ip, &char out);   // "192.168.1.1\0"
+void net_mac_str(const unsigned char mac[6], &char out); // "aa:bb:cc:dd:ee:ff\0"
 ```
 
 ---
+
+상수: `NET_MTU`(1514, 프리앰블/FCS를 뺀 이더넷 프레임), `NET_MAC_LEN`(6), `NET_IP4_LEN`(4).
 
 ## ethernet {#ethernet}
 
@@ -193,7 +195,7 @@ struct Ipv4Hdr {
     unsigned int   dst;        // 네트워크 바이트 순서
 };
 
-unsigned short ip_checksum(const unsigned char* data, unsigned long len);
+unsigned short ip_checksum(const &unsigned char data, unsigned long len);
 
 // pkt의 바이트 오프셋 'offset'에서 IPv4 헤더를 파싱한다.
 int  ipv4_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv4Hdr hdr_out);
@@ -235,7 +237,7 @@ int  ipv6_addr_eq(const &stack Ipv6Addr a, const &stack Ipv6Addr b);
 int  ipv6_addr_is_unspecified(const &stack Ipv6Addr a);
 int  ipv6_addr_is_loopback(const &stack Ipv6Addr a);       // ::1
 int  ipv6_addr_is_link_local(const &stack Ipv6Addr a);     // fe80::/10
-void ipv6_addr_str(const &stack Ipv6Addr addr, char* buf); // 40바이트 buf
+void ipv6_addr_str(const &stack Ipv6Addr addr, &char buf); // 40바이트 buf
 
 // pkt의 바이트 오프셋 'offset'에서 IPv6 헤더를 파싱한다.
 int  ipv6_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv6Hdr hdr_out);
@@ -340,7 +342,7 @@ struct TcpConn {
     int  recv(&stack PacketBuf pkt, unsigned long tcp_offset);
 
     // 보낼 페이로드 데이터를 큐에 넣는다. 받아들여진 바이트 수를 반환한다 (가득 찼으면 0).
-    unsigned long send(const unsigned char* data, unsigned long len);
+    unsigned long send(const &unsigned char data, unsigned long len);
 
     // 다음 송신 세그먼트를 pkt에 만든다; 세그먼트가 만들어졌으면 1을 반환한다.
     int  build_segment(&stack PacketBuf pkt,
@@ -350,7 +352,7 @@ struct TcpConn {
     int  rx_ready() const;   // 수신 대기 중인 데이터가 있는가?
 
     // rx_buf에서 최대 'len' 바이트를 'out'으로 소비한다; 복사된 바이트 수를 반환한다.
-    unsigned long read(unsigned char* out, unsigned long len);
+    unsigned long read(&unsigned char out, unsigned long len);
 
     // 능동 오픈을 시작한다 (SYN 전송).
     void connect(unsigned int remote_ip, unsigned short remote_port,
@@ -364,10 +366,12 @@ struct TcpConn {
 int tcp_parse(&stack PacketBuf pkt, unsigned long offset, &stack TcpHdr hdr_out);
 
 unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
-                             void* segment, unsigned long len);
+                            const &unsigned char tcp_seg, unsigned long seg_len);   // pseudo-header + segment
 ```
 
 ---
+
+상수: `TCP_HDR_MIN_LEN`(20); 플래그 `TCP_FIN`(0x01), `TCP_SYN`(0x02), `TCP_RST`(0x04), `TCP_PSH`(0x08), `TCP_ACK`(0x10), `TCP_URG`(0x20); 연결별 버퍼 `TCP_RX_BUF`와 `TCP_TX_BUF`(각 2048바이트).
 
 ## dns {#dns}
 
@@ -387,7 +391,7 @@ unsigned short dns_query(&stack PacketBuf pkt,
                          const unsigned char eth_dst[6],
                          unsigned int ip_src, unsigned int ip_dns,
                          unsigned short src_port,
-                         const char* name,
+                         const &char name,
                          unsigned short txid);
 
 // pkt(UDP 페이로드 오프셋에서 시작)의 DNS 응답을 파싱한다. 성공하면 첫
@@ -456,6 +460,8 @@ struct DhcpClient {
 :::
 
 ---
+
+상수: 포트 `DHCP_SERVER_PORT`(67) / `DHCP_CLIENT_PORT`(68), `DHCP_MAGIC_COOKIE`(0x63825363); 메시지 타입 `DHCP_DISCOVER`(1), `DHCP_OFFER`(2), `DHCP_REQUEST`(3), `DHCP_DECLINE`(4), `DHCP_ACK`(5), `DHCP_NAK`(6), `DHCP_RELEASE`(7), `DHCP_INFORM`(8); 클라이언트 상태 `DHCP_STATE_IDLE`, `DHCP_STATE_SELECTING`, `DHCP_STATE_REQUESTING`, `DHCP_STATE_BOUND`.
 
 ## 종단 간 예제 {#end-to-end-example}
 

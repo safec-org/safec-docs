@@ -151,7 +151,7 @@ interrupt void timer_handler() {
 Functions that never return can be annotated with `noreturn`, allowing the compiler to optimize call sites:
 
 ```c
-noreturn void panic(const char *msg) {
+noreturn void panic(const &char msg) {
     // ... write to UART ...
     while (1) {}
 }

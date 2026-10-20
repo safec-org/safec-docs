@@ -70,6 +70,14 @@ unsigned long checked_mul_size(unsigned long a, unsigned long b);
 전달되는 크기가 작고 컴파일 타임에 증명 가능한 상수가 아니라 두 런타임
 값의 곱인 경우 어디에서나 동일하게 사용한다.
 
+### checked_add_size {#checked_add_size}
+
+```c
+unsigned long checked_add_size(unsigned long a, unsigned long b);
+```
+
+`checked_mul_size`의 덧셈판입니다: 합이 `unsigned long`을 넘치면 감싸지 않고 중단합니다. 여러 필드 크기를 더해 하나로 할당할 때 사용하세요.
+
 ## 할당 안전성 {#allocation-safety}
 
 `alloc`/`alloc_zeroed`는 모든 할당 앞에 살아있는지 해제되었는지를
@@ -164,6 +172,25 @@ int safe_memcmp(const void* a, const void* b, unsigned long n);
 - `a`가 `b`보다 작으면 `< 0`
 - 같으면 `0`
 - `a`가 `b`보다 크면 `> 0`
+
+## 캐시와 정렬 헬퍼 {#cache-and-alignment-helpers}
+
+```c
+#define MEM_CACHE_LINE_SIZE  64   // bytes (typical x86 / ARM / RISC-V L1)
+
+unsigned long mem_align_up(unsigned long addr, unsigned long align);   // align is a power of two
+unsigned long mem_align_down(unsigned long addr, unsigned long align);
+int           mem_is_aligned(unsigned long addr, unsigned long align);
+void*         mem_align_ptr(void* ptr, unsigned long align);            // null if it can't be aligned
+int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if [addr, addr+size) stays in one 4 KiB page
+
+// locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
+void          mem_prefetch(const void* addr, int write, int locality);
+void          mem_clflush(const void* addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
+void          mem_zero_secure(void* ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
+```
+
+위의 `safe_mem*` 함수들처럼 원시 메모리를 다루므로 주소를 `unsigned long`이나 `void*`로 받습니다.
 
 ## 예제 {#example}
 

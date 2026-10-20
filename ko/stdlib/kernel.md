@@ -44,6 +44,8 @@ void kernel_setup() {
 `unmap(idx)`, `is_present(idx)`, `get_phys(idx)`, `get_flags(idx)`,
 `set_flags(idx, flags)`.
 
+`PAGE_SIZE`는 4096바이트, `PAGE_TABLE_SIZE`는 테이블당 512개 엔트리입니다.
+
 ## MMU 컨텍스트 (`kernel/mmu.h`) {#mmu-context-kernelmmuh}
 
 `MmuContext`는 `paging.h` + `frame.h` 위에 구축된 완전한 2단계
@@ -56,6 +58,8 @@ KiB 정렬된 물리 페이지 테이블 주소이고 `frames`는 살아 있는
 마지막 세 함수는 각각 내부적으로 아키텍처별로 디스패치된다(x86-64:
 `CR3`/`invlpg`; RISC-V: `sfence.vma`/`satp`; AArch64: `TTBR0_EL1`/
 `TLBI`).
+
+컨텍스트 하나는 2단계 테이블을 최대 `MMU_L2_MAX`(512)개까지 보관합니다.
 
 ## 프로세스 제어 블록 (`kernel/process.h`) {#process-control-block-kernelprocessh}
 

@@ -191,7 +191,7 @@ Case 값은 (선택적으로 부호가 반전된) 리터럴 정수 또는 문자
 `defer`는 감싸는 스코프가 종료될 때 실행되도록 문장을 예약하며, LIFO(후입선출) 순서로 실행됩니다. 리소스 정리에 이상적입니다.
 
 ```c
-void process_file(const char *path) {
+void process_file(const &char path) {
     FILE *f = fopen(path, "r");
     defer fclose(f);
 
@@ -224,7 +224,7 @@ void example() {
 인라인으로 작성한 것과 동등합니다.
 
 ```c
-?int parse_config(const char *path) {
+?int parse_config(const &char path) {
     ?int fd = open_file(path);
     int file = try fd;         // fd가 비어 있으면 즉시 null을 반환
 
@@ -240,7 +240,7 @@ void example() {
 `errdefer`는 `defer`처럼 작성되지만, 모든 종료가 아니라 `try`로 전파되는 실패 종료 시에만 실행되도록 의도되었습니다.
 
 ```c
-?int open_and_process(const char *path) {
+?int open_and_process(const &char path) {
     ?int fd = open_file(path);
     int f = try fd;             // 실패 시 null을 전파
     errdefer close_fd(f);       // 아래의 이후 'try'가 실패할 때만 실행되도록 의도됨

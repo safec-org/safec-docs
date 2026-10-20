@@ -58,6 +58,15 @@ PerfCounter perf_counter_init();
 
 **프리스탠딩**: `freq_hz = 0`으로 설정합니다. `ns()`는 0을 반환합니다.
 
+### 단발성 읽기 {#one-shot-reads}
+
+```c
+unsigned long long perf_read_cycle();   // raw cycle counter for this arch
+unsigned long long perf_read_ns();      // nanoseconds; 0 on freestanding without a known frequency
+```
+
+`PERF_BEGIN(ctr)` / `PERF_END(ctr)`는 [호환 전처리기 모드](/ko/reference/preprocessor)에서 `ctr.start()` / `ctr.stop()`을 감쌉니다.
+
 ### 예제 {#example}
 
 ```c
@@ -108,7 +117,7 @@ struct Coverage {
     CovSite       sites[COV_MAX_SITES];  // 1024
     unsigned int  used;
 
-    int           register_site(const char* file, int line);
+    int           register_site(const &char file, int line);
     void          hit(int idx);
     unsigned long get(int idx) const;
     unsigned long covered_count() const;
@@ -196,7 +205,7 @@ void debug_break();
 세미호스팅을 사용하면 Cortex-M 또는 Cortex-A 타깃이 UART 없이 디버그 연결(J-Link, OpenOCD)을 통해 호스트 디버거로 출력을 보낼 수 있습니다.
 
 ```c
-void debug_semihost_puts(const char* s);  // SYS_WRITE0 — NUL로 종료된 문자열
+void debug_semihost_puts(const &char s);  // SYS_WRITE0 — NUL로 종료된 문자열
 void debug_semihost_putc(char c);         // SYS_WRITEC — 단일 문자
 ```
 
@@ -204,12 +213,14 @@ x86-64와 RISC-V에서는 **아무 동작도 하지 않습니다(no-op)**.
 
 ### ITM 스티뮬러스 포트 (Cortex-M 전용) {#itm-stimulus-ports-cortex-m-only}
 
+레지스터는 `ITM_STIMULUS_BASE`(`0xE0000000`)와 `ITM_TCR_BASE`(`0xE0000E80`)에 있습니다.
+
 Instrumentation Trace Macrocell — SWO 핀을 통해 데이터를 전송하여 J-Link 등의 프로브로 캡처합니다.
 
 ```c
-void itm_enable_port(int port);           // ITM TER (0xE0000E00)에 비트 설정
-void itm_putc(int port, char c);          // 스티뮬러스 레지스터에 바이트 쓰기
-void itm_put32(int port, unsigned int v); // 32비트 워드 쓰기
+void itm_enable_port(unsigned char port);                 // ITM TER (0xE0000E00)에 비트 설정
+void itm_putc(unsigned char port, unsigned char c);       // 스티뮬러스 레지스터에 바이트 쓰기
+void itm_put32(unsigned char port, unsigned int word);    // 32비트 워드 쓰기
 ```
 
 `itm_putc`와 `itm_put32`는 쓰기 전에 스티뮬러스 레지스터가 준비될 때까지(비트 0 == 1) 폴링합니다. ITM이 비활성화되어 있거나 포트가 활성화되지 않은 경우 아무 동작도 하지 않습니다.
@@ -219,23 +230,24 @@ void itm_put32(int port, unsigned int v); // 32비트 워드 쓰기
 ```c
 DBG_ASSERT(cond);
 // cond가 false이면 debug_break()를 호출합니다.
-// NDEBUG가 정의된 경우 완전히 컴파일에서 제외됩니다.
 ```
+
+함수형 매크로이므로 [호환 전처리기 모드](/ko/reference/preprocessor)에서만 존재합니다. 안전 모드에서는 `if (!cond) { std::debug_break(); }`라고 쓰세요.
 
 ### 예제 {#example-2}
 
 ```c
 #include <std/debug/jtag.h>
 
-void uart_init(struct Uart* u) {
-    DBG_ASSERT(u != 0);
+void board_bringup(int clocks_ok) {
+    if (!clocks_ok) { std::debug_break(); }   // 디버거에서 멈춤
 
     // UART가 준비되기 전 세미호스트를 통한 초기 부트업 출력
-    debug_semihost_puts("uart_init called\n");
+    std::debug_semihost_puts("bring-up started\n");
 
-    // UART가 준비된 후 가벼운 트레이싱을 위해 ITM으로 전환
-    itm_enable_port(0);
-    itm_putc(0, 'A');
+    // 프로브가 연결되면 가벼운 트레이싱을 위해 ITM으로 전환
+    std::itm_enable_port(0);
+    std::itm_putc(0, 'A');
 }
 ```
 

@@ -49,7 +49,7 @@ struct Reactor {
     int  init();                                             // opens/initializes the backend; 0 ok, -1 fail
     void add(int fd, int filter);                             // registers persistent, level-triggered interest
     void remove(int fd, int filter);
-    int  poll(struct TaskScheduler* sched, long long timeout_ms);
+    int  poll(&TaskScheduler sched, long long timeout_ms);
         // timeout_ms: 0 = return immediately if nothing pending, negative = block indefinitely.
         // Calls sched->unblock_fd() for every ready (fd, filter). Returns the
         // number of OS events processed (may differ from tasks unblocked, if
@@ -63,7 +63,7 @@ struct Reactor reactor_init();
 ## `reactor_run` — the scheduler itself
 
 ```c
-void reactor_run(struct TaskScheduler* sched, struct Reactor* r);
+void reactor_run(&TaskScheduler sched, &Reactor r);
 ```
 
 Drives `sched` to completion: ticks every runnable task, and whenever none are immediately runnable, polls the reactor — with a zero timeout if some tasks are merely mid-round (so newly-ready I/O is picked up without stalling), or an indefinite wait if literally everything remaining is blocked on I/O, so the process consumes zero CPU until the OS actually has something to report. Use this in place of `TaskScheduler::run_all()` for any workload where tasks call `await_fd()`.
@@ -132,7 +132,8 @@ unsigned int   sched_htonl(unsigned int host32);
 unsigned int   sched_ipv4(unsigned char a, unsigned char b, unsigned char c, unsigned char d);
 
 int fd_set_nonblocking(int fd);                         // enables non-blocking mode on an open fd
-int fd_open_nb(const char* path, int flags, int mode);   // open() in non-blocking mode where supported
+int fd_set_blocking(int fd);                            // back to blocking mode (safe mid-connect)
+int fd_open_nb(const &char path, int flags, int mode);   // open() in non-blocking mode where supported
 
 int tcp_listen_nb(unsigned short port);                  // socket+bind+listen, non-blocking; listening fd or -1
 int tcp_accept_nb(int listenfd);

@@ -20,8 +20,8 @@ ASCII 검사와 대소문자 변환, UTF-8 인코드/디코드, URL 퍼센트 �
 ## ASCII — `ascii.h` {#ascii-ascii-h}
 
 ```c
-int ascii_is_valid(const char* s);                     // 1 if every byte of the NUL-terminated string is 0..127
-int ascii_is_valid_n(const char* s, unsigned long len); // same, for a raw byte range (no NUL needed)
+int ascii_is_valid(const &char s);                     // 1 if every byte of the NUL-terminated string is 0..127
+int ascii_is_valid_n(const &char s, unsigned long len); // same, for a raw byte range (no NUL needed)
 
 int ascii_is_alpha(char c);
 int ascii_is_digit(char c);
@@ -46,15 +46,15 @@ ASCII만 보고 로케일은 무시합니다. C 스타일 `ctype` 함수는 [개
 ```c
 // Writes 1-4 bytes to out (needs room for 4). Returns the byte count,
 // or 0 if cp is not a valid scalar value.
-int utf8_encode(unsigned int cp, char* out);
+int utf8_encode(unsigned int cp, &char out);
 
 // Decodes one codepoint at s[pos]. Returns bytes consumed (1-4), or 0 on a
 // malformed sequence: bad continuation byte, overlong form, encoded surrogate,
 // or a sequence cut off by NUL.
-int utf8_decode(const char* s, unsigned long pos, unsigned int* cp_out);
+int utf8_decode(const &char s, unsigned long pos, &unsigned int cp_out);
 
-int           utf8_is_valid(const char* s);       // 1 if the whole string is well-formed
-unsigned long utf8_len(const char* s);            // codepoints, not bytes; 0 if invalid
+int           utf8_is_valid(const &char s);       // 1 if the whole string is well-formed
+unsigned long utf8_len(const &char s);            // codepoints, not bytes; 0 if invalid
 int           utf8_encoded_len(unsigned int cp);  // 1-4, or 0 if invalid
 ```
 
@@ -90,11 +90,11 @@ RFC 3986 퍼센트 인코딩, 컴포넌트 방식입니다(JavaScript의 `encode
 
 ```c
 // Encodes every byte except A-Z a-z 0-9 - _ . ~   Space becomes "%20".
-struct String url_encode(const char* s);
+struct String url_encode(const &char s);
 
 // "%XX" becomes byte 0xXX. "+" stays "+". On a bad escape, *ok = 0 and
 // decoding stops there.
-struct String url_decode(const char* s, int* ok);
+struct String url_decode(const &char s, ?&int ok);
 ```
 
 `+`는 양방향 모두 공백으로 취급하지 않습니다 — 그것은 `application/x-www-form-urlencoded` 규칙이지 RFC 3986의 일부가 아닙니다. 폼 디코더는 `url_decode`를 호출하기 전에 `+`를 공백으로 바꿔야 합니다.
@@ -109,11 +109,11 @@ struct String url_decode(const char* s, int* ok);
 
 ```c
 // No line wrapping in the output.
-struct String base64_encode(const unsigned char* data, unsigned long len);
+struct String base64_encode(const &unsigned char data, unsigned long len);
 
 // Whitespace between groups is skipped. Any other invalid byte, or '=' that
 // isn't trailing padding, sets *ok = 0 and returns an empty Vec.
-struct Vec<unsigned char> base64_decode(const char* s, int* ok);
+struct Vec<unsigned char> base64_decode(const &char s, ?&int ok);
 ```
 
 결과는 다른 `String`이나 `Vec`처럼 `.free()`로 해제하세요.

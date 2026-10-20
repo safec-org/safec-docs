@@ -152,7 +152,7 @@ interrupt void timer_handler() {
 절대 반환하지 않는 함수는 `noreturn`으로 표시할 수 있으며, 컴파일러가 호출 지점을 최적화할 수 있게 해줍니다.
 
 ```c
-noreturn void panic(const char *msg) {
+noreturn void panic(const &char msg) {
     // ... UART로 씀 ...
     while (1) {}
 }

@@ -129,7 +129,7 @@ const double PI = 3.14159265358979;
 함수 매개변수에 붙은 `const`는 인자의 수정을 방지한다:
 
 ```c
-int length(const char *str) {
+int length(const &char str) {
     // str의 내용은 수정될 수 없음
 }
 ```

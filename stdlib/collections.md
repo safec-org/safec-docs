@@ -171,10 +171,10 @@ Keys are hashed and compared **by their bytes**, so `K` must be fully described 
 ```c
 generic<V>
 struct StrMap {
-    int           insert(const char* key, V val);   // copies the key
-    ?&V           get(const char* key) const;
-    int           contains(const char* key) const;
-    ?V            remove(const char* key);
+    int           insert(const &char key, V val);   // copies the key
+    ?&V           get(const &char key) const;
+    int           contains(const &char key) const;
+    ?V            remove(const &char key);
     unsigned long length() const;
     int           is_empty() const;
     void          clear();
@@ -362,7 +362,7 @@ void setup() {
 }
 ```
 
-
+Node shape: `BTREE_MAX_KEYS` (7) keys and `BTREE_MAX_CHILD` (8) children per node.
 
 ## slice -- Bounds-Checked Views {#slice}
 
@@ -471,7 +471,7 @@ generic<N> struct NodePool<N> node_pool_new();
 
 Compared with one `std::alloc` per node, this drops the allocator's 16-byte safety header and size-class padding per node and makes tearing down a container O(chunks). A node handed back with `give()` is reused by the next `take()`: a reference kept to a removed element dangles exactly as it would after `dealloc()`.
 
-
+Chunk sizing: the first chunk holds `NODE_POOL_FIRST_CHUNK` (8) nodes and each later chunk doubles, up to `NODE_POOL_MAX_CHUNK` (1024); each chunk has a `NODE_POOL_CHUNK_HDR` (16-byte) header so nodes stay 16-byte aligned.
 
 ## string -- Mutable String
 
@@ -502,8 +502,8 @@ struct String {
 
     // Append
     int            push_char(char c);
-    int            push(const char* cstr);
-    int            push_n(const char* data, unsigned long n);  // n raw bytes, need not be NUL-terminated
+    int            push(const &char cstr);
+    int            push_n(const &char data, unsigned long n);  // n raw bytes, need not be NUL-terminated
     int            push_str(&stack String other);
     int            push_int(long long v);
     int            push_uint(unsigned long long v);
@@ -513,21 +513,21 @@ struct String {
     // Modification
     void           clear();
     void           truncate(unsigned long new_len);
-    int            insert(unsigned long idx, const char* cstr);
+    int            insert(unsigned long idx, const &char cstr);
     int            remove_range(unsigned long start, unsigned long end);
     void           replace_char(char from, char to);
-    int            replace(const char* from, const char* to);       // first occurrence
-    int            replace_all(const char* from, const char* to);
+    int            replace(const &char from, const &char to);       // first occurrence
+    int            replace_all(const &char from, const &char to);
     void           reverse();                                       // in-place byte reversal
     int            pop_char();                                      // -1 if empty
 
     // Search
-    long long      index_of(const char* needle) const;
-    long long      last_index_of(const char* needle) const;
-    int            contains(const char* needle) const;
-    int            starts_with(const char* prefix) const;
-    int            ends_with(const char* suffix) const;
-    int            count(const char* needle) const;
+    long long      index_of(const &char needle) const;
+    long long      last_index_of(const &char needle) const;
+    int            contains(const &char needle) const;
+    int            starts_with(const &char prefix) const;
+    int            ends_with(const &char suffix) const;
+    int            count(const &char needle) const;
     long long      find_char(char c) const;
     long long      rfind_char(char c) const;
 
@@ -540,25 +540,25 @@ struct String {
     struct String  trim_right() const;
     struct String  pad_left(unsigned long width, char fill) const;
     struct String  pad_right(unsigned long width, char fill) const;
-    struct String  strip_prefix(const char* prefix) const;
-    struct String  strip_suffix(const char* suffix) const;
+    struct String  strip_prefix(const &char prefix) const;
+    struct String  strip_suffix(const &char suffix) const;
     struct String  repeat(unsigned long n) const;
     struct String  capitalize() const;
 
     // Split -- writes into caller-provided 'out' array (max slots); returns
     // items written; overflow puts the remainder in the last slot
-    unsigned long  split(const char* delim, &stack String out, unsigned long max) const;
+    unsigned long  split(const &char delim, &stack String out, unsigned long max) const;
     unsigned long  split_lines(&stack String out, unsigned long max) const;
     unsigned long  split_whitespace(&stack String out, unsigned long max) const;
 
     // Comparison
     int            eq(&stack String other) const;
-    int            eq_cstr(const char* other) const;
+    int            eq_cstr(const &char other) const;
     int            cmp(&stack String other) const;         // <0, 0, >0
     int            lt(&stack String other) const;
     int            gt(&stack String other) const;
     int            eq_ignore_case(&stack String other) const;
-    int            eq_cstr_ignore_case(const char* other) const;
+    int            eq_cstr_ignore_case(const &char other) const;
 
     // Query
     int            is_ascii() const;
@@ -566,8 +566,8 @@ struct String {
     int            is_alphanumeric() const;
 
     // Conversion
-    long long      parse_int(int* ok) const;
-    double         parse_float(int* ok) const;
+    long long      parse_int(?&int ok) const;
+    double         parse_float(?&int ok) const;
 
     struct String  clone() const;
     void           free();
@@ -578,11 +578,11 @@ struct String {
 
 ```c
 struct String string_new();
-struct String string_from(const char* s);
-struct String string_from_n(const char* s, unsigned long n);
+struct String string_from(const &char s);
+struct String string_from_n(const &char s, unsigned long n);
 struct String string_with_cap(unsigned long cap);
-struct String string_repeat(const char* s, unsigned long n);
-struct String string_join(const char* sep, &stack String parts, unsigned long count);
+struct String string_repeat(const &char s, unsigned long n);
+struct String string_join(const &char sep, &stack String parts, unsigned long count);
 ```
 
 ### Example
@@ -681,5 +681,4 @@ int main() {
 `buf` has region `&static unsigned char` — the backing store must outlive the `RingBuffer` struct itself. Use `RING_STATIC` for embedded globals. For heap-backed use, cast inside an `unsafe {}` block and supply your own lifetime discipline.
 :::
 
-
-
+`RING_DEFAULT_CAP` (4096 bytes) is the default capacity; define it before including the header to change it.

@@ -62,7 +62,7 @@ struct GuiEvent {
     int          defaultPrevented;   // see gui_event_prevent_default()
 };
 
-struct GuiWindow gui_create_window(const char* title, int width, int height);
+struct GuiWindow gui_create_window(const &char title, int width, int height);
 int  gui_poll_event(&GuiWindow win, &GuiEvent outEvent);  // 1 = got an event, 0 = queue empty; never blocks
 void gui_present(&GuiWindow win);                          // blit pixels to the screen
 void gui_set_pixel(&GuiWindow win, int x, int y, unsigned int rgba); // 0xRRGGBBAA; out of bounds = no-op
@@ -127,8 +127,8 @@ void gui_draw_line(&GuiWindow win, int x0, int y0, int x1, int y1, struct GuiCol
 
 // Built-in 8x8 font, printable ASCII (0x20-0x7E); other bytes draw as a blank cell.
 // Each glyph is 8*scale x 8*scale pixels. Returns the pixel width drawn.
-int gui_draw_text(&GuiWindow win, int x, int y, const char* text, struct GuiColor color, int scale);
-int gui_text_width(const char* text, int scale);
+int gui_draw_text(&GuiWindow win, int x, int y, const &char text, struct GuiColor color, int scale);
+int gui_text_width(const &char text, int scale);
 int gui_text_height(int scale);
 ```
 
@@ -152,13 +152,13 @@ struct GuiFont gui_font_default();                                         // co
 int  gui_font_get_bit(const &GuiFont font, int cp, int px, int py);        // (0,0) = glyph top-left
 void gui_font_set_bit(&GuiFont font, int cp, int px, int py, int value);
 
-int  gui_font_save(const &GuiFont font, const char* path);  // 1 = ok
-int  gui_font_load(&GuiFont outFont, const char* path);     // 1 = ok
+int  gui_font_save(const &GuiFont font, const &char path);  // 1 = ok
+int  gui_font_load(&GuiFont outFont, const &char path);     // 1 = ok
 void gui_font_free(&GuiFont font);
 
-int gui_draw_text_ex(&GuiWindow win, int x, int y, const char* text,
+int gui_draw_text_ex(&GuiWindow win, int x, int y, const &char text,
                      struct GuiColor color, int scale, const &GuiFont font);
-int gui_text_width_ex(const char* text, int scale, const &GuiFont font);
+int gui_text_width_ex(const &char text, int scale, const &GuiFont font);
 int gui_text_height_ex(int scale, const &GuiFont font);
 ```
 
@@ -190,7 +190,7 @@ struct GuiImage {
     int height;
 };
 
-int  gui_load_png(const unsigned char* data, unsigned long size, &GuiImage out); // 1 = ok, 0 = failed (out zeroed)
+int  gui_load_png(const &unsigned char data, unsigned long size, &GuiImage out); // 1 = ok, 0 = failed (out zeroed)
 void gui_draw_image(&GuiWindow win, int x, int y, const &GuiImage img);
 void gui_image_free(&GuiImage img);
 ```
@@ -206,7 +206,7 @@ Supported: 8-bit-per-channel, non-interlaced, color types 0 (grayscale), 2 (RGB)
 ```c
 // Parses a complete <svg>...</svg> document and draws it with its top-left at (ox, oy).
 // Returns 1 if the <svg> root parsed, 0 on malformed or unsupported input.
-int gui_draw_svg(&GuiWindow win, int ox, int oy, const char* svgText);
+int gui_draw_svg(&GuiWindow win, int ox, int oy, const &char svgText);
 ```
 
 Supported elements: `<svg>`, `<g>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, and `<path>` with `M`/`L`/`H`/`V`/`C`/`Z` (cubic curves are flattened). `fill`/`stroke` accept `#rrggbb`, `none`, and the names black, white, red, green, blue, yellow, cyan, magenta, gray, transparent.
@@ -254,12 +254,12 @@ Every setter returns the same widget, so calls chain:
 &Widget widget_set_spacing(&Widget w, int spacing);     // gap between children of a stack
 &Widget widget_set_pref_size(&Widget w, int prefW, int prefH); // 0 = size to content
 &Widget widget_set_stretch(&Widget w, int stretch);     // 0 = natural size, >0 = flex weight
-&Widget widget_set_alignment(&Widget w, int alignment); // WIDGET_ALIGN_START/CENTER/END/STRETCH (cross axis)
+&Widget widget_set_alignment(&Widget w, int alignment); // cross axis: WIDGET_ALIGN_START, _CENTER, _END, _STRETCH
 &Widget widget_set_font_scale(&Widget w, int scale);
 &Widget widget_set_font(&Widget w, const ?&GuiFont font); // null = built-in font
 &Widget widget_set_visible(&Widget w, int visible);
 &Widget widget_set_enabled(&Widget w, int enabled);
-&Widget widget_set_text(&Widget w, const char* text);
+&Widget widget_set_text(&Widget w, const &char text);
 
 generic<T> &Widget widget_on_click(&Widget w, fn void(&Widget, ?&T) cb, ?&T userData);
 generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T userData);

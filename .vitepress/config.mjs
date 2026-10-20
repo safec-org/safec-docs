@@ -77,7 +77,8 @@ const enNav = [
       { text: 'Hardware Abstraction', link: '/stdlib/hal' },
       { text: 'Interrupts & MMIO', link: '/stdlib/interrupt' },
       { text: 'Kernel Primitives', link: '/stdlib/kernel' },
-      { text: 'Testing & Benchmarking', link: '/stdlib/testing' }
+      { text: 'Testing & Benchmarking', link: '/stdlib/testing' },
+      { text: 'Utilities & C Compatibility', link: '/stdlib/utilities' }
     ]
   },
   {
@@ -169,7 +170,7 @@ const enSidebar = {
     {
       text: 'Serialization',
       items: [
-        { text: 'JSON / XML / HTML / CSV / YAML', link: '/stdlib/serial' },
+        { text: 'JSON / XML / HTML / CSV / YAML / Markdown / Protobuf', link: '/stdlib/serial' },
       ]
     },
     {
@@ -209,6 +210,7 @@ const enSidebar = {
       text: 'Development',
       items: [
         { text: 'Testing & Benchmarking', link: '/stdlib/testing' },
+        { text: 'Utilities & C Compatibility', link: '/stdlib/utilities' },
       ]
     },
   ],
@@ -307,7 +309,8 @@ const koNav = [
       { text: '하드웨어 추상화', link: '/ko/stdlib/hal' },
       { text: '인터럽트와 MMIO', link: '/ko/stdlib/interrupt' },
       { text: '커널 프리미티브', link: '/ko/stdlib/kernel' },
-      { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' }
+      { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' },
+      { text: '유틸리티와 C 호환', link: '/ko/stdlib/utilities' }
     ]
   },
   {
@@ -399,7 +402,7 @@ const koSidebar = {
     {
       text: '직렬화',
       items: [
-        { text: 'JSON / XML / HTML / CSV / YAML', link: '/ko/stdlib/serial' },
+        { text: 'JSON / XML / HTML / CSV / YAML / Markdown / Protobuf', link: '/ko/stdlib/serial' },
       ]
     },
     {
@@ -439,6 +442,7 @@ const koSidebar = {
       text: '개발',
       items: [
         { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' },
+        { text: '유틸리티와 C 호환', link: '/ko/stdlib/utilities' },
       ]
     },
   ],

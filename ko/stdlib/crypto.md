@@ -20,6 +20,13 @@ SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하�
 
 ECB와 CBC 모드를 지원하는 AES-128, AES-256 블록 암호입니다. 완전한 S-box, 키 확장, MixColumns 구현을 포함합니다.
 
+| 상수 | 값 |
+|----------|-------|
+| `AES_BLOCK_SIZE` | 16바이트 |
+| `AES128_KEY_SIZE` / `AES256_KEY_SIZE` | 16 / 32바이트 |
+| `AES128_ROUNDS` / `AES256_ROUNDS` | 10 / 14 |
+| `AES_KS_WORDS` | 60 (키 스케줄 워드 수) |
+
 ### API {#api}
 
 ```c
@@ -107,6 +114,10 @@ struct Sha256Ctx sha224_init();   // SHA-224
 // 원샷 편의 함수
 void sha256(const &stack unsigned char data, unsigned long len,
             &stack unsigned char digest);
+
+#define SHA256_DIGEST_SIZE  32   // bytes
+#define SHA224_DIGEST_SIZE  28
+#define SHA256_BLOCK_SIZE   64
 ```
 
 ### 예제 {#example-1}
@@ -135,13 +146,105 @@ int main() {
 
 ---
 
+## SHA-512 / SHA-384 {#sha-512-sha-384}
+
+```c
+#include <std/crypto/sha512.h>
+```
+
+SHA-256과 같은 인터페이스이며, 64비트 워드와 128바이트 블록을 씁니다.
+
+```c
+#define SHA512_DIGEST_SIZE  64   // bytes
+#define SHA384_DIGEST_SIZE  48
+#define SHA512_BLOCK_SIZE   128
+
+struct Sha512Ctx {
+    unsigned long long h[8];
+    unsigned char      buf[SHA512_BLOCK_SIZE];
+    unsigned long long total_bytes;   // 64-bit count; the high half of the 128-bit length is written as 0
+    int                is384;         // 1 = SHA-384
+
+    void update(const &stack unsigned char data, unsigned long len);
+    void finish(&stack unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
+};
+
+struct Sha512Ctx sha512_init();
+struct Sha512Ctx sha384_init();
+
+void sha512(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+void sha384(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+```
+
+---
+
+## SHA-1 {#sha-1}
+
+```c
+#include <std/crypto/sha1.h>
+```
+
+::: danger 깨진 해시
+SHA-1에는 실용적인 충돌 공격이 존재합니다. 일부 프로토콜이 요구하기 때문에만 제공됩니다 — [WebSocket](/ko/stdlib/http#websocket) 핸드셰이크의 `Sec-WebSocket-Accept`는 SHA-1로 정의되어 있습니다. 그 외에는 SHA-256이나 SHA-512를 쓰세요.
+:::
+
+```c
+#define SHA1_DIGEST_SIZE  20   // bytes
+#define SHA1_BLOCK_SIZE   64
+
+struct Sha1Ctx {
+    unsigned int  h[5];
+    unsigned char buf[SHA1_BLOCK_SIZE];
+    unsigned long total_bytes;
+
+    void update(const &stack unsigned char data, unsigned long len);
+    void finish(&stack unsigned char digest);   // 20 bytes
+};
+
+struct Sha1Ctx sha1_init();
+void sha1(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+```
+
+---
+
+## HMAC-SHA256 {#hmac-sha256}
+
+```c
+#include <std/crypto/hmac.h>
+```
+
+SHA-256 위의 HMAC(RFC 2104)입니다. [JWT](/ko/stdlib/http#jwt) 서명에 쓰입니다.
+
+```c
+#define HMAC_SHA256_SIZE 32   // bytes
+
+// Writes the 32-byte MAC of data[0..dataLen) under key[0..keyLen) to out.
+void hmac_sha256(const &unsigned char key, unsigned long keyLen,
+                 const &unsigned char data, unsigned long dataLen,
+                 &unsigned char out);
+```
+
+```c
+#include <std/crypto/hmac.h>
+
+int main() {
+    unsigned char key[3]  = { 'k', 'e', 'y' };
+    unsigned char msg[5]  = { 'h', 'e', 'l', 'l', 'o' };
+    unsigned char mac[HMAC_SHA256_SIZE];
+    std::hmac_sha256(&key[0], 3UL, &msg[0], 5UL, &mac[0]);
+    return 0;
+}
+```
+
+---
+
 ## RNG — ChaCha20 CSPRNG {#rng-chacha20-csprng}
 
 ```c
 #include <std/crypto/rng.h>
 ```
 
-ChaCha20을 기반으로 한 암호학적으로 안전한 의사 난수 생성기입니다.
+ChaCha20을 기반으로 한 암호학적으로 안전한 의사 난수 생성기입니다. 출력은 `RNG_BLOCK_SIZE`(64바이트) 단위의 ChaCha20 블록으로 만들어집니다.
 
 ```c
 struct RngCtx {
@@ -188,16 +291,19 @@ int main() {
 
 슬랩 얼로케이터를 감싸 해제 시 제로화(zeroing-on-free)를 수행하므로, 민감한 데이터(키, 비밀번호)가 풀로 반환될 때 지워집니다.
 
+고정 크기 슬롯이므로 크기 메타데이터도 새지 않습니다.
+
 ```c
 struct SecureAllocator {
-    // SlabAllocator를 감쌈
-}
+    struct SlabAllocator slab;
 
-SecureAllocator secure_alloc_new(unsigned long obj_size, unsigned long count);
+    &heap void    alloc();               // one slot; null when full
+    void          dealloc(void* ptr);    // zeroes the slot, then frees it
+    unsigned long available() const;
+    void          destroy();             // zeroes everything, frees the backing buffer
+};
 
-void* secure_alloc(struct SecureAllocator* a);
-void  secure_free(struct SecureAllocator* a, void* ptr);  // 해제 전 제로화
-void  secure_destroy(struct SecureAllocator* a);           // 풀 전체를 제로화
+struct SecureAllocator secure_alloc_new(unsigned long obj_size, unsigned long count);
 ```
 
 ---
@@ -209,6 +315,8 @@ void  secure_destroy(struct SecureAllocator* a);           // 풀 전체를 제�
 ```
 
 X.509v3 DER 인코딩 인증서를 파싱합니다. 주체/발급자 구분 이름, 유효기간, Subject Alternative Names(SAN), BasicConstraints, KeyUsage 확장을 추출합니다.
+
+고정 한도: `X509_MAX_NAME_LEN`(이름당 128바이트), `X509_MAX_SAN`(SAN 8개), `X509_MAX_SAN_LEN`(각 64바이트), `X509_KEY_LEN`(공개 키 256바이트).
 
 ### 구조체 {#structs}
 
@@ -240,7 +348,7 @@ struct X509Cert {
     unsigned short key_usage;
 
     int is_valid_at(unsigned long long unix_time) const;
-    int matches_hostname(const char* host) const;  // SAN + CN 폴백; 와일드카드 *.domain
+    int matches_hostname(const &char host) const;  // SAN + CN 폴백; 와일드카드 *.domain
     int is_ca_cert() const;
 }
 ```
@@ -250,13 +358,13 @@ struct X509Cert {
 ```c
 // DER 인코딩된 인증서를 파싱합니다.
 // 성공 시 0, 오류 시 음수를 반환합니다.
-int x509_parse_der(const unsigned char* der, unsigned long len,
-                   struct X509Cert* out);
+int x509_parse_der(const &unsigned char der, unsigned long len,
+                   &X509Cert out);
 
 // 구조적인 발급자/주체 이름 일치 여부만 확인합니다.
 // 암호학적 서명은 검증하지 **않습니다**.
-int x509_verify_chain(const struct X509Cert* cert,
-                      const struct X509Cert* ca);
+int x509_verify_chain(const &X509Cert cert,
+                      const &X509Cert ca);
 ```
 
 ### 예제 {#example-3}
@@ -265,7 +373,7 @@ int x509_verify_chain(const struct X509Cert* cert,
 #include <std/crypto/x509.h>
 #include <std/io.h>
 
-void check_cert(const unsigned char* der, unsigned long len,
+void check_cert(const &unsigned char der, unsigned long len,
                 unsigned long long now) {
     struct X509Cert cert;
 
@@ -307,6 +415,17 @@ TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드�
 #define TLS_ALERT               21
 #define TLS_HANDSHAKE           22
 #define TLS_APPLICATION_DATA    23
+
+// Alert levels and descriptions (build_alert)
+#define TLS_ALERT_WARNING        1
+#define TLS_ALERT_FATAL          2
+#define TLS_ALERT_CLOSE_NOTIFY   0
+#define TLS_ALERT_HANDSHAKE_FAIL 40
+#define TLS_ALERT_DECODE_ERROR   50
+
+#define TLS_MAX_RECORD_LEN  16384   // max plaintext per record
+#define TLS_KEY_LEN         32      // AES-256
+#define TLS_IV_LEN          12      // per RFC 8446 §5.3
 ```
 
 ### 구조체 {#structs-1}
@@ -362,7 +481,11 @@ RFC 8446 §5.3에 따라, 레코드별 논스는 다음과 같이 계산됩니�
 nonce = write_iv XOR (제로 패딩된 빅엔디안 시퀀스 번호)
 ```
 
-이는 `encode_record` / `decode_record` 내부에서 자동으로 계산됩니다.
+이는 `encode_record` / `decode_record` 내부에서 자동으로 계산됩니다. 직접 필요하면 같은 유도를 메서드로도 쓸 수 있습니다:
+
+```c
+void TlsSession::compute_nonce(unsigned char nonce[TLS_IV_LEN], int is_write) const;
+```
 
 ### 예제 {#example-4}
 

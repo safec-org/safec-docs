@@ -26,7 +26,7 @@ accesses to one register, and free functions for one-off access.
 
 | `MmioReg` method | Equivalent free function |
 |---|---|
-| `read32()` / nothing (write-only free fn) | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
+| `read32()` / `write32(val)` | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
 | — | `mmio_read16`/`mmio_write16`, `mmio_read8`/`mmio_write8` |
 | `set_bits(mask)` / `clear_bits(mask)` | `mmio_set_bits32(addr, mask)` / `mmio_clear_bits32(addr, mask)` |
 | `read_field(lo, hi)` / `write_field(lo, hi, val)` | `mmio_read_field32(addr, lo, hi)` / `mmio_write_field32(addr, lo, hi, val)` |
@@ -72,6 +72,8 @@ CPU at it:
 
 `vtable_init()` sets every slot to `vtable_default_handler` (a weak,
 infinite-loop fault handler meant to be overridden per project) before use.
+
+`VTABLE_MAX_VECTORS` is 256 entries (Cortex-M: 16 core exceptions plus up to 240 external IRQs).
 
 ## Clock Configuration (`interrupt/clock.h`)
 

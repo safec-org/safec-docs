@@ -178,7 +178,7 @@ int main() {
 (Verified: compiles and runs, prints `10/2=5 10/0=-1`.) `try` unwraps a `?T` and propagates the empty case to the *caller* immediately on failure — short-circuiting error propagation in the same spirit as Rust's `?` operator or a `Maybe`/`Either` monad's bind, without requiring the containing function's own return type machinery to be spelled out at each call site:
 
 ```c
-?int parse_config(const char *path) {
+?int parse_config(const &char path) {
     ?int fd = open_file(path);
     int file = try fd;          // if fd is empty, return null immediately
     ?int value = read_int(file);

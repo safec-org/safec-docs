@@ -171,10 +171,10 @@ generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 ```c
 generic<V>
 struct StrMap {
-    int           insert(const char* key, V val);   // copies the key
-    ?&V           get(const char* key) const;
-    int           contains(const char* key) const;
-    ?V            remove(const char* key);
+    int           insert(const &char key, V val);   // copies the key
+    ?&V           get(const &char key) const;
+    int           contains(const &char key) const;
+    ?V            remove(const &char key);
     unsigned long length() const;
     int           is_empty() const;
     void          clear();
@@ -362,7 +362,7 @@ void setup() {
 }
 ```
 
-
+노드 형태: 노드당 키 `BTREE_MAX_KEYS`(7)개, 자식 `BTREE_MAX_CHILD`(8)개.
 
 ## slice -- 경계 검사 뷰 {#slice}
 
@@ -471,7 +471,7 @@ generic<N> struct NodePool<N> node_pool_new();
 
 노드마다 `std::alloc`을 한 번씩 호출하는 것과 비교하면, 노드마다 붙던 얼로케이터의 16바이트 안전 헤더와 크기 클래스 패딩이 사라지고 컨테이너 해체가 O(청크 수)가 됩니다. `give()`로 돌려준 노드는 다음 `take()`에서 재사용됩니다: 제거된 원소에 대한 참조를 붙들고 있으면 `dealloc()` 이후와 똑같이 댕글링됩니다.
 
-
+청크 크기: 첫 청크는 노드 `NODE_POOL_FIRST_CHUNK`(8)개를 담고 이후 청크마다 두 배가 되어 `NODE_POOL_MAX_CHUNK`(1024)까지 커집니다. 각 청크에는 노드를 16바이트로 정렬하기 위한 `NODE_POOL_CHUNK_HDR`(16바이트) 헤더가 붙습니다.
 
 ## string -- 가변 문자열 {#string-mutable-string}
 
@@ -502,8 +502,8 @@ struct String {
 
     // Append
     int            push_char(char c);
-    int            push(const char* cstr);
-    int            push_n(const char* data, unsigned long n);  // n raw bytes, need not be NUL-terminated
+    int            push(const &char cstr);
+    int            push_n(const &char data, unsigned long n);  // n raw bytes, need not be NUL-terminated
     int            push_str(&stack String other);
     int            push_int(long long v);
     int            push_uint(unsigned long long v);
@@ -513,21 +513,21 @@ struct String {
     // Modification
     void           clear();
     void           truncate(unsigned long new_len);
-    int            insert(unsigned long idx, const char* cstr);
+    int            insert(unsigned long idx, const &char cstr);
     int            remove_range(unsigned long start, unsigned long end);
     void           replace_char(char from, char to);
-    int            replace(const char* from, const char* to);       // first occurrence
-    int            replace_all(const char* from, const char* to);
+    int            replace(const &char from, const &char to);       // first occurrence
+    int            replace_all(const &char from, const &char to);
     void           reverse();                                       // in-place byte reversal
     int            pop_char();                                      // -1 if empty
 
     // Search
-    long long      index_of(const char* needle) const;
-    long long      last_index_of(const char* needle) const;
-    int            contains(const char* needle) const;
-    int            starts_with(const char* prefix) const;
-    int            ends_with(const char* suffix) const;
-    int            count(const char* needle) const;
+    long long      index_of(const &char needle) const;
+    long long      last_index_of(const &char needle) const;
+    int            contains(const &char needle) const;
+    int            starts_with(const &char prefix) const;
+    int            ends_with(const &char suffix) const;
+    int            count(const &char needle) const;
     long long      find_char(char c) const;
     long long      rfind_char(char c) const;
 
@@ -540,25 +540,25 @@ struct String {
     struct String  trim_right() const;
     struct String  pad_left(unsigned long width, char fill) const;
     struct String  pad_right(unsigned long width, char fill) const;
-    struct String  strip_prefix(const char* prefix) const;
-    struct String  strip_suffix(const char* suffix) const;
+    struct String  strip_prefix(const &char prefix) const;
+    struct String  strip_suffix(const &char suffix) const;
     struct String  repeat(unsigned long n) const;
     struct String  capitalize() const;
 
     // Split -- writes into caller-provided 'out' array (max slots); returns
     // items written; overflow puts the remainder in the last slot
-    unsigned long  split(const char* delim, &stack String out, unsigned long max) const;
+    unsigned long  split(const &char delim, &stack String out, unsigned long max) const;
     unsigned long  split_lines(&stack String out, unsigned long max) const;
     unsigned long  split_whitespace(&stack String out, unsigned long max) const;
 
     // Comparison
     int            eq(&stack String other) const;
-    int            eq_cstr(const char* other) const;
+    int            eq_cstr(const &char other) const;
     int            cmp(&stack String other) const;         // <0, 0, >0
     int            lt(&stack String other) const;
     int            gt(&stack String other) const;
     int            eq_ignore_case(&stack String other) const;
-    int            eq_cstr_ignore_case(const char* other) const;
+    int            eq_cstr_ignore_case(const &char other) const;
 
     // Query
     int            is_ascii() const;
@@ -566,8 +566,8 @@ struct String {
     int            is_alphanumeric() const;
 
     // Conversion
-    long long      parse_int(int* ok) const;
-    double         parse_float(int* ok) const;
+    long long      parse_int(?&int ok) const;
+    double         parse_float(?&int ok) const;
 
     struct String  clone() const;
     void           free();
@@ -578,11 +578,11 @@ struct String {
 
 ```c
 struct String string_new();
-struct String string_from(const char* s);
-struct String string_from_n(const char* s, unsigned long n);
+struct String string_from(const &char s);
+struct String string_from_n(const &char s, unsigned long n);
 struct String string_with_cap(unsigned long cap);
-struct String string_repeat(const char* s, unsigned long n);
-struct String string_join(const char* sep, &stack String parts, unsigned long count);
+struct String string_repeat(const &char s, unsigned long n);
+struct String string_join(const &char sep, &stack String parts, unsigned long count);
 ```
 
 ### 예제 {#example}
@@ -680,3 +680,5 @@ int main() {
 ::: info
 `buf`의 리전은 `&static unsigned char`입니다 — 백킹 저장소는 `RingBuffer` 구조체 자체보다 오래 살아야 합니다. 임베디드 전역에는 `RING_STATIC`을 사용하세요. 힙 기반으로 사용하려면 `unsafe {}` 블록 안에서 캐스트하고 수명 관리를 직접 책임지세요.
 :::
+
+`RING_DEFAULT_CAP`(4096바이트)이 기본 용량입니다. 바꾸려면 헤더를 include하기 전에 정의하세요.

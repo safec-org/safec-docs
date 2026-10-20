@@ -9,7 +9,7 @@ int add(int a, int b) {
     return a + b;
 }
 
-void greet(const char *name) {
+void greet(const &char name) {
     printf("Hello, %s\n", name);
 }
 ```
@@ -106,7 +106,7 @@ int result = compute(5);       // OK
 절대 반환하지 않는 함수(예: `abort`, `exit`, 무한 루프)는 `noreturn`으로 표시할 수 있습니다.
 
 ```c
-noreturn void panic(const char *msg) {
+noreturn void panic(const &char msg) {
     printf("PANIC: %s\n", msg);
     abort();
 }

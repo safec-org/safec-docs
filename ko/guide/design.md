@@ -196,9 +196,9 @@ SafeC의 리전 모델은 어떤 면에서는 더 관대하고(arena 안으로�
 SafeC는 에러 처리를 위해 반환 값을 사용합니다. 이는 예외보다 장황하지만, 제어 흐름은 항상 눈에 보입니다:
 
 ```c
-int readSensor(int id, float* out) {
+int readSensor(int id, &float out) {
     if (id < 0 || id >= SENSOR_COUNT) return -1;
-    unsafe { *out = sensorValues[id]; }   // 원시 포인터 역참조는 항상 unsafe가 필요합니다
+    *out = sensorValues[id];              // 참조를 통해 쓰기; unsafe 불필요
     return 0;
 }
 
