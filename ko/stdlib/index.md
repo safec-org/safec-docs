@@ -116,18 +116,16 @@ int main() {
 
 ### 머신러닝 — [ML](/ko/stdlib/ml) 참고 {#machine-learning-see-ml}
 
-### GUI (`std/gui/`) {#gui-stdgui}
+### [GUI](/ko/stdlib/gui) {#gui}
 
-포터블한 `GuiWindow`/`GuiEvent` API 위에 만들어진 리테인 모드 위젯 툴킷으로, 일치하는
-`.sc` 파일을 include하여 선택하는 네 가지 백엔드가 있습니다:
-`gui_cocoa.sc`(macOS, Objective-C 런타임 상호 운용 — 실제 하드웨어에서 완전히
-검증됨), `gui_win32.sc`/`gui_x11.sc`(Windows/X11 — 실제 Win32/Xlib ABI
-형태에 맞춰 작성 및 타입 검사됨, 미검증: Windows/X11 호스트가 없음),
-`gui_fb.sc`(베어메탈 선형 프레임버퍼 — 완전히 검증됨, OS 의존성 없음).
-`gui_widget.h`는 위젯 트리(컨테이너, 버튼/레이블/체크박스/텍스트 입력/슬라이더,
-커스텀 위젯 확장 API)이며, `gui_draw.h`/`gui_font.h`는 프리미티브와 비트맵
-폰트를 다루고, `gui_png.h`/`gui_svg.h`는 처음부터 작성된 PNG(DEFLATE)와
-SVG 디코더/렌더러입니다.
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| gui | `gui/gui.h` | RGBA8888 소프트웨어 프레임버퍼 위의 포터블 `GuiWindow`/`GuiEvent` API; Cocoa, Win32, X11, 베어메탈 프레임버퍼 백엔드 |
+| draw | `gui/gui_draw.h` | 사각형, 테두리, 선, 내장 8x8 비트맵 텍스트 |
+| font | `gui/gui_font.h` | 임의 글리프 크기의 `GuiFont` 비트맵 폰트; `SCXF` 저장/로드 |
+| png | `gui/gui_png.h` | 처음부터 작성한 PNG 디코더 (자체 DEFLATE 인플레이터) |
+| svg | `gui/gui_svg.h` | SVG 부분집합 렌더러 (도형, 3차 곡선 경로) |
+| widget | `gui/gui_widget.h` | 리테인드 모드 위젯 트리: 스택, 버튼, 레이블, 체크박스, 텍스트 입력, 슬라이더, 커스텀 위젯 |
 
 ### [파일시스템](/ko/stdlib/fs) {#filesystems}
 
@@ -234,6 +232,15 @@ SVG 디코더/렌더러입니다.
 | test | `test/test.h` | `TestSuite` + `ASSERT_*` 매크로 |
 | bench | `test/bench.h` | `BenchSuite` — 벽시계 기준 반복 벤치마크 |
 | fuzz | `test/fuzz.h` | `FuzzTarget` — 경량 인프로세스 뮤테이션 퍼저 |
+
+### [인코딩](/ko/stdlib/encoding) {#encoding}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| ascii | `encoding/ascii.h` | ASCII 검증, 분류, 대소문자 변환 |
+| utf8 | `encoding/utf8.h` | UTF-8 인코드/디코드/검증, 코드포인트 개수 |
+| url | `encoding/url.h` | RFC 3986 퍼센트 인코딩 (컴포넌트 방식) |
+| base64 | `encoding/base64.h` | 패딩을 포함한 RFC 4648 Base64 |
 
 ### 유틸리티 {#utilities}
 

@@ -116,19 +116,16 @@ int main() {
 
 ### Machine Learning — see [ML](/stdlib/ml)
 
-### GUI (`std/gui/`)
+### [GUI](/stdlib/gui)
 
-A retained-mode widget toolkit over a portable `GuiWindow`/`GuiEvent`
-API, with four backends selected by including the matching `.sc` file:
-`gui_cocoa.sc` (macOS, Objective-C runtime interop — fully verified on
-real hardware), `gui_win32.sc`/`gui_x11.sc` (Windows/X11 — written and
-type-checked against the real Win32/Xlib ABI shapes, unverified: no
-Windows/X11 host available), and `gui_fb.sc` (bare-metal linear
-framebuffer — fully verified, zero OS dependency). `gui_widget.h` is the
-widget tree (containers, button/label/checkbox/textinput/slider, a
-custom-widget extension API); `gui_draw.h`/`gui_font.h` handle
-primitives and bitmap fonts; `gui_png.h`/`gui_svg.h` are from-scratch
-PNG (DEFLATE) and SVG decoders/renderers.
+| Module | Header | Description |
+|--------|--------|-------------|
+| gui | `gui/gui.h` | Portable `GuiWindow`/`GuiEvent` API over an RGBA8888 software framebuffer; Cocoa, Win32, X11 and bare-metal framebuffer backends |
+| draw | `gui/gui_draw.h` | Rectangles, borders, lines, built-in 8x8 bitmap text |
+| font | `gui/gui_font.h` | `GuiFont` bitmap fonts of any glyph size; `SCXF` save/load |
+| png | `gui/gui_png.h` | From-scratch PNG decoder (own DEFLATE inflater) |
+| svg | `gui/gui_svg.h` | SVG subset renderer (shapes, paths with cubic curves) |
+| widget | `gui/gui_widget.h` | Retained-mode widget tree: stacks, button, label, checkbox, text input, slider, custom widgets |
 
 ### [Filesystems](/stdlib/fs)
 
@@ -235,6 +232,15 @@ PNG (DEFLATE) and SVG decoders/renderers.
 | test | `test/test.h` | `TestSuite` + `ASSERT_*` macros |
 | bench | `test/bench.h` | `BenchSuite` — wall-clock timed iteration benchmarks |
 | fuzz | `test/fuzz.h` | `FuzzTarget` — lightweight in-process mutation fuzzer |
+
+### [Encoding](/stdlib/encoding)
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| ascii | `encoding/ascii.h` | ASCII validation, classification, case conversion |
+| utf8 | `encoding/utf8.h` | UTF-8 encode/decode/validate, codepoint count |
+| url | `encoding/url.h` | RFC 3986 percent-encoding (component style) |
+| base64 | `encoding/base64.h` | RFC 4648 Base64 with padding |
 
 ### Utilities
 
