@@ -214,7 +214,7 @@ discrete memory model needs.
 - **ROCm**: verified on an AMD Instinct MI100 (gfx908, ROCm 7.1) —
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
   combinations, graphs and the host-array API against CPU results (29
-  checks), and the [ML benchmarks](/benchmarks#machine-learning-gpu-backends-cuda-rocm-vulkanspir-v-webgpu)
+  checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and MPS paths.
 - **CUDA**: written against the real Driver API ABI and type-checked, but
   unverified — no NVIDIA GPU in the environments this was tested in.
@@ -276,6 +276,54 @@ rocBLAS reaches 33.7 TFLOPS using the matrix cores, and rocBLAS is also
 faster at the small sizes a training loop uses (≈5 µs, close to the launch
 floor). So matmuls use rocBLAS, and the custom kernels cover the work rocBLAS
 doesn't do.
+
+### Backend status {#backend-status}
+
+| Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
+|---|---|---|---|---|
+| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
+| CUDA | real (PTX, text IR) | real (PTX) | real (cuBLAS) | unmeasured — no NVIDIA GPU in the test environment |
+| Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
+| WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
+
+SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; CUDA and WebGPU take text IR (PTX, WGSL) and are written in full, but no NVIDIA GPU or wgpu-native/Dawn library was available to run them.
+
+## fp16 / bf16 {#fp16-bf16}
+
+No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float` — and real native `half`/`bfloat` GPU compute on the MPS backend, not just halved storage.
+
+| Check | Result |
+|---|---|
+| Known bit patterns (fp16: 1.0, -1.0, 0.0, -0.0, 2.0, 0.5, max normal 65504, overflow→inf, smallest subnormal, inf; bf16: 1.0, -1.0, 0.0, 2.0, π) | all exact |
+| fp16 subnormal idempotence sweep (every mantissa 1–1023, `fp16→f32→fp16`) | 1023/1023 exact |
+| fp16 normal-range idempotence sweep (every exponent × sampled mantissas, 330 patterns) | 330/330 exact |
+| fp16 round-trip on representable values | exact |
+| bf16 round-trip (lossy by construction — 7 mantissa bits) | within ~0.4% relative error |
+
+
+## Device selection {#device-selection}
+
+Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — precise, but awkward for a caller that wants to pick a device once. `tensor_matmul_on(a, b, device)` / `tensor_relu_on(a, device)` dispatch over a `Device` enum instead — verified bit-identical across CPU/CPU+BLAS/MPS:
+
+| Device | Y[0][0] | Y[0][1] |
+|---|---|---|
+| CPU | 0.900000 | 1.300000 |
+| CPU + BLAS | 0.900000 | 1.300000 |
+| MPS | 0.900000 | 1.300000 |
+
+Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `tensor_sigmoid`/`tensor_relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
+
+`jit_block_forward_on(block, x, device)` threads device selection through a real layer (JiTBlock's Q/K/V/output projections + FFN) — verified bit-identical to the reference across CPU/CPU+BLAS/MPS:
+
+| Path | y[0] | y[1] | y[2] |
+|---|---|---|---|
+| `jit_block_forward` (reference) | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_CPU)` | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_CPU_BLAS)` | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_MPS)` | -0.479727 | -0.589425 | -0.537808 |
+
+Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`, `cnn.sc`.
+
 
 ## LLM orchestration
 

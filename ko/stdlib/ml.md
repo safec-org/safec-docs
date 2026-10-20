@@ -208,11 +208,116 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
   (연속된 두 개의 구조체 값 전달 Objective-C 메시지 전송 인자와
   관련된 것으로 보이는 코드 생성상의 결함 — 정확하고 이분 탐색으로
   좁혀진 실패 지점은 `gpu_mps.sc`의 헤더 주석 참고).
-- **CUDA**/**ROCm**: 실제 드라이버/런타임 API ABI에 맞춰 작성되고
-  타입 검사는 되었지만 검증되지는 않았다 — 이것이 만들어진 환경에는
-  NVIDIA/AMD GPU가 없었다(`std/gui/gui_win32.sc`/`gui_x11.sc`와 동일한
-  상태).
+- **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
+  `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
+  그래프, 호스트 배열 API를 CPU 결과와 비교하며(검사 29개),
+  [ML 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference)는
+  CPU 및 MPS 경로와 같은 손실까지 학습한다.
+- **CUDA**: 실제 Driver API ABI에 맞춰 작성되고 타입 검사는 되었지만
+  검증되지는 않았다 — 테스트 환경에 NVIDIA GPU가 없었다.
 :::
+
+### ROCm / HIP (AMD) {#rocm-hip-amd}
+
+```c
+#include <std/ml/gpu_rocm.h>   // 링크: -lamdhip64 -lhiprtc -lrocblas
+```
+
+데이터는 `RocmBuf`에 있다 — 디바이스 주소와 원소 개수로 기술되는 GPU
+버퍼이며 모든 연산이 개수를 검사한다. 연산은 하나의 HIP 스트림에 순서대로
+쌓이므로 학습 스텝 전체가 GPU에서 돌고, 요청한 값(`rocm_read`)만 돌아온다.
+행렬곱은 rocBLAS로 간다. 나머지는 이 라이브러리 자체의 HIP 커널이다 —
+원소별 연산, ReLU와 그 기울기, 제자리 SGD, 합 리덕션, 그리고 융합된 MSE
+기울기(`dy = 2(y − t)`와 손실 합을 한 번에) — 처음 쓸 때 hiprtc로 현재 GPU에
+맞게 컴파일되므로 한 빌드가 어떤 ROCm GPU에서든 동작한다. GPU가 여러 개인
+머신에서는 연산 유닛이 가장 많은 것을 고른다.
+
+| 그룹 | 함수 |
+|---|---|
+| 디바이스 | `rocm_available`, `rocm_device_name`, `rocm_sync` |
+| 버퍼 | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `rocm_free` |
+| 행렬곱 | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, 어느 피연산자든 전치 가능 |
+| 원소별 | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
+| 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
+| 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
+| 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
+
+2층 MLP의 SGD 한 스텝, 전부 GPU에서:
+
+```c
+// 순전파: Z1 = X W1, H = relu(Z1), Y = H W2
+std::rocm_gemm(X, 0, W1, 0, Z1, B, H_DIM, I);
+std::rocm_relu(Z1, H);
+std::rocm_gemm(H, 0, W2, 0, Y, B, O, H_DIM);
+// loss = sum((Y - T)^2)에 대한 역전파
+std::rocm_mse_grad(Y, T, dY, loss);
+std::rocm_gemm(H, 1, dY, 0, dW2, H_DIM, O, B);     // dW2 = H^T dY
+std::rocm_gemm(dY, 0, W2, 1, dH, B, H_DIM, O);     // dH  = dY W2^T
+std::rocm_relu_grad(Z1, dH, dZ1);
+std::rocm_gemm(X, 1, dZ1, 0, dW1, I, H_DIM, B);    // dW1 = X^T dZ1
+std::rocm_sgd(W2, dW2, lr);
+std::rocm_sgd(W1, dW1, lr);
+```
+
+이런 연산열을 `rocm_capture_begin()`과 `rocm_capture_end()` 사이에서 한 번
+기록하고 `rocm_graph_launch()`로 재생하면 스텝 전체를 한 번에 실행한다.
+호스트가 매 스텝 GPU를 기다리지 않을 때 효과가 있다. `tensor_rocm.h`는
+호스트 배열 연산을 자동 미분 `Tensor` 함수(`tensor_add_rocm`,
+`tensor_matmul_rocm_blas`, …)로 감싸며 CPU 대체 경로가 있다.
+
+rocBLAS와 직접 작성한 커널의 비교: 이 라이브러리의 타일 SGEMM
+(`rocm_matmul_f32`)은 MI100에서 4096³ 기준 약 9.5 TFLOPS, rocBLAS는 행렬
+코어를 써서 33.7 TFLOPS에 이르고, 학습 루프가 쓰는 작은 크기에서도 rocBLAS가
+더 빠르다(≈5 µs, 실행 시작 하한에 가까움). 그래서 행렬곱은 rocBLAS를 쓰고,
+사용자 커널은 rocBLAS가 하지 않는 일을 맡는다.
+
+### 백엔드 상태 {#backend-status}
+
+| 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
+|---|---|---|---|---|
+| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference) |
+| CUDA | 실제 동작 (PTX, 텍스트 IR) | 실제 동작 (PTX) | 실제 동작 (cuBLAS) | 측정 안 함 — 테스트 환경에 NVIDIA GPU 없음 |
+| Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
+| WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
+
+SPIR-V 커널은 바이너리 IR이라 Vulkan 백엔드가 완성되려면 SPIR-V 컴파일러(glslc/glslangValidator)가 필요합니다. CUDA와 WebGPU는 텍스트 IR(PTX, WGSL)을 받아 전부 작성되어 있지만, 실행할 NVIDIA GPU나 wgpu-native/Dawn 라이브러리가 없었습니다.
+
+## fp16 / bf16 {#fp16-bf16}
+
+SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 — 그리고 MPS 백엔드에서는 저장 공간만 절반으로 줄이는 것이 아니라 실제 네이티브 `half`/`bfloat` GPU 연산을 합니다.
+
+| 검사 | 결과 |
+|---|---|
+| 알려진 비트 패턴 (fp16: 1.0, -1.0, 0.0, -0.0, 2.0, 0.5, 최대 정규수 65504, 오버플로→inf, 최소 비정규수, inf; bf16: 1.0, -1.0, 0.0, 2.0, π) | 모두 정확 |
+| fp16 비정규수 멱등성 스윕 (모든 가수 1–1023, `fp16→f32→fp16`) | 1023/1023 정확 |
+| fp16 정규 범위 멱등성 스윕 (모든 지수 × 표본 가수, 패턴 330개) | 330/330 정확 |
+| 표현 가능한 값의 fp16 왕복 변환 | 정확 |
+| bf16 왕복 변환 (구조상 손실 있음 — 가수 7비트) | 상대 오차 ~0.4% 이내 |
+
+
+## 장치 선택 {#device-selection}
+
+모든 백엔드는 연산 이름에 장치를 명시합니다(`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — 정확하지만, 장치를 한 번만 고르고 싶은 호출자에게는 불편합니다. 대신 `tensor_matmul_on(a, b, device)` / `tensor_relu_on(a, device)`가 `Device` 열거형으로 분기합니다 — CPU/CPU+BLAS/MPS에서 비트 단위로 같음을 확인했습니다:
+
+| 장치 | Y[0][0] | Y[0][1] |
+|---|---|---|
+| CPU | 0.900000 | 1.300000 |
+| CPU + BLAS | 0.900000 | 1.300000 |
+| MPS | 0.900000 | 1.300000 |
+
+이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `tensor_sigmoid`/`tensor_relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
+
+`jit_block_forward_on(block, x, device)`은 실제 계층(JiTBlock의 Q/K/V/출력 투영 + FFN)에 장치 선택을 전달합니다 — CPU/CPU+BLAS/MPS에서 기준값과 비트 단위로 같음을 확인했습니다:
+
+| 경로 | y[0] | y[1] | y[2] |
+|---|---|---|---|
+| `jit_block_forward` (기준) | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_CPU)` | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_CPU_BLAS)` | -0.479727 | -0.589425 | -0.537808 |
+| `..._on(DEVICE_MPS)` | -0.479727 | -0.589425 | -0.537808 |
+
+아직 장치 분기가 안 된 것: attention 내부의 QK^T/softmax/·V 행렬곱, `DiTBlock`, `cnn.sc`.
+
 
 ## LLM 오케스트레이션 {#llm-orchestration}
 
