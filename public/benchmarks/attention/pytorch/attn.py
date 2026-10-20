@@ -1,7 +1,12 @@
 """Flash and linear attention in PyTorch: the same shapes as ../safec/attn_cuda.sc
-(device cuda) and ../safec/attn_mps.sc (device mps).
+(device cuda), ../safec/attn_mps.sc (device mps) and the fp32 rows of
+../safec/attn_rocm.sc (device rocm).
 
-usage: attn.py cuda|mps
+usage: attn.py cuda|mps|rocm
+
+'rocm' runs on a ROCm build of PyTorch (whose GPU device is also called
+"cuda"): fp32 rows only, no TF32 rows (AMD's matrix cores before CDNA3 have no
+TF32) and no grouped-query row.
 
   flash   torch.nn.functional.scaled_dot_product_attention (PyTorch picks its
           FlashAttention-2 kernel for fp16/bf16 and the memory-efficient one
@@ -28,8 +33,13 @@ import torch
 import torch.nn.functional as F
 
 dev = sys.argv[1] if len(sys.argv) > 1 else "cuda"
-if dev not in ("cuda", "mps"):
+if dev not in ("cuda", "mps", "rocm"):
     sys.exit(0)
+ROCM = dev == "rocm"
+if (dev in ("cuda", "rocm")) and ROCM != (torch.version.hip is not None):
+    sys.exit(0)            # 'cuda' rows on an NVIDIA build, 'rocm' rows on a ROCm build
+if ROCM:
+    dev = "cuda"
 sync = torch.cuda.synchronize if dev == "cuda" else torch.mps.synchronize
 torch.manual_seed(42)
 B, H = 4, 16
@@ -77,7 +87,7 @@ try:
     from fla.ops.linear_attn import chunk_linear_attn
 except Exception:
     chunk_linear_attn = None
-if dev != "cuda":
+if dev != "cuda" or ROCM:
     chunk_linear_attn = None
 
 
@@ -89,7 +99,7 @@ def linear_fla(q, k, v):
 
 
 with torch.inference_mode():
-    for dt in ("fp16", "bf16", "fp32"):
+    for dt in (("fp32",) if ROCM else ("fp16", "bf16", "fp32")):
         for d in (64, 128):
             for s in (1024, 4096):
                 for c in (0, 1):
@@ -97,16 +107,21 @@ with torch.inference_mode():
                     iters = (20 if s >= 4096 else 100) // (4 if dt == "fp32" else 1)
                     if dev == "mps":
                         iters = (10 if s >= 4096 else 40) // (2 if dt == "fp32" else 1)
-                    ms = bench(lambda: F.scaled_dot_product_attention(q, k, v, is_causal=bool(c)), iters)
+                    try:
+                        ms = bench(lambda: F.scaled_dot_product_attention(q, k, v, is_causal=bool(c)), iters)
+                    except torch.OutOfMemoryError:
+                        print(f"# flash {dt} d{d} s{s} c{c}: out of memory", flush=True)
+                        continue
                     fl = 4.0 * B * H * s * s * d / (2 if c else 1)
                     print(f"[flash {dt} d{d} s{s} c{c}] ms_per_call={ms:.4f} tflops={fl / (ms * 1e9):.2f}", flush=True)
-    q = torch.rand(B, 32, 4096, 128, device=dev, dtype=torch.bfloat16) - 0.5
-    k, v = (torch.rand(B, 8, 4096, 128, device=dev, dtype=torch.bfloat16) - 0.5 for _ in range(2))
-    ms = bench(lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True), 20 if dev == "cuda" else 5)
-    fl = 4.0 * B * 32 * 4096 * 4096 * 128 / 2
-    print(f"[flash bf16 gqa32/8 d128 s4096 c1] ms_per_call={ms:.4f} tflops={fl / (ms * 1e9):.2f}", flush=True)
+    if not ROCM:
+        q = torch.rand(B, 32, 4096, 128, device=dev, dtype=torch.bfloat16) - 0.5
+        k, v = (torch.rand(B, 8, 4096, 128, device=dev, dtype=torch.bfloat16) - 0.5 for _ in range(2))
+        ms = bench(lambda: F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True), 20 if dev == "cuda" else 5)
+        fl = 4.0 * B * 32 * 4096 * 4096 * 128 / 2
+        print(f"[flash bf16 gqa32/8 d128 s4096 c1] ms_per_call={ms:.4f} tflops={fl / (ms * 1e9):.2f}", flush=True)
 
-    for dt in ("fp32", "bf16"):
+    for dt in (("fp32",) if ROCM else ("fp32", "bf16")):
         for d, s in ((64, 4096), (64, 16384), (128, 4096)):
             for c in (0, 1):
                 q, k, v = ((torch.rand(B, H, s, d, device=dev, dtype=DT[dt]) - 0.5) for _ in range(3))
@@ -115,7 +130,7 @@ with torch.inference_mode():
                     iters = 3 if s >= 16384 else 10
                 ms = bench(lambda: linear_torch(q, k, v, c), iters)
                 print(f"[linear {dt} d{d} s{s} c{c}] ms_per_call={ms:.4f}", flush=True)
-                if dt == "fp32" and dev == "cuda":
+                if dt == "fp32" and dev == "cuda" and not ROCM:
                     torch.backends.cuda.matmul.allow_tf32 = False
                     ms = bench(lambda: linear_torch(q, k, v, c), iters)
                     torch.backends.cuda.matmul.allow_tf32 = True

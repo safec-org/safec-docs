@@ -21,6 +21,7 @@
 - **CPU 합성곱과 FFT** ([자세히](#mi100-conv-fft)): Winograd 3×3 합성곱과 이미지별 아레나로 U-Net이 CPU에서 1.35 ms에 실행됩니다(PyTorch 2.68 ms). 2²⁰점 FFT는 0.89 ms입니다(16스레드 FFTW 1.63 ms). 2D, 배치, 실수 변환에서는 FFTW가 1.1–1.6배 빠릅니다.
 - **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.48 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.5 ms), 44.1→48 kHz 리샘플링은 3.7 ms(SciPy 9.1 ms)입니다.
 - **H200에서의 어텐션** ([자세히](#h200-attention)): cuDNN을 거치는 fp16/bf16 flash 어텐션은 PyTorch와 같고(3% 이내, 최대 690 TFLOPS), 텐서 코어(3xTF32)의 fp32 flash 어텐션은 head dim 64에서 PyTorch보다 1.34배 빠르고 128에서 0.97–1.05배입니다. linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠르며, head dim 128 fp32 non-causal에서만 PyTorch의 TF32 einsum과 같습니다(정확한 fp32로 계산하면서).
+- **MI100에서의 어텐션** ([자세히](#mi100-attention)): 행렬 코어의 fp32 flash 어텐션이 18–26 TFLOPS로 돕니다. 마스크가 없으면 PyTorch-ROCm보다 1.8–4배, causal 마스크가 있으면 4–10배 빠릅니다. 선형 어텐션은 2–5.4배 빠릅니다.
 - **M1 Pro에서의 어텐션** ([자세히](#m1pro-attention)): Metal의 fp32 flash 어텐션은 MLX보다 1.04–1.22배, PyTorch `mps` 장치보다 1.16–1.43배 빠르고, fp16/bf16은 이들의 0.80–0.97배입니다. linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.1–4.4배 빠릅니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 모든 합성곱 행에서 PyTorch-CUDA보다 빠릅니다. 이미지 한 장의 64채널 3×3 합성곱은 0.018 ms(PyTorch 0.023 ms, fp32), 32장 배치는 0.084 ms(0.098 ms, TF32), 배치 16의 U-Net은 0.45 ms(0.56 ms, TF32)입니다. 호스트 배열의 2²⁰점 FFT는 PCIe 복사 두 번을 포함해 1.25 ms입니다(2.05 ms). GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 2.2배 빠르고, `HashMap`은 순수 C의 1.1배 이내, `Vec` push는 1.5배 느립니다.
@@ -354,6 +355,43 @@ CPU의 FFT, 호출당 ms. 비교 대상은 FFTW 3.3.10(AVX/AVX2/AVX-512, FMA 코
 
 ::: details 소스
 [conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [fftw_bench.c](/benchmarks/fft/c/fftw_bench.c) · [kfr_bench.cpp](/benchmarks/dsp/cpp/kfr_bench.cpp) · [RustFFT main.rs](/benchmarks/dsp/rust/src/main.rs) · [cnn.sc](/benchmarks/stdlib/cnn.sc) · [unet.sc](/benchmarks/stdlib/unet.sc) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [fft.h](/benchmarks/stdlib/fft.h) · [fft.sc](/benchmarks/stdlib/fft.sc) · [fft_f32.sc](/benchmarks/stdlib/fft_f32.sc) · [fft_core.h](/benchmarks/stdlib/fft_core.h) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
+:::
+
+## MI100에서의 어텐션 {#mi100-attention}
+
+[`gpu_rocm.h`](/ko/stdlib/ml#rocm-attention)의 flash 어텐션과 선형 어텐션을 ROCm 6.4의 PyTorch 2.9.1과 비교합니다. 형태는 [H200 측정](#h200-attention)의 fp32 형태와 같습니다: 배치 4 × 헤드 16(SafeC에는 같은 메모리 배치의 64개 헤드로 전달), 데이터는 GPU에 둡니다. 각 수치는 두 동기화 사이에 큐에 넣은 5–40번 호출의 평균이며, 3번 실행 중 최솟값입니다. TFLOPS는 4·B·H·S²·D로 셉니다(causal이면 절반). gfx908에서 PyTorch의 `scaled_dot_product_attention`에는 융합 커널이 없어서, 배치 행렬곱으로 점수 행렬 전체를 만든 뒤 그 위에서 softmax를 돌립니다. 선형 어텐션 행은 H200과 같은 벡터화된 PyTorch 코드이며 IEEE fp32로 계산합니다(MI100에는 TF32가 없습니다).
+
+Flash 어텐션, 호출당 ms(TFLOPS):
+
+| 헤드 차원 | 토큰 | Causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | PyTorch / SafeC |
+|---|---|---|---|---|---|
+| 64 | 1024 | 아니오 | **0.858 (20.0)** | 2.52 (6.8) | 2.93 |
+| 64 | 1024 | 예 | **0.457 (18.7)** | 3.28 (2.6) | 7.17 |
+| 64 | 4096 | 아니오 | **10.7 (25.7)** | 42.8 (6.4) | 4.00 |
+| 64 | 4096 | 예 | **5.48 (25.0)** | 56.2 (2.5) | 10.25 |
+| 128 | 1024 | 아니오 | **1.81 (18.9)** | 3.32 (10.3) | 1.83 |
+| 128 | 1024 | 예 | **0.950 (18.0)** | 4.05 (4.2) | 4.26 |
+| 128 | 4096 | 아니오 | **24.8 (22.2)** | 53.4 (10.3) | 2.16 |
+| 128 | 4096 | 예 | **12.6 (21.9)** | 66.4 (4.1) | 5.29 |
+
+선형 어텐션(φ(x) = elu(x) + 1), 호출당 ms:
+
+| 헤드 차원 | 토큰 | Causal | SafeC | PyTorch | PyTorch / SafeC |
+|---|---|---|---|---|---|
+| 64 | 4096 | 아니오 | **0.464** | 1.40 | 3.02 |
+| 64 | 4096 | 예 | **0.673** | 3.64 | 5.41 |
+| 64 | 16384 | 아니오 | **1.62** | 5.63 | 3.49 |
+| 64 | 16384 | 예 | **2.76** | 14.6 | 5.28 |
+| 128 | 4096 | 아니오 | **1.60** | 3.25 | 2.03 |
+| 128 | 4096 | 예 | **2.84** | 8.73 | 3.07 |
+
+- **Flash 어텐션**은 MI100의 행렬 코어에서 fp32로 돕니다. 헤드 차원 64까지는 `v_mfma_f32_32x32x2f32`, 128에서는 `16x16x4`를 씁니다. 후자는 wave당 레지스터가 절반이라 SIMD당 두 wave를 유지합니다. 점수를 전치해서(Sᵀ = K Qᵀ) 계산하므로 각 레인이 질의 한 행을 맡습니다. 그 q는 레지스터에 머물고, 행 최댓값과 합은 반쪽 사이 셔플 한 번이면 되며, P는 레지스터에서 바로 P·V 곱으로 들어갑니다. causal 블록은 가장 긴 것부터 시작하고, 출력은 어떤 행의 최댓값이 2⁸ 넘게 커질 때만 다시 스케일합니다(FlashAttention-4와 같음). 그 결과 MI100의 fp32 행렬 최대치 46 TFLOPS 중 18–26 TFLOPS가 나오며, 이전 CUDA 코어 커널보다 4–7배 빠릅니다(헤드 차원 64, 4096 토큰에서 45.5 ms → 10.7 ms).
+- **PyTorch 대비** 마스크가 없으면 1.8–4배, causal 마스크가 있으면 4–10배 빠릅니다. PyTorch의 수학 경로는 마스크와 상관없이 점수 행렬 전체를 계산하므로 마스크가 있으면 오히려 느려지고, SafeC는 완전히 가려진 타일을 건너뜁니다.
+- **선형 어텐션**은 128행 청크 단위로 돕니다. non-causal과 헤드 차원 128의 causal은 세 패스입니다. 청크별 상태 φ(K)ᵀV를 행렬 코어에서 구합니다. 청크들에 대해 스캔을 돕니다. 출력 패스는 φ(Q) 행을 MFMA 피연산자로 레지스터에 두고, 청크 내부의 마스크 항을 더합니다. 헤드 차원 64까지의 causal은 한 패스로 돕니다. 각 청크의 블록이 K/V 타일을 한 번 읽어 마스크 항과 자기 상태에 함께 씁니다. 앞 청크들의 접두합은 decoupled look-back(Merrill & Garland의 단일 패스 스캔)으로 구합니다. 블록은 원자적 티켓으로 청크를 순서대로 받고, 자기 상태를 바로 공개한 뒤, 처음으로 공개된 접두합이 나올 때까지 앞 청크들의 상태를 더합니다. 그래서 별도의 상태·스캔 패스와 K, V의 두 번째 읽기가 없어집니다. 세 패스일 때보다 4096 토큰에서 13%(0.775 → 0.673 ms), 16k에서 10% 빠릅니다. 전체적으로 이전 커널보다 7–11배, PyTorch보다 2–5.4배 빠릅니다.
+- 행렬 코어가 없는 GPU(RDNA)는 CUDA 코어 커널을 씁니다. MI100에서도 `rocm_attention_use_mfma(0)`으로 그 커널을 고를 수 있습니다. `tests/stdlib/rocm/rocm_check.sc`가 두 경로를 배정밀도 기준값과 attention.h의 CPU 함수에 대해 검사합니다: 251개 검사.
+
+::: details 소스
+[attn_rocm.sc](/benchmarks/attention/safec/attn_rocm.sc) · [attn.py](/benchmarks/attention/pytorch/attn.py) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
 :::
 
 ## CPU의 DSP {#dsp-cpu}

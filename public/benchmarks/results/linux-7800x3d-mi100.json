@@ -1100,5 +1100,111 @@
     "ms_per_call": 519.222
    }
   }
+ },
+ "attention": {
+  "safec_rocm": {
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 0.8574,
+    "tflops": 19.99
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 0.4567,
+    "tflops": 18.74
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 10.6679,
+    "tflops": 25.77
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 5.4755,
+    "tflops": 25.06
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 1.8069,
+    "tflops": 18.83
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 0.9513,
+    "tflops": 18.06
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 24.6872,
+    "tflops": 22.22
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 12.5527,
+    "tflops": 21.88
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 0.4638
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 0.6729
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 1.6129
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 2.7556
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 1.5977
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 2.8428
+   }
+  },
+  "pytorch_rocm": {
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 2.5167,
+    "tflops": 6.82
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 3.2778,
+    "tflops": 2.62
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 42.8119,
+    "tflops": 6.42
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 56.1445,
+    "tflops": 2.44
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 3.3144,
+    "tflops": 10.34
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 4.0469,
+    "tflops": 4.24
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 53.4555,
+    "tflops": 10.27
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 66.3687,
+    "tflops": 4.13
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 1.3999
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 3.6416
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 5.6367
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 14.5582
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 3.2565
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 8.7007
+   }
+  }
  }
 }
