@@ -170,6 +170,7 @@ safec <input.sc> [options]
 | `--compat-preprocessor` | Enable full C preprocessor compatibility |
 | `--freestanding` | Freestanding mode (no standard library assumptions) |
 | `--no-import-c-headers` | Disable automatic C header import |
+| `--no-strict-aliasing` | Don't emit type-based alias info, for `unsafe` code that type-puns through pointer casts (see [Strict Aliasing](/reference/safety#strict-aliasing)) |
 
 ### Preprocessor
 
@@ -198,7 +199,8 @@ SafeC can natively include C standard headers. The compiler parses C header decl
 #include <string.h>
 
 int main() {
-    char* msg = (char*)malloc(64);
+    char* msg;
+    unsafe { msg = (char*)malloc(64); }   // void* -> char* reinterprets the pointer: unsafe
     strcpy(msg, "Hello from C headers!");
     printf("%s\n", msg);
     free(msg);

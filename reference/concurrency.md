@@ -11,8 +11,8 @@ SafeC provides low-level, C-compatible concurrency primitives. Threads are creat
 ```c
 extern int printf(const char* fmt, ...);
 void* worker(void *arg) {
-    int *data = (int*)arg;
     unsafe {
+        int *data = (int*)arg;                    // void* -> int*: unsafe
         printf("Worker received: %d\n", *data);   // raw deref needs unsafe
     }
     return (void*)0;
@@ -225,7 +225,8 @@ struct WorkItem {
 };
 
 void* sum_range(void *arg) {
-    struct WorkItem *w = (struct WorkItem*)arg;
+    struct WorkItem *w;
+    unsafe { w = (struct WorkItem*)arg; }   // void* -> WorkItem*: unsafe
     long long sum = 0;
     unsafe {
         // Every access through 'w' (a raw pointer) needs unsafe: member
@@ -240,7 +241,8 @@ void* sum_range(void *arg) {
 
 int main() {
     int N = 10000;
-    int *data = (int*)malloc((unsigned long)N * sizeof(int));  // no implicit int -> unsigned long
+    int *data;
+    unsafe { data = (int*)malloc((unsigned long)N * sizeof(int)); }  // no implicit int -> unsigned long
     unsafe {
         for (int i = 0; i < N; i = i + 1) {
             data[i] = i;                          // raw-pointer subscript needs unsafe

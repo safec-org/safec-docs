@@ -199,7 +199,7 @@ int main() {
     const char* pos = str_find(greeting, "SafeC");
     if (pos != 0) {
         print("Found at offset: ");
-        println_int(pos - greeting);  // 7 (pointer difference, as in C)
+        unsafe { println_int(pos - greeting); }  // 7 (포인터 차이: unsafe)
     }
 
     // 복제

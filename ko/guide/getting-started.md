@@ -169,6 +169,7 @@ safec <input.sc> [options]
 | `--no-consteval` | 컴파일 타임 평가 단계 건너뛰기 |
 | `--compat-preprocessor` | 완전한 C 전처리기 호환성 활성화 |
 | `--freestanding` | 프리스탠딩 모드 (표준 라이브러리를 가정하지 않음) |
+| `--no-strict-aliasing` | 타입 기반 별칭 정보를 내보내지 않음. 포인터 캐스트로 타입 퍼닝하는 `unsafe` 코드용 ([엄격한 별칭 규칙](/ko/reference/safety#strict-aliasing) 참고) |
 | `--no-import-c-headers` | 자동 C 헤더 가져오기 비활성화 |
 
 ### 전처리기 {#preprocessor}
@@ -198,7 +199,8 @@ SafeC는 C 표준 헤더를 네이티브로 포함할 수 있습니다. 컴파�
 #include <string.h>
 
 int main() {
-    char* msg = (char*)malloc(64);
+    char* msg;
+    unsafe { msg = (char*)malloc(64); }   // void* -> char*는 포인터를 재해석하므로 unsafe
     strcpy(msg, "Hello from C headers!");
     printf("%s\n", msg);
     free(msg);

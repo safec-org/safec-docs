@@ -194,7 +194,7 @@ DSP-extension intrinsics, MVE).
 
 ## Incremental Compilation
 
-The file-level bitcode cache is **on by default** (optional `--cache-dir <dir>`, defaulting to `.safec_cache`; disable with `--no-incremental`). The compiler hashes the preprocessed source together with the compiler binary's own identity (so a rebuilt compiler always misses stale entries) and every codegen-affecting flag — `--target`, `-g`, `--freestanding` — using FNV-1a. If a cached `.bc` file with a matching hash exists, all pipeline stages are skipped.
+The file-level bitcode cache is **on by default** (optional `--cache-dir <dir>`, defaulting to `.safec_cache`; disable with `--no-incremental`). The compiler hashes the preprocessed source together with the compiler binary's own identity (so a rebuilt compiler always misses stale entries) and every codegen-affecting flag — `--target`, `-g`, `--freestanding`, `--no-strict-aliasing` — using FNV-1a. If a cached `.bc` file with a matching hash exists, all pipeline stages are skipped.
 
 On a cache miss, the full pipeline runs and the resulting bitcode is written to the cache directory.
 

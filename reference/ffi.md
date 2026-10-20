@@ -23,7 +23,8 @@ SafeC can directly import standard C headers. The compiler invokes `clang -ast-d
 #include <string.h>
 
 int main() {
-    char *buf = (char*)malloc(256);
+    char *buf;
+    unsafe { buf = (char*)malloc(256); }   // void* -> char* reinterprets the pointer: unsafe
     sprintf(buf, "Hello, %s!", "world");
     printf("%s\n", buf);
     free(buf);

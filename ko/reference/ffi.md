@@ -27,7 +27,8 @@ SafeC는 표준 C 헤더를 직접 임포트할 수 있다. 컴파일러는 내�
 #include <string.h>
 
 int main() {
-    char *buf = (char*)malloc(256);
+    char *buf;
+    unsafe { buf = (char*)malloc(256); }   // void* -> char*는 포인터를 재해석하므로 unsafe
     sprintf(buf, "Hello, %s!", "world");
     printf("%s\n", buf);
     free(buf);

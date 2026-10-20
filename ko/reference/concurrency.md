@@ -11,8 +11,8 @@ SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니
 ```c
 extern int printf(const char* fmt, ...);
 void* worker(void *arg) {
-    int *data = (int*)arg;
     unsafe {
+        int *data = (int*)arg;                    // void* -> int*: unsafe
         printf("Worker received: %d\n", *data);   // 원시 포인터 역참조는 unsafe 필요
     }
     return (void*)0;
@@ -224,7 +224,8 @@ struct WorkItem {
 };
 
 void* sum_range(void *arg) {
-    struct WorkItem *w = (struct WorkItem*)arg;
+    struct WorkItem *w;
+    unsafe { w = (struct WorkItem*)arg; }   // void* -> WorkItem*: unsafe
     long long sum = 0;
     unsafe {
         // 'w'(원시 포인터)를 통한 모든 접근은 unsafe가 필요합니다: 멤버
@@ -239,7 +240,8 @@ void* sum_range(void *arg) {
 
 int main() {
     int N = 10000;
-    int *data = (int*)malloc((unsigned long)N * sizeof(int));  // int -> unsigned long 암묵적 변환 없음
+    int *data;
+    unsafe { data = (int*)malloc((unsigned long)N * sizeof(int)); }  // int -> unsigned long 암묵적 변환 없음
     unsafe {
         for (int i = 0; i < N; i = i + 1) {
             data[i] = i;                          // 원시 포인터 첨자 접근은 unsafe 필요

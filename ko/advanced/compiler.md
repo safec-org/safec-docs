@@ -200,7 +200,7 @@ ARM Cortex-M의 세부 사항(HAL, DSP 확장 내장 함수, MVE)은
 `--no-incremental`로 비활성화). 컴파일러는 전처리된 소스를 컴파일러
 바이너리 자체의 식별 정보(재빌드된 컴파일러는 항상 오래된 항목을
 캐시 미스로 처리하도록)와 코드 생성에 영향을 주는 모든 플래그
-(`--target`, `-g`, `--freestanding`)와 함께 FNV-1a로 해싱합니다.
+(`--target`, `-g`, `--freestanding`, `--no-strict-aliasing`)와 함께 FNV-1a로 해싱합니다.
 일치하는 해시를 가진 캐시된 `.bc` 파일이 존재하면 모든 파이프라인
 단계가 건너뛰어집니다.
 

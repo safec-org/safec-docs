@@ -244,21 +244,87 @@ int x = arr[i];                // 런타임 검사: if (i >= 5) abort();
 int x = s[i];                  // 런타임 검사: if (i >= s.len) abort();
 ```
 
-## 포인터 산술 {#pointer-arithmetic}
+## 원시 포인터 {#raw-pointers}
 
-원시 포인터는 안전한 코드에서도 C 산술을 지원합니다 — `p + n`, `p - n`, `p += n`, `p -= n`, `p++`/`p--`, 비교, 그리고 `p - q`(원소 간 거리, 부호 있는 64비트 정수) — 그리고 C와 똑같이(원소 크기만큼 스케일되어) 컴파일됩니다. 주소를 계산하는 것은 무해하지만 그것을 *사용하는* 것은 그렇지 않으므로, 원시 포인터를 통한 모든 접근(`*p`, `p[i]`, `p->field`)에는 `unsafe`가 필요합니다:
+<a id="pointer-arithmetic"></a>
+
+`unsafe` 밖에서는 메모리에 오직 참조(`&T`, `?&T`, 영역 키워드는 있어도 없어도 됨)로만 접근하며, 널이 될 수 있는 참조는 먼저 `match`, `.is_null()`, `.default()`로 확인해야 합니다. 원시 `T*`는 안전한 코드가 들고 있을 수는 있지만 사용할 수는 없는 C 값입니다:
+
+| 원시 포인터 `p`로 하는 일 | 안전한 코드 | `unsafe` 필요 |
+|---|---|---|
+| 저장, C 함수에 전달, 반환 | 가능 | |
+| 비교(`p == q`, `p == null`), `void*`로 넓히기, 정수로 캐스트 | 가능 | |
+| `null` / `(T*)0` | 가능 | |
+| 널이 될 수 있는 참조 만들기: `(?&T)p`, 또는 `?&T` 자리에 전달 | 가능 | |
+| non-null 참조 만들기: `(&T)p`, 또는 `&T` 자리에 전달 | | 필요: 널이 아님을 아무것도 확인하지 않음 |
+| 그것을 통한 접근: `*p`, `p[i]`, `p->field` | | 필요 |
+| 산술: `p + n`, `p - n`, `p += n`, `p++`, `p - q` | | 필요 |
+| 정수에서 만들기: `(T*)0x4000` | | 필요 |
+| 재해석: `(char*)p`, `(T*)voidPtr` | | 필요 |
+
+C에서 온 포인터를 안전한 코드에서 쓰는 일반적인 방법은 널이 될 수 있는 참조로 바꾼 뒤 `match`하는 것입니다. 영역은 여전히 알 수 없으므로(`?&T`에는 영역 키워드가 없음), 그 참조는 알려진 수명이 필요한 곳에 저장할 수 없습니다:
+
+```c
+extern int* find_entry(int key);
+
+int lookup(int key) {
+    ?&int r = (?&int)find_entry(key);   // 영역 모름, 널일 수 있음
+    match (r) {
+        case some(v): return *v;        // v는 non-null 참조
+        case null:    return -1;
+    }
+    return -1;
+}
+```
+
+포인터 산술은 C와 똑같이(원소 크기만큼 스케일, `p - q`는 부호 있는 64비트 원소 거리) 컴파일되지만, `unsafe` 안에서만 쓸 수 있습니다:
 
 ```c
 void fill(int* p, int n) {
-    int* end = p + n;          // OK in safe code
-    while (p < end) {
-        unsafe { *p = 0; }     // the access is what needs unsafe
-        p += 1;
+    unsafe {
+        int* end = p + n;
+        while (p < end) { *p = 0; p += 1; }
     }
 }
 ```
 
-참조(`&T`, `?&T`)에는 산술이 전혀 없습니다: 대신 슬라이스나 컨테이너를 통해 인덱싱하세요.
+참조에는 산술이 전혀 없습니다: 대신 슬라이스나 컨테이너를 통해 인덱싱하세요.
+
+## 엄격한 별칭 규칙 {#strict-aliasing}
+
+SafeC는 C의 엄격한 별칭(strict aliasing) 규칙을 따릅니다: 한 스칼라 타입의 값은 다른 스칼라 타입의 lvalue로 읽거나 쓰지 않습니다. 단, 8비트(`char`, `unsigned char`, `int8_t`, `bool`) lvalue는 무엇이든 접근할 수 있습니다. 같은 너비의 부호 있는/없는 정수는 한 타입으로 치고, 열거형과 newtype은 기반 타입으로, 모든 포인터와 참조는 한 타입으로 칩니다.
+
+컴파일러는 이 규칙을 타입 기반 별칭 정보로 LLVM에 넘깁니다. 그래서 루프가 다른 타입의 원소를 저장하는 동안에도 구조체의 길이와 데이터 포인터를 레지스터에 둘 수 있습니다:
+
+```c
+struct Buf { float* data; unsigned long len; };
+
+void scale(&Buf b, float k) {
+    unsafe {
+        // float 저장은 b->len이나 b->data를 바꿀 수 없으므로 둘 다 한 번만
+        // 읽히고 루프가 벡터화됩니다.
+        for (unsigned long i = 0UL; i < b->len; i = i + 1UL) {
+            b->data[i] = b->data[i] * k;
+        }
+    }
+}
+```
+
+안전한 코드는 이 규칙을 어길 수 없습니다: 포인터를 다른 포인터 타입으로 재해석하려면 `unsafe`가 필요합니다. `unsafe` 안에서 값의 비트 패턴을 다른 타입으로 다뤄야 할 때는 캐스트 대신 바이트를 복사하세요:
+
+```c
+extern void* memcpy(void* dst, const void* src, unsigned long n);
+
+unsigned int float_bits(float f) {
+    unsigned int bits = 0U;
+    unsafe { memcpy((void*)&bits, (const void*)&f, 4UL); }   // *(unsigned int*)&f 대신
+    return bits;
+}
+```
+
+공용체 멤버와 `volatile` 접근은 예외입니다. 포인터 캐스트로 타입 퍼닝하는 코드는 `--no-strict-aliasing`으로 빌드해야 하며, 그러면 그 컴파일에서 별칭 정보가 꺼집니다.
+
+참조 매개변수에는 `noalias`를 붙이지 않습니다. 빌림 검사기는 두 인자가 서로 별칭이 되는 것을 막지만, 함수는 여전히 다른 경로(예: 직접 쓰는 전역 변수)로 같은 객체에 닿을 수 있으므로 그 약속을 할 수 없습니다.
 
 ## Unsafe 경계 {#the-unsafe-boundary}
 
@@ -267,7 +333,7 @@ void fill(int* p, int n) {
 - 경계 검사가 억제됩니다(`boundsCheckOmit` 플래그가 설정됨)
 - 리전 이스케이프 분석이 완화됩니다
 - 별칭 규칙이 강제되지 않습니다
-- 원시 포인터를 역참조할 수 있습니다(`*p`, `p[i]`, `p->f`)
+- 원시 포인터를 역참조(`*p`, `p[i]`, `p->f`)하고, 산술로 옮기고, 정수에서 만들고, 다른 포인터 타입으로 재해석하고, non-null 참조(`(&T)p`)로 바꿀 수 있습니다
 - 널 역참조가 방지되지 않습니다
 
 ```c

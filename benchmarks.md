@@ -22,13 +22,13 @@ Naive recursive Fibonacci — pure function-call and integer-arithmetic overhead
 
 | Language | Debug | Release | Release peak memory | Release compile time |
 |---|---|---|---|---|
-| SafeC | 0.105s | **0.041s (fastest)** | 2.0 MB | 0.033s |
-| C | 0.097s | 0.042s | 1.9 MB | 0.029s |
-| C++ | 0.098s | 0.042s | 3.8 MB | 0.051s |
-| Rust | 0.123s | 0.042s | 2.0 MB | 0.052s |
-| Zig | 0.196s | 0.043s | **0.5 MB (leanest)** | 8.17s |
-| Go | **0.094s (fastest)** | 0.089s | 1.9 MB | **0.025s** |
-| Python | 2.000s | 1.997s | 10.2 MB | N/A (interpreted) |
+| SafeC | 0.106s | 0.042s | 1.9 MB | 0.037s |
+| C | 0.097s | 0.042s | 1.9 MB | 0.031s |
+| C++ | 0.097s | **0.041s (fastest)** | 3.8 MB | 0.049s |
+| Rust | 0.123s | **0.041s (fastest)** | 2.0 MB | 0.050s |
+| Zig | 0.196s | 0.042s | **0.5 MB (leanest)** | 8.19s |
+| Go | **0.094s (fastest)** | 0.089s | 2.0 MB | **0.024s** |
+| Python | 1.998s | 1.992s | 10.4 MB | N/A (interpreted) |
 
 Everything that goes through LLVM lands within 4% of each other in release; the differences are noise.
 
@@ -52,13 +52,13 @@ The classic Benchmarks Game n-body test (Sun/Jupiter/Saturn/Uranus/Neptune), 2,0
 
 | Language | Debug | Release | Release peak memory | Release compile time |
 |---|---|---|---|---|
-| SafeC | 0.486s | **0.098s (fastest)** | 1.9 MB | 0.049s |
-| C | **0.209s (fastest)** | **0.098s (fastest)** | 1.9 MB | 0.053s |
-| C++ | 0.210s | **0.098s (fastest)** | 3.9 MB | 0.097s |
-| Rust | 0.447s | 0.108s | 2.1 MB | 0.071s |
+| SafeC | 0.484s | **0.098s (fastest)** | 2.0 MB | 0.045s |
+| C | **0.209s (fastest)** | **0.098s (fastest)** | 2.0 MB | 0.044s |
+| C++ | **0.209s (fastest)** | **0.098s (fastest)** | 3.8 MB | 0.096s |
+| Rust | 0.450s | 0.106s | 2.0 MB | 0.071s |
 | Zig | 0.237s | 0.110s | **0.5 MB (leanest)** | 8.28s |
-| Go | 0.221s | 0.106s | 1.9 MB | 0.075s |
-| Python | 7.765s | 7.757s | 10.9 MB | N/A (interpreted) |
+| Go | 0.222s | 0.105s | 2.0 MB | **0.025s** |
+| Python | 7.985s | 7.716s | 11.0 MB | N/A (interpreted) |
 
 SafeC's debug build is slower than C's here because unoptimized SafeC IR keeps every bounds check and every struct-field access through memory; release removes the difference entirely.
 
@@ -82,14 +82,14 @@ Builds and discards millions of small binary trees (max depth 18) — exercises 
 
 | Language | Debug | Release | Release peak memory | Release compile time |
 |---|---|---|---|---|
-| SafeC (arena) | **0.234s (fastest)** | **0.138s (fastest)** | **25.8 MB (leanest)** | 0.044s |
-| SafeC (heap) | 0.927s | 0.709s | 50.8 MB | 0.044s |
-| C | 0.955s | 0.800s | 33.8 MB | 0.039s |
-| C++ | 1.177s | 0.916s | 35.8 MB | 0.055s |
-| Rust | 1.745s | 0.912s | 33.9 MB | 0.063s |
-| Zig | 5.021s | 0.851s | 33.6 MB | 9.85s |
-| Go | 1.830s | 0.723s | 37.1 MB | 0.077s |
-| Python | 17.965s | 17.965s | 82.6 MB | N/A (interpreted) |
+| SafeC (arena) | **0.234s (fastest)** | **0.140s (fastest)** | **25.8 MB (leanest)** | 0.044s |
+| SafeC (heap) | 0.934s | 0.713s | 50.9 MB | 0.044s |
+| C | 0.959s | 0.804s | 34.0 MB | 0.038s |
+| C++ | 1.193s | 0.937s | 35.8 MB | 0.055s |
+| Rust | 1.796s | 0.910s | 33.9 MB | 0.066s |
+| Zig | 5.060s | 0.850s | 33.8 MB | 8.17s |
+| Go | 1.836s | 0.722s | 36.3 MB | **0.027s** |
+| Python | 17.852s | 18.169s | 82.7 MB | N/A (interpreted) |
 
 The heap variant is faster than C because `std::alloc` caches freed blocks per size class (see [Memory allocation](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)), but uses more memory: each block carries a 16-byte safety header, and the cache keeps freed blocks instead of returning them.
 
@@ -114,14 +114,14 @@ The generic containers against a plain C implementation of the same algorithms: 
 
 | Operation | SafeC | C | SafeC / C |
 |---|---|---|---|
-| `Vec<int>` push | 2.50 ms | **1.83 ms** | 1.37× |
-| `vec_sort` (introsort, inlined `Less<int>`) vs `qsort` | **43.4 ms** | 83.6 ms | 0.52× |
-| `HashMap<int,int>` insert | 39.1 ms | **35.5 ms** | 1.10× |
-| `HashMap<int,int>` get | 8.39 ms | **7.45 ms** | 1.13× |
-| `List<int>` push_back + pop_front | **11.5 ms** | 22.5 ms | 0.51× |
-| `Queue<int>` enqueue + dequeue | **3.41 ms** | 5.46 ms | 0.62× |
-| `BST<int,int,Less<int>>` insert | 177.1 ms | **176.6 ms** | 1.00× |
-| `BST<int,int,Less<int>>` get | **172.1 ms** | 174.2 ms | 0.99× |
+| `Vec<int>` push | 2.50 ms | **1.55 ms** | 1.61× |
+| `vec_sort` (introsort, inlined `Less<int>`) vs `qsort` | **43.5 ms** | 83.4 ms | 0.52× |
+| `HashMap<int,int>` insert | 41.6 ms | **33.5 ms** | 1.24× |
+| `HashMap<int,int>` get | 8.63 ms | **7.24 ms** | 1.19× |
+| `List<int>` push_back + pop_front | **11.5 ms** | 22.2 ms | 0.52× |
+| `Queue<int>` enqueue + dequeue | **3.42 ms** | 5.47 ms | 0.63× |
+| `BST<int,int,Less<int>>` insert | **177.1 ms** | 179.0 ms | 0.99× |
+| `BST<int,int,Less<int>>` get | **171.0 ms** | 176.0 ms | 0.97× |
 
 What decides these:
 
@@ -138,14 +138,14 @@ Same binary-trees workload, parallelized across 8 worker threads — each thread
 
 | Language | 8-thread time | Peak memory | Speedup vs. 1 thread |
 |---|---|---|---|
-| SafeC (arena) | **0.052s (fastest)** | 98.2 MB | 2.68× |
-| SafeC (heap) | 0.267s | 260.3 MB | 2.66× |
-| C | 0.215s | 161.2 MB | 3.72× |
-| C++ | 0.229s | 163.5 MB | 4.00× |
+| SafeC (arena) | **0.054s (fastest)** | **98.1 MB (leanest)** | 2.58× |
+| SafeC (heap) | 0.263s | 260.0 MB | 2.71× |
+| C | 0.225s | 161.6 MB | 3.57× |
+| C++ | 0.239s | 163.5 MB | 3.92× |
 | Rust | 0.234s | 162.0 MB | 3.89× |
-| Zig | 0.222s | 163.8 MB | 3.83× |
-| Go | 0.252s | **94.7 MB (leanest)** | 2.87× |
-| Python | 22.475s | 314.1 MB | 0.80× (slower than 1 thread) |
+| Zig | 0.227s | 164.0 MB | 3.75× |
+| Go | 0.255s | 130.1 MB | 2.83× |
+| Python | 23.034s | 364.3 MB | 0.79× (slower than 1 thread) |
 
 The heap variant's memory is high because each thread's size-class cache keeps its own freed blocks.
 
@@ -170,13 +170,13 @@ Plain scalar loop vs. each language's explicit vector type at `-O2`/release — 
 
 | Language | Scalar | Explicit SIMD | Speedup |
 |---|---|---|---|
-| SafeC | 0.082s | 0.076s | 1.08× |
-| C | 0.078s | **0.069s (fastest)** | 1.14× |
-| C++ | 0.080s | 0.076s | 1.06× |
-| Rust | 0.084s | 0.075s | 1.11× |
-| Zig | **0.078s (fastest)** | 0.071s | 1.10× |
-| Go | 0.088s | N/A | — |
-| Python | 3.022s | 0.189s (NumPy) | 16.0× |
+| SafeC | 0.086s | 0.078s | 1.10× |
+| C | 0.085s | 0.077s | 1.11× |
+| C++ | 0.082s | **0.076s (fastest)** | 1.07× |
+| Rust | 0.083s | 0.077s | 1.07× |
+| Zig | **0.075s (fastest)** | **0.076s (fastest)** | 0.99× |
+| Go | 0.086s | N/A | — |
+| Python | 3.010s | 0.190s (NumPy) | 15.9× |
 
 This loop is memory-bound on the 7800X3D (160 MB of doubles streams far past the 96 MB L3), so explicit SIMD buys little over the auto-vectorized scalar loop; the whole table is within ~10 ms, about the size of process-startup noise.
 
@@ -200,13 +200,13 @@ This loop is memory-bound on the 7800X3D (160 MB of doubles streams far past the
 
 | Language | req/s | p50 / p99 latency | Peak memory |
 |---|---|---|---|
-| SafeC | **25,263 (fastest)** | 2 / 2 ms | 5.1 MB |
-| C | 24,577 | 2 / 2 ms | **3.2 MB (leanest)** |
-| C++ | 24,837 | 2 / 2 ms | 5.0 MB |
-| Rust | 25,027 | 2 / 2 ms | 4.4 MB |
-| Zig | 24,766 | 2 / 2 ms | 7.0 MB |
-| Go | 23,354 | 2 / 3 ms | 15.8 MB |
-| Python | 5,083 | 10 / 14 ms | 46.0 MB |
+| SafeC | **25,216 (fastest)** | 2 / 2 ms | 5.1 MB |
+| C | 24,618 | 2 / 2 ms | **3.0 MB (leanest)** |
+| C++ | 24,870 | 2 / 2 ms | 5.0 MB |
+| Rust | 24,814 | 2 / 2 ms | 4.3 MB |
+| Zig | 24,828 | 2 / 2 ms | 9.3 MB |
+| Go | 23,573 | 2 / 3 ms | 15.7 MB |
+| Python | 5,047 | 10 / 14 ms | 46.1 MB |
 
 Every server completed every request with zero failures. The compiled servers all land within 8% of each other: without keep-alive, each request is a fresh TCP connection, and the kernel's connect/accept path and `ab` itself are the bottleneck, not the server.
 
@@ -230,13 +230,13 @@ Every server completed every request with zero failures. The compiled servers al
 
 | Framework | Device | Train (100 steps) | Throughput | Inference (1000 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 110.9 ms | 57,700 samples/s | 286.0 ms | 100.333427 |
-| SafeC | CPU (OpenBLAS) | 31.3 ms | 204,400 samples/s | 55.3 ms | 100.333420 |
-| SafeC | ROCm (MI100) | 7.25 ms | 882,500 samples/s | 35.4 ms | 100.333282 |
-| SafeC | ROCm, graph replay | **7.04 ms (fastest)** | **909,000 samples/s** | 39.4 ms | 100.333282 |
-| PyTorch | CPU | 14.0 ms | 458,400 samples/s | **22.0 ms (fastest)** | 100.018272 |
-| PyTorch | ROCm (MI100) | 19.6 ms | 326,600 samples/s | 36.5 ms | 103.071129 |
-| TensorFlow | CPU | 79.8 ms | 80,200 samples/s | 207.2 ms | 106.182999 |
+| SafeC | CPU (naive) | 107.4 ms | 59,600 samples/s | 285.8 ms | 100.333427 |
+| SafeC | CPU (OpenBLAS) | 29.6 ms | 216,400 samples/s | 55.7 ms | 100.333420 |
+| SafeC | ROCm (MI100) | **7.17 ms (fastest)** | **892,400 samples/s** | 34.9 ms | 100.333282 |
+| SafeC | ROCm, graph replay | 7.18 ms | 891,100 samples/s | 39.2 ms | 100.333298 |
+| PyTorch | CPU | 14.1 ms | 453,600 samples/s | **21.9 ms (fastest)** | 100.018272 |
+| PyTorch | ROCm (MI100) | 20.1 ms | 319,200 samples/s | 36.3 ms | 103.071129 |
+| TensorFlow | CPU | 79.3 ms | 80,700 samples/s | 204.0 ms | 106.182999 |
 
 At this size every GPU step is a handful of microsecond-scale kernels plus a blocking read of the loss, so launch and synchronization latency dominate. PyTorch's CPU path (its bundled, tuned GEMM kernels) is faster than SafeC's OpenBLAS path on CPU, and is the fastest at inference. Losses differ between frameworks because each draws its data and initial weights from its own RNG; the SafeC rows all share one seeded stream (`drand48`), and agree to 6 digits across CPU and GPU.
 
@@ -260,17 +260,17 @@ Same model scaled ~50x (batch 128). 50 training steps, 200 inference passes; sam
 
 | Framework | Device | Train (50 steps) | Throughput | Inference (200 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 1794.1 ms | 3,600 samples/s | 1503.3 ms | 95.428474 |
-| SafeC | CPU (OpenBLAS) | 170.9 ms | 37,500 samples/s | 221.4 ms | 95.424973 |
-| SafeC | ROCm (MI100) | 8.31 ms | 770,400 samples/s | **13.07 ms (fastest)** | 95.428131 |
-| SafeC | ROCm, graph replay | **8.09 ms (fastest)** | **790,900 samples/s** | 14.01 ms | 95.428116 |
-| PyTorch | CPU | 38.2 ms | 167,500 samples/s | 50.4 ms | 106.601181 |
-| PyTorch | ROCm (MI100) | 10.14 ms | 631,200 samples/s | 13.30 ms | 1868.155273 |
-| TensorFlow | CPU | 107.3 ms | 59,700 samples/s | 114.7 ms | 316.611603 |
+| SafeC | CPU (naive) | 1761.2 ms | 3,600 samples/s | 1504.2 ms | 95.428474 |
+| SafeC | CPU (OpenBLAS) | 160.6 ms | 39,900 samples/s | 217.2 ms | 95.424973 |
+| SafeC | ROCm (MI100) | 8.40 ms | 761,800 samples/s | **13.0 ms (fastest)** | 95.428131 |
+| SafeC | ROCm, graph replay | **8.31 ms (fastest)** | **770,400 samples/s** | 14.1 ms | 95.428093 |
+| PyTorch | CPU | 38.4 ms | 166,500 samples/s | 50.2 ms | 106.601181 |
+| PyTorch | ROCm (MI100) | 10.1 ms | 634,700 samples/s | 13.3 ms | 1868.155273 |
+| TensorFlow | CPU | 106.7 ms | 60,000 samples/s | 118.1 ms | 316.611603 |
 
-On the GPU SafeC trains ~20% faster than PyTorch; inference is a tie (both are a pair of rocBLAS GEMMs plus one elementwise kernel and one readback per pass). Graph replay records a whole training step into one `RocmGraph` and launches it with one call; with a blocking loss read every step it only saves ~3%. Without the per-step read, a C++ prototype of the same loop ran 3.8 ms vs 7.1 ms. PyTorch-ROCm's loss diverges at lr 0.001 from its GPU RNG's initial weights. That says nothing about speed, but it is why its sanity-check value looks wrong.
+On the GPU SafeC trains ~17% faster than PyTorch; inference is a tie (both are a pair of rocBLAS GEMMs plus one elementwise kernel and one readback per pass). Graph replay records a whole training step into one `RocmGraph` and launches it with one call; with a blocking loss read every step it saves about 1% at most. Without the per-step read, a C++ prototype of the same loop ran 3.8 ms vs 7.1 ms. PyTorch-ROCm's loss diverges at lr 0.001 from its GPU RNG's initial weights. That says nothing about speed, but it is why its sanity-check value looks wrong.
 
-On CPU, OpenBLAS here (generic pthreads build, Ubuntu package) is the weak spot: PyTorch's CPU GEMM is 4.5× faster for training at this size.
+On CPU, OpenBLAS here (generic pthreads build, Ubuntu package) is the weak spot: PyTorch's CPU GEMM is 4.2× faster for training at this size.
 
 **Other platforms** (earlier run, Apple M1 Pro):
 
@@ -346,8 +346,8 @@ Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`
 
 | Pattern | `std::alloc` / `dealloc` | `malloc` / `free` | Ratio |
 |---|---|---|---|
-| Interleaved: allocate one 48-byte block, free it, 20M times | **3.84 ns / pair** | 6.8 ns / pair | 1.8× faster |
-| Batch: allocate 1M 24-byte blocks, then free them all, 10 rounds | 131 ms | **92 ms** | 1.4× slower |
+| Interleaved: allocate one 48-byte block, free it, 20M times | **3.66 ns / pair** | 6.76 ns / pair | 1.8× faster |
+| Batch: allocate 1M 24-byte blocks, then free them all, 10 rounds | 134 ms | **94 ms** | 1.4× slower |
 
 The cache wins whenever freed blocks are reused soon. Short-lived objects and binary-trees-style churn work like this: the heap binary-trees above beats every other language's allocator. A million live blocks at once is more than the cache holds (125,587 slots across all classes), so most allocations in the batch pattern go through `malloc` plus the header write and cache bookkeeping, and that overhead shows. For bulk short-lived allocation, `region`/`arena<R>` is the faster tool: 5.1× faster than the heap version on binary-trees.
 

@@ -235,21 +235,87 @@ Slice accesses are always bounds-checked against the slice length:
 int x = s[i];                  // runtime check: if (i >= s.len) abort();
 ```
 
-## Pointer Arithmetic
+## Raw Pointers {#raw-pointers}
 
-Raw pointers support C arithmetic in safe code — `p + n`, `p - n`, `p += n`, `p -= n`, `p++`/`p--`, comparisons, and `p - q` (the element distance, a signed 64-bit integer) — compiled exactly as in C (scaled by the element size). Computing an address is harmless; *using* it is not, so every access through a raw pointer (`*p`, `p[i]`, `p->field`) requires `unsafe`:
+<a id="pointer-arithmetic"></a>
+
+Outside `unsafe`, memory is reached only through references (`&T`, `?&T`, with or without a region), and a nullable reference has to be checked with `match`, `.is_null()` or `.default()` first. A raw `T*` is a C value that safe code can hold but not use:
+
+| With a raw pointer `p` | Safe code | Needs `unsafe` |
+|---|---|---|
+| Store it, pass it to a C function, return it | Yes | |
+| Compare it (`p == q`, `p == null`), widen it to `void*`, cast it to an integer | Yes | |
+| `null` / `(T*)0` | Yes | |
+| Make a nullable reference: `(?&T)p`, or pass it where a `?&T` is expected | Yes | |
+| Make a non-null reference: `(&T)p`, or pass it where a `&T` is expected | | Yes: nothing checks it isn't null |
+| Access through it: `*p`, `p[i]`, `p->field` | | Yes |
+| Arithmetic: `p + n`, `p - n`, `p += n`, `p++`, `p - q` | | Yes |
+| Make one from an integer: `(T*)0x4000` | | Yes |
+| Reinterpret it: `(char*)p`, `(T*)voidPtr` | | Yes |
+
+The usual way to use a pointer from C in safe code is to turn it into a nullable reference and match it. The region stays unknown (`?&T` has no region keyword), so the reference can't be stored anywhere that needs a known lifetime:
+
+```c
+extern int* find_entry(int key);
+
+int lookup(int key) {
+    ?&int r = (?&int)find_entry(key);   // region unknown, may be null
+    match (r) {
+        case some(v): return *v;        // v is a non-null reference
+        case null:    return -1;
+    }
+    return -1;
+}
+```
+
+Pointer arithmetic is compiled exactly as in C (scaled by the element size; `p - q` is a signed 64-bit element distance), but only inside `unsafe`:
 
 ```c
 void fill(int* p, int n) {
-    int* end = p + n;          // OK in safe code
-    while (p < end) {
-        unsafe { *p = 0; }     // the access is what needs unsafe
-        p += 1;
+    unsafe {
+        int* end = p + n;
+        while (p < end) { *p = 0; p += 1; }
     }
 }
 ```
 
-References (`&T`, `?&T`) have no arithmetic at all: index through a slice or a container instead.
+References have no arithmetic at all: index through a slice or a container instead.
+
+## Strict Aliasing {#strict-aliasing}
+
+SafeC follows C's strict aliasing rule: a value of one scalar type is never read or written through an lvalue of a different scalar type, except through 8-bit (`char`, `unsigned char`, `int8_t`, `bool`) lvalues, which may access anything. Signed and unsigned integers of the same width count as one type; an enum or newtype counts as its underlying type; every pointer and reference counts as one type.
+
+The compiler passes this to LLVM as type-based alias information. That lets a loop keep a struct's length and data pointer in registers while it stores elements of another type:
+
+```c
+struct Buf { float* data; unsigned long len; };
+
+void scale(&Buf b, float k) {
+    unsafe {
+        // The float stores can't change b->len or b->data, so both are
+        // loaded once and the loop vectorizes.
+        for (unsigned long i = 0UL; i < b->len; i = i + 1UL) {
+            b->data[i] = b->data[i] * k;
+        }
+    }
+}
+```
+
+Safe code can't break the rule: reinterpreting a pointer as another pointer type requires `unsafe`. Inside `unsafe`, copy bytes instead of casting when you need a value's bit pattern as another type:
+
+```c
+extern void* memcpy(void* dst, const void* src, unsigned long n);
+
+unsigned int float_bits(float f) {
+    unsigned int bits = 0U;
+    unsafe { memcpy((void*)&bits, (const void*)&f, 4UL); }   // not *(unsigned int*)&f
+    return bits;
+}
+```
+
+Union members and `volatile` accesses are exempt. Code that does type-pun through pointer casts must be built with `--no-strict-aliasing`, which turns the alias information off for that compilation.
+
+Reference parameters are not marked `noalias`. The borrow checker stops two arguments from aliasing, but a function can still reach the same object another way, for example through a global it writes directly, so that promise can't be made.
 
 ## The Unsafe Boundary
 
@@ -258,7 +324,7 @@ When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing th
 - Bounds checks are suppressed (the `boundsCheckOmit` flag is set)
 - Region escape analysis is relaxed
 - Aliasing rules are not enforced
-- Raw pointers can be dereferenced (`*p`, `p[i]`, `p->f`)
+- Raw pointers can be dereferenced (`*p`, `p[i]`, `p->f`), moved with arithmetic, made from integers, reinterpreted as other pointer types, and turned into non-null references (`(&T)p`)
 - Null dereferences are not prevented
 
 ```c
