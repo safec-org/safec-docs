@@ -544,7 +544,8 @@ def thirdparty_runs(kind, runs):
         exe = os.path.join(out_dir, "kfr_bench")
         libs = sorted(glob.glob(os.path.join(k, "lib", "*.a")))
         build = [[CLANGXX, "-std=c++20", "-O2", "-march=native", "-w", os.path.join(HERE, "dsp/cpp/kfr_bench.cpp"),
-                  f"-I{k}/include", "-Wl,--start-group"] + libs + ["-Wl,--end-group", "-lpthread", "-o", exe]]
+                  f"-I{k}/include"] + (libs if IS_MAC else ["-Wl,--start-group"] + libs + ["-Wl,--end-group"]) +
+                 ["-lpthread", "-o", exe]]   # Apple's ld resolves archives in any order
         run("kfr", build, [exe])
     if kind == "dsp" and T.get("Q_ROOT") and T.get("MADRONALIB_ROOT"):
         q, m = T["Q_ROOT"], T["MADRONALIB_ROOT"]

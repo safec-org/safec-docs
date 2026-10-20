@@ -261,6 +261,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 - **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다. 분리 단계는 양 끝에서 빈 두 개씩 벡터로 처리합니다. `fft_real_half` / `fft_real_half_batch`는 FFTW나 NumPy처럼 중복되지 않는 n/2 + 1개 빈만 돌려주므로, 배치가 쓰는 양이 절반이 됩니다.
 - **SIMD 수준.** 버터플라이는 [CPU SIMD 수준](/ko/stdlib/simd#cpu-levels)별로 빌드됩니다. AVX2에서는 복소 곱셈에 FMA가 더해지고, AVX-512에서는 폭이 두 배가 됩니다.
 - **벤더 FFT.** oneMKL이 링크되어 있으면([`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)의 Intel 선택), 65,536점 미만의 `fft`/`ifft`/`fft_real`, `fft_batch`/`fft_real_batch`의 모든 행, `fft2d`를 그 DFTI 변환이 실행합니다. 이 페이지의 7800X3D에서 `fft2d`와 배치 변환이 절반으로 줄어듭니다. `fft_vendor()`로 확인할 수 있습니다. FFTW 기반 라이브러리는 AOCL-FFTW를 포함해 GPL이므로 쓰지 않습니다.
+- **Apple: FIR은 vDSP, FFT는 자체 구현.** macOS에서 Accelerate를 링크한 프로그램(그곳에서 safeguard의 기본값)은 `dsp_sliding_dot_f64`/`_f32`를 — 따라서 그 위에 만든 `fir_process_block`, `conv_direct` 등 FIR 경로도 — `vDSP_convD`/`vDSP_conv`로 실행합니다. M1 Pro에서 std의 NEON 커널보다 스레드 유무와 관계없이 1.2–1.4배 빨랐습니다([벤치마크](/ko/benchmarks#m1pro-dsp)). vDSP의 컨볼루션은 메모리를 할당하거나 락을 잡거나 스레드를 띄우지 않으므로 `fir_process_block`의 실시간 특성은 그대로입니다. FFT는 std 자체 변환을 씁니다: oneMKL은 Apple Silicon용이 없고, std의 FFT가 vDSP보다 빠르며 vDSP의 스레드 double 배치만 예외입니다. Accelerate가 없으면 std 커널이 돕니다(Apple 링커는 약한 참조도 링크 시점에 해석하므로 safeguard가 `-U`를 넘깁니다).
 
 ::: tip 실시간 사용
 오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 쓰세요. 이들은 메모리 할당, 락, 스레드 풀 사용, 벤더 라이브러리 호출을 전혀 하지 않습니다. oneMKL이 링크되어 있으면 `fft`/`ifft`는 실시간 코드용이 아닙니다: 길이마다 첫 호출이 DFTI 디스크립터를 만듭니다.

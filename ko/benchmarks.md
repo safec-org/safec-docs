@@ -22,6 +22,7 @@
 - **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.48 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.5 ms), 44.1→48 kHz 리샘플링은 3.7 ms(SciPy 9.1 ms)입니다.
 - **H200에서의 어텐션** ([자세히](#h200-attention)): cuDNN을 거치는 fp16/bf16 flash 어텐션은 PyTorch와 같고(3% 이내, 최대 690 TFLOPS), 텐서 코어(3xTF32)의 fp32 flash 어텐션은 head dim 64에서 PyTorch보다 1.34배 빠르고 128에서 0.97–1.05배입니다. linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠르며, head dim 128 fp32 non-causal에서만 PyTorch의 TF32 einsum과 같습니다(정확한 fp32로 계산하면서).
 - **MI100에서의 어텐션** ([자세히](#mi100-attention)): 행렬 코어의 fp32 flash 어텐션이 18–26 TFLOPS로 돕니다. 마스크가 없으면 PyTorch-ROCm보다 1.8–4배, causal 마스크가 있으면 4–10배 빠릅니다. 선형 어텐션은 2–5.4배 빠릅니다.
+- **M1 Pro** ([자세히](#m1pro)): `std/dsp`는 SciPy, KFR, Q, madronalib, dasp 대비 모든 DSP 행에서 가장 빠르고, FIR은 Accelerate의 vDSP로 1.2–1.4배 더 빨라졌습니다. binary-trees는 아레나로 C보다 7배(8 스레드 9배) 빠르고, fib과 SIMD는 C와 같으며, n-body는 C의 0.94배, Go의 0.87배입니다.
 - **M1 Pro에서의 어텐션** ([자세히](#m1pro-attention)): Metal의 fp32 flash 어텐션은 MLX보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같고 PyTorch보다 1.06–1.10배 빠르며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배입니다. linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 모든 합성곱 행에서 PyTorch-CUDA보다 빠릅니다. 이미지 한 장의 64채널 3×3 합성곱은 0.018 ms(PyTorch 0.023 ms, fp32), 32장 배치는 0.084 ms(0.098 ms, TF32), 배치 16의 U-Net은 0.45 ms(0.56 ms, TF32)입니다. 호스트 배열의 2²⁰점 FFT는 PCIe 복사 두 번을 포함해 1.25 ms입니다(2.05 ms). GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 2.2배 빠르고, `HashMap`은 순수 C의 1.1배 이내, `Vec` push는 1.5배 느립니다.
@@ -684,7 +685,66 @@ Linear 어텐션 (phi(x) = elu(x) + 1), 호출당 ms:
 :::
 
 
-## Apple M1 Pro에서의 어텐션 {#m1pro-attention}
+## Apple M1 Pro {#m1pro}
+
+macOS 26.6, Homebrew clang 22.1, rustc 1.98, Go 1.26, Zig 0.16, Python 3.14(NumPy 2.5.4, SciPy 1.18.1), KFR 7(Homebrew). `run_bench.py`로 3회 중 최고값입니다. 웹 서비스 행은 측정하지 않았습니다: VS Code의 포트 포워딩이 서버가 쓰는 127.0.0.1:8082–8087을 차지하고 있어 `ab`가 편집기에 접속했습니다.
+
+### M1 Pro에서의 고전 벤치마크 {#m1pro-classic}
+
+릴리스 빌드 실행 시간, 3회 중 최고값(낮을수록 좋음, 가장 빠른 값은 굵게).
+
+| 벤치마크 | SafeC | C | C++ | Rust | Zig | Go | Python |
+|---|---|---|---|---|---|---|---|
+| fib(37) | 0.083s | 0.082s | 0.088s | **0.081s** | 0.081s | 0.089s | 2.715s |
+| n-body | 0.119s | 0.112s | 0.112s | 0.118s | 0.117s | **0.103s** | 9.882s |
+| binary-trees (SafeC: 아레나) | **0.222s** | 1.562s | 1.720s | 1.744s | 1.549s | 1.274s | 23.254s |
+| binary-trees, SafeC 힙 | 0.830s | | | | | | |
+| binary-trees, 8 스레드 (SafeC: 아레나) | **0.064s** | 0.592s | 0.613s | 0.683s | 0.585s | 0.496s | 25.359s |
+| binary-trees, 8 스레드, SafeC 힙 | 0.160s | | | | | | |
+| SIMD, 명시적 벡터 | **0.031s** | 0.031s | 0.032s | 0.041s | 0.033s | — | 0.152s (NumPy) |
+
+컬렉션(1,000,000개 요소, ms): `Vec` push 0.966 대 C **0.79**, `vec_sort` **56.4** 대 `qsort` 88.8, `HashMap` insert 31.1 대 **28.8**, get 16.6 대 **12.9**, `List` push+pop **4.87** 대 26.1, `Queue` **1.66** 대 1.94, `BST` insert 352 대 **327**, get **278** 대 397. 할당자: `std::alloc`/`dealloc`은 교차 쌍당 **12.2** ns, `malloc`/`free`는 27.6 ns이고, 배치 패턴은 **115** ms 대 233 ms입니다.
+
+::: details 소스
+[fib.sc](/benchmarks/fib/safec/fib.sc) · [nbody.sc](/benchmarks/nbody/safec/nbody.sc) · [binarytrees.sc](/benchmarks/binarytrees/safec/binarytrees.sc) · [binarytrees_mt.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt.sc) · [results/macos-m1pro.json](/benchmarks/results/macos-m1pro.json)
+:::
+
+### M1 Pro에서의 DSP {#m1pro-dsp}
+
+[DSP 작업](#dsp-cpu)을 SciPy 1.18, KFR 7, Q와 madronalib(biquad), dasp(리샘플링)와 비교합니다. 호출당 ms, 3회 중 최고값. SafeC는 두 정밀도 모두 모든 행에서 가장 빠릅니다.
+
+배정밀도:
+
+| 작업 | SafeC | SciPy | KFR | 기타 |
+|---|---|---|---|---|
+| fir stream | **5.82** | 22.4 | 44.8 |  |
+| fir block | **0.926** | 21.4 | — |  |
+| fftconv | **3.06** | 22.7 | 8.06 |  |
+| biquad | **0.666** | 7.97 | 5.08 |  |
+| stft | **3.79** | 57.7 | — |  |
+| resample | **4.13** | 14.9 | 162 (draft 32.9) | dasp 291 |
+| conv2d | **0.589** | 36.1 | — |  |
+
+단정밀도:
+
+| 작업 | SafeC | SciPy | KFR | 기타 |
+|---|---|---|---|---|
+| fir stream | **3.45** | 15.9 | 63.5 |  |
+| fir block | **0.523** | 15.1 | — |  |
+| fftconv | **1.97** | 16.8 | 4.05 |  |
+| biquad | **0.661** | 7.84 | 4.19 | Q 2.62, madronalib 4.38 |
+| stft | **2.2** | 56 | — |  |
+| resample | **4.77** | 16.8 | 90 (draft 34) |  |
+
+- **Apple Silicon의 FIR**은 프로그램이 Accelerate를 링크하면(macOS에서 safeguard의 기본값) 슬라이딩 내적을 Accelerate의 `vDSP_conv`/`vDSP_convD`에 맡깁니다. SafeC 자체 NEON 커널은 코어당 double로 약 34 GFLOPS가 한계이고(시도한 모든 누산기 수와, 정렬되지 않은 로드 대신 셔플을 쓰는 방식 모두 여기에 머물렀습니다), vDSP는 같은 127탭 필터를 약 47로 돌립니다. 스트리밍 FIR은 8.03에서 5.82 ms(double), 4.03에서 3.45 ms(float)로, 스레드 블록 FIR은 1.38에서 0.93 ms로 줄었습니다. Accelerate가 없으면 NEON 커널이 돕니다.
+- **FFT**는 SafeC 자체 변환을 그대로 씁니다: vDSP의 단일 스레드 2²⁰점 double FFT보다 3.7배 빠르고 vDSP의 스레드 float 배치보다도 앞섭니다. vDSP의 스레드 double 배치만 더 빠른데(1.78 대 2.51 ms), 호출마다 vDSP의 split-complex 배치로 변환하면 그 차이 대부분이 사라집니다.
+- **Biquad**(0.66 ms)는 Q, madronalib뿐 아니라 vDSP의 `vDSP_biquad`(0.93–1.0 ms)보다도 빠릅니다.
+
+::: details 소스
+[dsp_cpu.sc](/benchmarks/dsp/safec/dsp_cpu.sc) · [dsp_scipy.py](/benchmarks/dsp/python/dsp_scipy.py) · [kfr_bench.cpp](/benchmarks/dsp/cpp/kfr_bench.cpp) · [audio_libs_bench.cpp](/benchmarks/dsp/cpp/audio_libs_bench.cpp) · [dasp main.rs](/benchmarks/dsp/rust/src/main.rs) · [dsp.sc](/benchmarks/stdlib/dsp.sc)
+:::
+
+### M1 Pro에서의 어텐션 {#m1pro-attention}
 
 [`gpu_mps.h`](/ko/stdlib/ml#mps-flash-linear-attention)의 flash 어텐션과 linear 어텐션을 Apple M1 Pro(macOS 26.6)에서 PyTorch 2.13의 `mps` 장치, MLX 0.32와 비교합니다. 형태는 [H200 측정](#h200-attention)과 같습니다: 배치 4, 헤드 16, [batch, heads, tokens, head dim] 배치, 데이터는 GPU에 있습니다. flash 어텐션은 PyTorch의 `scaled_dot_product_attention`, MLX의 fused `mx.fast.scaled_dot_product_attention`과 비교하고, linear 어텐션(φ(x) = elu(x) + 1)은 둘 다 fused 커널이 없으므로 같은 벡터화 구현(non-causal은 einsum 두 번, causal은 64행 청크와 누적 상태 합)과 비교합니다. 각 수치는 동기화 두 번 사이에 쌓은 5–40번 호출의 평균이며 3회 중 최고값입니다. TFLOPS는 4·B·H·S²·D(causal이면 절반)로 셉니다.
 
@@ -748,7 +808,7 @@ Linear 어텐션(φ(x) = elu(x) + 1), 호출당 ms:
 
 ## 다른 플랫폼의 이전 측정 {#earlier-runs}
 
-아래 숫자는 Apple M1 Pro(macOS 26.5.1, Apple Clang 21.0.0)와, 같은 7800X3D의 WSL2 Ubuntu 22.04(clang 19.1.7) 및 Windows 11(clang/LLVM ~19)에서 예전에 측정한 것입니다. 그 뒤로 다시 측정하지 않았고 컴파일러와 std가 바뀌었으므로, 서로끼리만 비교하세요.
+아래 숫자는 Apple M1 Pro(macOS 26.5.1, Apple Clang 21.0.0; [현재 M1 Pro 수치](#m1pro)는 위에 있습니다)와, 같은 7800X3D의 WSL2 Ubuntu 22.04(clang 19.1.7) 및 Windows 11(clang/LLVM ~19)에서 예전에 측정한 것입니다. 그 뒤로 다시 측정하지 않았고 컴파일러와 std가 바뀌었으므로, 서로끼리만 비교하세요.
 
 ::: details fib(37)
 | 언어 | macOS (M1 Pro) | WSL2 (7800X3D) | Windows (7800X3D) |

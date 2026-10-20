@@ -6,9 +6,9 @@
   "go": "go version go1.26.5 darwin/arm64",
   "zig": "0.16.0",
   "python": "Python 3.14.6",
-  "torch": "2.13.0",
+  "torch": "Traceback (most recent call last):",
   "tensorflow": "ModuleNotFoundError: No module named 'tensorflow'",
-  "numpy": "2.5.1",
+  "numpy": "2.5.4",
   "cpu": "Apple M1 Pro",
   "os": "macOS 26.6.2",
   "cores": 10
@@ -426,6 +426,450 @@
    },
    "linear bf16 d128 s4096 c1": {
     "ms_per_call": 45.6706
+   }
+  }
+ },
+ "fib": {
+  "safec": {
+   "debug": 0.1387,
+   "release": 0.0825,
+   "rss_mb": 5.6,
+   "compile_s": 0.16
+  },
+  "c": {
+   "debug": 0.1379,
+   "release": 0.082,
+   "rss_mb": 1.3,
+   "compile_s": 0.131
+  },
+  "cpp": {
+   "debug": 0.1395,
+   "release": 0.0876,
+   "rss_mb": 1.3,
+   "compile_s": 0.13
+  },
+  "rust": {
+   "debug": 0.1937,
+   "release": 0.0805,
+   "rss_mb": 1.5,
+   "compile_s": 0.141
+  },
+  "zig": {
+   "debug": 0.1638,
+   "release": 0.0808,
+   "rss_mb": 1.5,
+   "compile_s": 5.396
+  },
+  "go": {
+   "debug": 0.1143,
+   "release": 0.0894,
+   "rss_mb": 3.9,
+   "compile_s": 2.287
+  },
+  "python": {
+   "debug": 2.6994,
+   "release": 2.7146,
+   "rss_mb": 14.5,
+   "compile_s": null
+  }
+ },
+ "nbody": {
+  "safec": {
+   "debug": 0.6486,
+   "release": 0.1191,
+   "rss_mb": 5.6,
+   "compile_s": 0.173
+  },
+  "c": {
+   "debug": 0.4258,
+   "release": 0.112,
+   "rss_mb": 1.3,
+   "compile_s": 0.173
+  },
+  "cpp": {
+   "debug": 0.4255,
+   "release": 0.1122,
+   "rss_mb": 1.3,
+   "compile_s": 0.165
+  },
+  "rust": {
+   "debug": 0.6455,
+   "release": 0.1183,
+   "rss_mb": 1.5,
+   "compile_s": 0.146
+  },
+  "zig": {
+   "debug": 0.563,
+   "release": 0.1165,
+   "rss_mb": 1.5,
+   "compile_s": 5.622
+  },
+  "go": {
+   "debug": 0.2743,
+   "release": 0.103,
+   "rss_mb": 3.9,
+   "compile_s": 0.142
+  },
+  "python": {
+   "debug": 9.8941,
+   "release": 9.8822,
+   "rss_mb": 15.2,
+   "compile_s": null
+  }
+ },
+ "binarytrees": {
+  "safec": {
+   "debug": 0.3594,
+   "release": 0.2219,
+   "rss_mb": 29.6,
+   "compile_s": 0.173
+  },
+  "c": {
+   "debug": 1.6562,
+   "release": 1.5619,
+   "rss_mb": 17.5,
+   "compile_s": 0.142
+  },
+  "cpp": {
+   "debug": 1.9176,
+   "release": 1.7201,
+   "rss_mb": 17.5,
+   "compile_s": 0.141
+  },
+  "rust": {
+   "debug": 3.1155,
+   "release": 1.7442,
+   "rss_mb": 17.6,
+   "compile_s": 0.124
+  },
+  "zig": {
+   "debug": 4.9238,
+   "release": 1.5491,
+   "rss_mb": 17.6,
+   "compile_s": 5.415
+  },
+  "go": {
+   "debug": 2.5452,
+   "release": 1.2738,
+   "rss_mb": 39.1,
+   "compile_s": 0.138
+  },
+  "python": {
+   "debug": 22.5971,
+   "release": 23.2538,
+   "rss_mb": 87.1,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "debug": 1.2336,
+   "release": 0.8297,
+   "rss_mb": 50.3,
+   "compile_s": 0.166
+  }
+ },
+ "binarytrees_mt": {
+  "safec": {
+   "release": 0.0638,
+   "rss_mb": 93.9,
+   "compile_s": 0.194
+  },
+  "c": {
+   "release": 0.592,
+   "rss_mb": 69.7,
+   "compile_s": 0.146
+  },
+  "cpp": {
+   "release": 0.6127,
+   "rss_mb": 71.6,
+   "compile_s": 0.605
+  },
+  "rust": {
+   "release": 0.6834,
+   "rss_mb": 78.3,
+   "compile_s": 0.29
+  },
+  "zig": {
+   "release": 0.5845,
+   "rss_mb": 68.3,
+   "compile_s": 5.675
+  },
+  "go": {
+   "release": 0.4956,
+   "rss_mb": 141.8,
+   "compile_s": 0.149
+  },
+  "python": {
+   "release": 25.3591,
+   "rss_mb": 355.7,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "release": 0.1602,
+   "rss_mb": 203.6,
+   "compile_s": 0.178
+  }
+ },
+ "simd": {
+  "safec": {
+   "scalar": 0.0451,
+   "vec": 0.0308
+  },
+  "c": {
+   "scalar": 0.0438,
+   "vec": 0.031
+  },
+  "cpp": {
+   "scalar": 0.0435,
+   "vec": 0.0315
+  },
+  "rust": {
+   "scalar": 0.046,
+   "vec": 0.0408
+  },
+  "zig": {
+   "scalar": 0.049,
+   "vec": 0.0328
+  },
+  "go": {
+   "scalar": 0.0617
+  },
+  "python": {
+   "scalar": 3.6263,
+   "vec": 0.1518
+  }
+ },
+ "collections": {
+  "safec": {
+   "vec push": 0.966,
+   "vec sort": 56.383,
+   "map insert": 31.145,
+   "map get": 16.612,
+   "list push+pop": 4.866,
+   "queue enq+deq": 1.661,
+   "bst insert": 352.01,
+   "bst get": 278.485
+  },
+  "c": {
+   "vec push": 0.79,
+   "vec sort": 88.764,
+   "map insert": 28.802,
+   "map get": 12.874,
+   "list push+pop": 26.092,
+   "queue enq+deq": 1.937,
+   "bst insert": 326.815,
+   "bst get": 396.735
+  }
+ },
+ "memalloc": {
+  "std_ns_per_pair": 12.22,
+  "malloc_ns_per_pair": 27.6,
+  "std_ms": 114.66,
+  "malloc_ms": 232.9
+ },
+ "web": {
+  "safec": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8082/"
+  },
+  "c": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8082/"
+  },
+  "cpp": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8083/"
+  },
+  "zig": {
+   "rps": 27043.73,
+   "p50_ms": 2,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 2.3
+  },
+  "go": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8084/"
+  },
+  "rust": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8086/"
+  },
+  "python": {
+   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8087/"
+  }
+ },
+ "dsp": {
+  "safec_cpu": {
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 5.819,
+    "checksum": 965.503541
+   },
+   "fir block n=1048576 taps=127": {
+    "ms_per_call": 0.926,
+    "checksum": 965.503541
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 3.065,
+    "checksum": 11438.877046
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 0.666,
+    "checksum": -646.722217
+   },
+   "stft n=1048576 frame=1024 hop=256": {
+    "ms_per_call": 3.794,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 4.132,
+    "checksum": -704.289165
+   },
+   "conv2d 1024x1024 k=5x5": {
+    "ms_per_call": 0.589,
+    "checksum": 205.652439
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 3.45,
+    "checksum": 965.503683
+   },
+   "fir block n=1048576 taps=127 f32": {
+    "ms_per_call": 0.523,
+    "checksum": 965.503384
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 1.973,
+    "checksum": 11438.881763
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 0.661,
+    "checksum": -646.722416
+   },
+   "stft n=1048576 frame=1024 hop=256 f32": {
+    "ms_per_call": 2.202,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 4.774,
+    "checksum": -704.289136
+   }
+  },
+  "scipy": {
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 22.378
+   },
+   "fir block n=1048576 taps=127": {
+    "ms_per_call": 21.385
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 22.666
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 7.967
+   },
+   "stft n=1048576 frame=1024 hop=256": {
+    "ms_per_call": 57.741
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 14.901
+   },
+   "conv2d 1024x1024 k=5x5": {
+    "ms_per_call": 36.134
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 15.928
+   },
+   "fir block n=1048576 taps=127 f32": {
+    "ms_per_call": 15.08
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 16.83
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 7.845
+   },
+   "stft n=1048576 frame=1024 hop=256 f32": {
+    "ms_per_call": 56.016
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 16.837
+   }
+  },
+  "kfr": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 6.278
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 8.755
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 12.254
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 7.076
+   },
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 44.767
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 8.065
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 5.078
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 162.172
+   },
+   "resample draft n=1048576 44100->48000": {
+    "ms_per_call": 32.873
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 3.198
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 3.112
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 6.05
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 3.815
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 63.467
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 4.054
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 4.189
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 90.002
+   },
+   "resample draft n=1048576 44100->48000 f32": {
+    "ms_per_call": 34.01
+   }
+  },
+  "q_madronalib": {
+   "biquad q n=1048576 f32": {
+    "ms_per_call": 2.619,
+    "checksum": 996.364585
+   },
+   "biquad madronalib n=1048576 f32": {
+    "ms_per_call": 4.379,
+    "checksum": 996.365938
+   }
+  },
+  "rust": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 8.593
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 16.165
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 4.231
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 8.999
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 291.417
    }
   }
  }
