@@ -426,8 +426,10 @@ discrete memory model needs.
   fixed in the code generator.
 - **ROCm**: verified on an AMD Instinct MI100 (gfx908, ROCm 7.1) —
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
-  combinations, graphs and the host-array API against CPU results (29
-  checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  combinations, graphs, the host-array API and the fp16/bf16 buffers
+  (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
+  results (87 checks), plus the [MIOpen and hipFFT
+  libraries](#rocm-miopen-hipfft) (43 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
@@ -460,7 +462,10 @@ the backend picks the one with the most compute units.
 | Matmul | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, either operand transposed |
 | Elementwise | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
+| Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
+| fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result) and `rocm_half_gemm_f32` (fp32 result); `rocm_half_sgd(w, g, lr)` |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
+| Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
 | Host arrays | `rocm_add_f32` … `rocm_matmul_f32_blas` — upload, compute, read back in one call |
 
 One SGD step of a two-layer MLP, entirely on the GPU:
@@ -601,6 +606,47 @@ images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
 one-image convolution (0.022 ms vs 0.034 ms). The device FFTs match cuFFT
 through PyTorch. See the [benchmarks](/benchmarks#h200-conv-fft).
 
+### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
+
+```c
+#include <std/ml/gpu_miopen.h>   // link: -lMIOpen + the gpu_rocm libraries
+#include <std/dsp/fft_rocm.h>    // link: -lhipfft + the gpu_rocm libraries
+```
+
+The AMD counterparts of `gpu_cudnn.h` and `fft_cuda.h`: the same functions
+with `rocm_` in place of `cuda_`, on `RocmBuf`s, queued on `gpu_rocm`'s stream
+so they order with its ops and can be recorded into a `RocmGraph`.
+
+**`gpu_miopen.h`** runs [CNN](#cnn) and [U-Net](#u-net) through MIOpen. The
+first convolution of each shape asks MIOpen to time its algorithms on that
+call's buffers (`miopenFindConvolutionForwardAlgorithm`) and caches the
+fastest one together with its own workspace. Make that first call outside
+graph capture. MIOpen has no fused convolution + bias + ReLU for arbitrary
+shapes, so the bias add and ReLU run as one HIP kernel after the convolution
+(`rocm_bias_channels`).
+
+| Group | Functions |
+|---|---|
+| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
+| Queued ops | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)` (each decoder step upsamples straight into its concat buffer), `rocm_unet_free` |
+| Host arrays | `conv2d_forward_rocm`, `unet_forward_rocm`, falling back to the CPU when no GPU is usable |
+
+**`fft_rocm.h`** runs the transforms through hipFFT (rocFFT underneath), for
+any length. Forward transforms are unnormalized and inverse ones include 1/N.
+
+| Group | Functions |
+|---|---|
+| Host arrays, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data, n, batch, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
+| Queued, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r` (may overwrite its input) |
+
+`tests/stdlib/rocm/rocm_dnn_fft_check.sc` runs the same checks as the CUDA
+suite against the CPU code (43 checks on an MI100): convolutions at stride 1
+and 2, batched, with ReLU and replayed from a graph; pooling, upsample and
+concat; a whole U-Net; and every FFT form.
+
+On the MI100, one 64-channel convolution takes 0.027 ms against PyTorch-ROCm's 0.063 ms and the batch-1 U-Net 0.227 ms against 0.315 ms; at batch 16–32 the two are within 2%. Device-resident FFTs are 1.4–1.7× faster than through PyTorch. See the [benchmarks](/benchmarks#mi100-conv-fft).
+
 ### Host-array API (MPS, CUDA, SPIR-V, WebGPU)
 
 Each backend exposes the same family of functions over plain `float` arrays, prefixed `mps_`, `cuda_`, `spirv_` or `webgpu_`. Each uploads, runs, and copies back in one call, and returns 1 on success or 0 on failure (no device, compile error), leaving `out` untouched. ROCm's equivalents (`rocm_*_f32`) are listed in its table above.
@@ -633,7 +679,7 @@ int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n)
 int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
 ```
 
-**Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below).
+**Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below). ROCm keeps 16-bit data in `RocmHalfBuf`s instead; see its table above.
 
 ```c
 ?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
@@ -711,7 +757,7 @@ SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (gls
 
 ## fp16 / bf16 {#fp16-bf16}
 
-No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), and native `half`/`bfloat` GPU compute on MPS, CUDA and WebGPU (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)).
+No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), and native `half`/`bfloat` GPU compute on MPS, CUDA, WebGPU and ROCm (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)).
 
 | Check | Result |
 |---|---|

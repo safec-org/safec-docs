@@ -17,6 +17,7 @@
 
 - **머신러닝** (2층 MLP, [자세히](#machine-learning-small-mlp-training-and-inference)): MI100에서 SafeC는 작은 모델을 7.2 ms에 학습하며(PyTorch-ROCm 20.1 ms), 큰 모델은 8.3 ms입니다(PyTorch-ROCm 10.1 ms). CPU에서는 PyTorch가 더 빠릅니다(14.1 ms, SafeC + OpenBLAS 29.6 ms).
 - **NVIDIA H200** ([자세히](#h200-machine-learning)): SafeC의 CUDA 백엔드는 작은 모델을 3.80 ms에 학습하며(PyTorch-CUDA fp32 50.9 ms), 큰 모델은 3.13 ms에 학습합니다(16.9 ms). Xeon 8570 CPU 결과는 [별도 절](#xeon-8570-classic)에 있습니다.
+- **MI100의 합성곱과 FFT** ([자세히](#mi100-conv-fft)): MIOpen으로 SafeC는 64채널 3×3 합성곱 하나를 0.027 ms에 실행하고(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms입니다(0.315 ms). 배치 16–32에서는 2% 이내입니다. 장치 상주 hipFFT 변환은 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 64채널 3×3 합성곱을 이미지 32장 배치로 0.164 ms에 실행하고(PyTorch-CUDA fp32 0.257 ms), U-Net은 0.175 ms입니다(0.206 ms). 이미지 한 장짜리 합성곱 하나와 TF32 배치 16–32에서는 PyTorch가 더 빠릅니다. GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 1.9배 빠르고, `Vec` push와 `HashMap`은 순수 C보다 1.2–1.6배 느립니다.
 - **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 살아 있는 블록이 100만 개면 1.4배 느립니다.
@@ -231,6 +232,37 @@ CPU에서는 여기서 쓴 OpenBLAS(Ubuntu 패키지의 범용 pthreads 빌드)�
 
 ::: details 소스
 [mem.h](/benchmarks/stdlib/mem.h) · [mem.sc](/benchmarks/stdlib/mem.sc) · [alloc_bench.sc](/benchmarks/memalloc/safec/alloc_bench.sc)
+:::
+
+## MI100의 합성곱과 FFT {#mi100-conv-fft}
+
+[H200](#h200-conv-fft)과 같은 작업을 이 페이지의 주 머신에서 잰 결과입니다: SafeC의 CPU 코드(`cnn.h`, `unet.h`, `fft.h`), ROCm 라이브러리 [`gpu_miopen.h`와 `fft_rocm.h`](/ko/stdlib/ml#rocm-miopen-hipfft)(ROCm 7.1의 MIOpen과 hipFFT), 그리고 ROCm 6.4 위의 PyTorch 2.9.1(역시 MIOpen과 rocFFT 사용). 텐서는 호출 사이에 GPU에 머뭅니다. GPU 행은 두 번의 동기화 사이에 쌓은 호출 300–2000개의 평균, 3회 중 최선이며, 모두 fp32입니다(MI100에는 TF32가 없음). SafeC는 첫 호출에서 MIOpen의 Find로 합성곱 알고리즘을 고르고, PyTorch도 같은 일을 합니다(`cudnn.benchmark = True`).
+
+합성곱, 호출당 ms(낮을수록 좋음). `conv64`는 Conv2D 계층 하나(64→64 채널, 3×3, 스트라이드 1, 패딩 1, 56×56, 바이어스 포함). `unet128`은 128×128에서 `unet_new(3, 32, 64, 3)`의 순전파입니다.
+
+| 프레임워크 | 장치 | conv64, 이미지 1장 | conv64, 32장 | unet128, 1장 | unet128, 16장 |
+|---|---|---|---|---|---|
+| SafeC | CPU (naive, 1 스레드) | 101.4 | — | 286.1 | — |
+| PyTorch | CPU (8 스레드) | 0.314 | — | 2.80 | — |
+| SafeC | ROCm | **0.0270** | **0.342** | 0.227 | 1.293 |
+| SafeC | ROCm, U-Net을 그래프 하나로 | | | **0.222** | |
+| PyTorch | ROCm | 0.0628 | 0.346 | 0.315 | **1.268** |
+
+FFT, 호출당 ms. `fft1d`와 `fft2d`는 호스트 메모리에서 시작해 끝나는 복소 `double` 배열이라, GPU 호출마다 업로드와 읽기가 포함됩니다. `batch`와 `rfft`는 이미 GPU에 있는 데이터(complex64, float32)로 실행합니다.
+
+| 프레임워크 | 장치 | fft1d, 2²⁰점 | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
+|---|---|---|---|---|---|
+| SafeC | CPU (radix-2, 1 스레드) | 156.7 | 163.6 | 377.4 | 371.6 |
+| PyTorch | CPU (8 스레드) | 8.32 | **0.719** | 4.41 | 0.442 |
+| SafeC | ROCm | **1.52** | 1.49 | **0.100** | **0.095** |
+| PyTorch | ROCm | 1.56 | 1.52 | 0.171 | 0.131 |
+
+- **합성곱**: 이미지 1장에서 SafeC가 PyTorch보다 2.3배, 배치 1 U-Net에서 1.39배(그래프로는 1.42배) 빠릅니다. 32장에서는 비기고, 16장 U-Net에서는 PyTorch가 2% 빠릅니다. SafeC의 합성곱은 MIOpen 호출 하나와 바이어스(및 ReLU)용 HIP 커널 하나이고, U-Net 디코더 단계는 연결 버퍼로 바로 업샘플하는 커널 하나입니다. 이 융합 전에는 16장 U-Net이 1.51 ms였습니다.
+- **FFT**: 양쪽 모두 rocFFT를 부릅니다. 호스트 배열은 PCIe가 지배해 시간이 같습니다. 장치 데이터에서는 SafeC가 1.4–1.7배 빠릅니다. 호출당 0.1 ms 수준에서는 같은 변환을 둘러싼 PyTorch의 호출당 작업(출력 텐서 할당, 디스패치)이 큰 몫을 차지하지만, 따로 재지는 않았습니다.
+- **CPU**: H200에서처럼 SafeC의 CPU 합성곱은 단일 스레드 직접 루프이고 `fft.h`는 버터플라이 안에서 회전 인자를 계산합니다. PyTorch의 CPU 경로는 `conv64`에서 320배, 2²⁰점 FFT에서 19배 빠릅니다.
+
+::: details 소스
+[conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
 :::
 
 ## Xeon Platinum 8570 + NVIDIA H200 {#xeon-8570-h200}

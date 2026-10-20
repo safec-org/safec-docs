@@ -17,6 +17,7 @@ Release-build wall-clock time (lower is better; fastest in bold). SafeC's binary
 
 - **Machine learning** (2-layer MLP, [details](#machine-learning-small-mlp-training-and-inference)): on the MI100, SafeC trains the small model in 7.2 ms vs PyTorch-ROCm's 20.1 ms, and the big one in 8.3 ms vs 10.1 ms. On CPU, PyTorch is faster (14.1 ms vs SafeC + OpenBLAS 29.6 ms).
 - **NVIDIA H200** ([details](#h200-machine-learning)): SafeC's CUDA backend trains the small model in 3.80 ms vs PyTorch-CUDA's 50.9 ms (fp32), and the big one in 3.13 ms vs 16.9 ms. Results for the Xeon 8570 CPU are in [their own section](#xeon-8570-classic).
+- **Convolution and FFT on the MI100** ([details](#mi100-conv-fft)): with MIOpen, SafeC runs one 64-channel 3×3 convolution in 0.027 ms vs PyTorch-ROCm's 0.063 ms and the batch-1 U-Net in 0.227 ms vs 0.315 ms; at batch 16–32 the two are within 2%. Device-resident hipFFT transforms are 1.4–1.7× faster than through PyTorch.
 - **Convolution and FFT on the H200** ([details](#h200-conv-fft)): with cuDNN, SafeC runs a batch of 32 64-channel 3×3 convolutions in 0.164 ms vs PyTorch-CUDA's 0.257 ms (fp32), and the U-Net in 0.175 ms vs 0.206 ms. PyTorch is faster for a single one-image convolution (0.022 ms vs 0.034 ms) and with TF32 at batch 16–32. Device-resident cuFFT transforms take the same time as through PyTorch.
 - **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 1.9× faster than a `malloc`-per-node one; `Vec` push and `HashMap` are 1.2–1.6× slower than plain C.
 - **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, 1.4× slower for a million live blocks.
@@ -231,6 +232,37 @@ The cache wins whenever freed blocks are reused soon. Short-lived objects and bi
 
 ::: details Sources
 [mem.h](/benchmarks/stdlib/mem.h) · [mem.sc](/benchmarks/stdlib/mem.sc) · [alloc_bench.sc](/benchmarks/memalloc/safec/alloc_bench.sc)
+:::
+
+## Convolution and FFT on the MI100 {#mi100-conv-fft}
+
+The same workloads as [on the H200](#h200-conv-fft), on this page's primary machine: SafeC's CPU code (`cnn.h`, `unet.h`, `fft.h`), the ROCm libraries [`gpu_miopen.h` and `fft_rocm.h`](/stdlib/ml#rocm-miopen-hipfft) (MIOpen and hipFFT from ROCm 7.1), and PyTorch 2.9.1 on ROCm 6.4 (which also uses MIOpen and rocFFT). Tensors stay on the GPU between calls. The GPU rows are the mean of 300–2000 queued calls between two synchronizations, best of 3 runs, all in fp32 (the MI100 has no TF32). SafeC picks each convolution's algorithm with MIOpen's Find on the first call, and PyTorch does the same (`cudnn.benchmark = True`).
+
+Convolution, ms per call (lower is better). `conv64` is one Conv2D layer, 64→64 channels, 3×3, stride 1, padding 1, on 56×56 maps, plus bias. `unet128` is `unet_new(3, 32, 64, 3)` forward at 128×128.
+
+| Framework | Device | conv64, 1 image | conv64, 32 images | unet128, 1 image | unet128, 16 images |
+|---|---|---|---|---|---|
+| SafeC | CPU (naive, 1 thread) | 101.4 | — | 286.1 | — |
+| PyTorch | CPU (8 threads) | 0.314 | — | 2.80 | — |
+| SafeC | ROCm | **0.0270** | **0.342** | 0.227 | 1.293 |
+| SafeC | ROCm, U-Net as one graph | | | **0.222** | |
+| PyTorch | ROCm | 0.0628 | 0.346 | 0.315 | **1.268** |
+
+FFT, ms per call. `fft1d` and `fft2d` are complex `double` arrays that start and end in host memory, so each GPU call includes the upload and the read back. `batch` and `rfft` run on data already on the GPU (complex64 and float32).
+
+| Framework | Device | fft1d, 2²⁰ points | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
+|---|---|---|---|---|---|
+| SafeC | CPU (radix-2, 1 thread) | 156.7 | 163.6 | 377.4 | 371.6 |
+| PyTorch | CPU (8 threads) | 8.32 | **0.719** | 4.41 | 0.442 |
+| SafeC | ROCm | **1.52** | 1.49 | **0.100** | **0.095** |
+| PyTorch | ROCm | 1.56 | 1.52 | 0.171 | 0.131 |
+
+- **Convolutions**: SafeC is 2.3× faster than PyTorch on one image and 1.39× faster on the batch-1 U-Net (1.42× as a graph). At 32 images the two tie, and PyTorch is 2% faster on the 16-image U-Net. Each SafeC convolution is one MIOpen call plus one HIP kernel for the bias (and ReLU), and each U-Net decoder step is one kernel that upsamples straight into the concat buffer. Before that fusion the 16-image U-Net took 1.51 ms.
+- **FFT**: both sides call rocFFT. For host arrays PCIe dominates and the times match. On device data SafeC is 1.4–1.7× faster; at 0.1 ms per call, PyTorch's per-call work around the same transform (allocating the output tensor, dispatch) is a large share, though that hasn't been measured on its own.
+- **CPU**: as on the H200, SafeC's CPU convolution is a direct single-threaded loop and `fft.h` computes twiddles inside the butterfly; PyTorch's CPU paths are 320× faster on `conv64` and 19× on the 2²⁰-point FFT.
+
+::: details Sources
+[conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
 :::
 
 ## Xeon Platinum 8570 + NVIDIA H200 {#xeon-8570-h200}

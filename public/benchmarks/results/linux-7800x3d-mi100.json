@@ -7,7 +7,7 @@
   "zig": "0.16.0",
   "python": "Python 3.12.3",
   "torch": "2.9.1+rocm6.4",
-  "tensorflow": "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR",
+  "tensorflow": "2.21.0",
   "numpy": "2.5.4",
   "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
   "os": "Ubuntu 24.04.5 LTS",
@@ -382,6 +382,158 @@
    "p99_ms": 14,
    "failed": 0,
    "rss_mb": 46.1
+  }
+ },
+ "conv": {
+  "safec_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_image": 101.361,
+    "checksum": 528.2298
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_image": 286.149,
+    "checksum": 994784.9736
+   }
+  },
+  "safec_rocm": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.027,
+    "ms_per_image": 0.02701
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.3424,
+    "ms_per_image": 0.0107
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.2268,
+    "ms_per_image": 0.22682
+   },
+   "unet128 b=1 graph fp32": {
+    "ms_per_batch": 0.2221,
+    "ms_per_image": 0.22215
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 1.2926,
+    "ms_per_image": 0.08079
+   }
+  },
+  "pytorch_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_batch": 0.3144,
+    "ms_per_image": 0.31441
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_batch": 2.8022,
+    "ms_per_image": 2.80218
+   }
+  },
+  "pytorch_cuda": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.0628,
+    "ms_per_image": 0.06275
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.3463,
+    "ms_per_image": 0.01082
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.3153,
+    "ms_per_image": 0.31528
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 1.2676,
+    "ms_per_image": 0.07922
+   },
+   "conv64 b=1 tf32": {
+    "ms_per_batch": 0.0628,
+    "ms_per_image": 0.06278
+   },
+   "conv64 b=32 tf32": {
+    "ms_per_batch": 0.3478,
+    "ms_per_image": 0.01087
+   },
+   "unet128 b=1 tf32": {
+    "ms_per_batch": 0.3149,
+    "ms_per_image": 0.3149
+   },
+   "unet128 b=16 tf32": {
+    "ms_per_batch": 1.269,
+    "ms_per_image": 0.07931
+   },
+   "conv64 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.0627,
+    "ms_per_image": 0.06272
+   },
+   "conv64 b=32 fp32 heuristic": {
+    "ms_per_batch": 0.3482,
+    "ms_per_image": 0.01088
+   },
+   "unet128 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.3154,
+    "ms_per_image": 0.3154
+   },
+   "unet128 b=16 fp32 heuristic": {
+    "ms_per_batch": 1.2696,
+    "ms_per_image": 0.07935
+   }
+  }
+ },
+ "fft": {
+  "safec_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 156.66
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 163.647
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 377.441
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 371.595
+   }
+  },
+  "safec_rocm": {
+   "fft1d n=1048576 c128 rocm": {
+    "ms_per_call": 1.5206
+   },
+   "fft2d 1024x1024 c128 rocm": {
+    "ms_per_call": 1.4948
+   },
+   "batch 1024x4096 c2c rocm": {
+    "ms_per_call": 0.1001
+   },
+   "rfft 1024x4096 r2c rocm": {
+    "ms_per_call": 0.095
+   }
+  },
+  "pytorch_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 8.3188
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 0.7192
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 4.4129
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 0.4423
+   }
+  },
+  "pytorch_cuda": {
+   "fft1d n=1048576 c128 cuda": {
+    "ms_per_call": 1.5567
+   },
+   "fft2d 1024x1024 c128 cuda": {
+    "ms_per_call": 1.5215
+   },
+   "batch 1024x4096 c2c cuda": {
+    "ms_per_call": 0.1708
+   },
+   "rfft 1024x4096 r2c cuda": {
+    "ms_per_call": 0.1306
+   }
   }
  }
 }

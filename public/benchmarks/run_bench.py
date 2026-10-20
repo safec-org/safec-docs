@@ -360,13 +360,18 @@ def torch_devices():
         return []
 
 
-def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs):
-    """SafeC CPU, SafeC CUDA (when an NVIDIA GPU is present) and PyTorch rows."""
+def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_src=None, rocm_libs=()):
+    """SafeC CPU, SafeC CUDA (when an NVIDIA GPU is present), SafeC ROCm (when
+    an AMD GPU is present) and PyTorch rows. PyTorch's 'cuda' device is
+    PyTorch-ROCm on an AMD machine."""
     res = {}
     cases = [("safec_cpu", cpu_src, [])]
     if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
         cases.append(("safec_cuda", cuda_src, [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas",
                                                 "-lcublasLt", "-lnvrtc"] + cuda_libs))
+    if rocm_src and os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
+        cases.append(("safec_rocm", rocm_src, [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib"] + list(rocm_libs) +
+                                               ["-lamdhip64", "-lhiprtc", "-lrocblas"]))
     for key, src, libs in cases:
         out = os.path.join(BUILD, bench, key)
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -388,12 +393,12 @@ def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs):
 
 def bench_conv(runs):
     return cpu_vs_cuda("conv", "conv/safec/conv_cpu.sc", "conv/safec/conv_cuda.sc", ["-lcudnn"],
-                       "conv/pytorch/conv.py", runs)
+                       "conv/pytorch/conv.py", runs, "conv/safec/conv_rocm.sc", ["-lMIOpen"])
 
 
 def bench_fft(runs):
     return cpu_vs_cuda("fft", "fft/safec/fft_cpu.sc", "fft/safec/fft_cuda.sc", ["-lcufft"],
-                       "fft/pytorch/fft.py", runs)
+                       "fft/pytorch/fft.py", runs, "fft/safec/fft_rocm.sc", ["-lhipfft"])
 
 
 # ── web service ───────────────────────────────────────────────────────────────

@@ -418,7 +418,9 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
   컴파일러 버그였으며, 코드 생성기에서 수정되었다.
 - **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
-  그래프, 호스트 배열 API를 CPU 결과와 비교하며(검사 29개),
+  그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
+  반올림, 16비트 GEMM, SGD)를 CPU 결과와 비교하며(검사 87개), [MIOpen과
+  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 43개).
   [ML 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference)는
   CPU 및 MPS 경로와 같은 손실까지 학습한다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했다 —
@@ -451,7 +453,10 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 행렬곱 | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, 어느 피연산자든 전치 가능 |
 | 원소별 | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
+| 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
+| fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과)과 `rocm_half_gemm_f32`(fp32 결과); `rocm_half_sgd(w, g, lr)` |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
+| 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
 | 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 
 2층 MLP의 SGD 한 스텝, 전부 GPU에서:
@@ -587,6 +592,45 @@ H200에서 큐 연산은 배치 합성곱(이미지 32장: fp32에서 0.164 ms, 
 PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친 cuFFT와
 같은 속도다. [벤치마크](/ko/benchmarks#h200-conv-fft)를 보라.
 
+### ROCm의 합성곱(MIOpen)과 FFT(hipFFT) {#rocm-miopen-hipfft}
+
+```c
+#include <std/ml/gpu_miopen.h>   // 링크: -lMIOpen + gpu_rocm 라이브러리
+#include <std/dsp/fft_rocm.h>    // 링크: -lhipfft + gpu_rocm 라이브러리
+```
+
+`gpu_cudnn.h`와 `fft_cuda.h`의 AMD 대응입니다: `cuda_` 대신 `rocm_`이 붙은 같은
+함수들이 `RocmBuf` 위에서 동작하며, `gpu_rocm`의 스트림에 쌓이므로 그 연산들과
+순서가 맞고 `RocmGraph`로 기록할 수 있습니다.
+
+**`gpu_miopen.h`**는 [CNN](#cnn)과 [U-Net](#u-net)을 MIOpen으로 실행합니다.
+형태마다 첫 합성곱은 그 호출의 버퍼로 MIOpen의 알고리즘들을 시간 측정하게 하고
+(`miopenFindConvolutionForwardAlgorithm`), 가장 빠른 것을 자체 작업 공간과 함께
+캐시합니다. 그 첫 호출은 그래프 캡처 밖에서 하세요. MIOpen에는 임의 형태의
+합성곱 + 바이어스 + ReLU 융합이 없으므로, 바이어스 덧셈과 ReLU는 합성곱 뒤에
+HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
+
+| 그룹 | 함수 |
+|---|---|
+| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
+| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)`(디코더 단계마다 연결 버퍼로 바로 업샘플), `rocm_unet_free` |
+| 호스트 배열 | `conv2d_forward_rocm`, `unet_forward_rocm`. GPU를 쓸 수 없으면 CPU로 대체 |
+
+**`fft_rocm.h`**는 hipFFT(내부적으로 rocFFT)로 임의 길이의 변환을 실행합니다.
+순방향 변환은 정규화하지 않고 역방향 변환은 1/N을 포함합니다.
+
+| 그룹 | 함수 |
+|---|---|
+| 호스트 배열, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data, n, batch, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
+| 큐, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r`(입력을 덮어쓸 수 있음) |
+
+`tests/stdlib/rocm/rocm_dnn_fft_check.sc`는 CUDA 모음과 같은 검사를 CPU 코드와
+비교해 실행합니다(MI100에서 검사 43개): 스트라이드 1과 2, 배치, ReLU, 그래프
+재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태.
+
+MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms(0.315 ms)이며, 배치 16–32에서는 2% 이내입니다. 장치 상주 FFT는 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다. [벤치마크](/ko/benchmarks#mi100-conv-fft)를 참고하세요.
+
 ### 호스트 배열 API (MPS, CUDA, SPIR-V, WebGPU) {#host-array-api-mps-cuda-spir-v-webgpu}
 
 각 백엔드는 일반 `float` 배열에 대해 같은 계열의 함수를 `mps_`, `cuda_`, `spirv_`, `webgpu_` 접두어로 제공합니다. 각각 업로드, 실행, 복사를 한 번에 하며, 성공하면 1, 실패하면(장치 없음, 컴파일 오류) 0을 반환하고 `out`은 건드리지 않습니다. ROCm의 대응 함수(`rocm_*_f32`)는 위의 표에 있습니다.
@@ -619,7 +663,7 @@ int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n)
 int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
 ```
 
-**반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환).
+**반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환). ROCm은 16비트 데이터를 대신 `RocmHalfBuf`에 담습니다. 위의 ROCm 표를 참고하세요.
 
 ```c
 ?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
@@ -697,7 +741,7 @@ SPIR-V 커널은 바이너리 IR이라 Vulkan 백엔드가 완성되려면 SPIR-
 
 ## fp16 / bf16 {#fp16-bf16}
 
-SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 . 그 위에 반정밀도 텐서와 혼합 정밀도 학습(`tensor_half.h`, 아래)이 있고, MPS, CUDA, WebGPU에서는 네이티브 `half`/`bfloat` GPU 연산을 합니다([호스트 배열 API](#host-array-api-mps-cuda-spir-v-webgpu) 참고).
+SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 . 그 위에 반정밀도 텐서와 혼합 정밀도 학습(`tensor_half.h`, 아래)이 있고, MPS, CUDA, WebGPU, ROCm에서는 네이티브 `half`/`bfloat` GPU 연산을 합니다([호스트 배열 API](#host-array-api-mps-cuda-spir-v-webgpu) 참고).
 
 | 검사 | 결과 |
 |---|---|
