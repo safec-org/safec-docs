@@ -1,0 +1,432 @@
+{
+ "machine": {
+  "safec": "safec 1.0.0",
+  "clang": "Homebrew clang version 22.1.8",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "go": "go version go1.26.5 darwin/arm64",
+  "zig": "0.16.0",
+  "python": "Python 3.14.6",
+  "torch": "2.13.0",
+  "tensorflow": "ModuleNotFoundError: No module named 'tensorflow'",
+  "numpy": "2.5.1",
+  "cpu": "Apple M1 Pro",
+  "os": "macOS 26.6.2",
+  "cores": 10
+ },
+ "attention": {
+  "safec_mps": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 5.4611,
+    "tflops": 3.09
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 2.9845,
+    "tflops": 2.86
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 87.2533,
+    "tflops": 3.15
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 44.245,
+    "tflops": 3.04
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 10.6854,
+    "tflops": 3.04
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 5.7193,
+    "tflops": 2.9
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 169.1095,
+    "tflops": 3.19
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 86.7084,
+    "tflops": 3.15
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 5.9785,
+    "tflops": 2.86
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 3.1875,
+    "tflops": 2.58
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 92.981,
+    "tflops": 2.79
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 47.6516,
+    "tflops": 2.84
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 14.8888,
+    "tflops": 2.31
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 7.608,
+    "tflops": 2.26
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 231.895,
+    "tflops": 2.36
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 113.4874,
+    "tflops": 2.26
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 5.776,
+    "tflops": 2.96
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 3.1293,
+    "tflops": 2.74
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 90.5778,
+    "tflops": 3.02
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 46.5662,
+    "tflops": 2.95
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 14.7256,
+    "tflops": 2.33
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 7.5134,
+    "tflops": 2.27
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 232.8616,
+    "tflops": 2.36
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 112.706,
+    "tflops": 2.43
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 226.1706,
+    "tflops": 2.43
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 3.2422
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 6.9168
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 12.1674
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 27.6026
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 10.1345
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 21.5869
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 3.0701
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 6.5049
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 11.6526
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 26.2412
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 9.7971
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 20.7841
+   }
+  },
+  "pytorch_mps": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 4.7774,
+    "tflops": 3.59
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 2.6522,
+    "tflops": 3.23
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 74.8421,
+    "tflops": 3.66
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 39.0104,
+    "tflops": 3.5
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 9.111,
+    "tflops": 3.74
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 5.5391,
+    "tflops": 3.09
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 143.4361,
+    "tflops": 3.79
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 81.5869,
+    "tflops": 3.34
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 5.5151,
+    "tflops": 3.08
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 3.0591,
+    "tflops": 2.79
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 86.0918,
+    "tflops": 3.16
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 44.8406,
+    "tflops": 3.05
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 12.992,
+    "tflops": 2.63
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 7.0934,
+    "tflops": 2.42
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 202.2649,
+    "tflops": 2.72
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 103.8872,
+    "tflops": 2.63
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 6.7842,
+    "tflops": 2.52
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 3.7112,
+    "tflops": 2.31
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 105.2467,
+    "tflops": 2.61
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 55.1871,
+    "tflops": 2.49
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 19.6939,
+    "tflops": 1.74
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 10.7668,
+    "tflops": 1.59
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 312.3212,
+    "tflops": 1.75
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 160.3372,
+    "tflops": 1.69
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 206.4322,
+    "tflops": 2.64
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 10.262
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 27.4707
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 39.466
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 110.3295
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 21.4906
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 57.0834
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 12.2802
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 28.8756
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 47.1957
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 114.1692
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 24.3974
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 58.9298
+   }
+  },
+  "mlx": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 4.5253,
+    "tflops": 3.75
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 2.5849,
+    "tflops": 3.32
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 71.1541,
+    "tflops": 3.86
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 39.7908,
+    "tflops": 3.44
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 9.1688,
+    "tflops": 3.75
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 4.9088,
+    "tflops": 3.5
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 146.2838,
+    "tflops": 3.76
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 74.705,
+    "tflops": 3.67
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 5.0852,
+    "tflops": 3.33
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 2.733,
+    "tflops": 3.14
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 80.5729,
+    "tflops": 3.41
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 41.7617,
+    "tflops": 3.22
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 11.8505,
+    "tflops": 2.7
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 6.2697,
+    "tflops": 2.52
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 198.5581,
+    "tflops": 2.67
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 97.0472,
+    "tflops": 2.71
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 6.0746,
+    "tflops": 2.7
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 3.4052,
+    "tflops": 2.48
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 94.5346,
+    "tflops": 2.91
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 49.8009,
+    "tflops": 2.76
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 16.0727,
+    "tflops": 2.13
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 8.8571,
+    "tflops": 1.89
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 257.7516,
+    "tflops": 2.13
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 137.4333,
+    "tflops": 2.0
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 200.2754,
+    "tflops": 2.69
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 10.5558
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 19.5203
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 39.9414
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 74.2411
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 21.7363
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 41.0905
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 12.2225
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 21.6372
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 47.4294
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 82.8952
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 25.2419
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 45.935
+   }
+  }
+ }
+}

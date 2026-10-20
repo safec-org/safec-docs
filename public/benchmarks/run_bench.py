@@ -447,8 +447,41 @@ def bench_attention(runs):
     """Flash and linear attention on the GPU: SafeC's CUDA kernels
     (attention/safec/attn_cuda.sc) against PyTorch (attention/pytorch/attn.py:
     scaled_dot_product_attention, a vectorized linear-attention baseline and,
-    if installed, flash-linear-attention's Triton kernel)."""
+    if installed, flash-linear-attention's Triton kernel); on a Mac, SafeC's
+    Metal kernels (attention/safec/attn_mps.sc) against PyTorch's mps device
+    and MLX (attention/mlx/attn.py)."""
     res = {}
+    if IS_MAC:
+        out = os.path.join(BUILD, "attention", "safec_mps")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            # Built from the std sources it uses rather than std_archive():
+            # safeguard's whole-std archive skips several of them on macOS.
+            wrap = os.path.join(BUILD, "attention", "clang_metal.sh")
+            with open(wrap, "w") as f:
+                f.write(f'#!/bin/sh\nexec "{CLANG}" "$@" -framework Metal -framework Foundation -lobjc\n')
+            os.chmod(wrap, 0o755)
+            std = os.path.join(SAFEC_HOME, "std")
+            deps = [os.path.join(std, d) for d in ("ml/gpu_mps.sc", "ml/float16.sc", "math.sc", "mem.sc", "atomic.sc",
+                                                   "panic.sc", "time.sc", "str.sc", "sys.sc")]
+            sh([SAFEC, os.path.join(HERE, "attention/safec/attn_mps.sc")] + deps +
+               ["-I", SAFEC_HOME, "-O2", "--emit-bin", "-o", out], env=dict(os.environ, SAFEC_CLANG=wrap))
+            res["safec_mps"] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res["safec_mps"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention safec_mps {res['safec_mps']}", flush=True)
+        try:
+            if sh([MLPY, "-c", "import torch;print(torch.backends.mps.is_available())"]).strip() == "True":
+                res["pytorch_mps"] = best_labeled([sh([MLPY, os.path.join(HERE, "attention/pytorch/attn.py"), "mps"])
+                                                   for _ in range(runs)])
+        except Exception as e:
+            res["pytorch_mps"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention pytorch_mps {res.get('pytorch_mps')}", flush=True)
+        try:
+            res["mlx"] = best_labeled([sh([MLPY, os.path.join(HERE, "attention/mlx/attn.py")]) for _ in range(runs)])
+        except Exception as e:
+            res["mlx"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention mlx {res['mlx']}", flush=True)
     if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
         out = os.path.join(BUILD, "attention", "safec_cuda")
         os.makedirs(os.path.dirname(out), exist_ok=True)

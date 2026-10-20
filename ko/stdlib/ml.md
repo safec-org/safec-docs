@@ -850,14 +850,42 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 
 `_ab` 접미사는 두 입력이 모두 이미 GPU 버퍼라는 뜻입니다. 각 함수의 인자 순서는 `std/ml/gpu_mps.h`를 참고하세요.
 
+### MPS에서의 어텐션 {#mps-flash-linear-attention}
+
+```c
+#include <std/ml/gpu_mps.h>   // Apple GPU; -framework Metal -framework Foundation 링크
+```
+
+[CUDA](#cuda-attention)와 같은 배치 멀티헤드 [`flash_attention_forward`와
+`linear_attention_forward`](#attention)를 Metal 버퍼(`mps_upload_persistent`,
+`mps_upload_f16/bf16_persistent`, `mps_alloc_persistent`)에서 실행합니다.
+순방향 전용이며 모든 계산은 fp32입니다.
+
+- **Flash 어텐션**, 점수 행렬 없이 `softmax(Q Kᵀ · scale) V`: head dim 256까지는 GPU의 8×8 simdgroup 행렬 유닛에서 FlashAttention-2로(Q 블록은 레지스터, K/V 타일은 threadgroup 메모리, 소프트맥스는 프래그먼트 위에서 온라인), 512에서는 simdgroup 리덕션 커널로 계산합니다. fp16은 half 정밀도로 곱하고, bf16은 M1 계열에 bf16 행렬 유닛이 없어 타일을 올릴 때 fp32로 바꿉니다.
+- **Linear 어텐션**, φ(x) = elu(x) + 1, O(n d²). head dim 64와 128은 행렬 유닛에서 청크 병렬로 돕니다 — 구간별 상태 φ(K)ᵀV, 64행 청크에 걸친 prefix(causal) 또는 전체 합(non-causal), 그다음 모든 청크의 출력을 한 번에 계산하며, 상태는 라이브러리가 유지하는 스크래치 버퍼에 둡니다. 다른 head dim, `causal`과 KV 캐시 오프셋을 함께 쓰는 경우, 아래의 순환 형태는 헤드마다 시퀀스를 차례로 훑습니다.
+- **형태**: `mps_flash_attention` / `mps_linear_attention` / `_f32`는 `rocm_`, `cuda_`와 같은 인자(fp32, `[heads][seq][dim]`)를 받고, `_ex` 형태는 `MpsAttnShape`(배치, grouped-query K/V, 슬라이딩 윈도)와 dtype(`0` = fp32, `MPS_FP16`, `MPS_BF16`)을 받습니다. head dim 32, 64, 96, 128, 256, 512.
+- **마스킹**: CUDA와 같습니다 — 쿼리 i는 위치 `kvLen - seqLen + i`에 있고, `causal`은 뒤쪽 키를, `window`(flash만)는 `window`칸 이상 앞의 키도 가립니다. `scale` ≤ 0이면 1/√headDim입니다.
+- **배칭**: `mps_batch_begin()`/`mps_batch_end()` 안에서는 배치의 커맨드 버퍼 하나에 인코딩되고, 밖에서는 호출마다 실행하고 기다립니다.
+
+| 묶음 | 함수 |
+|---|---|
+| Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
+| Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
+| 호스트 배열 | `mps_flash_attention_f32`, `mps_linear_attention_f32` (업로드, 계산, 읽어 오기) |
+| 버퍼 | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+
+M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.04–1.22배, PyTorch `mps` 장치보다 1.16–1.43배 빠르고, fp16/bf16은 이들의 0.80–0.97배(2.3–3.2 TFLOPS)이며, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.1–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#m1pro-attention)를 참고하세요.
+
+`tests/stdlib/mps/run.sh`는 `mps_attention_check`를 빌드해 모든 경로(두 flash 커널, 청크 병렬과 순차 linear 커널, 세 데이터 타입, GQA, KV 캐시 오프셋, 슬라이딩 윈도, 호스트 배열 형태)를 배정밀도 참조와 attention.h의 CPU 함수와 비교합니다: 95개 검사.
+
 ### MPS 어텐션과 트랜스포머 연산 {#mps-attention}
 
-Apple GPU에서 트랜스포머 레이어를 실행하기 위한 bf16 구성 요소입니다. 텐서는 원시 bf16 비트(`unsigned short`, `float16.h`로 변환)이며 행 우선이고, 각 행에 헤드가 나란히 놓입니다: Q와 출력은 `[rows, numHeads*headDim]`, K/V는 `[rows, numKvHeads*headDim]`입니다. `numHeads`는 `numKvHeads`의 배수여야 하고(그룹 쿼리 어텐션), `headDim`은 64, 128, 256, 512 중 하나여야 합니다. 다른 MPS 함수와 마찬가지로 실행할 수 없으면(장치 없음, 지원하지 않는 형태) 0을 반환하므로 호출자가 CPU로 대체할 수 있습니다.
+Apple GPU에서 트랜스포머 레이어를 실행하기 위한 bf16 구성 요소입니다. 텐서는 원시 bf16 비트(`unsigned short`, `float16.h`로 변환)이며 행 우선이고, 각 행에 헤드가 나란히 놓입니다 — 레이어의 프로젝션이 만드는 배치 그대로입니다: Q와 출력은 `[rows, numHeads*headDim]`, K/V는 `[rows, numKvHeads*headDim]`입니다. `numHeads`는 `numKvHeads`의 배수여야 합니다(그룹 쿼리 어텐션). flash와 linear 함수는 `mps_flash_attention_ex`와 [같은 커널](#mps-flash-linear-attention)에서 돌고(head dim 32–512), 디코드 커널은 64, 128, 256, 512를 받습니다. 다른 MPS 함수와 마찬가지로 실행할 수 없으면(장치 없음, 지원하지 않는 형태) 0을 반환하므로 호출자가 CPU로 대체할 수 있습니다.
 
 | 함수 | 계산 |
 |---|---|
 | `mps_attn_batch_bf16` | 배치 전체와 모든 헤드에 대해, 시퀀스마다 새 쿼리 토큰 하나를 그 시퀀스의 KV 캐시와 계산합니다 — 디코드 스텝. KV 길이 제한이 없고, 슬라이딩 윈도 밖의 키는 건너뜁니다. |
-| `mps_flash_attn_bf16` | 임의 개수의 쿼리 행(프리필)에 대한 `flash_attention_forward`의 GPU 버전: K/V 타일을 스레드그룹 메모리에 올려 쿼리 행 16개가 공유하고, 소프트맥스는 온라인으로 계산하며, 점수 행렬을 만들지 않습니다. causal과 슬라이딩 윈도 마스킹을 지원합니다. |
+| `mps_flash_attn_bf16` | 임의 개수의 쿼리 행(프리필)에 대한 `flash_attention_forward`의 GPU 버전으로, 위의 FlashAttention-2 커널에서 돕니다. causal과 슬라이딩 윈도 마스킹을 지원합니다. |
 | `mps_linear_attn_bf16` | `linear_attention_forward`(`phi(x) = elu(x)+1`)의 GPU 버전, non-causal 또는 causal. |
 | `mps_linear_attn_bf16_chained` | 순환 상태를 GPU에 두고 제자리에서 갱신하는 causal 선형 어텐션 — 프리필을 한 번 하고, 이후 디코드 스텝마다 토큰 하나를 시퀀스 길이와 무관한 비용으로 처리합니다. |
 
@@ -917,7 +945,7 @@ match (mps_linear_attn_state_new(numHeads, headDim)) {
 }
 ```
 
-M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 256)의 디코드 스텝은 약 0.3–0.5 ms, 1024 토큰 causal flash 어텐션 프리필(헤드 8개, 헤드 차원 256)은 약 9 ms, 1024 토큰 causal 선형 어텐션(헤드 8개, 헤드 차원 128)은 약 3.5 ms가 걸립니다.
+M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 256)의 디코드 스텝은 약 0.3–0.5 ms, 1024 토큰 causal flash 어텐션 프리필(헤드 8개, 헤드 차원 256)은 약 7 ms가 걸립니다.
 
 ### 텐서 래퍼 {#tensor-wrappers}
 
