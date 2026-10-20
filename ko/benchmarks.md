@@ -8,21 +8,21 @@
 
 | 벤치마크 | SafeC | C | C++ | Rust | Zig | Go | Python |
 |---|---|---|---|---|---|---|---|
-| [fib(37)](#fib37-recursive-fibonacci) | 0.042s | 0.042s | **0.041s** | **0.041s** | 0.042s | 0.089s | 1.992s |
-| [n-body](#n-body-5-body-orbital-simulation) | **0.098s** | **0.098s** | **0.098s** | 0.106s | 0.110s | 0.105s | 7.716s |
-| [binary-trees](#binary-trees-allocationdeallocation-stress) | **0.140s** | 0.804s | 0.937s | 0.910s | 0.850s | 0.722s | 18.169s |
-| [binary-trees, 8 스레드](#multithreaded-binary-trees-8-threads) | **0.054s** | 0.225s | 0.239s | 0.234s | 0.227s | 0.255s | 23.034s |
-| [SIMD](#simd-sum-of-squares-over-20000000-f64-values) (명시적 벡터) | 0.078s | 0.077s | **0.076s** | 0.077s | **0.076s** | — | — |
-| [웹 서비스](#web-service-json-hello-world-endpoint) (req/s, 높을수록 좋음) | **25,216** | 24,618 | 24,870 | 24,814 | 24,828 | 23,573 | 5,047 |
+| [fib(37)](#fib37-recursive-fibonacci) | **0.042s** | **0.042s** | **0.042s** | **0.042s** | 0.043s | 0.089s | 2.016s |
+| [n-body](#n-body-5-body-orbital-simulation) | **0.098s** | 0.099s | 0.099s | 0.107s | 0.110s | 0.106s | 7.630s |
+| [binary-trees](#binary-trees-allocationdeallocation-stress) | **0.132s** | 0.810s | 0.924s | 0.914s | 0.854s | 0.718s | 18.049s |
+| [binary-trees, 8 스레드](#multithreaded-binary-trees-8-threads) | **0.053s** | 0.226s | 0.227s | 0.232s | 0.226s | 0.248s | 22.958s |
+| [SIMD](#simd-sum-of-squares-over-20000000-f64-values) (명시적 벡터) | 0.075s | 0.077s | 0.074s | 0.077s | **0.072s** | — | — |
+| [웹 서비스](#web-service-json-hello-world-endpoint) (req/s, 높을수록 좋음) | **25,303** | 24,620 | 24,845 | 25,075 | 25,030 | 23,199 | 5,096 |
 
-- **머신러닝** (2층 MLP, [자세히](#machine-learning-small-mlp-training-and-inference)): MI100에서 SafeC는 작은 모델을 7.0 ms에 학습하며(PyTorch-ROCm 20.5 ms, fp32), 큰 모델은 7.4 ms입니다(PyTorch-ROCm 10.7 ms). fp16에서 큰 모델은 5.9 ms입니다(PyTorch 9.9 ms). CPU에서는 AOCL-BLAS를 쓴 SafeC가 작은 모델을 14.8 ms에 학습하고(PyTorch 14.1 ms), 큰 모델은 37.0 ms입니다(PyTorch 38.5 ms).
+- **머신러닝** (2층 MLP, [자세히](#machine-learning-small-mlp-training-and-inference)): MI100에서 SafeC는 작은 모델을 7.0 ms에 학습하며(PyTorch-ROCm 20.5 ms, fp32), 큰 모델은 7.4 ms입니다(PyTorch-ROCm 10.7 ms). fp16에서 큰 모델은 5.9 ms입니다(PyTorch 9.9 ms). CPU에서는 SafeC가 작은 모델을 9.6 ms에 학습하고(OpenBLAS, PyTorch 14.0 ms), 큰 모델은 36.5 ms입니다(AOCL-BLAS, PyTorch 38.4 ms).
 - **NVIDIA H200** ([자세히](#h200-machine-learning)): SafeC의 CUDA 백엔드는 작은 모델을 3.80 ms에 학습하며(PyTorch-CUDA fp32 51.0 ms), 큰 모델은 3.13 ms에 학습합니다(17.8 ms). fp16에서는 큰 모델이 1.90 ms입니다(16.9 ms). Xeon 8570 CPU 결과는 [별도 절](#xeon-8570-classic)에 있습니다.
-- **MI100의 합성곱과 FFT** ([자세히](#mi100-conv-fft)): MIOpen으로 SafeC는 64채널 3×3 합성곱 하나를 0.027 ms에 실행하고(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.224 ms입니다(0.315 ms). 배치 16–32에서는 2% 이내입니다. 장치 상주 hipFFT 변환은 PyTorch를 거칠 때보다 1.3–1.7배 빠릅니다.
-- **CPU 합성곱과 FFT** ([자세히](#mi100-conv-fft)): Winograd 3×3 합성곱으로 U-Net이 CPU에서 1.42 ms에 실행됩니다(PyTorch 2.97 ms). 2²⁰점 FFT는 0.92 ms입니다(16스레드 FFTW 1.63 ms). 2D, 배치, 실수 변환에서는 FFTW가 1.1–3.1배 빠릅니다.
-- **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.47 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.2 ms), 44.1→48 kHz 리샘플링은 3.8 ms(SciPy 9.1 ms)입니다.
+- **MI100의 합성곱과 FFT** ([자세히](#mi100-conv-fft)): MIOpen으로 SafeC는 64채널 3×3 합성곱 하나를 0.027 ms에 실행하고(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.222 ms입니다(0.314 ms). 배치 16–32에서는 2% 이내입니다. 장치 상주 hipFFT 변환은 PyTorch를 거칠 때보다 1.3–1.7배 빠릅니다.
+- **CPU 합성곱과 FFT** ([자세히](#mi100-conv-fft)): Winograd 3×3 합성곱과 이미지별 아레나로 U-Net이 CPU에서 1.35 ms에 실행됩니다(PyTorch 2.68 ms). 2²⁰점 FFT는 0.89 ms입니다(16스레드 FFTW 1.63 ms). 2D, 배치, 실수 변환에서는 FFTW가 1.1–1.6배 빠릅니다.
+- **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.48 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.5 ms), 44.1→48 kHz 리샘플링은 3.7 ms(SciPy 9.1 ms)입니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 모든 합성곱 행에서 PyTorch-CUDA보다 빠릅니다. 이미지 한 장의 64채널 3×3 합성곱은 0.018 ms(PyTorch 0.022 ms, fp32), 32장 배치는 0.084 ms(0.097 ms, TF32), 배치 16의 U-Net은 0.45 ms(0.55 ms, TF32)입니다. 호스트 배열의 2²⁰점 FFT는 PCIe 복사 두 번을 포함해 1.25 ms입니다(2.08 ms). GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
-- **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 1.9배 빠르고, `Vec` push와 `HashMap`은 순수 C보다 1.2–1.6배 느립니다.
-- **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 살아 있는 블록이 100만 개면 1.4배 느립니다.
+- **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 2.2배 빠르고, `HashMap`은 순수 C의 1.1배 이내, `Vec` push는 1.5배 느립니다.
+- **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 슬랩 덕분에 블록 100만 개가 동시에 살아 있을 때도 1.1배 빠릅니다.
 
 ## 방법론 {#methodology}
 
@@ -39,13 +39,13 @@
 
 | 언어 | 시간 | 최대 메모리 | 컴파일 시간 |
 |---|---|---|---|
-| SafeC | 0.042s | 1.9 MB | 0.037s |
-| C | 0.042s | 1.9 MB | 0.031s |
-| C++ | **0.041s (가장 빠름)** | 3.8 MB | 0.049s |
-| Rust | **0.041s (가장 빠름)** | 2.0 MB | 0.050s |
-| Zig | 0.042s | **0.5 MB (가장 가벼움)** | 8.19s |
-| Go | 0.089s | 2.0 MB | **0.024s** |
-| Python | 1.992s | 10.4 MB | N/A (인터프리터) |
+| SafeC | **0.042s (가장 빠름)** | 1.9 MB | 0.036s |
+| C | **0.042s (가장 빠름)** | 1.9 MB | 0.030s |
+| C++ | **0.042s (가장 빠름)** | 3.8 MB | 0.049s |
+| Rust | **0.042s (가장 빠름)** | 1.9 MB | 0.050s |
+| Zig | 0.043s | **0.6 MB (가장 가벼움)** | 8.18s |
+| Go | 0.089s | 2.0 MB | **0.025s** |
+| Python | 2.016s | 10.4 MB | N/A (인터프리터) |
 
 LLVM을 거치는 언어는 릴리스에서 모두 4% 이내로 모입니다. 차이는 잡음 수준입니다.
 
@@ -55,17 +55,17 @@ LLVM을 거치는 언어는 릴리스에서 모두 4% 이내로 모입니다. �
 
 ## n-body — 5체 궤도 시뮬레이션 {#n-body-5-body-orbital-simulation}
 
-Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/해왕성), 2,000,000 스텝. 부동소수점 연산이 많고, 할당이 없으며, 작업 집합이 아주 작습니다.
+Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/해왕성), 2,000,000 스텝. 부동소수점 연산이 많고, 할당이 없으며, 작업 집합이 아주 작습니다. SafeC의 초기 상태(운동량 보정 포함)는 `consteval` 테이블이라 프로그램은 상수에서 시작하며, 시뮬레이션 자체는 다른 언어와 같은 코드입니다.
 
 | 언어 | 시간 | 최대 메모리 | 컴파일 시간 |
 |---|---|---|---|
-| SafeC | **0.098s (가장 빠름)** | 2.0 MB | 0.045s |
-| C | **0.098s (가장 빠름)** | 2.0 MB | 0.044s |
-| C++ | **0.098s (가장 빠름)** | 3.8 MB | 0.096s |
-| Rust | 0.106s | 2.0 MB | 0.071s |
-| Zig | 0.110s | **0.5 MB (가장 가벼움)** | 8.28s |
-| Go | 0.105s | 2.0 MB | **0.025s** |
-| Python | 7.716s | 11.0 MB | N/A (인터프리터) |
+| SafeC | **0.098s (가장 빠름)** | 2.0 MB | 0.044s |
+| C | 0.099s | 2.0 MB | 0.043s |
+| C++ | 0.099s | 3.8 MB | 0.097s |
+| Rust | 0.107s | 2.0 MB | 0.072s |
+| Zig | 0.110s | **0.5 MB (가장 가벼움)** | 8.25s |
+| Go | 0.106s | 2.0 MB | **0.026s** |
+| Python | 7.630s | 10.9 MB | N/A (인터프리터) |
 
 ::: details 소스
 [nbody.sc](/benchmarks/nbody/safec/nbody.sc) · [nbody.c](/benchmarks/nbody/c/nbody.c) · [nbody.cpp](/benchmarks/nbody/cpp/nbody.cpp) · [nbody.rs](/benchmarks/nbody/rust/nbody.rs) · [nbody.zig](/benchmarks/nbody/zig/nbody.zig) · [nbody.go](/benchmarks/nbody/go/nbody.go) · [nbody.py](/benchmarks/nbody/python/nbody.py)
@@ -77,16 +77,16 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 언어 | 시간 | 최대 메모리 | 컴파일 시간 |
 |---|---|---|---|
-| SafeC (arena) | **0.140s (가장 빠름)** | **25.8 MB (가장 가벼움)** | 0.044s |
-| SafeC (힙) | 0.713s | 50.9 MB | 0.044s |
-| C | 0.804s | 34.0 MB | 0.038s |
-| C++ | 0.937s | 35.8 MB | 0.055s |
-| Rust | 0.910s | 33.9 MB | 0.066s |
-| Zig | 0.850s | 33.8 MB | 8.17s |
-| Go | 0.722s | 36.3 MB | **0.027s** |
-| Python | 18.169s | 82.7 MB | N/A (인터프리터) |
+| SafeC (arena) | **0.132s (가장 빠름)** | **25.9 MB (가장 가벼움)** | 0.044s |
+| SafeC (힙) | 0.616s | 38.8 MB | 0.043s |
+| C | 0.810s | 33.9 MB | 0.039s |
+| C++ | 0.924s | 35.9 MB | 0.054s |
+| Rust | 0.914s | 34.0 MB | 0.064s |
+| Zig | 0.854s | 33.6 MB | 8.22s |
+| Go | 0.718s | 36.8 MB | **0.035s** |
+| Python | 18.049s | 82.6 MB | N/A (인터프리터) |
 
-힙 버전이 C보다 빠른 것은 `std::alloc`이 해제된 블록을 크기 등급별로 캐시하기 때문입니다([메모리 할당](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree) 참고). 대신 메모리는 더 씁니다: 블록마다 16바이트 안전 헤더가 붙고, 캐시가 해제된 블록을 돌려주지 않고 보관합니다.
+힙 버전은 C보다 1.3배 빠릅니다: `std::alloc`은 이 16바이트 노드를 스레드별 슬랩에서 내주고, 그 앞에 해제된 블록의 캐시를 둡니다([메모리 할당](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree) 참고). 슬랩 이전에는 0.713초, 50.9 MB였습니다. 메모리는 여전히 C보다 조금 더 씁니다(38.8 vs 33.9 MB). 블록마다 16바이트 안전 헤더가 붙고, 재사용을 위해 캐시와 여분 슬랩을 남겨 두기 때문입니다.
 
 ::: details 소스
 [binarytrees.sc](/benchmarks/binarytrees/safec/binarytrees.sc) · [binarytrees_arena.sc](/benchmarks/binarytrees/safec/binarytrees_arena.sc) · [binarytrees.c](/benchmarks/binarytrees/c/binarytrees.c) · [binarytrees.cpp](/benchmarks/binarytrees/cpp/binarytrees.cpp) · [binarytrees.rs](/benchmarks/binarytrees/rust/binarytrees.rs) · [binarytrees.zig](/benchmarks/binarytrees/zig/binarytrees.zig) · [binarytrees.go](/benchmarks/binarytrees/go/binarytrees.go) · [binarytrees.py](/benchmarks/binarytrees/python/binarytrees.py)
@@ -98,16 +98,16 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 언어 | 8 스레드 시간 | 최대 메모리 | 1 스레드 대비 속도 향상 |
 |---|---|---|---|
-| SafeC (arena) | **0.054s (가장 빠름)** | **98.1 MB (가장 가벼움)** | 2.58× |
-| SafeC (힙) | 0.263s | 260.0 MB | 2.71× |
-| C | 0.225s | 161.6 MB | 3.57× |
-| C++ | 0.239s | 163.5 MB | 3.92× |
-| Rust | 0.234s | 162.0 MB | 3.89× |
-| Zig | 0.227s | 164.0 MB | 3.75× |
-| Go | 0.255s | 130.1 MB | 2.83× |
-| Python | 23.034s | 364.3 MB | 0.79× (1 스레드보다 느림) |
+| SafeC (arena) | **0.053s (가장 빠름)** | 98.4 MB | 2.50× |
+| SafeC (힙) | 0.229s | 200.4 MB | 2.69× |
+| C | 0.226s | 161.8 MB | 3.58× |
+| C++ | 0.227s | 163.5 MB | 4.07× |
+| Rust | 0.232s | 161.9 MB | 3.93× |
+| Zig | 0.226s | 163.8 MB | 3.78× |
+| Go | 0.248s | **96.4 MB (가장 가벼움)** | 2.89× |
+| Python | 22.958s | 311.1 MB | 0.79× (1 스레드보다 느림) |
 
-힙 버전의 메모리가 큰 것은 스레드마다 크기 등급 캐시가 자기가 해제한 블록을 따로 보관하기 때문입니다.
+힙 버전은 이제 C와 같은 시간입니다(0.229 vs 0.226초, 슬랩 이전 0.263초). 메모리가 큰 것은 스레드마다 해제된 블록의 캐시와 여분 슬랩을 따로 두기 때문입니다.
 
 ::: details 소스
 [binarytrees_mt.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt.sc) · [binarytrees_mt_arena.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt_arena.sc) · [binarytrees_mt.c](/benchmarks/binarytrees_mt/c/binarytrees_mt.c) · [binarytrees_mt.cpp](/benchmarks/binarytrees_mt/cpp/binarytrees_mt.cpp) · [binarytrees_mt.rs](/benchmarks/binarytrees_mt/rust/binarytrees_mt.rs) · [binarytrees_mt.zig](/benchmarks/binarytrees_mt/zig/binarytrees_mt.zig) · [binarytrees_mt.go](/benchmarks/binarytrees_mt/go/binarytrees_mt.go) · [binarytrees_mt.py](/benchmarks/binarytrees_mt/python/binarytrees_mt.py)
@@ -119,15 +119,15 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 언어 | 스칼라 | 명시적 SIMD | 속도 향상 |
 |---|---|---|---|
-| SafeC | 0.086s | 0.078s | 1.10× |
-| C | 0.085s | 0.077s | 1.11× |
-| C++ | 0.082s | **0.076s (가장 빠름)** | 1.07× |
-| Rust | 0.083s | 0.077s | 1.07× |
-| Zig | **0.075s (가장 빠름)** | **0.076s (가장 빠름)** | 0.99× |
-| Go | 0.086s | N/A | — |
-| Python | 3.010s | 0.190s (NumPy) | 15.9× |
+| SafeC | 0.080s | 0.075s | 1.07× |
+| C | 0.080s | 0.077s | 1.04× |
+| C++ | 0.081s | 0.074s | 1.09× |
+| Rust | 0.080s | 0.077s | 1.05× |
+| Zig | **0.079s (가장 빠름)** | **0.072s (가장 빠름)** | 1.09× |
+| Go | 0.085s | N/A | — |
+| Python | 3.117s | 0.186s (NumPy) | 16.8× |
 
-이 루프는 7800X3D에서 메모리 대역폭에 묶입니다(double 160MB가 96MB L3를 훨씬 넘어 흘러감). 그래서 명시적 SIMD가 자동 벡터화된 스칼라 루프보다 얻는 것이 적고, 표 전체가 프로세스 시작 잡음 정도인 ~10ms 안에 있습니다.
+이 루프는 7800X3D에서 메모리 대역폭에 묶입니다(double 160MB가 96MB L3를 훨씬 넘어 흘러감). 그래서 명시적 SIMD가 자동 벡터화된 스칼라 루프보다 얻는 것이 적고, 표 전체가 프로세스 시작 잡음 정도인 ~10ms 안에 있습니다. SafeC의 벡터 버전은 합산을 x86-64 단계별로([AVX-512 > AVX2 > AVX > SSE4.1 > SSE2](/ko/stdlib/simd#cpu-levels)) 빌드해 실행 시점에 가장 좋은 것을 고르고, 누산기 네 개를 씁니다. 합산만 따로 재면 어느 단계에서든 약 3.7 ms(약 43 GB/s)이므로, 각 행의 나머지는 스칼라 준비 루프와 배열의 페이지 폴트입니다.
 
 ::: details 소스
 [simd_scalar.sc](/benchmarks/simd/safec/simd_scalar.sc) · [simd_vec.sc](/benchmarks/simd/safec/simd_vec.sc) · [simd_scalar.c](/benchmarks/simd/c/simd_scalar.c) · [simd_vec.c](/benchmarks/simd/c/simd_vec.c) · [simd_scalar.cpp](/benchmarks/simd/cpp/simd_scalar.cpp) · [simd_vec.cpp](/benchmarks/simd/cpp/simd_vec.cpp) · [simd_scalar.rs](/benchmarks/simd/rust/simd_scalar.rs) · [simd_vec.rs](/benchmarks/simd/rust/simd_vec.rs) · [simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs) · [simd_scalar.zig](/benchmarks/simd/zig/simd_scalar.zig) · [simd_vec.zig](/benchmarks/simd/zig/simd_vec.zig) · [simd_scalar.go](/benchmarks/simd/go/simd_scalar.go) · [simd_numpy.py](/benchmarks/simd/python/simd_numpy.py) · [simd_scalar.py](/benchmarks/simd/python/simd_scalar.py)
@@ -139,24 +139,24 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 연산 | SafeC | C | SafeC / C |
 |---|---|---|---|
-| `Vec<int>` push | 2.50 ms | **1.55 ms** | 1.61× |
+| `Vec<int>` push | 2.31 ms | **1.51 ms** | 1.53× |
 | `vec_sort` (인트로소트, 인라인된 `Less<int>`) vs `qsort` | **43.5 ms** | 83.4 ms | 0.52× |
-| `HashMap<int,int>` insert | 41.6 ms | **33.5 ms** | 1.24× |
-| `HashMap<int,int>` get | 8.63 ms | **7.24 ms** | 1.19× |
-| `List<int>` push_back + pop_front | **11.5 ms** | 22.2 ms | 0.52× |
-| `Queue<int>` enqueue + dequeue | **3.42 ms** | 5.47 ms | 0.63× |
-| `BST<int,int,Less<int>>` insert | **177.1 ms** | 179.0 ms | 0.99× |
-| `BST<int,int,Less<int>>` get | **171.0 ms** | 176.0 ms | 0.97× |
+| `HashMap<int,int>` insert | 37.9 ms | **34.3 ms** | 1.10× |
+| `HashMap<int,int>` get | 8.36 ms | **7.38 ms** | 1.13× |
+| `List<int>` push_back + pop_front | **10.1 ms** | 22.2 ms | 0.45× |
+| `Queue<int>` enqueue + dequeue | **3.02 ms** | 5.54 ms | 0.55× |
+| `BST<int,int,Less<int>>` insert | **175.6 ms** | 179.9 ms | 0.98× |
+| `BST<int,int,Less<int>>` get | 173.7 ms | **172.7 ms** | 1.01× |
 
 ::: details 결과를 가르는 요인
 - **정렬**이 `qsort`보다 빠른 것은 순서가 타입 매개변수이기 때문입니다: 모든 비교가 인라인되지만, `qsort`는 비교할 때마다 간접 호출을 합니다.
 - **List**와 **BST** 노드는 노드마다 할당하지 않고 컨테이너별 노드 풀(청크 단위 범프 할당 + 프리 리스트)에서 나옵니다. 그래서 `malloc`의 청크당 오버헤드와 `std::alloc`의 16바이트 안전 헤더를 모두 피합니다. BST 조회는 무작위 탐색의 캐시 미스가 지배하며, 양쪽이 같습니다.
-- **HashMap**은 1/2/4/8바이트 키를 한 워드로 해시하고(murmur3 finalizer) 정수 비교 한 번으로 비교하며, 이를 컴파일 시간에 `if const`로 고릅니다. 남은 차이는 insert의 툼스톤 관리입니다.
-- **Vec push**는 경계 검사 접근(`keys.at(i)`)과 `std::alloc`의 검사된 `realloc` 경로 비용을 냅니다.
+- **HashMap**은 1/2/4/8바이트 키를 한 워드로 해시하고(murmur3 finalizer) 정수 비교 한 번으로 비교하며, 이를 컴파일 시간에 `if const`로 고릅니다. 조회와 삽입은 인라인되고 테이블 배열을 지역 변수로 읽으며, 재해시는 인라인되지 않는 cold 호출입니다(insert 41.6 → 37.9 ms). 남은 차이는 대부분 성장 비용입니다: 재해시마다 새 배열이 새 페이지에서 시작합니다.
+- **Vec push**는 성장을 인라인되지 않는 cold 호출 하나에 두므로, push 자체는 비교, 저장, 증가뿐입니다. 2.50에서 2.31 ms가 되었고, 개선의 대부분은 할당자의 격리 구역이 더 이상 해제된 수 MB 버퍼의 재사용을 막지 않게 된 데서 왔습니다(이전에는 C의 3,000번에 비해 페이지 폴트 60,000번). 남은 차이는 벤치마크 루프의 경계 검사 `keys.at(i)`와 처음 쓰는 성장 비용입니다.
 :::
 
 ::: details 소스
-[bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc) · [bench_collections.c](/benchmarks/collections/c/bench_collections.c)
+[bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc) · [bench_collections.c](/benchmarks/collections/c/bench_collections.c) · [vec.h](/benchmarks/stdlib/vec.h) · [map.h](/benchmarks/stdlib/map.h) · [mem.sc](/benchmarks/stdlib/mem.sc)
 :::
 
 ## 웹 서비스 — JSON "hello world" 엔드포인트 {#web-service-json-hello-world-endpoint}
@@ -165,13 +165,13 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 언어 | req/s | p50 / p99 지연 | 최대 메모리 |
 |---|---|---|---|
-| SafeC | **25,216 (가장 빠름)** | 2 / 2 ms | 5.1 MB |
-| C | 24,618 | 2 / 2 ms | **3.0 MB (가장 가벼움)** |
-| C++ | 24,870 | 2 / 2 ms | 5.0 MB |
-| Rust | 24,814 | 2 / 2 ms | 4.3 MB |
-| Zig | 24,828 | 2 / 2 ms | 9.3 MB |
-| Go | 23,573 | 2 / 3 ms | 15.7 MB |
-| Python | 5,047 | 10 / 14 ms | 46.1 MB |
+| SafeC | **25,303 (가장 빠름)** | 2 / 2 ms | 4.9 MB |
+| C | 24,620 | 2 / 2 ms | **3.1 MB (가장 가벼움)** |
+| C++ | 24,845 | 2 / 2 ms | 5.1 MB |
+| Rust | 25,075 | 2 / 2 ms | 4.3 MB |
+| Zig | 25,030 | 2 / 2 ms | 7.1 MB |
+| Go | 23,199 | 2 / 3 ms | 16.1 MB |
+| Python | 5,096 | 10 / 14 ms | 46.0 MB |
 
 모든 서버가 실패 없이 모든 요청을 처리했습니다. 컴파일 언어 서버는 모두 서로 8% 이내입니다: keep-alive가 없으면 요청마다 새 TCP 연결이므로, 병목은 서버가 아니라 커널의 connect/accept 경로와 `ab` 자체입니다.
 
@@ -185,23 +185,23 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 프레임워크 | 장치 | 학습 (100 스텝) | 처리량 | 추론 (1000회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (내장 `sgemm`, 16 스레드) | 17.6 ms | 364,100 samples/s | 35.2 ms | 100.333267 |
-| SafeC | CPU, AOCL-BLAS | 14.8 ms | 431,100 samples/s | 24.9 ms | 100.333267 |
-| SafeC | CPU, oneMKL | 18.6 ms | 343,800 samples/s | 30.4 ms | 100.333267 |
-| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 25.6 ms | 249,900 samples/s | 55.6 ms | 100.333267 |
+| SafeC | CPU (내장 `sgemm`, 16 스레드) | 16.8 ms | 380,800 samples/s | 36.0 ms | 100.333267 |
+| SafeC | CPU, AOCL-BLAS | 14.9 ms | 430,900 samples/s | 26.3 ms | 100.333267 |
+| SafeC | CPU, oneMKL | 18.1 ms | 353,800 samples/s | 31.4 ms | 100.333267 |
+| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 9.6 ms | 668,800 samples/s | 24.3 ms | 100.333267 |
 | SafeC | ROCm (MI100), fp32 | 7.26 ms | 881,300 samples/s | 33.3 ms | 100.333282 |
 | SafeC | ROCm, 그래프, fp32 | 7.01 ms | 912,900 samples/s | 36.4 ms | 100.333282 |
 | SafeC | ROCm, 그래프, fp16 | **5.39 ms (가장 빠름)** | **1,187,000 samples/s** | 33.2 ms | 100.336113 |
 | SafeC | ROCm, 그래프, bf16 | 5.78 ms | 1,106,700 samples/s | 35.0 ms | 99.905960 |
-| PyTorch | CPU | 14.1 ms | 453,600 samples/s | **22.0 ms (가장 빠름)** | 100.018272 |
+| PyTorch | CPU | 14.0 ms | 455,900 samples/s | **21.9 ms (가장 빠름)** | 100.018272 |
 | PyTorch | ROCm (MI100), fp32 | 20.5 ms | 311,700 samples/s | 36.3 ms | 103.071129 |
 | PyTorch | ROCm, fp16 | 19.0 ms | 336,600 samples/s | 33.5 ms | 103.062500 |
 | PyTorch | ROCm, bf16 | 18.9 ms | 338,700 samples/s | 47.1 ms | 103.000000 |
-| TensorFlow | CPU | 79.3 ms | 80,700 samples/s | 203.5 ms | 106.182999 |
+| TensorFlow | CPU | 79.5 ms | 80,500 samples/s | 203.9 ms | 106.182999 |
 
-이 크기에서는 GPU 스텝 하나가 마이크로초 단위 커널 몇 개와 손실의 블로킹 읽기로 이루어지므로, 실행 시작과 동기화 지연이 시간을 지배합니다. CPU에서는 PyTorch가 여전히 추론에서 가장 빠릅니다. AOCL-BLAS를 링크한 SafeC는 학습에서 PyTorch의 5% 이내입니다(14.8 vs 14.1 ms).
+이 크기에서는 GPU 스텝 하나가 마이크로초 단위 커널 몇 개와 손실의 블로킹 읽기로 이루어지므로, 실행 시작과 동기화 지연이 시간을 지배합니다. CPU에서는 OpenBLAS를 쓴 SafeC가 PyTorch보다 1.5배 빠르게 학습합니다(9.6 vs 14.0 ms). 추론은 여전히 PyTorch가 가장 빠릅니다(21.9 vs SafeC 24.3 ms).
 
-SafeC의 CPU 행은 `tensor_matmul`을 패킹된 SIMD GEMM인 [`sgemm`](/ko/stdlib/simd#gemm)으로 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다. 커널은 실행 시점에 CPU의 [SIMD 수준](/ko/stdlib/simd#cpu-levels)(여기서는 AVX-512)에 맞춰 고릅니다. 텐서는 단계마다의 [`TensorArena`](/ko/stdlib/ml#tensor-arena)에서 할당하고, 풀의 워커는 잠들기 전에 잠시 스핀합니다. [`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)를 지정하면 GEMM 타일은 AOCL-BLAS(AMD)나 oneMKL(Intel)로 가며, SafeC의 풀에서 타일마다 단일 스레드로 실행됩니다. OpenBLAS 행은 예전의 `tensor_blas.h` 경로로, 곱셈마다 멀티스레드 OpenBLAS 호출 하나입니다. 이 모든 것이 대체한 단순 스칼라 루프는 학습 107.4 ms, 추론 285.8 ms였습니다. 프레임워크마다 손실이 다른 것은 각자 자기 RNG로 데이터와 초기 가중치를 뽑기 때문입니다. SafeC 행들은 모두 시드가 같은 하나의 스트림(`drand48`)을 공유하며, CPU와 GPU에서 6자리까지 일치합니다.
+SafeC의 CPU 행은 `tensor_matmul`을 패킹된 SIMD GEMM인 [`sgemm`](/ko/stdlib/simd#gemm)으로 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다. 커널은 실행 시점에 CPU의 [SIMD 수준](/ko/stdlib/simd#cpu-levels)(여기서는 AVX-512)에 맞춰 고릅니다. 텐서는 단계마다의 [`TensorArena`](/ko/stdlib/ml#tensor-arena)에서 할당하고, 풀의 워커는 잠들기 전에 잠시 스핀합니다. [`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)를 지정하면 GEMM 타일은 AOCL-BLAS(AMD)나 oneMKL(Intel)로 가며, SafeC의 풀에서 타일마다 단일 스레드로 실행됩니다. OpenBLAS 행은 예전의 `tensor_blas.h` 경로로, 곱셈마다 멀티스레드 OpenBLAS 호출 하나입니다. 이제 이 경로도 단계마다 `TensorArena`를 써서(예전에는 단계마다 텐서를 해제하지 않았음) 25.6 ms에서 9.6 ms가 되었습니다. 이 크기에서는 곱셈마다 멀티스레드 호출 하나가 SafeC 풀 위의 타일 분할보다 빠릅니다. 이 모든 것이 대체한 단순 스칼라 루프는 학습 107.4 ms, 추론 285.8 ms였습니다. 프레임워크마다 손실이 다른 것은 각자 자기 RNG로 데이터와 초기 가중치를 뽑기 때문입니다. SafeC 행들은 모두 시드가 같은 하나의 스트림(`drand48`)을 공유하며, CPU와 GPU에서 6자리까지 일치합니다.
 
 ::: details 소스
 [train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [gemm.h](/benchmarks/stdlib/gemm.h) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [parallel.h](/benchmarks/stdlib/parallel.h) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
@@ -213,19 +213,19 @@ SafeC의 CPU 행은 `tensor_matmul`을 패킹된 SIMD GEMM인 [`sgemm`](/ko/stdl
 
 | 프레임워크 | 장치 | 학습 (50 스텝) | 처리량 | 추론 (200회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (내장 `sgemm`, 16 스레드) | 48.7 ms | 131,300 samples/s | 67.3 ms | 95.426926 |
-| SafeC | CPU, AOCL-BLAS | 37.0 ms | 173,100 samples/s | 43.3 ms | 95.427536 |
-| SafeC | CPU, oneMKL | 44.8 ms | 142,900 samples/s | 52.0 ms | 95.428177 |
-| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 148.5 ms | 43,100 samples/s | 240.4 ms | 95.424927 |
+| SafeC | CPU (내장 `sgemm`, 16 스레드) | 48.8 ms | 131,200 samples/s | 67.0 ms | 95.426926 |
+| SafeC | CPU, AOCL-BLAS | 36.5 ms | 175,300 samples/s | 43.6 ms | 95.427536 |
+| SafeC | CPU, oneMKL | 45.4 ms | 141,000 samples/s | 52.6 ms | 95.428177 |
+| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 93.3 ms | 68,600 samples/s | 123.1 ms | 95.424927 |
 | SafeC | ROCm (MI100), fp32 | 7.64 ms | 838,100 samples/s | 10.6 ms | 95.428314 |
 | SafeC | ROCm, 그래프, fp32 | 7.37 ms | 868,500 samples/s | 11.5 ms | 95.428322 |
 | SafeC | ROCm, 그래프, fp16 | **5.90 ms (가장 빠름)** | **1,085,300 samples/s** | **9.26 ms (가장 빠름)** | 95.090317 |
 | SafeC | ROCm, 그래프, bf16 | 6.05 ms | 1,057,500 samples/s | 9.80 ms | 63.433674 |
-| PyTorch | CPU | 38.5 ms | 166,100 samples/s | 51.4 ms | 106.601181 |
+| PyTorch | CPU | 38.4 ms | 166,900 samples/s | 50.8 ms | 106.601181 |
 | PyTorch | ROCm (MI100), fp32 | 10.7 ms | 599,000 samples/s | 13.4 ms | 1868.155273 |
 | PyTorch | ROCm, fp16 | 9.91 ms | 645,600 samples/s | 17.9 ms | 1942.000000 |
 | PyTorch | ROCm, bf16 | 10.8 ms | 590,700 samples/s | 15.7 ms | 107.000000 |
-| TensorFlow | CPU | 105.6 ms | 60,600 samples/s | 114.6 ms | 316.611603 |
+| TensorFlow | CPU | 105.8 ms | 60,500 samples/s | 123.6 ms | 316.611603 |
 
 GPU에서 fp32로 SafeC는 PyTorch보다 학습이 1.45배, 추론이 1.26배 빠릅니다(둘 다 한 번에 rocBLAS GEMM 두 개, 원소별 커널 하나, 읽기 한 번). 이 차이의 일부는 새로 생겼습니다: 각 GEMM 크기의 첫 호출이 rocBLAS가 내놓는 솔루션을 모두 재서 가장 빠른 것을 쓰므로([ROCm](/ko/stdlib/ml#rocm-hip-amd) 참고) fp32 그래프 스텝이 8.29 ms에서 7.37 ms로 줄었습니다. 그래프 재생은 학습 스텝 전체를 `RocmGraph` 하나에 기록해 한 번의 호출로 실행하며, 매 스텝 손실을 블로킹으로 읽어도 3–4% 줄어듭니다. 스텝마다 읽지 않으면, 같은 루프의 C++ 프로토타입이 7.1ms 대신 3.8ms로 돌았습니다. PyTorch-ROCm의 손실은 GPU RNG로 뽑은 초기 가중치에서 lr 0.001로 발산합니다. 속도와는 상관없지만, 검증용 값이 이상해 보이는 이유입니다.
 
@@ -237,7 +237,7 @@ GPU에서 fp32로 SafeC는 PyTorch보다 학습이 1.45배, 추론이 1.26배 �
 - 이 루프는 반올림 차이를 키웁니다. 50 스텝 뒤 큰 모델의 손실은 fp16에서 95.09, bf16에서 63.43이고 fp32는 95.43입니다. H200도 같은 양상입니다(93.44, 62.01).
 - CPU의 [`tensor_half.h`](/ko/stdlib/ml#half-precision-tensors)는 fp16/bf16으로 저장하지만 계산은 fp32로 하므로 메모리는 줄어도 시간은 줄지 않습니다. 그래서 16비트 CPU 행은 없습니다.
 
-CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학습은 PyTorch보다 4%(37.0 vs 38.5 ms), 추론은 16%(43.3 vs 51.4 ms) 빠릅니다. 내장 `sgemm`만으로도 PyTorch의 1.3배 이내이며, 이것이 대체한 스칼라 루프(학습 1761.2 ms)보다 36배 빠릅니다. OpenBLAS 행(Ubuntu 패키지의 범용 pthreads 빌드)이 가장 느린 CPU 경로입니다. 곱셈마다 멀티스레드 호출 하나이고, 이 작은 GEMM들에서 그 스레드들이 서로 스핀하며 부딪힙니다.
+CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학습은 PyTorch보다 5%(36.5 vs 38.4 ms), 추론은 14%(43.6 vs 50.8 ms) 빠릅니다. 내장 `sgemm`만으로도 PyTorch의 1.3배 이내이며, 이것이 대체한 스칼라 루프(학습 1761.2 ms)보다 36배 빠릅니다. OpenBLAS 행(Ubuntu 패키지의 범용 pthreads 빌드)은 아레나를 쓴 뒤에도(148.5 → 93.3 ms) 여기서 가장 느린 CPU 경로입니다. 곱셈마다 멀티스레드 호출 하나이고, 이 작은 GEMM들에서 그 스레드들이 서로 스핀하며 부딪힙니다.
 
 ::: details 소스
 [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
@@ -249,10 +249,10 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 
 | 패턴 | `std::alloc` / `dealloc` | `malloc` / `free` | 비율 |
 |---|---|---|---|
-| 교차: 48바이트 블록 하나를 할당하고 해제, 2천만 번 | **3.66 ns / 쌍** | 6.76 ns / 쌍 | 1.8배 빠름 |
-| 일괄: 24바이트 블록 100만 개를 할당한 뒤 모두 해제, 10회 | 134 ms | **94 ms** | 1.4배 느림 |
+| 교차: 48바이트 블록 하나를 할당하고 해제, 2천만 번 | **3.57 ns / 쌍** | 6.38 ns / 쌍 | 1.8배 빠름 |
+| 일괄: 24바이트 블록 100만 개를 할당한 뒤 모두 해제, 10회 | **87 ms** | 96 ms | 1.1배 빠름 |
 
-해제된 블록이 곧 다시 쓰이면 캐시가 이깁니다. 수명이 짧은 객체와 binary-trees 같은 반복 할당이 그렇습니다: 위의 힙 binary-trees는 다른 모든 언어의 할당자보다 빠릅니다. 살아 있는 블록 100만 개는 캐시가 담을 수 있는 양(모든 등급 합쳐 125,587 슬롯)을 넘으므로, 일괄 패턴의 할당 대부분은 `malloc`에 헤더 쓰기와 캐시 관리까지 거치고, 그 오버헤드가 드러납니다. 수명이 짧은 대량 할당에는 `region`/`arena<R>`이 더 빠른 도구입니다: binary-trees에서 힙 버전보다 5.1배 빠릅니다.
+해제된 블록이 곧 다시 쓰이면 캐시가 이깁니다. 수명이 짧은 객체와 binary-trees 같은 반복 할당이 그렇습니다: 위의 힙 binary-trees는 다른 모든 언어의 할당자보다 빠릅니다. 살아 있는 블록 100만 개는 캐시가 담을 수 있는 양(모든 등급 합쳐 125,587 슬롯)을 넘습니다. 예전에는 그런 블록이 하나씩 `malloc`을 거치고 헤더 쓰기가 더해졌습니다(134 ms, `malloc`보다 1.4배 느림). 이제 1 KB 이하 블록은 스레드별 64 KB 슬랩에서 나오므로, 같은 이중 해제 검사를 유지하면서 일괄 패턴이 `malloc`보다 1.1배 빠릅니다([`std::mem`](/ko/stdlib/mem#allocation-performance) 참고). 수명이 짧은 대량 할당에는 여전히 `region`/`arena<R>`이 더 빠른 도구입니다: binary-trees에서 힙 버전보다 4.7배 빠릅니다.
 
 ::: details 소스
 [mem.h](/benchmarks/stdlib/mem.h) · [mem.sc](/benchmarks/stdlib/mem.sc) · [alloc_bench.sc](/benchmarks/memalloc/safec/alloc_bench.sc)
@@ -266,57 +266,57 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 
 | 프레임워크 | 장치 | conv64, 이미지 1장 | conv64, 32장 | unet128, 1장 | unet128, 16장 |
 |---|---|---|---|---|---|
-| SafeC | CPU (Winograd / im2col + 내장 `sgemm`, 16 스레드) | 0.520 | — | 1.86 | — |
-| SafeC | CPU, AOCL-BLAS | 0.470 | — | 1.42 | — |
-| SafeC | CPU, oneMKL | 0.505 | — | 1.80 | — |
-| PyTorch | CPU (oneDNN, 8 스레드) | 0.310 | — | 2.97 | — |
-| SafeC | ROCm | **0.0270** | **0.343** | 0.224 | 1.288 |
-| SafeC | ROCm, U-Net을 그래프 하나로 | | | **0.219** | |
-| PyTorch | ROCm | 0.0627 | 0.345 | 0.315 | **1.264** |
+| SafeC | CPU (Winograd / im2col + 내장 `sgemm`, 16 스레드) | 0.412 | — | 1.68 | — |
+| SafeC | CPU, AOCL-BLAS | 0.359 | — | 1.35 | — |
+| SafeC | CPU, oneMKL | 0.399 | — | 1.69 | — |
+| PyTorch | CPU (oneDNN, 8 스레드) | 0.327 | — | 2.68 | — |
+| SafeC | ROCm | **0.0270** | **0.342** | 0.222 | 1.289 |
+| SafeC | ROCm, U-Net을 그래프 하나로 | | | **0.216** | |
+| PyTorch | ROCm | 0.0628 | 0.346 | 0.314 | **1.259** |
 
 GPU의 FFT, 호출당 ms. `fft1d`와 `fft2d`는 호스트 메모리에서 시작해 끝나는 복소 `double` 배열이라, GPU 호출마다 업로드와 읽기가 포함됩니다. `batch`와 `rfft`는 이미 GPU에 있는 데이터(complex64, float32)로 실행합니다.
 
 | 프레임워크 | 장치 | fft1d, 2²⁰점 | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
 |---|---|---|---|---|---|
-| SafeC | ROCm | **1.54** | **1.44** | **0.0997** | **0.0945** |
-| PyTorch | ROCm | 1.55 | 1.53 | 0.169 | 0.126 |
+| SafeC | ROCm | **1.46** | **1.43** | **0.1002** | **0.0949** |
+| PyTorch | ROCm | 1.56 | 1.53 | 0.171 | 0.126 |
 
-CPU의 FFT, 호출당 ms. 비교 대상은 FFTW 3.3.10(AVX/AVX2/AVX-512, FMA 코드렛으로 빌드, `FFTW_MEASURE`로 계획), KFR 7.2.0, RustFFT 6.4.1입니다. 데이터는 모두 메모리에서 시작합니다. `fft1d`는 2²⁰점 변환 하나, `fft2d`는 1024×1024 변환 하나, `batch`는 4096점 변환 1024개, `rfft`는 4096점 실수 변환 1024개입니다. `rfft`에서 FFTW, KFR, RustFFT는 n/2 + 1개 빈을 돌려주고, SafeC의 `fft_real_batch`는 n개 전부를 씁니다. RustFFT에는 2D와 실수 변환이 없습니다. oneMKL을 링크하면 SafeC는 65,536점 미만의 변환을 DFTI에 맡깁니다. AOCL은 여기에 영향이 없습니다(AOCL의 FFT는 FFTW 기반이라 GPL이며 쓰지 않음).
+CPU의 FFT, 호출당 ms. 비교 대상은 FFTW 3.3.10(AVX/AVX2/AVX-512, FMA 코드렛으로 빌드, `FFTW_MEASURE`로 계획), KFR 7.2.0, RustFFT 6.4.1입니다. 데이터는 모두 메모리에서 시작합니다. `fft1d`는 2²⁰점 변환 하나, `fft2d`는 1024×1024 변환 하나, `batch`는 4096점 변환 1024개, `rfft`는 4096점 실수 변환 1024개입니다. `rfft`에서는 모든 라이브러리가 중복되지 않는 n/2 + 1개 빈을 돌려줍니다(SafeC는 `fft_real_half_batch`로). RustFFT에는 2D와 실수 변환이 없습니다. oneMKL을 링크하면 SafeC는 65,536점 미만의 변환을 DFTI에 맡깁니다. AOCL은 여기에 영향이 없습니다(AOCL의 FFT는 FFTW 기반이라 GPL이며 쓰지 않음).
 
 배정밀도(complex128):
 
 | 라이브러리 | 스레드 | fft1d | fft2d | batch | rfft |
 |---|---|---|---|---|---|
-| SafeC `fft.h` | 16 | **0.917** | 0.654 | 1.26 | 1.75 |
-| SafeC, oneMKL DFTI | 16 | 0.938 | 1.03 | 2.01 | 1.96 |
-| FFTW | 16 | 1.63 | **0.597** | **0.975** | **0.561** |
-| PyTorch | 8 | 8.36 | 0.749 | — | — |
-| SafeC `fft.h` | 1 | 5.53 | 4.38 | 13.9 | 8.56 |
-| FFTW | 1 | 6.70 | 3.51 | 7.83 | 4.10 |
-| KFR | 1 | 3.45 | 4.25 | 11.9 | 4.33 |
-| RustFFT | 1 | 4.76 | — | 8.44 | — |
+| SafeC `fft.h` | 16 | **0.888** | 0.691 | 1.25 | 0.861 |
+| SafeC, oneMKL DFTI | 16 | 0.891 | 1.00 | 1.89 | 1.05 |
+| FFTW | 16 | 1.63 | **0.618** | **1.05** | **0.553** |
+| PyTorch | 8 | 8.31 | 0.710 | — | — |
+| SafeC `fft.h` | 1 | 5.47 | 4.43 | 11.9 | 6.17 |
+| FFTW | 1 | 6.50 | 3.49 | 7.84 | 4.28 |
+| KFR | 1 | 3.36 | 4.22 | 11.8 | 4.34 |
+| RustFFT | 1 | 4.75 | — | 8.25 | — |
 
 단정밀도(complex64 / float32):
 
 | 라이브러리 | 스레드 | fft1d | fft2d | batch | rfft |
 |---|---|---|---|---|---|
-| SafeC `fft_f32` | 16 | **0.692** | 0.539 | 0.822 | 0.720 |
-| SafeC, oneMKL DFTI | 16 | 0.694 | 0.513 | 0.915 | 0.515 |
-| FFTW (`fftwf`) | 16 | 1.69 | **0.432** | **0.500** | **0.409** |
-| PyTorch | 8 | — | — | 4.65 | 0.438 |
-| SafeC `fft_f32` | 1 | 4.49 | 3.39 | 5.83 | 5.41 |
-| FFTW (`fftwf`) | 1 | 5.52 | 2.51 | 3.45 | 2.98 |
-| KFR | 1 | 1.77 | 2.65 | 4.17 | 2.13 |
-| RustFFT | 1 | 2.10 | — | 4.19 | — |
+| SafeC `fft_f32` | 16 | **0.688** | 0.560 | 0.775 | 0.558 |
+| SafeC, oneMKL DFTI | 16 | 0.693 | 0.543 | 0.964 | 0.457 |
+| FFTW (`fftwf`) | 16 | 1.67 | **0.446** | **0.504** | **0.409** |
+| PyTorch | 8 | — | — | 4.41 | 0.443 |
+| SafeC `fft_f32` | 1 | 4.39 | 3.25 | 5.76 | 4.28 |
+| FFTW (`fftwf`) | 1 | 5.53 | 2.54 | 3.31 | 2.98 |
+| KFR | 1 | 1.77 | 2.63 | 4.23 | 2.13 |
+| RustFFT | 1 | 2.10 | — | 4.11 | — |
 
 단일 스레드 SafeC 행은 표 측정 뒤에 같은 빌드로 따로 쟀습니다(`SAFEC_NUM_THREADS=1`).
 
-- **합성곱**: GPU에서 SafeC는 이미지 1장에서 PyTorch보다 2.3배, 그래프로 실행한 배치 1 U-Net에서 1.44배 빠릅니다. 32장에서는 비기고, 16장 U-Net에서는 PyTorch가 2% 빠릅니다. SafeC의 합성곱은 MIOpen 호출 하나와 바이어스(및 ReLU)용 HIP 커널 하나이고, U-Net 디코더 단계는 연결 버퍼로 바로 업샘플하는 커널 하나입니다.
-- **CPU 합성곱**: 3×3, 스트라이드 1 계층은 이제 [Winograd F(2×2, 3×3)](/ko/stdlib/ml#cnn)(Lavin & Gray)를 씁니다. 출력 2×2와 채널 쌍마다 곱셈이 36번 대신 16번입니다. 입력 변환, 채널 GEMM 16개, 출력 변환이 각각 풀에서 실행됩니다. 그 밖의 계층은 im2col + `sgemm`입니다. U-Net에서 SafeC는 AOCL-BLAS로 PyTorch의 CPU 경로보다 2.1배(1.42 vs 2.97 ms), 내장 GEMM으로 1.6배 빠릅니다. Winograd 이전에는 3.13 ms였습니다(이 페이지의 이전 측정에서는 4.86 ms). 단일 `conv64` 계층에서는 PyTorch(oneDNN)가 여전히 1.5–1.7배 빠릅니다.
+- **합성곱**: GPU에서 SafeC는 이미지 1장에서 PyTorch보다 2.3배, 그래프로 실행한 배치 1 U-Net에서 1.45배 빠릅니다. 32장에서는 비기고, 16장 U-Net에서는 PyTorch가 2% 빠릅니다. SafeC의 합성곱은 MIOpen 호출 하나와 바이어스(및 ReLU)용 HIP 커널 하나이고, U-Net 디코더 단계는 연결 버퍼로 바로 업샘플하는 커널 하나입니다.
+- **CPU 합성곱**: 3×3, 스트라이드 1 계층은 [Winograd F(2×2, 3×3)](/ko/stdlib/ml#cnn)(Lavin & Gray)를 씁니다. 출력 2×2와 채널 쌍마다 곱셈이 36번 대신 16번입니다. 입력 변환, 채널 GEMM 16개, 출력 변환이 각각 풀에서 실행됩니다. 그 밖의 계층은 im2col + `sgemm`입니다. 이제 이미지마다의 맵(U-Net의 중간 결과 포함)은 이미지가 끝나면 reset하는 [`TensorArena`](/ko/stdlib/ml#tensor-arena)에서 할당하므로, 어느 계층도 수 MB짜리 새 할당 비용을 치르지 않습니다(이것만으로 `conv64`가 0.535 ms에서 0.415 ms가 됨). U-Net에서 SafeC는 AOCL-BLAS로 PyTorch의 CPU 경로보다 2.0배(1.35 vs 2.68 ms), 내장 GEMM으로 1.6배 빠릅니다. Winograd와 아레나 이전에는 3.13 ms였습니다. 단일 `conv64` 계층에서는 PyTorch(oneDNN)가 여전히 1.1–1.3배 빠릅니다.
 - **GPU의 FFT**: 양쪽 모두 rocFFT를 부릅니다. 호스트 배열은 PCIe가 지배해 시간이 같습니다. 장치 데이터에서는 SafeC가 1.3–1.7배 빠릅니다. 호출당 0.1 ms 수준에서는 같은 변환을 둘러싼 PyTorch의 호출당 작업(출력 텐서 할당, 디스패치)이 큰 몫을 차지하지만, 따로 재지는 않았습니다.
-- **CPU FFT**: 2²⁰점 변환에서는 두 정밀도 모두 SafeC가 가장 빠르며, 16스레드 FFTW보다 1.8배(double), 2.4배(float) 앞섭니다. 2D, 배치, 실수 변환에서는 FFTW가 1.1배(double `fft2d`)에서 3.1배(double `rfft`)까지 앞섭니다. 단일 스레드에서 SafeC는 2²⁰점에서는 FFTW보다 빠르고, 2D와 4096점 행에서는 뒤집니다(double 배치에서 1.8배). 이 행들에서는 FFTW의 더 큰 코드렛과 행마다 더 적은 패스가 효과를 냅니다. SafeC의 실수 변환 후처리는 아직 스칼라입니다. 이 페이지의 이전 측정 이후, 합친 radix-8 패스, 벡터 하나에 복소수 네 개(AVX-512, 그리고 AVX2의 float), 컴파일 타임 비트 역순 테이블로 16스레드 double 배치가 4.35 ms에서 1.26 ms로, 2D 변환이 2.06 ms에서 0.654 ms로 줄었습니다.
-- **단정밀도**: float는 같은 알고리즘(`fft_core.h`를 두 번 빌드)을 레지스터당 두 배의 값으로 실행합니다. 배치는 double 시간의 0.65배, 실수 배치는 0.41배입니다.
-- **oneMKL**: DFTI는 float `rfft`(0.515 vs 0.720)와 float `fft2d`에서는 SafeC 자체 코드보다 빠르지만, double에서는 느립니다(배치 2.01 vs 1.26).
+- **CPU FFT**: 2²⁰점 변환에서는 두 정밀도 모두 SafeC가 가장 빠르며, 16스레드 FFTW보다 1.8배(double), 2.4배(float) 앞섭니다. 2D, 배치, 실수 변환에서는 FFTW가 1.1배(double `fft2d`)에서 1.6배(double `rfft`)까지 앞섭니다. 단일 스레드에서 SafeC는 2²⁰점에서는 FFTW보다 빠르고, 2D와 4096점 행에서는 뒤집니다(double 배치에서 1.5배). 이 행들에서는 FFTW의 더 큰 코드렛과 행마다 더 적은 패스가 효과를 냅니다. 이 페이지의 이전 측정 이후, 합친 radix-8 패스, 벡터 하나에 복소수 네 개(AVX-512, 그리고 AVX2의 float), 컴파일 타임 비트 역순 테이블로 16스레드 double 배치가 4.35 ms에서 1.25 ms로, 2D 변환이 2.06 ms에서 0.691 ms로 줄었습니다. 실수 변환의 분리 단계는 이제 빈 두 개씩 벡터로 처리하고, rfft 행은 다른 라이브러리처럼 절반 스펙트럼을 돌려줍니다: double 실수 배치는 1.75 ms(n개 빈 전부, 스칼라 분리)에서 0.861 ms가 되었습니다.
+- **단정밀도**: float는 같은 알고리즘(`fft_core.h`를 두 번 빌드)을 레지스터당 두 배의 값으로 실행합니다. 배치는 double 시간의 0.62배, 실수 배치는 0.65배입니다.
+- **oneMKL**: DFTI는 float `rfft`(0.457 vs 0.558)와 float `fft2d`(0.543 vs 0.560)에서는 SafeC 자체 코드보다 빠르지만, double에서는 느립니다(배치 1.89 vs 1.25).
 - **워밍업**: 모든 CPU 행은 시간을 재지 않는 호출을 먼저 한 번 합니다(스레드 풀을 시작하고 회전 인자 테이블을 만듭니다). FFTW의 계획은 시간 측정 밖에서 만듭니다. PyTorch 스크립트는 워밍업 호출을 다섯 번 합니다.
 
 ::: details 소스
@@ -339,28 +339,28 @@ CPU의 FFT, 호출당 ms. 비교 대상은 FFTW 3.3.10(AVX/AVX2/AVX-512, FMA 코
 
 | 작업 | SafeC | SafeC, AOCL / oneMKL | SciPy | KFR | 기타 |
 |---|---|---|---|---|---|
-| fir stream | 5.99 | 5.92 / 5.90 | 18.0 | 31.9 | |
-| fir block | 0.836 | 0.805 / 0.872 | 15.3 | — | |
-| fftconv | 2.66 | 2.72 / 3.01 | 32.6 | 4.88 | |
-| biquad | 0.465 | 0.477 / 0.484 | 4.67 | 2.33 | |
-| stft | 1.93 | 1.96 / 2.06 | 53.0 | — | |
-| resample | 3.78 | 3.82 / 3.86 | 9.10 | 63.6 (draft 26.3) | dasp 520 |
-| conv2d | 0.393 | 0.396 / 0.387 | 35.8 | — | |
+| fir stream | 5.87 | 5.97 / 5.86 | 17.4 | 32.1 | |
+| fir block | 0.841 | 0.824 / 0.796 | 15.4 | — | |
+| fftconv | 2.98 | 3.02 / 3.19 | 32.3 | 4.89 | |
+| biquad | 0.484 | 0.484 / 0.493 | 4.71 | 2.33 | |
+| stft | 1.82 | 1.85 / 1.81 | 53.9 | — | |
+| resample | 3.71 | 3.84 / 3.88 | 9.07 | 61.7 (draft 26.3) | dasp 519 |
+| conv2d | 0.366 | 0.369 / 0.390 | 35.3 | — | |
 
 단정밀도:
 
 | 작업 | SafeC | SafeC, AOCL / oneMKL | SciPy | KFR | 기타 |
 |---|---|---|---|---|---|
-| fir stream | 3.02 | 3.04 / 3.10 | 19.2 | 27.8 | |
-| fir block | 0.484 | 0.443 / 0.511 | 18.9 | — | |
-| fftconv | 1.57 | 1.54 / 1.52 | 14.7 | 2.80 | |
-| biquad | 0.469 | 0.474 / 0.473 | 4.58 | 2.14 | Q 1.69, madronalib 2.90 |
-| stft | 1.13 | 1.12 / 1.09 | 55.5 | — | |
-| resample | 3.93 | 3.90 / 3.92 | 8.70 | 34.1 (draft 27.2) | |
+| fir stream | 3.04 | 3.03 / 3.07 | 19.5 | 27.8 | |
+| fir block | 0.475 | 0.450 / 0.471 | 18.9 | — | |
+| fftconv | 1.29 | 1.31 / 1.16 | 14.8 | 2.76 | |
+| biquad | 0.482 | 0.483 / 0.525 | 4.59 | 2.15 | Q 1.69, madronalib 2.87 |
+| stft | 0.986 | 0.968 / 0.983 | 55.8 | — | |
+| resample | 3.96 | 3.82 / 3.98 | 8.68 | 34.1 (draft 27.3) | |
 
 - 두 정밀도 모두 모든 행에서 SafeC가 가장 빠릅니다. 벤더 라이브러리는 FFT가 들어가는 곳(`fftconv`, `stft`)에서만 의미가 있고, 거기서도 내장 코드와 오차 범위 안입니다.
-- **FIR**: 블록마다 `dsp_sliding_dot`을 실행합니다. 패스 하나에 출력 32개(float는 64개)를 계산하며, 탭마다 값을 네 개의 누산 벡터에 브로드캐스트하므로 수평 합이 없습니다. 스트리밍 필터는 14.2 ms에서 5.99 ms(double), 9.45 ms에서 3.02 ms(float)로 줄었습니다. KFR과 SciPy는 출력마다 내적을 하나씩 합니다. `fir block`은 스레드를 쓰고, `fir stream`은 쓰지 않습니다.
-- **Biquad**: `biquad_process_block`은 분산 룩어헤드(Parhi & Messerschmitt)를 씁니다. 재귀를 y[i-2]와 y[i-4]로 다시 써서 짝수와 홀수 출력을 서로 독립인 두 사슬로 만들고, 2레인 벡터 하나로 함께 계산합니다. 그 결과 float에서 Q보다 3.6배, KFR보다 4.6배 빠르고, 이전(2.14 ms)보다 4.6배 빠릅니다. 추가되는 극점은 필터 자신의 극점을 뒤집은 것이라 안정성이 유지되고, 출력은 `process()`와 반올림 차이만 납니다.
+- **FIR**: 블록마다 `dsp_sliding_dot`을 실행합니다. 패스 하나에 출력 32개(float는 64개)를 계산하며, 탭마다 값을 네 개의 누산 벡터에 브로드캐스트하므로 수평 합이 없습니다. 스트리밍 필터는 14.2 ms에서 5.87 ms(double), 9.45 ms에서 3.04 ms(float)로 줄었습니다. KFR과 SciPy는 출력마다 내적을 하나씩 합니다. `fir block`은 스레드를 쓰고, `fir stream`은 쓰지 않습니다.
+- **Biquad**: `biquad_process_block`은 분산 룩어헤드(Parhi & Messerschmitt)를 씁니다. 재귀를 y[i-2]와 y[i-4]로 다시 써서 짝수와 홀수 출력을 서로 독립인 두 사슬로 만들고, 2레인 벡터 하나로 함께 계산합니다. 그 결과 float에서 Q보다 3.5배, KFR보다 4.5배 빠르고, 이전(2.14 ms)보다 4.4배 빠릅니다. 추가되는 극점은 필터 자신의 극점을 뒤집은 것이라 안정성이 유지되고, 출력은 `process()`와 반올림 차이만 납니다.
 - **리샘플링**: 탭마다의 가중치를 호출마다 한 번 만드는 테이블과 각의 차 공식으로 구하므로 탭이 벡터화됩니다. 출력마다의 각도는 회전으로 넘기므로 출력마다 삼각 함수 호출이 없습니다. SciPy의 폴리페이즈 필터보다 2.4배 빠릅니다(이전 12.1 ms). SafeC의 리샘플러는 스레드를 쓰고, SciPy는 쓰지 않습니다.
 - **STFT** 프레임은 제자리 실수 FFT 배치로 변환합니다. 이전에 쓰던 복소 변환의 절반 작업입니다(이전 7.08 ms).
 - **float vs double**: float는 메모리 트래픽이나 벡터 폭이 한계인 곳에서 이득입니다: FIR(2배), `fftconv`, `stft`. biquad는 지연 시간이 한계이고 리샘플러는 커널을 double로 계산하므로, 이 둘은 변하지 않습니다.

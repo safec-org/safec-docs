@@ -8,21 +8,21 @@ Release-build wall-clock time (lower is better; fastest in bold). SafeC's binary
 
 | Benchmark | SafeC | C | C++ | Rust | Zig | Go | Python |
 |---|---|---|---|---|---|---|---|
-| [fib(37)](#fib37-recursive-fibonacci) | 0.042s | 0.042s | **0.041s** | **0.041s** | 0.042s | 0.089s | 1.992s |
-| [n-body](#n-body-5-body-orbital-simulation) | **0.098s** | **0.098s** | **0.098s** | 0.106s | 0.110s | 0.105s | 7.716s |
-| [binary-trees](#binary-trees-allocationdeallocation-stress) | **0.140s** | 0.804s | 0.937s | 0.910s | 0.850s | 0.722s | 18.169s |
-| [binary-trees, 8 threads](#multithreaded-binary-trees-8-threads) | **0.054s** | 0.225s | 0.239s | 0.234s | 0.227s | 0.255s | 23.034s |
-| [SIMD](#simd-sum-of-squares-over-20000000-f64-values) (explicit vectors) | 0.078s | 0.077s | **0.076s** | 0.077s | **0.076s** | — | — |
-| [Web service](#web-service-json-hello-world-endpoint) (req/s, higher is better) | **25,216** | 24,618 | 24,870 | 24,814 | 24,828 | 23,573 | 5,047 |
+| [fib(37)](#fib37-recursive-fibonacci) | **0.042s** | **0.042s** | **0.042s** | **0.042s** | 0.043s | 0.089s | 2.016s |
+| [n-body](#n-body-5-body-orbital-simulation) | **0.098s** | 0.099s | 0.099s | 0.107s | 0.110s | 0.106s | 7.630s |
+| [binary-trees](#binary-trees-allocationdeallocation-stress) | **0.132s** | 0.810s | 0.924s | 0.914s | 0.854s | 0.718s | 18.049s |
+| [binary-trees, 8 threads](#multithreaded-binary-trees-8-threads) | **0.053s** | 0.226s | 0.227s | 0.232s | 0.226s | 0.248s | 22.958s |
+| [SIMD](#simd-sum-of-squares-over-20000000-f64-values) (explicit vectors) | 0.075s | 0.077s | 0.074s | 0.077s | **0.072s** | — | — |
+| [Web service](#web-service-json-hello-world-endpoint) (req/s, higher is better) | **25,303** | 24,620 | 24,845 | 25,075 | 25,030 | 23,199 | 5,096 |
 
-- **Machine learning** (2-layer MLP, [details](#machine-learning-small-mlp-training-and-inference)): on the MI100, SafeC trains the small model in 7.0 ms vs PyTorch-ROCm's 20.5 ms (fp32), and the big one in 7.4 ms vs 10.7 ms. In fp16 the big one takes 5.9 ms vs 9.9 ms. On the CPU, SafeC with AOCL-BLAS trains the small model in 14.8 ms vs PyTorch's 14.1 ms, and the big one in 37.0 ms vs 38.5 ms.
+- **Machine learning** (2-layer MLP, [details](#machine-learning-small-mlp-training-and-inference)): on the MI100, SafeC trains the small model in 7.0 ms vs PyTorch-ROCm's 20.5 ms (fp32), and the big one in 7.4 ms vs 10.7 ms. In fp16 the big one takes 5.9 ms vs 9.9 ms. On the CPU, SafeC trains the small model in 9.6 ms (OpenBLAS) vs PyTorch's 14.0 ms, and the big one in 36.5 ms (AOCL-BLAS) vs 38.4 ms.
 - **NVIDIA H200** ([details](#h200-machine-learning)): SafeC's CUDA backend trains the small model in 3.80 ms vs PyTorch-CUDA's 51.0 ms (fp32), and the big one in 3.13 ms vs 17.8 ms. In fp16 the big one takes 1.90 ms vs 16.9 ms. Results for the Xeon 8570 CPU are in [their own section](#xeon-8570-classic).
-- **Convolution and FFT on the MI100** ([details](#mi100-conv-fft)): with MIOpen, SafeC runs one 64-channel 3×3 convolution in 0.027 ms vs PyTorch-ROCm's 0.063 ms and the batch-1 U-Net in 0.224 ms vs 0.315 ms; at batch 16–32 the two are within 2%. Device-resident hipFFT transforms are 1.3–1.7× faster than through PyTorch.
-- **CPU convolution and FFT** ([details](#mi100-conv-fft)): with Winograd 3×3 convolutions the U-Net runs in 1.42 ms on the CPU vs PyTorch's 2.97 ms. A 2²⁰-point FFT takes 0.92 ms vs 16-thread FFTW's 1.63 ms; FFTW is 1.1–3.1× faster on the 2D, batched and real transforms.
-- **DSP** ([details](#dsp-cpu)): `std/dsp` is the fastest of SafeC, SciPy, KFR, Q, madronalib and dasp on every workload measured, in double and in float. A biquad over 2²⁰ samples takes 0.47 ms vs Q's 1.69 ms (float), a 127-tap streaming FIR 3.0 ms vs SciPy's 19.2 ms, and resampling 44.1→48 kHz 3.8 ms vs SciPy's 9.1 ms.
+- **Convolution and FFT on the MI100** ([details](#mi100-conv-fft)): with MIOpen, SafeC runs one 64-channel 3×3 convolution in 0.027 ms vs PyTorch-ROCm's 0.063 ms and the batch-1 U-Net in 0.222 ms vs 0.314 ms; at batch 16–32 the two are within 2%. Device-resident hipFFT transforms are 1.3–1.7× faster than through PyTorch.
+- **CPU convolution and FFT** ([details](#mi100-conv-fft)): with Winograd 3×3 convolutions and per-image arenas the U-Net runs in 1.35 ms on the CPU vs PyTorch's 2.68 ms. A 2²⁰-point FFT takes 0.89 ms vs 16-thread FFTW's 1.63 ms; FFTW is 1.1–1.6× faster on the 2D, batched and real transforms.
+- **DSP** ([details](#dsp-cpu)): `std/dsp` is the fastest of SafeC, SciPy, KFR, Q, madronalib and dasp on every workload measured, in double and in float. A biquad over 2²⁰ samples takes 0.48 ms vs Q's 1.69 ms (float), a 127-tap streaming FIR 3.0 ms vs SciPy's 19.5 ms, and resampling 44.1→48 kHz 3.7 ms vs SciPy's 9.1 ms.
 - **Convolution and FFT on the H200** ([details](#h200-conv-fft)): with cuDNN, SafeC is faster than PyTorch-CUDA in every convolution row. A one-image 64-channel 3×3 convolution takes 0.018 ms vs 0.022 ms (fp32), a batch of 32 takes 0.084 ms vs 0.097 ms (TF32), and the U-Net at batch 16 takes 0.45 ms vs 0.55 ms (TF32). A 2²⁰-point FFT of a host array, including both PCIe copies, takes 1.25 ms vs 2.08 ms. Device-resident cuFFT transforms take the same time as through PyTorch.
-- **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 1.9× faster than a `malloc`-per-node one; `Vec` push and `HashMap` are 1.2–1.6× slower than plain C.
-- **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, 1.4× slower for a million live blocks.
+- **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 2.2× faster than a `malloc`-per-node one; `HashMap` is within 1.1× of plain C and `Vec` push 1.5× slower.
+- **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, and with its slabs 1.1× faster with a million blocks live at once.
 
 ## Methodology {#methodology}
 
@@ -39,13 +39,13 @@ Naive recursive Fibonacci — pure function-call and integer-arithmetic overhead
 
 | Language | Time | Peak memory | Compile time |
 |---|---|---|---|
-| SafeC | 0.042s | 1.9 MB | 0.037s |
-| C | 0.042s | 1.9 MB | 0.031s |
-| C++ | **0.041s (fastest)** | 3.8 MB | 0.049s |
-| Rust | **0.041s (fastest)** | 2.0 MB | 0.050s |
-| Zig | 0.042s | **0.5 MB (leanest)** | 8.19s |
-| Go | 0.089s | 2.0 MB | **0.024s** |
-| Python | 1.992s | 10.4 MB | N/A (interpreted) |
+| SafeC | **0.042s (fastest)** | 1.9 MB | 0.036s |
+| C | **0.042s (fastest)** | 1.9 MB | 0.030s |
+| C++ | **0.042s (fastest)** | 3.8 MB | 0.049s |
+| Rust | **0.042s (fastest)** | 1.9 MB | 0.050s |
+| Zig | 0.043s | **0.6 MB (leanest)** | 8.18s |
+| Go | 0.089s | 2.0 MB | **0.025s** |
+| Python | 2.016s | 10.4 MB | N/A (interpreted) |
 
 Everything that goes through LLVM lands within 4% of each other in release; the differences are noise.
 
@@ -55,17 +55,17 @@ Everything that goes through LLVM lands within 4% of each other in release; the 
 
 ## n-body — 5-body orbital simulation {#n-body-5-body-orbital-simulation}
 
-The classic Benchmarks Game n-body test (Sun/Jupiter/Saturn/Uranus/Neptune), 2,000,000 steps. Floating-point heavy, no allocation, tiny working set.
+The classic Benchmarks Game n-body test (Sun/Jupiter/Saturn/Uranus/Neptune), 2,000,000 steps. Floating-point heavy, no allocation, tiny working set. SafeC's initial state, including the momentum offset, is a `consteval` table, so the program starts from constants; the simulation itself is the same code as the others'.
 
 | Language | Time | Peak memory | Compile time |
 |---|---|---|---|
-| SafeC | **0.098s (fastest)** | 2.0 MB | 0.045s |
-| C | **0.098s (fastest)** | 2.0 MB | 0.044s |
-| C++ | **0.098s (fastest)** | 3.8 MB | 0.096s |
-| Rust | 0.106s | 2.0 MB | 0.071s |
-| Zig | 0.110s | **0.5 MB (leanest)** | 8.28s |
-| Go | 0.105s | 2.0 MB | **0.025s** |
-| Python | 7.716s | 11.0 MB | N/A (interpreted) |
+| SafeC | **0.098s (fastest)** | 2.0 MB | 0.044s |
+| C | 0.099s | 2.0 MB | 0.043s |
+| C++ | 0.099s | 3.8 MB | 0.097s |
+| Rust | 0.107s | 2.0 MB | 0.072s |
+| Zig | 0.110s | **0.5 MB (leanest)** | 8.25s |
+| Go | 0.106s | 2.0 MB | **0.026s** |
+| Python | 7.630s | 10.9 MB | N/A (interpreted) |
 
 ::: details Sources
 [nbody.sc](/benchmarks/nbody/safec/nbody.sc) · [nbody.c](/benchmarks/nbody/c/nbody.c) · [nbody.cpp](/benchmarks/nbody/cpp/nbody.cpp) · [nbody.rs](/benchmarks/nbody/rust/nbody.rs) · [nbody.zig](/benchmarks/nbody/zig/nbody.zig) · [nbody.go](/benchmarks/nbody/go/nbody.go) · [nbody.py](/benchmarks/nbody/python/nbody.py)
@@ -77,16 +77,16 @@ Builds and discards millions of small binary trees (max depth 18) — exercises 
 
 | Language | Time | Peak memory | Compile time |
 |---|---|---|---|
-| SafeC (arena) | **0.140s (fastest)** | **25.8 MB (leanest)** | 0.044s |
-| SafeC (heap) | 0.713s | 50.9 MB | 0.044s |
-| C | 0.804s | 34.0 MB | 0.038s |
-| C++ | 0.937s | 35.8 MB | 0.055s |
-| Rust | 0.910s | 33.9 MB | 0.066s |
-| Zig | 0.850s | 33.8 MB | 8.17s |
-| Go | 0.722s | 36.3 MB | **0.027s** |
-| Python | 18.169s | 82.7 MB | N/A (interpreted) |
+| SafeC (arena) | **0.132s (fastest)** | **25.9 MB (leanest)** | 0.044s |
+| SafeC (heap) | 0.616s | 38.8 MB | 0.043s |
+| C | 0.810s | 33.9 MB | 0.039s |
+| C++ | 0.924s | 35.9 MB | 0.054s |
+| Rust | 0.914s | 34.0 MB | 0.064s |
+| Zig | 0.854s | 33.6 MB | 8.22s |
+| Go | 0.718s | 36.8 MB | **0.035s** |
+| Python | 18.049s | 82.6 MB | N/A (interpreted) |
 
-The heap variant is faster than C because `std::alloc` caches freed blocks per size class (see [Memory allocation](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)), but uses more memory: each block carries a 16-byte safety header, and the cache keeps freed blocks instead of returning them.
+The heap variant is 1.3× faster than C: `std::alloc` serves these 16-byte nodes from per-thread slabs, with a cache of freed blocks in front (see [Memory allocation](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)). Before the slabs it took 0.713 s and 50.9 MB. It still uses a little more memory than C (38.8 vs 33.9 MB), because each block carries a 16-byte safety header and the cache and spare slabs are kept for reuse.
 
 ::: details Sources
 [binarytrees.sc](/benchmarks/binarytrees/safec/binarytrees.sc) · [binarytrees_arena.sc](/benchmarks/binarytrees/safec/binarytrees_arena.sc) · [binarytrees.c](/benchmarks/binarytrees/c/binarytrees.c) · [binarytrees.cpp](/benchmarks/binarytrees/cpp/binarytrees.cpp) · [binarytrees.rs](/benchmarks/binarytrees/rust/binarytrees.rs) · [binarytrees.zig](/benchmarks/binarytrees/zig/binarytrees.zig) · [binarytrees.go](/benchmarks/binarytrees/go/binarytrees.go) · [binarytrees.py](/benchmarks/binarytrees/python/binarytrees.py)
@@ -98,16 +98,16 @@ Same binary-trees workload, parallelized across 8 worker threads — each thread
 
 | Language | 8-thread time | Peak memory | Speedup vs. 1 thread |
 |---|---|---|---|
-| SafeC (arena) | **0.054s (fastest)** | **98.1 MB (leanest)** | 2.58× |
-| SafeC (heap) | 0.263s | 260.0 MB | 2.71× |
-| C | 0.225s | 161.6 MB | 3.57× |
-| C++ | 0.239s | 163.5 MB | 3.92× |
-| Rust | 0.234s | 162.0 MB | 3.89× |
-| Zig | 0.227s | 164.0 MB | 3.75× |
-| Go | 0.255s | 130.1 MB | 2.83× |
-| Python | 23.034s | 364.3 MB | 0.79× (slower than 1 thread) |
+| SafeC (arena) | **0.053s (fastest)** | 98.4 MB | 2.50× |
+| SafeC (heap) | 0.229s | 200.4 MB | 2.69× |
+| C | 0.226s | 161.8 MB | 3.58× |
+| C++ | 0.227s | 163.5 MB | 4.07× |
+| Rust | 0.232s | 161.9 MB | 3.93× |
+| Zig | 0.226s | 163.8 MB | 3.78× |
+| Go | 0.248s | **96.4 MB (leanest)** | 2.89× |
+| Python | 22.958s | 311.1 MB | 0.79× (slower than 1 thread) |
 
-The heap variant's memory is high because each thread's size-class cache keeps its own freed blocks.
+The heap variant now matches C's time (0.229 vs 0.226 s; 0.263 s before the slabs). Its memory is higher because each thread keeps its own cache of freed blocks and its own spare slabs.
 
 ::: details Sources
 [binarytrees_mt.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt.sc) · [binarytrees_mt_arena.sc](/benchmarks/binarytrees_mt/safec/binarytrees_mt_arena.sc) · [binarytrees_mt.c](/benchmarks/binarytrees_mt/c/binarytrees_mt.c) · [binarytrees_mt.cpp](/benchmarks/binarytrees_mt/cpp/binarytrees_mt.cpp) · [binarytrees_mt.rs](/benchmarks/binarytrees_mt/rust/binarytrees_mt.rs) · [binarytrees_mt.zig](/benchmarks/binarytrees_mt/zig/binarytrees_mt.zig) · [binarytrees_mt.go](/benchmarks/binarytrees_mt/go/binarytrees_mt.go) · [binarytrees_mt.py](/benchmarks/binarytrees_mt/python/binarytrees_mt.py)
@@ -119,15 +119,15 @@ Plain scalar loop vs. each language's explicit vector type at `-O2`/release — 
 
 | Language | Scalar | Explicit SIMD | Speedup |
 |---|---|---|---|
-| SafeC | 0.086s | 0.078s | 1.10× |
-| C | 0.085s | 0.077s | 1.11× |
-| C++ | 0.082s | **0.076s (fastest)** | 1.07× |
-| Rust | 0.083s | 0.077s | 1.07× |
-| Zig | **0.075s (fastest)** | **0.076s (fastest)** | 0.99× |
-| Go | 0.086s | N/A | — |
-| Python | 3.010s | 0.190s (NumPy) | 15.9× |
+| SafeC | 0.080s | 0.075s | 1.07× |
+| C | 0.080s | 0.077s | 1.04× |
+| C++ | 0.081s | 0.074s | 1.09× |
+| Rust | 0.080s | 0.077s | 1.05× |
+| Zig | **0.079s (fastest)** | **0.072s (fastest)** | 1.09× |
+| Go | 0.085s | N/A | — |
+| Python | 3.117s | 0.186s (NumPy) | 16.8× |
 
-This loop is memory-bound on the 7800X3D (160 MB of doubles streams far past the 96 MB L3), so explicit SIMD buys little over the auto-vectorized scalar loop; the whole table is within ~10 ms, about the size of process-startup noise.
+This loop is memory-bound on the 7800X3D (160 MB of doubles streams far past the 96 MB L3), so explicit SIMD buys little over the auto-vectorized scalar loop; the whole table is within ~10 ms, about the size of process-startup noise. SafeC's vector version builds its summation per x86-64 tier ([AVX-512 > AVX2 > AVX > SSE4.1 > SSE2](/stdlib/simd#cpu-levels)) and picks the best at run time, with four accumulators. Timed on its own, the summation takes about 3.7 ms at every tier (about 43 GB/s), so the rest of each row is the scalar setup loop and page faults on the array.
 
 ::: details Sources
 [simd_scalar.sc](/benchmarks/simd/safec/simd_scalar.sc) · [simd_vec.sc](/benchmarks/simd/safec/simd_vec.sc) · [simd_scalar.c](/benchmarks/simd/c/simd_scalar.c) · [simd_vec.c](/benchmarks/simd/c/simd_vec.c) · [simd_scalar.cpp](/benchmarks/simd/cpp/simd_scalar.cpp) · [simd_vec.cpp](/benchmarks/simd/cpp/simd_vec.cpp) · [simd_scalar.rs](/benchmarks/simd/rust/simd_scalar.rs) · [simd_vec.rs](/benchmarks/simd/rust/simd_vec.rs) · [simd_vec_x86_64.rs](/benchmarks/simd/rust/simd_vec_x86_64.rs) · [simd_scalar.zig](/benchmarks/simd/zig/simd_scalar.zig) · [simd_vec.zig](/benchmarks/simd/zig/simd_vec.zig) · [simd_scalar.go](/benchmarks/simd/go/simd_scalar.go) · [simd_numpy.py](/benchmarks/simd/python/simd_numpy.py) · [simd_scalar.py](/benchmarks/simd/python/simd_scalar.py)
@@ -139,24 +139,24 @@ The generic containers against a plain C implementation of the same algorithms: 
 
 | Operation | SafeC | C | SafeC / C |
 |---|---|---|---|
-| `Vec<int>` push | 2.50 ms | **1.55 ms** | 1.61× |
+| `Vec<int>` push | 2.31 ms | **1.51 ms** | 1.53× |
 | `vec_sort` (introsort, inlined `Less<int>`) vs `qsort` | **43.5 ms** | 83.4 ms | 0.52× |
-| `HashMap<int,int>` insert | 41.6 ms | **33.5 ms** | 1.24× |
-| `HashMap<int,int>` get | 8.63 ms | **7.24 ms** | 1.19× |
-| `List<int>` push_back + pop_front | **11.5 ms** | 22.2 ms | 0.52× |
-| `Queue<int>` enqueue + dequeue | **3.42 ms** | 5.47 ms | 0.63× |
-| `BST<int,int,Less<int>>` insert | **177.1 ms** | 179.0 ms | 0.99× |
-| `BST<int,int,Less<int>>` get | **171.0 ms** | 176.0 ms | 0.97× |
+| `HashMap<int,int>` insert | 37.9 ms | **34.3 ms** | 1.10× |
+| `HashMap<int,int>` get | 8.36 ms | **7.38 ms** | 1.13× |
+| `List<int>` push_back + pop_front | **10.1 ms** | 22.2 ms | 0.45× |
+| `Queue<int>` enqueue + dequeue | **3.02 ms** | 5.54 ms | 0.55× |
+| `BST<int,int,Less<int>>` insert | **175.6 ms** | 179.9 ms | 0.98× |
+| `BST<int,int,Less<int>>` get | 173.7 ms | **172.7 ms** | 1.01× |
 
 ::: details Why these results
 - **Sorting** beats `qsort` because the ordering is a type parameter: every comparison inlines, where `qsort` makes an indirect call per comparison.
 - **List** and **BST** nodes come from a per-container node pool (chunked bump allocation plus a free list), not one allocation per node; that avoids both `malloc`'s per-chunk overhead and `std::alloc`'s 16-byte safety header. BST lookups are dominated by cache misses on the random walk, the same for both.
-- **HashMap** keys of 1/2/4/8 bytes are hashed as one word (murmur3 finalizer) and compared with one integer compare, chosen with `if const` at compile time. The remaining gap is the tombstone bookkeeping on insert.
-- **Vec push** pays for bounds-checked access (`keys.at(i)`) and `std::alloc`'s checked `realloc` path.
+- **HashMap** keys of 1/2/4/8 bytes are hashed as one word (murmur3 finalizer) and compared with one integer compare, chosen with `if const` at compile time. Lookup and insert are inlined, with the table's arrays read into locals, and the rehash is an out-of-line cold call (insert went from 41.6 to 37.9 ms). The rest of the gap is mostly the growth: each rehash starts its new arrays on fresh pages.
+- **Vec push** keeps its growth in one out-of-line cold call, so the push itself is a compare, a store and an increment. It went from 2.50 to 2.31 ms; most of the improvement came from the allocator's quarantine no longer holding freed multi-megabyte buffers back from reuse (60,000 page faults vs C's 3,000 before). The rest of the gap is the bounds-checked `keys.at(i)` in the benchmark loop and first-touch growth.
 :::
 
 ::: details Sources
-[bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc) · [bench_collections.c](/benchmarks/collections/c/bench_collections.c)
+[bench_collections.sc](/benchmarks/collections/safec/bench_collections.sc) · [bench_collections.c](/benchmarks/collections/c/bench_collections.c) · [vec.h](/benchmarks/stdlib/vec.h) · [map.h](/benchmarks/stdlib/map.h) · [mem.sc](/benchmarks/stdlib/mem.sc)
 :::
 
 ## Web service — JSON "hello world" endpoint {#web-service-json-hello-world-endpoint}
@@ -165,13 +165,13 @@ The generic containers against a plain C implementation of the same algorithms: 
 
 | Language | req/s | p50 / p99 latency | Peak memory |
 |---|---|---|---|
-| SafeC | **25,216 (fastest)** | 2 / 2 ms | 5.1 MB |
-| C | 24,618 | 2 / 2 ms | **3.0 MB (leanest)** |
-| C++ | 24,870 | 2 / 2 ms | 5.0 MB |
-| Rust | 24,814 | 2 / 2 ms | 4.3 MB |
-| Zig | 24,828 | 2 / 2 ms | 9.3 MB |
-| Go | 23,573 | 2 / 3 ms | 15.7 MB |
-| Python | 5,047 | 10 / 14 ms | 46.1 MB |
+| SafeC | **25,303 (fastest)** | 2 / 2 ms | 4.9 MB |
+| C | 24,620 | 2 / 2 ms | **3.1 MB (leanest)** |
+| C++ | 24,845 | 2 / 2 ms | 5.1 MB |
+| Rust | 25,075 | 2 / 2 ms | 4.3 MB |
+| Zig | 25,030 | 2 / 2 ms | 7.1 MB |
+| Go | 23,199 | 2 / 3 ms | 16.1 MB |
+| Python | 5,096 | 10 / 14 ms | 46.0 MB |
 
 Every server completed every request with zero failures. The compiled servers all land within 8% of each other: without keep-alive, each request is a fresh TCP connection, and the kernel's connect/accept path and `ab` itself are the bottleneck, not the server.
 
@@ -185,23 +185,23 @@ Every server completed every request with zero failures. The compiled servers al
 
 | Framework | Device | Train (100 steps) | Throughput | Inference (1000 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC | CPU (built-in `sgemm`, 16 threads) | 17.6 ms | 364,100 samples/s | 35.2 ms | 100.333267 |
-| SafeC | CPU, AOCL-BLAS | 14.8 ms | 431,100 samples/s | 24.9 ms | 100.333267 |
-| SafeC | CPU, oneMKL | 18.6 ms | 343,800 samples/s | 30.4 ms | 100.333267 |
-| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 25.6 ms | 249,900 samples/s | 55.6 ms | 100.333267 |
+| SafeC | CPU (built-in `sgemm`, 16 threads) | 16.8 ms | 380,800 samples/s | 36.0 ms | 100.333267 |
+| SafeC | CPU, AOCL-BLAS | 14.9 ms | 430,900 samples/s | 26.3 ms | 100.333267 |
+| SafeC | CPU, oneMKL | 18.1 ms | 353,800 samples/s | 31.4 ms | 100.333267 |
+| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 9.6 ms | 668,800 samples/s | 24.3 ms | 100.333267 |
 | SafeC | ROCm (MI100), fp32 | 7.26 ms | 881,300 samples/s | 33.3 ms | 100.333282 |
 | SafeC | ROCm, graph, fp32 | 7.01 ms | 912,900 samples/s | 36.4 ms | 100.333282 |
 | SafeC | ROCm, graph, fp16 | **5.39 ms (fastest)** | **1,187,000 samples/s** | 33.2 ms | 100.336113 |
 | SafeC | ROCm, graph, bf16 | 5.78 ms | 1,106,700 samples/s | 35.0 ms | 99.905960 |
-| PyTorch | CPU | 14.1 ms | 453,600 samples/s | **22.0 ms (fastest)** | 100.018272 |
+| PyTorch | CPU | 14.0 ms | 455,900 samples/s | **21.9 ms (fastest)** | 100.018272 |
 | PyTorch | ROCm (MI100), fp32 | 20.5 ms | 311,700 samples/s | 36.3 ms | 103.071129 |
 | PyTorch | ROCm, fp16 | 19.0 ms | 336,600 samples/s | 33.5 ms | 103.062500 |
 | PyTorch | ROCm, bf16 | 18.9 ms | 338,700 samples/s | 47.1 ms | 103.000000 |
-| TensorFlow | CPU | 79.3 ms | 80,700 samples/s | 203.5 ms | 106.182999 |
+| TensorFlow | CPU | 79.5 ms | 80,500 samples/s | 203.9 ms | 106.182999 |
 
-At this size every GPU step is a handful of microsecond-scale kernels plus a blocking read of the loss, so launch and synchronization latency dominate. On the CPU, PyTorch is still the fastest at inference. With AOCL-BLAS linked, SafeC trains within 5% of it (14.8 vs 14.1 ms).
+At this size every GPU step is a handful of microsecond-scale kernels plus a blocking read of the loss, so launch and synchronization latency dominate. On the CPU, SafeC trains 1.5× faster than PyTorch with OpenBLAS (9.6 vs 14.0 ms); PyTorch is still the fastest at inference (21.9 vs SafeC's 24.3 ms).
 
-SafeC's CPU rows run `tensor_matmul` on [`sgemm`](/stdlib/simd#gemm), the packed SIMD GEMM, on the [thread pool](/stdlib/sync#parallel). Its kernel is picked at run time for the CPU's [SIMD level](/stdlib/simd#cpu-levels) (AVX-512 here). Tensors come from a per-step [`TensorArena`](/stdlib/ml#tensor-arena), and the pool's workers spin briefly before sleeping. With [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output) set, the GEMM tiles go to AOCL-BLAS (AMD) or oneMKL (Intel), single-threaded per tile on SafeC's pool. The OpenBLAS row is the older `tensor_blas.h` path, one whole multithreaded OpenBLAS call per product. The plain scalar loop all of this replaced took 107.4 ms to train and 285.8 ms for inference. Losses differ between frameworks because each draws its data and initial weights from its own RNG; the SafeC rows all share one seeded stream (`drand48`), and agree to 6 digits across CPU and GPU.
+SafeC's CPU rows run `tensor_matmul` on [`sgemm`](/stdlib/simd#gemm), the packed SIMD GEMM, on the [thread pool](/stdlib/sync#parallel). Its kernel is picked at run time for the CPU's [SIMD level](/stdlib/simd#cpu-levels) (AVX-512 here). Tensors come from a per-step [`TensorArena`](/stdlib/ml#tensor-arena), and the pool's workers spin briefly before sleeping. With [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output) set, the GEMM tiles go to AOCL-BLAS (AMD) or oneMKL (Intel), single-threaded per tile on SafeC's pool. The OpenBLAS row is the older `tensor_blas.h` path, one whole multithreaded OpenBLAS call per product. It now also runs each step in a `TensorArena` (it used to leave every step's tensors unfreed), which took it from 25.6 to 9.6 ms; at this size one multithreaded call per product beats tiling on SafeC's pool. The plain scalar loop all of this replaced took 107.4 ms to train and 285.8 ms for inference. Losses differ between frameworks because each draws its data and initial weights from its own RNG; the SafeC rows all share one seeded stream (`drand48`), and agree to 6 digits across CPU and GPU.
 
 ::: details Sources
 [train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [gemm.h](/benchmarks/stdlib/gemm.h) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [parallel.h](/benchmarks/stdlib/parallel.h) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
@@ -213,19 +213,19 @@ Same model scaled ~50x (batch 128). 50 training steps, 200 inference passes; sam
 
 | Framework | Device | Train (50 steps) | Throughput | Inference (200 passes) | Loss (sanity check) |
 |---|---|---|---|---|---|
-| SafeC | CPU (built-in `sgemm`, 16 threads) | 48.7 ms | 131,300 samples/s | 67.3 ms | 95.426926 |
-| SafeC | CPU, AOCL-BLAS | 37.0 ms | 173,100 samples/s | 43.3 ms | 95.427536 |
-| SafeC | CPU, oneMKL | 44.8 ms | 142,900 samples/s | 52.0 ms | 95.428177 |
-| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 148.5 ms | 43,100 samples/s | 240.4 ms | 95.424927 |
+| SafeC | CPU (built-in `sgemm`, 16 threads) | 48.8 ms | 131,200 samples/s | 67.0 ms | 95.426926 |
+| SafeC | CPU, AOCL-BLAS | 36.5 ms | 175,300 samples/s | 43.6 ms | 95.427536 |
+| SafeC | CPU, oneMKL | 45.4 ms | 141,000 samples/s | 52.6 ms | 95.428177 |
+| SafeC | CPU (OpenBLAS, `tensor_blas.h`) | 93.3 ms | 68,600 samples/s | 123.1 ms | 95.424927 |
 | SafeC | ROCm (MI100), fp32 | 7.64 ms | 838,100 samples/s | 10.6 ms | 95.428314 |
 | SafeC | ROCm, graph, fp32 | 7.37 ms | 868,500 samples/s | 11.5 ms | 95.428322 |
 | SafeC | ROCm, graph, fp16 | **5.90 ms (fastest)** | **1,085,300 samples/s** | **9.26 ms (fastest)** | 95.090317 |
 | SafeC | ROCm, graph, bf16 | 6.05 ms | 1,057,500 samples/s | 9.80 ms | 63.433674 |
-| PyTorch | CPU | 38.5 ms | 166,100 samples/s | 51.4 ms | 106.601181 |
+| PyTorch | CPU | 38.4 ms | 166,900 samples/s | 50.8 ms | 106.601181 |
 | PyTorch | ROCm (MI100), fp32 | 10.7 ms | 599,000 samples/s | 13.4 ms | 1868.155273 |
 | PyTorch | ROCm, fp16 | 9.91 ms | 645,600 samples/s | 17.9 ms | 1942.000000 |
 | PyTorch | ROCm, bf16 | 10.8 ms | 590,700 samples/s | 15.7 ms | 107.000000 |
-| TensorFlow | CPU | 105.6 ms | 60,600 samples/s | 114.6 ms | 316.611603 |
+| TensorFlow | CPU | 105.8 ms | 60,500 samples/s | 123.6 ms | 316.611603 |
 
 On the GPU in fp32, SafeC trains 1.45× faster than PyTorch and runs inference 1.26× faster (both are a pair of rocBLAS GEMMs plus one elementwise kernel and one readback per pass). Part of that gain is new: the first call of each GEMM shape now times every solution rocBLAS offers and keeps the fastest (see [ROCm](/stdlib/ml#rocm-hip-amd)), which took the fp32 graph step from 8.29 ms to 7.37 ms. Graph replay records a whole training step into one `RocmGraph` and launches it with one call; with a blocking loss read every step it saves 3–4%. Without the per-step read, a C++ prototype of the same loop ran 3.8 ms vs 7.1 ms. PyTorch-ROCm's loss diverges at lr 0.001 from its GPU RNG's initial weights. That says nothing about speed, but it is why its sanity-check value looks wrong.
 
@@ -237,7 +237,7 @@ On the GPU in fp32, SafeC trains 1.45× faster than PyTorch and runs inference 1
 - This loop amplifies rounding. After 50 steps the big model's loss is 95.09 in fp16 and 63.43 in bf16, against 95.43 in fp32; the H200 shows the same spread (93.44 and 62.01).
 - On the CPU, [`tensor_half.h`](/stdlib/ml#half-precision-tensors) stores fp16/bf16 values but computes in fp32, which saves memory but not time. That's why there are no 16-bit CPU rows.
 
-On the CPU, SafeC with AOCL-BLAS is the fastest at this size: it trains 4% faster than PyTorch (37.0 vs 38.5 ms) and runs inference 16% faster (43.3 vs 51.4 ms). The built-in `sgemm` alone is within 1.3× of PyTorch, and 36× faster than the scalar loop it replaced (1761.2 ms to train). The OpenBLAS row (generic pthreads build, Ubuntu package) is the slowest CPU path. Each product is one multithreaded call there, and its threads spin against each other on these small GEMMs.
+On the CPU, SafeC with AOCL-BLAS is the fastest at this size: it trains 5% faster than PyTorch (36.5 vs 38.4 ms) and runs inference 14% faster (43.6 vs 50.8 ms). The built-in `sgemm` alone is within 1.3× of PyTorch, and 36× faster than the scalar loop it replaced (1761.2 ms to train). The OpenBLAS row (generic pthreads build, Ubuntu package) is the slowest CPU path here, even after its arena (93.3 ms, from 148.5). Each product is one multithreaded call there, and its threads spin against each other on these small GEMMs.
 
 ::: details Sources
 [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
@@ -249,10 +249,10 @@ On the CPU, SafeC with AOCL-BLAS is the fastest at this size: it trains 4% faste
 
 | Pattern | `std::alloc` / `dealloc` | `malloc` / `free` | Ratio |
 |---|---|---|---|
-| Interleaved: allocate one 48-byte block, free it, 20M times | **3.66 ns / pair** | 6.76 ns / pair | 1.8× faster |
-| Batch: allocate 1M 24-byte blocks, then free them all, 10 rounds | 134 ms | **94 ms** | 1.4× slower |
+| Interleaved: allocate one 48-byte block, free it, 20M times | **3.57 ns / pair** | 6.38 ns / pair | 1.8× faster |
+| Batch: allocate 1M 24-byte blocks, then free them all, 10 rounds | **87 ms** | 96 ms | 1.1× faster |
 
-The cache wins whenever freed blocks are reused soon. Short-lived objects and binary-trees-style churn work like this: the heap binary-trees above beats every other language's allocator. A million live blocks at once is more than the cache holds (125,587 slots across all classes), so most allocations in the batch pattern go through `malloc` plus the header write and cache bookkeeping, and that overhead shows. For bulk short-lived allocation, `region`/`arena<R>` is the faster tool: 5.1× faster than the heap version on binary-trees.
+The cache wins whenever freed blocks are reused soon. Short-lived objects and binary-trees-style churn work like this: the heap binary-trees above beats every other language's allocator. A million live blocks at once is more than the cache holds (125,587 slots across all classes). Those blocks used to go through `malloc` one by one with the header write on top (134 ms, 1.4× slower than `malloc`). Blocks up to 1 KB now come from per-thread 64 KB slabs instead, which makes the batch pattern 1.1× faster than `malloc` with the same double-free checks (see [`std::mem`](/stdlib/mem#allocation-performance)). For bulk short-lived allocation, `region`/`arena<R>` is still the faster tool: 4.7× faster than the heap version on binary-trees.
 
 ::: details Sources
 [mem.h](/benchmarks/stdlib/mem.h) · [mem.sc](/benchmarks/stdlib/mem.sc) · [alloc_bench.sc](/benchmarks/memalloc/safec/alloc_bench.sc)
@@ -266,57 +266,57 @@ Convolution, ms per call (lower is better). `conv64` is one Conv2D layer, 64→6
 
 | Framework | Device | conv64, 1 image | conv64, 32 images | unet128, 1 image | unet128, 16 images |
 |---|---|---|---|---|---|
-| SafeC | CPU (Winograd / im2col + built-in `sgemm`, 16 threads) | 0.520 | — | 1.86 | — |
-| SafeC | CPU, AOCL-BLAS | 0.470 | — | 1.42 | — |
-| SafeC | CPU, oneMKL | 0.505 | — | 1.80 | — |
-| PyTorch | CPU (oneDNN, 8 threads) | 0.310 | — | 2.97 | — |
-| SafeC | ROCm | **0.0270** | **0.343** | 0.224 | 1.288 |
-| SafeC | ROCm, U-Net as one graph | | | **0.219** | |
-| PyTorch | ROCm | 0.0627 | 0.345 | 0.315 | **1.264** |
+| SafeC | CPU (Winograd / im2col + built-in `sgemm`, 16 threads) | 0.412 | — | 1.68 | — |
+| SafeC | CPU, AOCL-BLAS | 0.359 | — | 1.35 | — |
+| SafeC | CPU, oneMKL | 0.399 | — | 1.69 | — |
+| PyTorch | CPU (oneDNN, 8 threads) | 0.327 | — | 2.68 | — |
+| SafeC | ROCm | **0.0270** | **0.342** | 0.222 | 1.289 |
+| SafeC | ROCm, U-Net as one graph | | | **0.216** | |
+| PyTorch | ROCm | 0.0628 | 0.346 | 0.314 | **1.259** |
 
 FFT on the GPU, ms per call. `fft1d` and `fft2d` are complex `double` arrays that start and end in host memory, so each GPU call includes the upload and the read back. `batch` and `rfft` run on data already on the GPU (complex64 and float32).
 
 | Framework | Device | fft1d, 2²⁰ points | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
 |---|---|---|---|---|---|
-| SafeC | ROCm | **1.54** | **1.44** | **0.0997** | **0.0945** |
-| PyTorch | ROCm | 1.55 | 1.53 | 0.169 | 0.126 |
+| SafeC | ROCm | **1.46** | **1.43** | **0.1002** | **0.0949** |
+| PyTorch | ROCm | 1.56 | 1.53 | 0.171 | 0.126 |
 
-FFT on the CPU, ms per call, against FFTW 3.3.10 (built with AVX/AVX2/AVX-512 and FMA codelets, planned with `FFTW_MEASURE`), KFR 7.2.0 and RustFFT 6.4.1. All data starts in memory. `fft1d` is one 2²⁰-point transform, `fft2d` one 1024×1024 transform, `batch` 1024 transforms of 4096 points, `rfft` 1024 real transforms of 4096 points. FFTW, KFR and RustFFT return n/2 + 1 bins for `rfft`; SafeC's `fft_real_batch` writes all n. RustFFT has no 2D or real transform. With oneMKL linked, SafeC hands transforms below 65,536 points to its DFTI. AOCL has no effect here (its FFT is FFTW-based, GPL, and not used).
+FFT on the CPU, ms per call, against FFTW 3.3.10 (built with AVX/AVX2/AVX-512 and FMA codelets, planned with `FFTW_MEASURE`), KFR 7.2.0 and RustFFT 6.4.1. All data starts in memory. `fft1d` is one 2²⁰-point transform, `fft2d` one 1024×1024 transform, `batch` 1024 transforms of 4096 points, `rfft` 1024 real transforms of 4096 points. For `rfft` every library returns the n/2 + 1 non-redundant bins (SafeC through `fft_real_half_batch`). RustFFT has no 2D or real transform. With oneMKL linked, SafeC hands transforms below 65,536 points to its DFTI. AOCL has no effect here (its FFT is FFTW-based, GPL, and not used).
 
 Double precision (complex128):
 
 | Library | Threads | fft1d | fft2d | batch | rfft |
 |---|---|---|---|---|---|
-| SafeC `fft.h` | 16 | **0.917** | 0.654 | 1.26 | 1.75 |
-| SafeC, oneMKL DFTI | 16 | 0.938 | 1.03 | 2.01 | 1.96 |
-| FFTW | 16 | 1.63 | **0.597** | **0.975** | **0.561** |
-| PyTorch | 8 | 8.36 | 0.749 | — | — |
-| SafeC `fft.h` | 1 | 5.53 | 4.38 | 13.9 | 8.56 |
-| FFTW | 1 | 6.70 | 3.51 | 7.83 | 4.10 |
-| KFR | 1 | 3.45 | 4.25 | 11.9 | 4.33 |
-| RustFFT | 1 | 4.76 | — | 8.44 | — |
+| SafeC `fft.h` | 16 | **0.888** | 0.691 | 1.25 | 0.861 |
+| SafeC, oneMKL DFTI | 16 | 0.891 | 1.00 | 1.89 | 1.05 |
+| FFTW | 16 | 1.63 | **0.618** | **1.05** | **0.553** |
+| PyTorch | 8 | 8.31 | 0.710 | — | — |
+| SafeC `fft.h` | 1 | 5.47 | 4.43 | 11.9 | 6.17 |
+| FFTW | 1 | 6.50 | 3.49 | 7.84 | 4.28 |
+| KFR | 1 | 3.36 | 4.22 | 11.8 | 4.34 |
+| RustFFT | 1 | 4.75 | — | 8.25 | — |
 
 Single precision (complex64 / float32):
 
 | Library | Threads | fft1d | fft2d | batch | rfft |
 |---|---|---|---|---|---|
-| SafeC `fft_f32` | 16 | **0.692** | 0.539 | 0.822 | 0.720 |
-| SafeC, oneMKL DFTI | 16 | 0.694 | 0.513 | 0.915 | 0.515 |
-| FFTW (`fftwf`) | 16 | 1.69 | **0.432** | **0.500** | **0.409** |
-| PyTorch | 8 | — | — | 4.65 | 0.438 |
-| SafeC `fft_f32` | 1 | 4.49 | 3.39 | 5.83 | 5.41 |
-| FFTW (`fftwf`) | 1 | 5.52 | 2.51 | 3.45 | 2.98 |
-| KFR | 1 | 1.77 | 2.65 | 4.17 | 2.13 |
-| RustFFT | 1 | 2.10 | — | 4.19 | — |
+| SafeC `fft_f32` | 16 | **0.688** | 0.560 | 0.775 | 0.558 |
+| SafeC, oneMKL DFTI | 16 | 0.693 | 0.543 | 0.964 | 0.457 |
+| FFTW (`fftwf`) | 16 | 1.67 | **0.446** | **0.504** | **0.409** |
+| PyTorch | 8 | — | — | 4.41 | 0.443 |
+| SafeC `fft_f32` | 1 | 4.39 | 3.25 | 5.76 | 4.28 |
+| FFTW (`fftwf`) | 1 | 5.53 | 2.54 | 3.31 | 2.98 |
+| KFR | 1 | 1.77 | 2.63 | 4.23 | 2.13 |
+| RustFFT | 1 | 2.10 | — | 4.11 | — |
 
 The single-thread SafeC rows were run separately (`SAFEC_NUM_THREADS=1`), after the table run, with the same build.
 
-- **Convolutions**: on the GPU, SafeC is 2.3× faster than PyTorch on one image and 1.44× faster on the batch-1 U-Net as a graph. At 32 images the two tie, and PyTorch is 2% faster on the 16-image U-Net. Each SafeC convolution is one MIOpen call plus one HIP kernel for the bias (and ReLU), and each U-Net decoder step is one kernel that upsamples straight into the concat buffer.
-- **CPU convolution**: 3×3 stride-1 layers now use [Winograd F(2×2, 3×3)](/stdlib/ml#cnn) (Lavin & Gray), with 16 multiplies per 2×2 outputs and channel pair instead of 36. Its input transform, 16 channel GEMMs and output transform each run on the pool. Other layers use im2col + `sgemm`. On the U-Net SafeC is now 2.1× faster than PyTorch's CPU path with AOCL-BLAS (1.42 vs 2.97 ms) and 1.6× faster with the built-in GEMM. Before Winograd it took 3.13 ms (4.86 ms in the earlier run on this page). On the single `conv64` layer PyTorch (oneDNN) is still 1.5–1.7× faster.
+- **Convolutions**: on the GPU, SafeC is 2.3× faster than PyTorch on one image and 1.45× faster on the batch-1 U-Net as a graph. At 32 images the two tie, and PyTorch is 2% faster on the 16-image U-Net. Each SafeC convolution is one MIOpen call plus one HIP kernel for the bias (and ReLU), and each U-Net decoder step is one kernel that upsamples straight into the concat buffer.
+- **CPU convolution**: 3×3 stride-1 layers use [Winograd F(2×2, 3×3)](/stdlib/ml#cnn) (Lavin & Gray), with 16 multiplies per 2×2 outputs and channel pair instead of 36. Its input transform, 16 channel GEMMs and output transform each run on the pool. Other layers use im2col + `sgemm`. Each image's maps, the U-Net's intermediates included, now come from a [`TensorArena`](/stdlib/ml#tensor-arena) reset after the image, so no layer pays for a fresh multi-megabyte allocation (that alone took `conv64` from 0.535 to 0.415 ms). On the U-Net SafeC is 2.0× faster than PyTorch's CPU path with AOCL-BLAS (1.35 vs 2.68 ms) and 1.6× faster with the built-in GEMM; before Winograd and the arena it took 3.13 ms. On the single `conv64` layer PyTorch (oneDNN) is still 1.1–1.3× faster.
 - **FFT on the GPU**: both sides call rocFFT. For host arrays PCIe dominates and the times match. On device data SafeC is 1.3–1.7× faster; at 0.1 ms per call, PyTorch's per-call work around the same transform (allocating the output tensor, dispatch) is a large share, though that hasn't been measured on its own.
-- **CPU FFT**: SafeC is the fastest at the 2²⁰-point transform in both precisions, 1.8× (double) and 2.4× (float) ahead of 16-thread FFTW. FFTW leads on the 2D, batched and real transforms, by 1.1× (double `fft2d`) to 3.1× (double `rfft`). Single-threaded, SafeC is ahead of FFTW at 2²⁰ points and behind it on the 2D and 4096-point rows (1.8× on the double batch), where FFTW's larger codelets and fewer passes over each row count. The real transform's post-processing in SafeC is still scalar. Since this page's previous run, fused radix-8 passes, four complex values per vector (AVX-512, and float on AVX2) and compile-time bit-reversal tables took the 16-thread double batch from 4.35 to 1.26 ms and the 2D transform from 2.06 to 0.654 ms.
-- **Single precision**: float runs the same algorithm (`fft_core.h` built twice) with twice the values per register. The batch takes 0.65× the double time, and the real batch 0.41×.
-- **oneMKL**: its DFTI is faster than SafeC's own code on the float `rfft` (0.515 vs 0.720) and float `fft2d`, but slower in double (batch 2.01 vs 1.26).
+- **CPU FFT**: SafeC is the fastest at the 2²⁰-point transform in both precisions, 1.8× (double) and 2.4× (float) ahead of 16-thread FFTW. FFTW leads on the 2D, batched and real transforms, by 1.1× (double `fft2d`) to 1.6× (double `rfft`). Single-threaded, SafeC is ahead of FFTW at 2²⁰ points and behind it on the 2D and 4096-point rows (1.5× on the double batch), where FFTW's larger codelets and fewer passes over each row count. Since this page's previous run, fused radix-8 passes, four complex values per vector (AVX-512, and float on AVX2) and compile-time bit-reversal tables took the 16-thread double batch from 4.35 to 1.25 ms and the 2D transform from 2.06 to 0.691 ms. The real transform's split is now vectorized two bins at a time and the rfft rows return the half spectrum, as the other libraries do: the double real batch went from 1.75 ms (all n bins, scalar split) to 0.861 ms.
+- **Single precision**: float runs the same algorithm (`fft_core.h` built twice) with twice the values per register. The batch takes 0.62× the double time, and the real batch 0.65×.
+- **oneMKL**: its DFTI is faster than SafeC's own code on the float `rfft` (0.457 vs 0.558) and float `fft2d` (0.543 vs 0.560), but slower in double (batch 1.89 vs 1.25).
 - **Warm-up**: every CPU row gets one untimed call first, which starts the thread pool and builds the twiddle tables. FFTW's plans are made outside the timing. PyTorch's script runs five warm-up calls.
 
 ::: details Sources
@@ -339,28 +339,28 @@ Double precision:
 
 | Workload | SafeC | SafeC, AOCL / oneMKL | SciPy | KFR | Others |
 |---|---|---|---|---|---|
-| fir stream | 5.99 | 5.92 / 5.90 | 18.0 | 31.9 | |
-| fir block | 0.836 | 0.805 / 0.872 | 15.3 | — | |
-| fftconv | 2.66 | 2.72 / 3.01 | 32.6 | 4.88 | |
-| biquad | 0.465 | 0.477 / 0.484 | 4.67 | 2.33 | |
-| stft | 1.93 | 1.96 / 2.06 | 53.0 | — | |
-| resample | 3.78 | 3.82 / 3.86 | 9.10 | 63.6 (draft 26.3) | dasp 520 |
-| conv2d | 0.393 | 0.396 / 0.387 | 35.8 | — | |
+| fir stream | 5.87 | 5.97 / 5.86 | 17.4 | 32.1 | |
+| fir block | 0.841 | 0.824 / 0.796 | 15.4 | — | |
+| fftconv | 2.98 | 3.02 / 3.19 | 32.3 | 4.89 | |
+| biquad | 0.484 | 0.484 / 0.493 | 4.71 | 2.33 | |
+| stft | 1.82 | 1.85 / 1.81 | 53.9 | — | |
+| resample | 3.71 | 3.84 / 3.88 | 9.07 | 61.7 (draft 26.3) | dasp 519 |
+| conv2d | 0.366 | 0.369 / 0.390 | 35.3 | — | |
 
 Single precision:
 
 | Workload | SafeC | SafeC, AOCL / oneMKL | SciPy | KFR | Others |
 |---|---|---|---|---|---|
-| fir stream | 3.02 | 3.04 / 3.10 | 19.2 | 27.8 | |
-| fir block | 0.484 | 0.443 / 0.511 | 18.9 | — | |
-| fftconv | 1.57 | 1.54 / 1.52 | 14.7 | 2.80 | |
-| biquad | 0.469 | 0.474 / 0.473 | 4.58 | 2.14 | Q 1.69, madronalib 2.90 |
-| stft | 1.13 | 1.12 / 1.09 | 55.5 | — | |
-| resample | 3.93 | 3.90 / 3.92 | 8.70 | 34.1 (draft 27.2) | |
+| fir stream | 3.04 | 3.03 / 3.07 | 19.5 | 27.8 | |
+| fir block | 0.475 | 0.450 / 0.471 | 18.9 | — | |
+| fftconv | 1.29 | 1.31 / 1.16 | 14.8 | 2.76 | |
+| biquad | 0.482 | 0.483 / 0.525 | 4.59 | 2.15 | Q 1.69, madronalib 2.87 |
+| stft | 0.986 | 0.968 / 0.983 | 55.8 | — | |
+| resample | 3.96 | 3.82 / 3.98 | 8.68 | 34.1 (draft 27.3) | |
 
 - SafeC is the fastest on every row, in both precisions. The vendor libraries only matter where an FFT is involved (`fftconv`, `stft`), and there they are within noise of the built-in code.
-- **FIR**: each block runs `dsp_sliding_dot`, which computes 32 outputs per pass (64 in float) with each tap broadcast into four accumulator vectors, so there are no horizontal sums. The streaming filter went from 14.2 ms to 5.99 (double) and from 9.45 to 3.02 (float); KFR and SciPy run one dot product per output. `fir block` is threaded; `fir stream` isn't.
-- **Biquad**: `biquad_process_block` uses scattered look-ahead (Parhi & Messerschmitt). The recursion is rewritten in y[i-2] and y[i-4], so the even and odd outputs are two independent chains, computed together in one 2-lane vector. That makes it 3.6× faster than Q and 4.6× faster than KFR in float, and 4.6× faster than before (2.14 ms). The added poles mirror the filter's own, so it stays stable, and its output matches `process()` to rounding.
+- **FIR**: each block runs `dsp_sliding_dot`, which computes 32 outputs per pass (64 in float) with each tap broadcast into four accumulator vectors, so there are no horizontal sums. The streaming filter went from 14.2 ms to 5.87 (double) and from 9.45 to 3.04 (float); KFR and SciPy run one dot product per output. `fir block` is threaded; `fir stream` isn't.
+- **Biquad**: `biquad_process_block` uses scattered look-ahead (Parhi & Messerschmitt). The recursion is rewritten in y[i-2] and y[i-4], so the even and odd outputs are two independent chains, computed together in one 2-lane vector. That makes it 3.5× faster than Q and 4.5× faster than KFR in float, and 4.4× faster than before (2.14 ms). The added poles mirror the filter's own, so it stays stable, and its output matches `process()` to rounding.
 - **Resample**: each tap's weight comes from angle-difference formulas over tables built once per call, so the taps vectorize. The per-output angles are carried by rotation, so each output needs no trig call. It is 2.4× faster than SciPy's polyphase filter (12.1 ms before). SafeC's resampler is threaded; SciPy's isn't.
 - **STFT** frames go through an in-place real FFT batch, half the work of the complex transform it used before (7.08 ms).
 - **Float vs double**: float helps where memory traffic or vector width limits the code: the FIR (2×), `fftconv` and `stft`. The biquad is latency-bound and the resampler computes its kernel in double, so those two don't change.

@@ -65,10 +65,14 @@ int main() {
     i = 0UL;
     while (i < HIDDEN * OUT_DIM) { unsafe { float* d = (float*)W2->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
 
+    // Each step's temporaries live in a TensorArena that is reset after the
+    // step (see ../../ml/safec/train.sc).
+    struct TensorArena stepArena = std::tensor_arena_new(0UL);
     double t0 = now_ms();
     int step = 0;
     double lastLoss = 0.0;
     while (step < STEPS) {
+        std::tensor_arena_begin(&stepArena);
         std::tensor_zero_grad(W1);
         std::tensor_zero_grad(W2);
         &Tensor H = std::tensor_relu(std::tensor_matmul_blas(X, W1));
@@ -80,6 +84,8 @@ int main() {
         sgd_update(W1);
         sgd_update(W2);
         unsafe { lastLoss = (double)loss->data[0]; }
+        std::tensor_arena_end();
+        std::tensor_arena_reset(&stepArena);
         step = step + 1;
     }
     double t1 = now_ms();
@@ -91,23 +97,12 @@ int main() {
     int inf = 0;
     double checksum = 0.0;
     while (inf < 1000) {
+        std::tensor_arena_begin(&stepArena);
         &Tensor H2 = std::tensor_relu(std::tensor_matmul_blas(X, W1));
         &Tensor Y2 = std::tensor_matmul_blas(H2, W2);
         unsafe { checksum = checksum + (double)Y2->data[0]; }
-        // grad is disabled here, so neither tensor holds a grad buffer or
-        // parent edges (see tensor_set_grad_enabled's doc comment) --
-        // freeing is just releasing this iteration's data/shape buffers,
-        // nothing shared with X/W1/W2. Without this, all 1000 passes'
-        // worth of H2/Y2 buffers pile up unfreed for the whole loop
-        // (SafeC has no GC — nothing frees them on its own the way
-        // Python's refcounting does for PyTorch's own H2/Y2 each
-        // iteration), and the resulting allocator/cache pressure was a
-        // real, measured chunk of this loop's wall time, not just
-        // theoretical: growing heap fragmentation as 1000 iterations'
-        // worth of small buffers accumulate slows down every subsequent
-        // malloc, on top of the memory itself just sitting there unused.
-        H2.free();
-        Y2.free();
+        std::tensor_arena_end();
+        std::tensor_arena_reset(&stepArena);
         inf = inf + 1;
     }
     double t3 = now_ms();

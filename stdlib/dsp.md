@@ -37,6 +37,7 @@ int fft_prepare_f32(unsigned long n);
 int fft_real_f32(const &float in, &Complex32 out, unsigned long n);
 int fft_batch_f32(&Complex32 data, unsigned long n, unsigned long batch, int inverse);
 int fft_real_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);
+int fft_real_half_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);   // and fft_real_half_f32
 
 // dsp.h
 float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
@@ -253,7 +254,7 @@ How it runs:
 - **SIMD width.** Butterflies work on four complex values per vector where that fits the registers: float with AVX2, and both precisions with AVX-512. Otherwise they work on two (double with AVX2, SSE2, Neon).
 - **Bit reversal.** Up to 4096 points the bit-reversal swaps come from a compile-time list of index pairs, so there's no per-element index walk or unpredictable branch. Above that it's done incrementally, split across threads.
 - **Threads.** Transforms of 32768 points or more are split across the [thread pool](/stdlib/sync#parallel). `fft_batch` and `fft_real_batch` spread many transforms over it.
-- **Real input.** `fft_real` computes the full n-point spectrum from one n/2-point complex transform.
+- **Real input.** `fft_real` computes the full n-point spectrum from one n/2-point complex transform; the split is vectorized two bins at a time from both ends. `fft_real_half` / `fft_real_half_batch` return only the n/2 + 1 non-redundant bins, as FFTW and NumPy do, which halves what a batch writes.
 - **SIMD level.** The butterflies are built per [CPU SIMD level](/stdlib/simd#cpu-levels): AVX2 adds FMA to the complex multiply, and AVX-512 doubles the width.
 - **Vendor FFT.** With oneMKL linked (the Intel choice of [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output)), its DFTI transforms run `fft`/`ifft`/`fft_real` below 65,536 points, every row of `fft_batch`/`fft_real_batch`, and `fft2d`. On this page's 7800X3D that halves `fft2d` and the batched transforms. `fft_vendor()` reports it. FFTW-based libraries, AOCL-FFTW included, are GPL and are not used.
 
@@ -276,6 +277,9 @@ int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
 int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 // the same in place: row r holds its n reals in its first n/2 slots
 int fft_real_batch_inplace(&Complex data, unsigned long n, unsigned long batch);
+// only bins 0 .. n/2 (n/2 + 1 values; row r at out[r*(n/2+1)])
+int fft_real_half(const &double in, &Complex out, unsigned long n);
+int fft_real_half_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 int ffft(&FComplex data, unsigned long n);                    // Q8.24 forward
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 inverse
 ```

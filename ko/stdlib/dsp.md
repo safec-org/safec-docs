@@ -37,6 +37,7 @@ int fft_prepare_f32(unsigned long n);
 int fft_real_f32(const &float in, &Complex32 out, unsigned long n);
 int fft_batch_f32(&Complex32 data, unsigned long n, unsigned long batch, int inverse);
 int fft_real_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);
+int fft_real_half_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);   // and fft_real_half_f32
 
 // dsp.h
 float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
@@ -257,7 +258,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 - **SIMD 폭.** 레지스터에 들어가는 경우 버터플라이는 벡터 하나에 복소수 네 개씩 처리합니다(AVX2의 float, AVX-512의 두 정밀도). 그 밖에는 두 개씩입니다(AVX2의 double, SSE2, Neon).
 - **비트 역순.** 4096점까지는 비트 역순 교환을 컴파일 타임 인덱스 쌍 목록에서 가져오므로, 원소마다 인덱스를 계산하거나 예측하기 어려운 분기가 없습니다. 그보다 크면 점진적으로 계산하며 스레드에 나눕니다.
 - **스레드.** 32768점 이상의 변환은 [스레드 풀](/ko/stdlib/sync#parallel)에 나뉘어 실행됩니다. `fft_batch`와 `fft_real_batch`는 여러 변환을 풀에 분산합니다.
-- **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다.
+- **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다. 분리 단계는 양 끝에서 빈 두 개씩 벡터로 처리합니다. `fft_real_half` / `fft_real_half_batch`는 FFTW나 NumPy처럼 중복되지 않는 n/2 + 1개 빈만 돌려주므로, 배치가 쓰는 양이 절반이 됩니다.
 - **SIMD 수준.** 버터플라이는 [CPU SIMD 수준](/ko/stdlib/simd#cpu-levels)별로 빌드됩니다. AVX2에서는 복소 곱셈에 FMA가 더해지고, AVX-512에서는 폭이 두 배가 됩니다.
 - **벤더 FFT.** oneMKL이 링크되어 있으면([`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)의 Intel 선택), 65,536점 미만의 `fft`/`ifft`/`fft_real`, `fft_batch`/`fft_real_batch`의 모든 행, `fft2d`를 그 DFTI 변환이 실행합니다. 이 페이지의 7800X3D에서 `fft2d`와 배치 변환이 절반으로 줄어듭니다. `fft_vendor()`로 확인할 수 있습니다. FFTW 기반 라이브러리는 AOCL-FFTW를 포함해 GPL이므로 쓰지 않습니다.
 
@@ -280,6 +281,9 @@ int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
 int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 // 같은 작업을 제자리에서: 행 r의 앞쪽 n/2칸에 실수 n개가 들어 있음
 int fft_real_batch_inplace(&Complex data, unsigned long n, unsigned long batch);
+// 빈 0 .. n/2만(값 n/2 + 1개; 행 r은 out[r*(n/2+1)]부터)
+int fft_real_half(const &double in, &Complex out, unsigned long n);
+int fft_real_half_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 int ffft(&FComplex data, unsigned long n);                    // Q8.24 순변환
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 역변환
 ```

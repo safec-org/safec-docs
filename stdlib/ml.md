@@ -125,7 +125,7 @@ while (s < steps) {
 tensor_arena_free(&step);
 ```
 
-Tensors created outside the arena, such as parameters, stay on the heap, and so do their gradients, so they survive resets. Each tensor records its `owner`. `Tensor::free()` on an arena tensor does nothing, and a tensor must not be used after its arena is reset.
+Tensors created outside the arena, such as parameters, stay on the heap, and so do their gradients, so they survive resets. [`FeatureMap`](#cnn)s created while an arena is active come from it too, every intermediate inside `unet_forward` included; `feature_map_free` leaves those to the reset. Each tensor records its `owner`. `Tensor::free()` on an arena tensor does nothing, and a tensor must not be used after its arena is reset.
 
 ### Autograd ops and optimizer — `tensor_nn.h`
 
