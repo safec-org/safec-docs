@@ -243,6 +243,37 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
 :::
 
+## 머신러닝, 실전 LLM 추론 — 처음부터 만든 Gemma 4 E2B, PyTorch·MLX와 비교 {#machine-learning-real-llm-inference-gemma-4-e2b-from-scratch}
+
+이 페이지 다른 곳에서 소형 MLP/트랜스포머를 손수 만드는 데 쓰인 `std::ml`의 Tensor/attention/RoPE/RMSNorm 기본 요소들이, 정말로 특이한 아키텍처를 가진 실제 최신 35계층 LLM 앞에서도 버텨낼까를 확인하는 규모 테스트입니다 — Per-Layer Embeddings, 레이어 간 KV 공유, 이중 RoPE 설정(표준 + 상위 주파수를 0으로 채우는 proportional 방식), 비표준 RMSNorm 변형, 로짓 소프트캡핑까지. 실제 10.25GB `google/gemma-4-E2B` 체크포인트를 로드해서, SafeC 쪽 경로에는 외부 추론 엔진(llama.cpp도, ONNX Runtime도, vLLM도) 없이 전부 처음부터 구현했습니다. `std::ml` 자체에 포함된 게 아니라 독립된 프로젝트입니다: `benchmarks/gemma4/`에 [safeguard](/advanced/safeguard) 구조로(`Package.toml` + `src/` + `tests/`) 구성했습니다.
+
+각 메커니즘은 손으로 계산한 기준값과 대조해 개별적으로 검증한 뒤 전체 모델에 연결했고(프로젝트 자체의 설계 노트에 유도 과정이 있습니다), 그다음 파이프라인 전체를 실제 정답과 대조했습니다: 진짜 `google/gemma-4-E2B` 가중치를 Python `transformers`로 돌린 것과, 같은 프롬프트, 같은 토크나이저로 비교했습니다.
+
+| 프롬프트 | 기준 top-5 토큰 id (`transformers`) | SafeC top-5 토큰 id | 일치 여부 |
+|---|---|---|---|
+| "Hello, world!" | [236888, 108, 1, 107, 1717] | [236888, 108, 1, 107, 1717] | **정확히 일치, 순서까지 동일** |
+| "The quick brown fox jumps over the lazy dog." | [107, 1, 31770, 108, 669] | [107, 1, 31770, 108, 669] | **정확히 일치, 순서까지 동일** |
+| "SafeC" | [39316, 12977, 1869, 67, 55879] | [39316, 12977, 1869, 67, 55879] | **정확히 일치, 순서까지 동일** |
+
+`main.sc`의 서버는 완전한 bf16 모델을 구동합니다 — 저장뿐 아니라 가중치와 활성값 모두, 코드베이스에는 이제 F32 모델이 아예 남아있지 않습니다(아래 참고). 순전한 행렬곱 형태의 연산뿐 아니라 순방향 경로의 모든 연산이 bf16 비트를 직접 읽고 씁니다(각 스칼라를 사용하는 지점에서 `bf16_to_f32`/`f32_to_bf16`), float 누산은 수치적으로 반드시 필요한 곳에서만 사용됩니다(RMSNorm의 제곱합, softmax의 max/exp/sum, RoPE의 cos/sin 테이블 조회) — 중간 결과를 통째로 F32 `Tensor`로 만드는 일은 어디에도 없습니다. 이 bf16 네이티브 재작성판은 위 세 프롬프트 모두에서 `transformers` 기준값과 top-5 id가 **정확히** 일치합니다 — 이전 bf16 버전(가중치만 bf16, 대부분의 연산은 F32로 확장해서 처리)이 "Hello, world!" 프롬프트의 신뢰도 낮은 꼬리 토큰 하나를 놓쳐 4/5만 일치했던 것에서 개선된 결과입니다. 인과관계를 확정할 만큼 추적하지는 않았지만, 중간 F32 왕복이 줄어들면 경계선상의 로짓 동점에서 누적 반올림 오차가 줄어든다는 설명과는 앞뒤가 맞습니다.
+
+**단일 요청 지연시간** — 실제로 하나의 채팅 세션(시퀀스 하나, 토큰 하나씩 디코딩)이 체감하는 지표입니다. 아래쪽의 배치 처리량 수치는 "동시에 몇 개의 요청을 처리할 수 있는가"라는 다른 질문에 답하는 것이지, 단일 세션 지연시간과는 다릅니다. 같은 실제 체크포인트, 같은 프롬프트(`"The capital of France is"`), 같은 그리디 디코딩, 같은 머신에서 측정했습니다. 모든 프레임워크·경로가 동일하게 올바른 이어쓰기를 만들어냅니다(`" Paris.\n\nThe capital of France is Paris. ..."`, 그 뒤로는 예측 가능하게 반복 — 반복 페널티 없는 순수 그리디 디코딩의 특성):
+
+| 프레임워크 / 경로 | 디바이스 | 로드 | ms/토큰 |
+|---|---|---|---|
+| MLX | Apple Silicon GPU | 3.2초 | 48ms |
+| PyTorch | MPS | 7.5초 | 85ms |
+| PyTorch | CPU | 0.5초 | 285ms |
+| SafeC, 일반 그리디 디코딩 | MPS, BF16 | 6.5초 | 180ms |
+| **SafeC, 일반 + 추측(prompt-lookup) 디코딩** | MPS, BF16 | 6.5초 | **127ms (원래 297ms 기준 대비 약 2.34배)** |
+| SafeC | CPU, Accelerate BLAS, BF16 | 6.5초 | 14.1초 |
+
+297ms→180ms로 줄어든 일반 디코딩 성능은 독립적으로 측정한 세 가지 개선을 함께 적용한 결과입니다: `M==1`인 디코딩 단계 행렬곱 전용 GEMV 커널, 완전히 GPU에 체이닝된 FFN 블록, 그리고 레이어 전체를 GPU에 체이닝한 작업(RMSNorm/잔차 덧셈/GELU를 GPU 상주 커널로 옮겨 토큰당 GPU 왕복 횟수를 약 150-180회에서 약 70-84회로 줄임 — 같은 세션에서 체이닝을 켜고 끄며 번갈아 측정한 결과 평균 약 1.32배 향상을 확인). 이 세 번째 개선은 MLX와 PyTorch의 `mps` 백엔드도 Neural Engine을 전혀 사용하지 않는다는 사실을 직접 확인한 뒤(`mlx.core.default_device()`가 `Device(gpu, 0)`을 보고함), `mlx_lm`의 실제 디코딩 루프를 읽고 나서 착수했습니다 — MLX는 한 디코딩 스텝 전체(임베딩부터 모든 레이어, RMSNorm, RoPE, 어텐션, FFN, 최종 정규화, lm head, softmax, 샘플링까지)를 하나의 지연 계산 그래프로 만들어 `mx.eval()` 호출 한 번으로 실행합니다. 별도로 시도한 CoreML/ANE 프로토타입은 Neural Engine이 실제로 관여한 경우에도 이 프로젝트가 직접 작성한 GPU 커널보다 느리게 측정되어 채택하지 않았습니다. 각 기법의 전후 비교와 상세 내용은 [DESIGN_NOTES.md](/benchmarks/gemma4/DESIGN_NOTES.md)의 "A dedicated GEMV kernel for the M==1 decode step", "Chaining the FFN", "Whole-layer GPU chaining" 절을 참고하세요. 위 세 가지가 모두 활성화된 상태에서 측정한 추측 디코딩 자체의 배율은 1.42배(127ms/180ms)입니다. 결합된 수치(약 2.34배)는 개별 배율을 곱하는 대신 원래 기준선(297ms) 대비로 보고합니다 — 여러 기법이 겹치는 호출당 오버헤드를 함께 상쇄하기 때문입니다.
+
+::: details 소스
+[gemma4_bf16.h](/benchmarks/gemma4/src/gemma4_bf16.h) · [gemma4_bf16.sc](/benchmarks/gemma4/src/gemma4_bf16.sc) · [gemma4_rope.h](/benchmarks/gemma4/src/gemma4_rope.h) · [gemma4_rope.sc](/benchmarks/gemma4/src/gemma4_rope.sc) · [gemma4_attention.h](/benchmarks/gemma4/src/gemma4_attention.h) · [gemma4_attention.sc](/benchmarks/gemma4/src/gemma4_attention.sc) · [gemma4_ple.h](/benchmarks/gemma4/src/gemma4_ple.h) · [gemma4_ple.sc](/benchmarks/gemma4/src/gemma4_ple.sc) · [gemma4_ffn.h](/benchmarks/gemma4/src/gemma4_ffn.h) · [gemma4_ffn.sc](/benchmarks/gemma4/src/gemma4_ffn.sc) · [gemma4_model_bf16.h](/benchmarks/gemma4/src/gemma4_model_bf16.h) · [gemma4_model_bf16.sc](/benchmarks/gemma4/src/gemma4_model_bf16.sc) · [gemma4_generate.h](/benchmarks/gemma4/src/gemma4_generate.h) · [gemma4_generate.sc](/benchmarks/gemma4/src/gemma4_generate.sc) · [gemma4_tokenizer.h](/benchmarks/gemma4/src/gemma4_tokenizer.h) · [gemma4_tokenizer.sc](/benchmarks/gemma4/src/gemma4_tokenizer.sc) · [gemma4_http_server.h](/benchmarks/gemma4/src/gemma4_http_server.h) · [gemma4_http_server.sc](/benchmarks/gemma4/src/gemma4_http_server.sc) · [safetensors.h](/benchmarks/gemma4/src/safetensors.h) · [safetensors.sc](/benchmarks/gemma4/src/safetensors.sc) · [main.sc](/benchmarks/gemma4/src/main.sc) · [PyTorch bench_pytorch.py](/benchmarks/gemma4/tests/bench_pytorch.py) · [MLX bench_mlx.py](/benchmarks/gemma4/tests/bench_mlx.py) · [bench_safec.sc](/benchmarks/gemma4/tests/bench_safec.sc) · [test_gemma4_bf16_batch.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_batch.sc) · [test_gemma4_bf16_batch_real.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_batch_real.sc) · [test_gemma4_bf16_speculative.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_speculative.sc) · [test_gemma4_bf16_speculative_real.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_speculative_real.sc) · [test_mps_linear_gemv.sc](/benchmarks/gemma4/tests/test_mps_linear_gemv.sc) · [bench_mps_roundtrip.sc](/benchmarks/gemma4/tests/bench_mps_roundtrip.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal)
+:::
+
 ## 메모리 할당 — `std::alloc`/`dealloc`은 raw `malloc`/`free`보다 느린가? {#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree}
 
 `std::alloc`은 블록마다 이중 해제/해제 후 사용 검사를 담는 16바이트 헤더를 붙이고, 크기 등급 캐시를 둡니다: PyTorch의 CPU/CUDA 캐싱 할당자, MLX의 Metal 버퍼 캐시와 같은 발상입니다. 해제된 블록은 2의 거듭제곱 크기 등급별 스레드 로컬 프리 리스트로 들어가고, 같은 등급의 다음 `alloc()`은 `malloc()`/`free()`를 부르지 않고 거기서 바로 받습니다. 캐시된 블록은 재사용될 때까지 "해제됨" 매직 워드를 유지하므로 안전 검사는 그대로 동작합니다. glibc의 `malloc`/`free`와 비교한 결과(3회 중 최선. 모든 블록 주소를 출력되는 체크섬에 섞어, 최적화기가 할당/해제 쌍을 지우지 못하게 함):
