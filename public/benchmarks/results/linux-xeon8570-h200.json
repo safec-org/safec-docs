@@ -1,6 +1,6 @@
 {
  "machine": {
-  "safec": "safec 1.0.0",
+  "safec": "safec 1.0.0 (main @ 449420a, built from source)",
   "clang": "Ubuntu clang version 21.1.8 (++20251221032922+2078da43e25a-1~exp1~20251221153059.70)",
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "go": "go version go1.27.3 linux/amd64",
@@ -13,591 +13,582 @@
   "os": "Ubuntu 24.04.3 LTS",
   "cores": 12,
   "cuda": "Build cuda_13.0.r13.0/compiler.36424714_0",
-  "gpu": "NVIDIA H200, 580.126.20",
-  "note": "Backend.AI container limited to 12 of the host's 112 cores; the H200 is shared with a training job, which was paused (SIGSTOP) for the whole run, so the GPU was idle"
+  "gpu": "NVIDIA H200, 580.126.20"
  },
  "ml": {
   "small/safec_cpu": {
-   ":train_ms": 143.954,
-   ":last_loss": 100.333427,
-   ":inference_ms_per_1000": 481.083
+   ":train_ms": 58.215,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 281.601
   },
   "small/safec_blas": {
-   ":train_ms": 40.755,
-   ":last_loss": 100.33342,
-   ":inference_ms_per_1000": 93.902
+   ":train_ms": 35.313,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 83.486
   },
   "big/safec_cpu": {
-   ":train_ms": 2323.368,
-   ":last_loss": 95.428474,
-   ":inference_ms_per_200": 2764.108
+   ":train_ms": 327.393,
+   ":last_loss": 95.429657,
+   ":inference_ms_per_200": 389.864
   },
   "big/safec_blas": {
-   ":train_ms": 205.829,
-   ":last_loss": 95.424973,
-   ":inference_ms_per_200": 255.32
+   ":train_ms": 178.149,
+   ":last_loss": 95.424927,
+   ":inference_ms_per_200": 247.391
   },
   "cuda/safec": {
    "small 128-256-64 plain": {
-    "train_ms": 6.725,
+    "train_ms": 6.711,
     "last_loss": 100.333282,
-    "throughput_samples_per_sec": 951689.27,
-    "inference_ms_per_1000": 38.684,
+    "throughput_samples_per_sec": 946291.87,
+    "inference_ms_per_1000": 38.734,
     "checksum": -98.959379
    },
    "big 512-1024-256 plain": {
-    "train_ms": 4.078,
-    "last_loss": 95.427277,
-    "throughput_samples_per_sec": 1569453.35,
-    "inference_ms_per_200": 8.212,
+    "train_ms": 4.066,
+    "last_loss": 95.427269,
+    "throughput_samples_per_sec": 1563374.8,
+    "inference_ms_per_200": 8.222,
     "checksum": 0.721703
    },
    "small 128-256-64 fused": {
-    "train_ms": 6.23,
+    "train_ms": 6.176,
     "last_loss": 100.333282,
-    "throughput_samples_per_sec": 1026106.88,
-    "inference_ms_per_1000": 34.863,
+    "throughput_samples_per_sec": 1015470.38,
+    "inference_ms_per_1000": 34.81,
     "checksum": -98.959379
    },
    "big 512-1024-256 fused": {
-    "train_ms": 3.762,
-    "last_loss": 95.427292,
-    "throughput_samples_per_sec": 1701087.15,
-    "inference_ms_per_200": 7.591,
+    "train_ms": 3.754,
+    "last_loss": 95.427284,
+    "throughput_samples_per_sec": 1695700.21,
+    "inference_ms_per_200": 7.586,
     "checksum": 0.721703
    },
    "small 128-256-64 graph": {
-    "train_ms": 3.802,
-    "last_loss": 100.33329,
-    "throughput_samples_per_sec": 1678640.55,
-    "inference_ms_per_1000": 19.634,
+    "train_ms": 3.814,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 1676118.39,
+    "inference_ms_per_1000": 19.649,
     "checksum": -98.959379
    },
    "big 512-1024-256 graph": {
     "train_ms": 3.127,
-    "last_loss": 95.427284,
-    "throughput_samples_per_sec": 2046714.32,
-    "inference_ms_per_200": 5.564,
+    "last_loss": 95.427269,
+    "throughput_samples_per_sec": 2045605.54,
+    "inference_ms_per_200": 5.62,
     "checksum": 0.721703
    },
    "small 128-256-64 tf32": {
-    "train_ms": 3.793,
-    "last_loss": 100.334076,
-    "throughput_samples_per_sec": 1687533.18,
-    "inference_ms_per_1000": 19.538,
+    "train_ms": 3.795,
+    "last_loss": 100.334084,
+    "throughput_samples_per_sec": 1685673.98,
+    "inference_ms_per_1000": 19.687,
     "checksum": -99.043354
    },
    "big 512-1024-256 tf32": {
-    "train_ms": 2.31,
-    "last_loss": 90.685478,
-    "throughput_samples_per_sec": 2763681.05,
-    "inference_ms_per_200": 5.567,
+    "train_ms": 2.308,
+    "last_loss": 90.685463,
+    "throughput_samples_per_sec": 2772555.23,
+    "inference_ms_per_200": 5.577,
     "checksum": 0.770854
    }
   },
   "small/pytorch_cpu": {
-   "cpu:train_ms": 23.31,
+   "cpu:train_ms": 23.4,
    ":last_loss": 100.018272,
-   "cpu:inference_ms_per_1000": 43.37
+   "cpu:inference_ms_per_1000": 43.201
   },
   "small/pytorch_cuda": {
-   "cuda:train_ms": 47.702,
+   "cuda:train_ms": 51.999,
    ":last_loss": 103.07663,
-   "cuda:inference_ms_per_1000": 55.601
+   "cuda:inference_ms_per_1000": 56.373
   },
   "big/pytorch_cpu": {
-   "cpu:train_ms": 60.455,
+   "cpu:train_ms": 64.425,
    ":last_loss": 106.544487,
-   "cpu:inference_ms_per_200": 54.852
+   "cpu:inference_ms_per_200": 54.493
   },
   "big/pytorch_cuda": {
-   "cuda:train_ms": 17.952,
+   "cuda:train_ms": 17.897,
    ":last_loss": 871.826538,
-   "cuda:inference_ms_per_200": 11.909
+   "cuda:inference_ms_per_200": 11.781
   },
   "small/tensorflow_cpu": {
-   "cpu:train_ms": 121.975,
+   "cpu:train_ms": 122.767,
    ":last_loss": 106.182999,
-   "cpu:inference_ms_per_1000": 265.471
+   "cpu:inference_ms_per_1000": 265.647
   },
   "big/tensorflow_cpu": {
-   "cpu:train_ms": 225.726,
+   "cpu:train_ms": 224.427,
    ":last_loss": 316.611603,
-   "cpu:inference_ms_per_200": 237.369
+   "cpu:inference_ms_per_200": 238.674
   },
   "small/pytorch_cuda_fp32": {
-   "cuda:train_ms": 50.87,
+   "cuda:train_ms": 52.651,
    ":last_loss": 103.071129,
-   "cuda:inference_ms_per_1000": 56.534,
+   "cuda:inference_ms_per_1000": 56.704,
    "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0 (the NGC container defaults to 1, i.e. TF32), best of 3"
   },
   "big/pytorch_cuda_fp32": {
-   "cuda:train_ms": 16.878,
+   "cuda:train_ms": 18.196,
    ":last_loss": 1754.826172,
-   "cuda:inference_ms_per_200": 12.108,
+   "cuda:inference_ms_per_200": 12.646,
    "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0, best of 3"
-  },
-  "small/safec_cuda_legacy": {
-   ":train_ms": 82921.421,
-   ":last_loss": 100.333405,
-   ":inference_ms_per_1000": 816226.536,
-   "note": "v1.0.0-beta-5 std: train_blas.sc with tensor_matmul_cuda_blas (context + cuBLAS handle created per call); one run, GPU shared with a training job"
   }
  },
  "fib": {
   "safec": {
-   "debug": 0.2084,
-   "release": 0.0864,
+   "debug": 0.2075,
+   "release": 0.0906,
    "rss_mb": 8.8,
-   "compile_s": 0.116
+   "compile_s": 0.119
   },
   "c": {
    "debug": 0.1859,
-   "release": 0.0867,
+   "release": 0.0884,
    "rss_mb": 8.8,
-   "compile_s": 0.1
+   "compile_s": 0.094
   },
   "cpp": {
-   "debug": 0.1862,
-   "release": 0.0897,
+   "debug": 0.1851,
+   "release": 0.089,
    "rss_mb": 10.5,
-   "compile_s": 0.126
+   "compile_s": 0.115
   },
   "rust": {
-   "debug": 0.2648,
-   "release": 0.0921,
+   "debug": 0.2647,
+   "release": 0.092,
    "rss_mb": 10.5,
-   "compile_s": 0.146
+   "compile_s": 0.139
   },
   "zig": {
-   "debug": 0.279,
-   "release": 0.0709,
+   "debug": 0.2848,
+   "release": 0.072,
    "rss_mb": 2.8,
-   "compile_s": 14.488
+   "compile_s": 14.512
   },
   "go": {
-   "debug": 0.1671,
-   "release": 0.134,
+   "debug": 0.1635,
+   "release": 0.1311,
    "rss_mb": 2.8,
-   "compile_s": 0.096
+   "compile_s": 0.04
   },
   "python": {
-   "debug": 2.4292,
-   "release": 2.4322,
+   "debug": 2.4325,
+   "release": 2.4324,
    "rss_mb": 19.2,
    "compile_s": null
   }
  },
  "nbody": {
   "safec": {
-   "debug": 0.5115,
-   "release": 0.1458,
+   "debug": 0.5071,
+   "release": 0.1435,
    "rss_mb": 8.8,
-   "compile_s": 0.153
+   "compile_s": 0.14
   },
   "c": {
-   "debug": 0.3227,
-   "release": 0.1444,
+   "debug": 0.3236,
+   "release": 0.1457,
    "rss_mb": 8.8,
-   "compile_s": 0.132
+   "compile_s": 0.128
   },
   "cpp": {
-   "debug": 0.3254,
-   "release": 0.1449,
+   "debug": 0.3226,
+   "release": 0.1477,
    "rss_mb": 10.5,
-   "compile_s": 0.261
+   "compile_s": 0.258
   },
   "rust": {
-   "debug": 0.5931,
-   "release": 0.1539,
+   "debug": 0.5942,
+   "release": 0.1546,
    "rss_mb": 10.5,
-   "compile_s": 0.187
+   "compile_s": 0.183
   },
   "zig": {
-   "debug": 0.3375,
-   "release": 0.1539,
+   "debug": 0.3381,
+   "release": 0.1555,
    "rss_mb": 2.8,
-   "compile_s": 14.704
+   "compile_s": 14.776
   },
   "go": {
-   "debug": 0.3508,
-   "release": 0.1903,
+   "debug": 0.3512,
+   "release": 0.1912,
    "rss_mb": 2.8,
-   "compile_s": 0.225
+   "compile_s": 0.063
   },
   "python": {
-   "debug": 9.3115,
-   "release": 9.334,
+   "debug": 9.418,
+   "release": 9.3142,
    "rss_mb": 19.2,
    "compile_s": null
   }
  },
  "binarytrees": {
   "safec": {
-   "debug": 0.4564,
-   "release": 0.3102,
+   "debug": 0.5128,
+   "release": 0.2788,
    "rss_mb": 33.2,
-   "compile_s": 0.146
-  },
-  "c": {
-   "debug": 1.322,
-   "release": 1.1646,
-   "rss_mb": 42.0,
-   "compile_s": 0.108
-  },
-  "cpp": {
-   "debug": 1.689,
-   "release": 1.3717,
-   "rss_mb": 43.8,
    "compile_s": 0.141
   },
-  "rust": {
-   "debug": 3.0574,
-   "release": 1.3997,
+  "c": {
+   "debug": 1.3229,
+   "release": 1.1544,
+   "rss_mb": 42.0,
+   "compile_s": 0.116
+  },
+  "cpp": {
+   "debug": 1.6985,
+   "release": 1.3721,
    "rss_mb": 43.8,
-   "compile_s": 0.163
+   "compile_s": 0.147
+  },
+  "rust": {
+   "debug": 3.0464,
+   "release": 1.4117,
+   "rss_mb": 43.8,
+   "compile_s": 0.173
   },
   "zig": {
-   "debug": 6.4105,
-   "release": 1.2477,
-   "rss_mb": 42.0,
-   "compile_s": 17.481
+   "debug": 6.4275,
+   "release": 1.2615,
+   "rss_mb": 43.8,
+   "compile_s": 13.84
   },
   "go": {
-   "debug": 6.5467,
-   "release": 3.3194,
-   "rss_mb": 27.9,
-   "compile_s": 0.205
+   "debug": 6.6495,
+   "release": 3.2045,
+   "rss_mb": 31.1,
+   "compile_s": 0.066
   },
   "python": {
-   "debug": 29.184,
-   "release": 29.3991,
+   "debug": 29.1422,
+   "release": 29.2568,
    "rss_mb": 91.9,
    "compile_s": null
   },
   "safec_heap": {
-   "debug": 1.4827,
-   "release": 1.1599,
+   "debug": 1.5138,
+   "release": 1.1405,
    "rss_mb": 57.8,
-   "compile_s": 0.132
+   "compile_s": 0.145
   }
  },
  "binarytrees_mt": {
   "safec": {
-   "release": 0.0916,
+   "release": 0.0989,
    "rss_mb": 97.6,
-   "compile_s": 0.242
+   "compile_s": 0.245
   },
   "c": {
-   "release": 0.4065,
-   "rss_mb": 162.8,
-   "compile_s": 0.206
+   "release": 0.4144,
+   "rss_mb": 164.5,
+   "compile_s": 0.128
   },
   "cpp": {
-   "release": 0.4498,
+   "release": 0.4311,
    "rss_mb": 166.2,
-   "compile_s": 1.207
+   "compile_s": 0.359
   },
   "rust": {
-   "release": 0.4589,
+   "release": 0.4611,
    "rss_mb": 162.8,
-   "compile_s": 0.315
+   "compile_s": 0.333
   },
   "zig": {
    "error": "command failed (1): /home/work/.local/zig-x86_64-linux-0.17.0/zig build-exe -O ReleaseFast /home/work/safec-docs/public/benchmarks/binarytrees_mt/zig/binarytrees_mt.zig -femit-bin=/home/work/safec-doc"
   },
   "go": {
-   "release": 0.412,
-   "rss_mb": 101.5,
-   "compile_s": 0.185
+   "release": 0.4194,
+   "rss_mb": 139.9,
+   "compile_s": 0.067
   },
   "python": {
-   "release": 74.7273,
-   "rss_mb": 330.1,
+   "release": 74.9758,
+   "rss_mb": 334.1,
    "compile_s": null
   },
   "safec_heap": {
-   "release": 0.3945,
-   "rss_mb": 258.8,
-   "compile_s": 0.149
+   "release": 0.3981,
+   "rss_mb": 262.3,
+   "compile_s": 0.156
   }
  },
  "simd": {
   "safec": {
-   "scalar": 0.1111,
-   "vec": 0.1135
+   "scalar": 0.1206,
+   "vec": 0.1081
   },
   "c": {
-   "scalar": 0.1128,
-   "vec": 0.1098
+   "scalar": 0.121,
+   "vec": 0.1157
   },
   "cpp": {
-   "scalar": 0.1172,
-   "vec": 0.112
+   "scalar": 0.1196,
+   "vec": 0.1124
   },
   "rust": {
-   "scalar": 0.1148,
-   "vec": 0.1097
+   "scalar": 0.119,
+   "vec": 0.1139
   },
   "zig": {
-   "scalar": 0.1001,
-   "vec": 0.0927
+   "scalar": 0.1032,
+   "vec": 0.0914
   },
   "go": {
-   "scalar": 0.1143
+   "scalar": 0.1137
   },
   "python": {
-   "scalar": 3.9834,
-   "vec": 0.3338
+   "scalar": 3.9392,
+   "vec": 0.337
   }
  },
  "collections": {
   "safec": {
-   "vec push": 3.234,
-   "vec sort": 74.817,
-   "map insert": 62.097,
-   "map get": 20.354,
-   "list push+pop": 17.451,
-   "queue enq+deq": 4.158,
-   "bst insert": 357.709,
-   "bst get": 348.356
+   "vec push": 3.223,
+   "vec sort": 75.004,
+   "map insert": 59.988,
+   "map get": 20.101,
+   "list push+pop": 17.782,
+   "queue enq+deq": 4.289,
+   "bst insert": 367.04,
+   "bst get": 349.625
   },
   "c": {
-   "vec push": 1.732,
-   "vec sort": 148.789,
-   "map insert": 54.277,
-   "map get": 18.869,
-   "list push+pop": 27.519,
-   "queue enq+deq": 6.78,
-   "bst insert": 315.502,
-   "bst get": 337.171
+   "vec push": 1.828,
+   "vec sort": 148.604,
+   "map insert": 53.241,
+   "map get": 18.554,
+   "list push+pop": 27.556,
+   "queue enq+deq": 6.809,
+   "bst insert": 316.61,
+   "bst get": 336.067
   }
  },
  "memalloc": {
-  "std_ns_per_pair": 10.06,
-  "malloc_ns_per_pair": 8.52,
-  "std_ms": 158.34,
-  "malloc_ms": 119.46
+  "std_ns_per_pair": 10.03,
+  "malloc_ns_per_pair": 8.49,
+  "std_ms": 158.73,
+  "malloc_ms": 118.86
  },
  "web": {
   "safec": {
-   "rps": 33737.51,
+   "rps": 33901.75,
    "p50_ms": 1,
    "p99_ms": 2,
    "failed": 0,
    "rss_mb": 14.5
   },
   "c": {
-   "rps": 32177.31,
+   "rps": 32001.08,
    "p50_ms": 2,
    "p99_ms": 2,
    "failed": 0,
    "rss_mb": 14.0
   },
   "cpp": {
-   "rps": 32605.52,
-   "p50_ms": 1,
+   "rps": 32209.54,
+   "p50_ms": 2,
    "p99_ms": 2,
    "failed": 0,
-   "rss_mb": 17.5
+   "rss_mb": 14.0
   },
   "zig": {
    "error": "command failed (1): /home/work/.local/zig-x86_64-linux-0.17.0/zig build-exe -O ReleaseFast /home/work/safec-docs/public/benchmarks/webservice/zig/server.zig -femit-bin=/home/work/safec-docs/public/ben"
   },
   "go": {
-   "rps": 32181.87,
+   "rps": 32370.47,
    "p50_ms": 2,
    "p99_ms": 2,
    "failed": 0,
-   "rss_mb": 25.6
+   "rss_mb": 25.2
   },
   "rust": {
-   "rps": 32651.89,
+   "rps": 32747.11,
    "p50_ms": 1,
    "p99_ms": 2,
    "failed": 0,
-   "rss_mb": 13.7
+   "rss_mb": 13.6
   },
   "python": {
-   "rps": 2885.78,
+   "rps": 2878.87,
    "p50_ms": 17,
    "p99_ms": 30,
    "failed": 0,
-   "rss_mb": 60.5
+   "rss_mb": 61.1
   }
  },
  "conv": {
   "safec_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_image": 169.77,
-    "checksum": 528.2298
+    "ms_per_image": 1.594,
+    "checksum": 528.2296
    },
    "unet128 b=1 cpu": {
-    "ms_per_image": 459.06,
-    "checksum": 994784.9736
+    "ms_per_image": 5.979,
+    "checksum": 994784.9294
    }
   },
   "safec_cuda": {
    "conv64 b=1 fp32": {
-    "ms_per_batch": 0.0336,
-    "ms_per_image": 0.03364
+    "ms_per_batch": 0.0335,
+    "ms_per_image": 0.03353
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.1642,
-    "ms_per_image": 0.00513
+    "ms_per_batch": 0.1634,
+    "ms_per_image": 0.00511
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.1746,
-    "ms_per_image": 0.1746
+    "ms_per_batch": 0.1754,
+    "ms_per_image": 0.17544
    },
    "unet128 b=1 graph fp32": {
     "ms_per_batch": 0.1643,
-    "ms_per_image": 0.16432
+    "ms_per_image": 0.16435
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 0.7308,
-    "ms_per_image": 0.04568
+    "ms_per_batch": 0.7314,
+    "ms_per_image": 0.04571
    },
    "conv64 b=1 tf32": {
-    "ms_per_batch": 0.0334,
-    "ms_per_image": 0.03339
+    "ms_per_batch": 0.0335,
+    "ms_per_image": 0.03353
    },
    "conv64 b=32 tf32": {
     "ms_per_batch": 0.1058,
     "ms_per_image": 0.00331
    },
    "unet128 b=1 tf32": {
-    "ms_per_batch": 0.1754,
-    "ms_per_image": 0.17545
+    "ms_per_batch": 0.1763,
+    "ms_per_image": 0.17632
    },
    "unet128 b=1 graph tf32": {
-    "ms_per_batch": 0.1233,
-    "ms_per_image": 0.12332
+    "ms_per_batch": 0.1234,
+    "ms_per_image": 0.12341
    },
    "unet128 b=16 tf32": {
-    "ms_per_batch": 0.659,
-    "ms_per_image": 0.04119
+    "ms_per_batch": 0.6625,
+    "ms_per_image": 0.04141
    }
   },
   "pytorch_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_batch": 0.3066,
-    "ms_per_image": 0.30664
+    "ms_per_batch": 0.3002,
+    "ms_per_image": 0.30019
    },
    "unet128 b=1 cpu": {
-    "ms_per_batch": 3.213,
-    "ms_per_image": 3.21301
+    "ms_per_batch": 3.4189,
+    "ms_per_image": 3.4189
    }
   },
   "pytorch_cuda": {
    "conv64 b=1 fp32": {
     "ms_per_batch": 0.0224,
-    "ms_per_image": 0.02244
+    "ms_per_image": 0.02243
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.2568,
+    "ms_per_batch": 0.2567,
     "ms_per_image": 0.00802
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.2059,
-    "ms_per_image": 0.20586
+    "ms_per_batch": 0.2062,
+    "ms_per_image": 0.20619
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 0.8728,
-    "ms_per_image": 0.05455
+    "ms_per_batch": 0.8732,
+    "ms_per_image": 0.05458
    },
    "conv64 b=1 tf32": {
-    "ms_per_batch": 0.0381,
-    "ms_per_image": 0.03813
+    "ms_per_batch": 0.0382,
+    "ms_per_image": 0.03817
    },
    "conv64 b=32 tf32": {
-    "ms_per_batch": 0.0971,
-    "ms_per_image": 0.00303
+    "ms_per_batch": 0.0966,
+    "ms_per_image": 0.00302
    },
    "unet128 b=1 tf32": {
-    "ms_per_batch": 0.2738,
-    "ms_per_image": 0.27384
+    "ms_per_batch": 0.273,
+    "ms_per_image": 0.27301
    },
    "unet128 b=16 tf32": {
-    "ms_per_batch": 0.556,
-    "ms_per_image": 0.03475
+    "ms_per_batch": 0.5527,
+    "ms_per_image": 0.03454
    },
    "conv64 b=1 fp32 heuristic": {
     "ms_per_batch": 0.0223,
-    "ms_per_image": 0.0223
+    "ms_per_image": 0.02227
    },
    "conv64 b=32 fp32 heuristic": {
-    "ms_per_batch": 0.2565,
+    "ms_per_batch": 0.2566,
     "ms_per_image": 0.00802
    },
    "unet128 b=1 fp32 heuristic": {
-    "ms_per_batch": 0.2076,
-    "ms_per_image": 0.20758
+    "ms_per_batch": 0.2093,
+    "ms_per_image": 0.2093
    },
    "unet128 b=16 fp32 heuristic": {
-    "ms_per_batch": 0.8727,
-    "ms_per_image": 0.05454
+    "ms_per_batch": 0.8728,
+    "ms_per_image": 0.05455
    }
-  },
-  "note": "2026-10-20, best of 3, training job paused (SIGSTOP) so GPU and the 12 cores were idle; cuDNN 9.15.0. PyTorch CUDA rows set cudnn.allow_tf32 per mode; 'fp32'/'tf32' use cudnn.benchmark=True"
+  }
  },
  "fft": {
   "safec_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 198.065
+    "ms_per_call": 2.65
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 193.727
+    "ms_per_call": 2.65
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 448.01
+    "ms_per_call": 7.141
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 445.714
+    "ms_per_call": 5.312
    }
   },
   "safec_cuda": {
    "fft1d n=1048576 c128 cuda": {
-    "ms_per_call": 2.684
+    "ms_per_call": 2.7138
    },
    "fft2d 1024x1024 c128 cuda": {
-    "ms_per_call": 2.6794
+    "ms_per_call": 2.7083
    },
    "batch 1024x4096 c2c cuda": {
-    "ms_per_call": 0.0245
+    "ms_per_call": 0.0247
    },
    "rfft 1024x4096 r2c cuda": {
-    "ms_per_call": 0.0108
+    "ms_per_call": 0.0109
    }
   },
   "pytorch_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 1.1996
+    "ms_per_call": 1.1946
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 0.6604
+    "ms_per_call": 0.6632
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 3.0805
+    "ms_per_call": 3.2639
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 0.2911
+    "ms_per_call": 0.2859
    }
   },
   "pytorch_cuda": {
    "fft1d n=1048576 c128 cuda": {
-    "ms_per_call": 2.0736
+    "ms_per_call": 2.0549
    },
    "fft2d 1024x1024 c128 cuda": {
-    "ms_per_call": 2.0618
+    "ms_per_call": 2.0447
    },
    "batch 1024x4096 c2c cuda": {
     "ms_per_call": 0.024
    },
    "rfft 1024x4096 r2c cuda": {
-    "ms_per_call": 0.0119
+    "ms_per_call": 0.0118
    }
-  },
-  "note": "2026-10-20, best of 3, training job paused (SIGSTOP); cuFFT 12.0 (CUDA 13.0)"
+  }
  }
 }
