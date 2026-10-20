@@ -519,6 +519,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
 | fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
+| 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32` |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
 | 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
@@ -562,6 +563,45 @@ rocBLAS와 직접 작성한 커널의 비교: 이 라이브러리의 타일 SGEM
 코어를 써서 33.7 TFLOPS에 이르고, 학습 루프가 쓰는 작은 크기에서도 rocBLAS가
 더 빠르다(≈5 µs, 실행 시작 하한에 가까움). 그래서 행렬곱은 rocBLAS를 쓰고,
 사용자 커널은 rocBLAS가 하지 않는 일을 맡는다.
+
+#### 어텐션 {#rocm-attention}
+
+두 어텐션 연산 모두 `q`를 `[heads][seqLen][headDim]`, `k`와 `v`를
+`[heads][kvLen][headDim]`(모두 fp32)으로 받아 `out`에
+`[heads][seqLen][headDim]`으로 쓴다. `headDim`은 최대 128이다. `scale`이
+0 이하이면 `1/√headDim`을 쓴다. 작업을 큐에 넣으면 1, 형태가 맞지 않거나
+ROCm GPU가 없으면 0을 돌려준다.
+
+- **`rocm_flash_attention`**은 `softmax(scale · QKᵀ) V`를 정확히 계산한다.
+  K/V 타일을 공유 메모리로 흘려 보내며 온라인 softmax(FlashAttention)를
+  쓰므로 메모리는 O(seqLen · headDim)이고 seqLen × kvLen 점수 행렬을
+  저장하지 않는다. `causal`이면 질의 `i`는 키 `j ≤ i + kvLen − seqLen`만
+  본다(마지막 질의 행이 마지막 키와 맞춰짐 — KV 캐시와 같음). 따라서
+  `kvLen ≥ seqLen`이어야 한다. 완전히 가려진 타일은 건너뛰므로 causal
+  어텐션이 약 두 배 빠르다.
+- **`rocm_linear_attention`**은 `φ(Q)(φ(K)ᵀV) / φ(Q)(φ(K)ᵀ1)`,
+  `φ(x) = elu(x) + 1`을 계산한다(Katharopoulos 외). 시간과 메모리가 시퀀스
+  길이에 선형이다. `causal`이면 각 질의는 자기 위치까지의 키만
+  본다(`kvLen == seqLen`). 청크별 누적 상태와 청크 내부의 마스크 항으로
+  계산한다. softmax 어텐션의 근사이므로 flash 어텐션과 결과가 다르며, CPU의
+  `std::linear_attention_forward`와 일치한다.
+
+MI100, 헤드 16개, `headDim` 64, fp32, 호출당 ms(같은 GPU의 PyTorch 2
+`scaled_dot_product_attention`을 참고로 함):
+
+| seqLen | causal | `rocm_flash_attention` | `rocm_linear_attention` | PyTorch SDPA |
+|---:|:---:|---:|---:|---:|
+| 1024 | 아니오 | 1.39 | 0.35 | 0.72 |
+| 1024 | 예 | 0.86 | 0.43 | 0.93 |
+| 4096 | 아니오 | 12.5 | 1.22 | 11.4 |
+| 4096 | 예 | 7.28 | 1.73 | 15.1 |
+| 16384 | 아니오 | 184 | 5.14 | 메모리 부족 |
+| 16384 | 예 | 91.4 | 6.40 | 메모리 부족 |
+
+gfx908에서 PyTorch는 SDPA를 일반 수학 경로로 돌려 점수 행렬을 만들므로
+16k 토큰에서는(복사본 하나당 17 GB 점수 행렬) 메모리가 부족하다. flash
+커널은 행렬 코어가 아닌 벡터 fp32 유닛을 쓰므로, 짧은 non-causal
+시퀀스에서는 rocBLAS 기반인 PyTorch 경로가 더 빠르다.
 
 ### CUDA (NVIDIA) {#cuda}
 

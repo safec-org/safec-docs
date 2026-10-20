@@ -529,6 +529,7 @@ the backend picks the one with the most compute units.
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
 | fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
+| Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32` |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
 | Host arrays | `rocm_add_f32` … `rocm_matmul_f32_blas` — upload, compute, read back in one call |
@@ -573,6 +574,45 @@ rocBLAS reaches 33.7 TFLOPS using the matrix cores, and rocBLAS is also
 faster at the small sizes a training loop uses (≈5 µs, close to the launch
 floor). So matmuls use rocBLAS, and the custom kernels cover the work rocBLAS
 doesn't do.
+
+#### Attention {#rocm-attention}
+
+Both attention ops take `q` as `[heads][seqLen][headDim]` and `k`, `v` as
+`[heads][kvLen][headDim]`, all fp32, and write `out` as
+`[heads][seqLen][headDim]`. `headDim` can be at most 128. A `scale` of 0 or
+less means `1/√headDim`. Each op returns 1 once the work is queued, or 0 when the shape is
+rejected or no ROCm GPU is present.
+
+- **`rocm_flash_attention`** computes `softmax(scale · QKᵀ) V` exactly. It
+  streams K/V tiles through shared memory with an online softmax
+  (FlashAttention), so memory stays O(seqLen · headDim) and no
+  seqLen × kvLen score matrix is ever stored. With `causal`, query `i` sees
+  keys `j ≤ i + kvLen − seqLen` (the last query rows line up with the last
+  keys, as in a KV cache), so `kvLen ≥ seqLen` is required. Fully masked
+  tiles are skipped, which makes causal attention about twice as fast.
+- **`rocm_linear_attention`** computes
+  `φ(Q)(φ(K)ᵀV) / φ(Q)(φ(K)ᵀ1)` with `φ(x) = elu(x) + 1` (Katharopoulos et
+  al.). Time and memory are linear in sequence length. With `causal`, each
+  query sees only the keys up to its own position (`kvLen == seqLen`); this
+  uses per-chunk running states and a masked term inside each chunk. It
+  approximates softmax attention, so its results differ from flash attention.
+  It matches `std::linear_attention_forward` on the CPU.
+
+MI100, 16 heads, `headDim` 64, fp32, ms per call (PyTorch 2 `scaled_dot_product_attention` on the same GPU for reference):
+
+| seqLen | causal | `rocm_flash_attention` | `rocm_linear_attention` | PyTorch SDPA |
+|---:|:---:|---:|---:|---:|
+| 1024 | no | 1.39 | 0.35 | 0.72 |
+| 1024 | yes | 0.86 | 0.43 | 0.93 |
+| 4096 | no | 12.5 | 1.22 | 11.4 |
+| 4096 | yes | 7.28 | 1.73 | 15.1 |
+| 16384 | no | 184 | 5.14 | out of memory |
+| 16384 | yes | 91.4 | 6.40 | out of memory |
+
+On gfx908, PyTorch runs SDPA as plain math and materializes the score matrix,
+so at 16k tokens (a 17 GB score matrix per copy) it runs out of memory. The flash kernel uses
+vector fp32 units rather than matrix cores, so for short non-causal
+sequences PyTorch's rocBLAS-backed path is faster.
 
 ### CUDA (NVIDIA) {#cuda}
 
