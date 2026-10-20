@@ -9,7 +9,7 @@
 #include <std/interrupt/mmio.h>
 #include <std/interrupt/bitfield.h>
 
-void configure_uart(void* uart_base) {
+void configure_uart(&volatile unsigned int uart_base) {
     struct MmioReg ctrl = std::mmio_reg(uart_base);
     unsigned int baud_field = ctrl.read_field(0, 15);
     ctrl.write_field(0, 15, baud_field | 1u);
@@ -20,13 +20,17 @@ void configure_uart(void* uart_base) {
 
 ## MMIO (`interrupt/mmio.h`) {#mmio-interruptmmioh}
 
+레지스터 주소는 `&volatile` 참조(32비트 레지스터는 `&volatile unsigned int`)이며,
+고정 주소로부터 `unsafe` 안에서 한 번 만듭니다 — 패턴은
+[HAL](/ko/stdlib/hal)을 참고하세요.
+
 동일한 연산을 두 가지 방식으로 동등하게 제공한다: 한 레지스터에 대해
 여러 접근을 묶을 때 쓰는 `MmioReg` 구조체(`mmio_reg(addr)`로 생성한 뒤
 메서드 호출)와, 일회성 접근을 위한 자유 함수.
 
 | `MmioReg` 메서드 | 대응하는 자유 함수 |
 |---|---|
-| `read32()` / 없음(쓰기 전용 자유 함수) | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
+| `read32()` / `write32(val)` | `mmio_read32(addr)` / `mmio_write32(addr, val)` |
 | — | `mmio_read16`/`mmio_write16`, `mmio_read8`/`mmio_write8` |
 | `set_bits(mask)` / `clear_bits(mask)` | `mmio_set_bits32(addr, mask)` / `mmio_clear_bits32(addr, mask)` |
 | `read_field(lo, hi)` / `write_field(lo, hi, val)` | `mmio_read_field32(addr, lo, hi)` / `mmio_write_field32(addr, lo, hi, val)` |
@@ -73,6 +77,8 @@ if (table.dispatch(3)) { /* 핸들러가 실행됨 */ }
 `vtable_init()`은 사용 전에 모든 슬롯을 `vtable_default_handler`(프로젝트별로
 재정의하도록 만들어진, 약한 심벌(weak)의 무한 루프 폴트 핸들러)로
 설정한다.
+
+`VTABLE_MAX_VECTORS`는 256개입니다(Cortex-M: 코어 예외 16개 + 외부 IRQ 최대 240개).
 
 ## 클럭 설정 (`interrupt/clock.h`) {#clock-configuration-interruptclockh}
 

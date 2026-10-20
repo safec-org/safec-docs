@@ -10,19 +10,18 @@ SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니
 
 ```c
 extern int printf(const char* fmt, ...);
-void* worker(void *arg) {
-    unsafe {
-        int *data = (int*)arg;                    // void* -> int*: unsafe
-        printf("Worker received: %d\n", *data);   // 원시 포인터 역참조는 unsafe 필요
+static int g_value = 42;
+
+?&int worker(?&int arg) {
+    match (arg) {
+        case some(v): { printf("Worker received: %d\n", *v); }
+        case null:    { }
     }
-    return (void*)0;
+    return null;
 }
 
 int main() {
-    int value = 42;
-    void *arg;
-    unsafe { arg = (void*)&value; }   // &stack 참조를 raw pointer로 캐스팅하려면 unsafe 필요
-    long long handle = spawn(worker, arg);
+    long long handle = spawn(worker, &g_value);   // &static int: allowed
     join(handle);
     return 0;
 }
@@ -30,14 +29,16 @@ int main() {
 
 ### 스레드 함수 시그니처 {#thread-function-signature}
 
-스레드 함수는 반드시 `void*(void*)` 시그니처를 가져야 합니다. 이는 표준 POSIX 스레드 함수 타입입니다.
+스레드 함수는 널 가능 참조 하나를 받고 하나를 반환합니다 — `?&T name(?&T arg)` — 이는 ABI 수준에서 POSIX의 `void*(void*)` 형태와 정확히 같으면서 인자의 타입이 검사됩니다:
 
 ```c
-void* my_thread(void *arg) {
-    // ... 작업 수행 ...
-    return (void*)0;
+?&int my_thread(?&int arg) {
+    // ... do work ...
+    return null;
 }
 ```
+
+인자가 필요 없는 스레드에는 `null`을 넘기십시오.
 
 ### 스레드 Join하기 {#joining-a-thread}
 
@@ -70,10 +71,10 @@ join(h2);                      // worker2 대기
 `spawn`에 전달되는 함수는 `&static` 함수 참조여야 합니다 -- 스코프를 벗어날 수 있는 지역 함수 포인터가 아니라 이름이 붙은 함수여야 합니다.
 
 ```c
-void* worker(void *arg) { return (void*)0; }
+?&int worker(?&int arg) { return null; }
 
 int main() {
-    long long h = spawn(worker, (void*)0);  // OK: worker는 static
+    long long h = spawn(worker, null);  // OK: worker is static
     join(h);
     return 0;
 }
@@ -84,17 +85,21 @@ int main() {
 컴파일러는 데이터 레이스를 방지하기 위해 비정적 데이터에 대한 가변 참조를 spawn 인자로 전달하는 것을 거부합니다.
 
 ```c
-void* bad_worker(void *arg) {
-    int *p = (int*)arg;
-    unsafe { *p = 99; }        // 데이터 레이스!
-    return (void*)0;
+?&int bad_worker(?&int arg) {
+    match (arg) {
+        case some(p): { *p = 99; }   // would race with the spawning thread
+        case null:    { }
+    }
+    return null;
 }
 
 void example() {
     int local = 42;
-    // spawn(bad_worker, &local);  // ERROR: spawn에 가변 비정적 참조 사용
+    // spawn(bad_worker, &local);  // ERROR: mutable non-static ref in spawn
 }
 ```
+
+`&static` 참조는 허용됩니다: 정적 데이터는 모든 스레드보다 오래 살며, 접근 조율은 프로그래머의 몫입니다(원자적 연산이나 `thread` 모듈의 락).
 
 스레드 간에 가변 데이터를 공유하려면, 원자적 연산이나 표준 라이브러리 thread 모듈을 이용한 명시적 동기화를 사용하십시오.
 
@@ -114,11 +119,11 @@ void example() {
 ```c
 atomic int counter = 0;
 
-void* increment(void *arg) {
+?&int increment(?&int unused) {
     for (int i = 0; i < 1000; i = i + 1) {
         atomic_fetch_add(&counter, 1);
     }
-    return (void*)0;
+    return null;
 }
 ```
 
@@ -155,14 +160,12 @@ SafeC 표준 라이브러리는 `thread` 모듈에서 더 고수준의 동시성
 똑같이 스레드 핸들을 반환하며, 여전히 `join`으로 명시적으로 join됩니다.
 
 ```c
-void* worker(void *arg) {
-    return (void*)0;
+?&int worker(?&int arg) {
+    return null;
 }
 
 void example() {
-    void *arg;
-    unsafe { arg = (void*)0; }
-    long long h = spawn_scoped(worker, arg);
+    long long h = spawn_scoped(worker, null);
     join(h);
 }
 ```
@@ -175,99 +178,84 @@ void example() {
 
 | 내장 함수 | 시그니처 | 설명 |
 |----------|-----------|-------------|
-| `chan_create(capacity)` | `(int) -> void*` | 주어진 용량으로 채널을 생성하고, 불투명한 핸들을 반환 |
-| `chan_send(channel, value_ptr)` | `(void*, void*) -> bool` | `value_ptr`이 가리키는 값을 전송; 성공 시 `true` 반환 |
-| `chan_recv(channel, out_ptr)` | `(void*, void*) -> bool` | `*out_ptr`로 값을 수신; 채널이 닫혀 있고 비어 있으면 `false` 반환 |
-| `chan_close(channel)` | `(void*) -> void` | 채널을 닫음; 대기 중이거나 이후의 `chan_recv` 호출은 남은 값을 모두 소진한 후 `false`를 반환 |
+| `chan_create(capacity)` | `(int) -> ?&void` | 주어진 용량으로 채널을 생성하고, 불투명한 핸들을 반환 |
+| `chan_send(channel, value)` | `(?&void, &T) -> bool` | `*value`의 복사본을 전송; 성공 시 `true` 반환 |
+| `chan_recv(channel, out)` | `(?&void, &T) -> bool` | `*out`으로 값을 수신; 채널이 닫혀 있고 비어 있으면 `false` 반환 |
+| `chan_close(channel)` | `(?&void) -> void` | 채널을 닫음; 대기 중이거나 이후의 `chan_recv` 호출은 남은 값을 모두 소진한 후 `false`를 반환 |
 
-채널 핸들과 값 포인터가 모두 원시 `void*`이므로, 전송과 수신 모두 관련된
-포인터 캐스팅에 `unsafe`가 필요합니다.
+핸들은 불투명하고 값은 참조로 주고받으므로 `unsafe`가 필요 없습니다. 여기서
+채널 자체는 정적 저장소를 통해 공유되는데, 생성된 스레드가 쓰는 모든 값이
+스레드보다 오래 살아야 하는 것과 같은 이유입니다.
 
 ```c
-void* producer(void *arg) {
-    void* ch;
-    unsafe { ch = *(void**)arg; }
+extern int printf(const char* fmt, ...);
+static ?&void g_ch = null;
+
+?&int producer(?&int unused) {
     int value = 7;
-    unsafe { chan_send(ch, (void*)&value); }
-    chan_close(ch);
-    return (void*)0;
+    chan_send(g_ch, &value);
+    chan_close(g_ch);
+    return null;
 }
 
-void example2() {
-    void* ch = chan_create(4);
-
-    void* argp;
-    unsafe { argp = (void*)&ch; }
-    long long h = spawn_scoped(producer, argp);
-
+int main() {
+    g_ch = chan_create(4);
+    long long h = spawn_scoped(producer, null);
     int received = 0;
-    void* recvp;
-    unsafe { recvp = (void*)&received; }
-    bool ok = chan_recv(ch, recvp);
-
+    bool ok = chan_recv(g_ch, &received);
     join(h);
+    printf("%d %d\n", (int)ok, received);
+    return 0;
 }
 ```
 
 ## 예제: 병렬 계산 {#example-parallel-computation}
 
 ```c
-#include <stdio.h>
-#include <stdlib.h>
+#include <std/collections/slice.h>
 extern int printf(const char* fmt, ...);
 
 struct WorkItem {
-    int *data;
-    int start;
-    int end;
+    struct Slice<int> data;
+    unsigned long start;
+    unsigned long end;
     long long result;
 };
 
-void* sum_range(void *arg) {
-    struct WorkItem *w;
-    unsafe { w = (struct WorkItem*)arg; }   // void* -> WorkItem*: unsafe
-    long long sum = 0;
-    unsafe {
-        // 'w'(원시 포인터)를 통한 모든 접근은 unsafe가 필요합니다: 멤버
-        // 접근, 첨자 접근, 그리고 마지막 저장까지 모두 이를 거칩니다.
-        for (int i = w->start; i < w->end; i = i + 1) {
-            sum = sum + (long long)w->data[i];   // int -> long long 암묵적 확장은 없음
+// Shared with the workers, so it lives in static storage: spawn only
+// accepts references that can't dangle while the thread runs.
+static struct WorkItem w1;
+static struct WorkItem w2;
+
+?&WorkItem sum_range(?&WorkItem arg) {
+    match (arg) {
+        case some(w): {
+            long long sum = 0LL;
+            for (unsigned long i = w.start; i < w.end; i = i + 1UL) {
+                sum = sum + (long long)*w.data.at(i);   // bounds-checked
+            }
+            w.result = sum;
         }
-        w->result = sum;
+        case null: { }
     }
-    return (void*)0;
+    return null;
 }
 
 int main() {
-    int N = 10000;
-    int *data;
-    unsafe { data = (int*)malloc((unsigned long)N * sizeof(int)); }  // int -> unsigned long 암묵적 변환 없음
-    unsafe {
-        for (int i = 0; i < N; i = i + 1) {
-            data[i] = i;                          // 원시 포인터 첨자 접근은 unsafe 필요
-        }
-    }
+    unsigned long n = 10000UL;
+    struct Slice<int> data = std::slice_alloc(n);      // heap, runtime-sized
+    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.set(i, (int)i);
 
-    struct WorkItem w1 = {data, 0, N / 2, 0};
-    struct WorkItem w2 = {data, N / 2, N, 0};
+    w1.data = data; w1.start = 0UL;    w1.end = n / 2UL; w1.result = 0LL;
+    w2.data = data; w2.start = n / 2UL; w2.end = n;      w2.result = 0LL;
 
-    void *arg1;
-    void *arg2;
-    unsafe {
-        arg1 = (void*)&w1;                        // &stack 참조를 raw pointer로 캐스팅하려면 unsafe 필요
-        arg2 = (void*)&w2;
-    }
-
-    long long h1 = spawn(sum_range, arg1);
-    long long h2 = spawn(sum_range, arg2);
-
+    long long h1 = spawn(sum_range, &w1);
+    long long h2 = spawn(sum_range, &w2);
     join(h1);
     join(h2);
 
-    long long total = w1.result + w2.result;
-    printf("Total: %lld\n", total);
-
-    free(data);
+    printf("Total: %lld\n", w1.result + w2.result);
+    data.free();
     return 0;
 }
 ```

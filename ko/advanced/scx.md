@@ -20,7 +20,7 @@ build`/`check`/`test`는 발견하는 모든 `.scx` 파일에 대해 이를 자�
 마크업은 정확히 한 곳에서만 나타날 수 있습니다: `return` 문의 전체 피연산자로서입니다.
 
 ```c
-struct String render_home(const char* visitor_name) {
+struct String render_home(const &char visitor_name) {
     return <html>
         <head><title>My Page</title></head>
         <body>
@@ -48,8 +48,10 @@ struct String render_home(const char* visitor_name) {
   그 안에 있는 우연한 `<`나 `return`이 마크업으로 오인되는 일은
   없습니다.
 
-모든 `{expr}`/`{!expr}` 표현식은 `const char*`로 평가되어야 합니다 —
-scx는 자체적으로 타입 검사를 하지 않으므로(Sema가 실행되기 전에
+모든 `{expr}`/`{!expr}` 표현식은 C 문자열, 즉 `const &char`로
+평가되어야 합니다 — 문자열 리터럴, `const &char` 매개변수, 또는
+`String`의 `as_ptr()`. 숫자는 먼저 버퍼에 서식화하세요(예:
+[`std::fmt_int`](/ko/stdlib/utilities#fmt-formatting-into-buffers)). scx는 자체적으로 타입 검사를 하지 않으므로(Sema가 실행되기 전에
 텍스트 수준 패스로 실행됩니다), 타입 불일치는 생성된 코드에 대한
 평범한 `safec` 컴파일 오류로 나타나며, 합성된 호출 지점을 가리킵니다.
 
@@ -79,17 +81,20 @@ scx는 자체적으로 타입 검사를 하지 않으므로(Sema가 실행되기
 HTML을 `{!...}`로 붙여넣습니다:
 
 ```c
-struct String render_item(const char* name, int qty) {
-    return <li>{name} &times; {qty}</li>;
+struct String render_item(const &char name, int qty) {
+    char qty_text[24];
+    std::fmt_int(&qty_text[0], 24UL, (long long)qty);
+    return <li>{name} &times; {qty_text}</li>;
 }
 
-struct String render_cart(struct String items_html) {
+struct String render_cart(const &String items_html) {
     return <ul>{!items_html.as_ptr()}</ul>;
 }
 ```
 
-호출자는 평범한 SafeC 코드(`render_item(...)` 호출을 순회하며
-`String::push_str`로 이어 붙이는 루프)로 `items_html`을 만든 다음,
+호출자는 평범한 SafeC 코드(`render_item(...)` 호출을 순회하며 각각을
+`push(item.as_ptr())`로 덧붙이는 루프)로 `items_html`을 만들어 참조로
+넘긴 다음,
 완성되어 필요한 곳은 이미 이스케이프된 결과를 `{!...}`로 원시 그대로
 보간합니다 — `{...}`를 사용하면 이중으로 이스케이프됩니다. 이는
 가상 DOM 없는 템플릿 엔진이 조합을 처리해야 하는 방식을 그대로
@@ -102,16 +107,18 @@ struct String render_cart(struct String items_html) {
 
 ```c
 namespace std {
-void scx_append_esc(&String buf, const char* s); // HTML 이스케이프 + 추가
+void scx_append_esc(&String buf, const &char s); // HTML 이스케이프 + 추가
 }
 ```
 
 `safeguard`는 마크업을 사용한 모든 파일에 `#include <std/scx/scx.h>`와
 `#include <std/collections/string.h>`를 자동으로 주입합니다 — 손으로
-작성한 `.scx` 소스는 이를 직접 포함하지 않습니다. 정적 텍스트와
-속성(트랜스파일 시점에 알려진)은 한 번, 앞부분에서 HTML 이스케이프
-처리되어 정적 콘텐츠의 연속 구간마다 단일 `String::push("...")` 호출로
-합쳐집니다; 오직 `{expr}` 보간 지점만 런타임 호출 비용이 듭니다 —
+작성한 `.scx` 소스는 이를 직접 포함하지 않습니다. 태그 사이의 리터럴
+텍스트는 작성자가 쓴 것이므로 JSX처럼 그대로 출력되며(따라서 `&times;`
+같은 엔티티도 그대로 통과합니다), 정적 속성 값은 트랜스파일 시점에 한 번
+HTML 이스케이프됩니다. 정적 콘텐츠의 연속 구간마다 단일
+`String::push("...")` 호출이 되며, 오직 `{expr}` 보간 지점만 런타임 호출
+비용이 듭니다 —
 생성된 코드는 다음과 같이 보입니다:
 
 ```c
@@ -152,7 +159,7 @@ scx로 렌더링된 페이지를 조건부로 *호출*하는 것에서 나옵니
 ```c
 // src/main.sc
 #ifdef SAFEC_FEATURE_FRONTEND
-struct String render_home(const char* visitor_name); // src/pages.scx
+struct String render_home(const &char visitor_name); // src/pages.scx
 #endif
 
 int main() {

@@ -152,7 +152,7 @@ interrupt void timer_handler() {
 절대 반환하지 않는 함수는 `noreturn`으로 표시할 수 있으며, 컴파일러가 호출 지점을 최적화할 수 있게 해줍니다.
 
 ```c
-noreturn void panic(const char *msg) {
+noreturn void panic(const &char msg) {
     // ... UART로 씀 ...
     while (1) {}
 }
@@ -164,7 +164,7 @@ noreturn void panic(const char *msg) {
 
 ```c
 section(".isr_vector")
-void* vector_table[256] = {
+fn void() vector_table[256] = {
     _start,
     nmi_handler,
     hardfault_handler,
@@ -173,19 +173,17 @@ void* vector_table[256] = {
 
 section(".text.fast")
 void hot_path() {
-    // 빠른 메모리 섹션에 배치됨
+    // placed in fast memory section
 }
 ```
 
-단순 함수 이름, `&functionName`, `(void*)functionName`은 모두
-동등합니다 — 함수의 코드 주소는 프로그램이 실행되는 동안 해제되거나
-이동되지 않으므로, `unsafe {}` *블록* 자체가 있을 수 없는 파일 스코프에서조차
-셋 중 어느 것도 `unsafe {}`가 필요하지 않습니다.
+함수의 코드 주소는 프로그램이 실행되는 동안 해제되거나 이동되지 않으므로,
+`unsafe {}` *블록* 자체가 있을 수 없는 파일 스코프에서조차 이를 저장하는 데
+`unsafe {}`가 필요하지 않습니다. 슬롯에는 타입 없는 포인터 대신 함수 타입
+(`fn void()`)을 주어, 알맞은 형태의 함수만 들어갈 수 있게 하십시오:
 
 ```c
-void* p1 = _start;          // 단순 이름
-void* p2 = &_start;         // 함수 지정자에서 '&'는 아무 동작도 하지 않음
-void* p3 = (void*)_start;   // 명시적 캐스트도 unsafe{}가 필요 없음
+fn void() reset_vector = _start;      // a bare function name is its address
 ```
 
 ## 인라인 어셈블리 {#inline-assembly}
@@ -505,7 +503,7 @@ NEON, SSE, RVV, SIMD128에 쓰이는 것과 동일한 메커니즘입니다 —
 ## 베어메탈 예제: 최소 커널 {#bare-metal-example-minimal-kernel}
 
 ```c
-// kernel.sc -- --freestanding으로 컴파일됨
+// kernel.sc -- compiled with --freestanding
 
 section(".text.boot")
 naked void _start() {
@@ -526,7 +524,7 @@ void vga_putchar(int x, int y, char c, uint8_t color) {
 }
 
 void kernel_main() {
-    const char *msg = "Hello from SafeC!";
+    const &char msg = "Hello from SafeC!";
     unsafe {
         for (int i = 0; msg[i] != 0; i = i + 1) {
             vga_putchar(i, 0, msg[i], 0x0F);

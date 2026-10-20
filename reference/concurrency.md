@@ -10,19 +10,18 @@ SafeC provides low-level, C-compatible concurrency primitives. Threads are creat
 
 ```c
 extern int printf(const char* fmt, ...);
-void* worker(void *arg) {
-    unsafe {
-        int *data = (int*)arg;                    // void* -> int*: unsafe
-        printf("Worker received: %d\n", *data);   // raw deref needs unsafe
+static int g_value = 42;
+
+?&int worker(?&int arg) {
+    match (arg) {
+        case some(v): { printf("Worker received: %d\n", *v); }
+        case null:    { }
     }
-    return (void*)0;
+    return null;
 }
 
 int main() {
-    int value = 42;
-    void *arg;
-    unsafe { arg = (void*)&value; }   // casting a &stack ref to raw pointer needs unsafe
-    long long handle = spawn(worker, arg);
+    long long handle = spawn(worker, &g_value);   // &static int: allowed
     join(handle);
     return 0;
 }
@@ -30,14 +29,16 @@ int main() {
 
 ### Thread Function Signature
 
-Thread functions must have the signature `void*(void*)`. This is the standard POSIX thread function type:
+A thread function takes one nullable reference and returns one — `?&T name(?&T arg)` — which is exactly the POSIX `void*(void*)` shape at the ABI level, with the argument's type checked:
 
 ```c
-void* my_thread(void *arg) {
+?&int my_thread(?&int arg) {
     // ... do work ...
-    return (void*)0;
+    return null;
 }
 ```
+
+Pass `null` when the thread needs no argument.
 
 ### Joining a Thread
 
@@ -70,10 +71,10 @@ The region system provides safety guarantees for concurrent code:
 The function passed to `spawn` must be a `&static` function reference -- it must be a named function, not a local function pointer that could go out of scope:
 
 ```c
-void* worker(void *arg) { return (void*)0; }
+?&int worker(?&int arg) { return null; }
 
 int main() {
-    long long h = spawn(worker, (void*)0);  // OK: worker is static
+    long long h = spawn(worker, null);  // OK: worker is static
     join(h);
     return 0;
 }
@@ -84,10 +85,12 @@ int main() {
 The compiler rejects passing mutable references to non-static data as spawn arguments, preventing data races:
 
 ```c
-void* bad_worker(void *arg) {
-    int *p = (int*)arg;
-    unsafe { *p = 99; }        // data race!
-    return (void*)0;
+?&int bad_worker(?&int arg) {
+    match (arg) {
+        case some(p): { *p = 99; }   // would race with the spawning thread
+        case null:    { }
+    }
+    return null;
 }
 
 void example() {
@@ -95,6 +98,8 @@ void example() {
     // spawn(bad_worker, &local);  // ERROR: mutable non-static ref in spawn
 }
 ```
+
+A `&static` reference is accepted: static data outlives every thread, and coordinating access to it is up to you (atomics or the `thread` module's locks).
 
 To share mutable data between threads, use atomic operations or explicit synchronization with the standard library's thread module.
 
@@ -114,11 +119,11 @@ For lock-free synchronization between threads, SafeC provides atomic operations:
 ```c
 atomic int counter = 0;
 
-void* increment(void *arg) {
+?&int increment(?&int unused) {
     for (int i = 0; i < 1000; i = i + 1) {
         atomic_fetch_add(&counter, 1);
     }
-    return (void*)0;
+    return null;
 }
 ```
 
@@ -156,14 +161,12 @@ scope exits. It returns a thread handle exactly like `spawn`, still joined
 explicitly with `join`:
 
 ```c
-void* worker(void *arg) {
-    return (void*)0;
+?&int worker(?&int arg) {
+    return null;
 }
 
 void example() {
-    void *arg;
-    unsafe { arg = (void*)0; }
-    long long h = spawn_scoped(worker, arg);
+    long long h = spawn_scoped(worker, null);
     join(h);
 }
 ```
@@ -176,99 +179,84 @@ threads without shared mutable references:
 
 | Built-in | Signature | Description |
 |----------|-----------|-------------|
-| `chan_create(capacity)` | `(int) -> void*` | Creates a channel with the given capacity, returns an opaque handle |
-| `chan_send(channel, value_ptr)` | `(void*, void*) -> bool` | Sends the value pointed to by `value_ptr`; returns `true` on success |
-| `chan_recv(channel, out_ptr)` | `(void*, void*) -> bool` | Receives into `*out_ptr`; returns `false` if the channel is closed and empty |
-| `chan_close(channel)` | `(void*) -> void` | Closes the channel; pending/future `chan_recv` calls drain remaining values then return `false` |
+| `chan_create(capacity)` | `(int) -> ?&void` | Creates a channel with the given capacity, returns an opaque handle |
+| `chan_send(channel, value)` | `(?&void, &T) -> bool` | Sends a copy of `*value`; returns `true` on success |
+| `chan_recv(channel, out)` | `(?&void, &T) -> bool` | Receives into `*out`; returns `false` if the channel is closed and empty |
+| `chan_close(channel)` | `(?&void) -> void` | Closes the channel; pending/future `chan_recv` calls drain remaining values then return `false` |
 
-Since the channel handle and the value pointers are raw `void*`, sending and
-receiving both require `unsafe` for the pointer casts involved:
+The handle is opaque and values go in and out by reference, so no `unsafe`
+is involved. The channel itself is shared through static storage here, the
+same way any value a spawned thread uses must outlive it:
 
 ```c
-void* producer(void *arg) {
-    void* ch;
-    unsafe { ch = *(void**)arg; }
+extern int printf(const char* fmt, ...);
+static ?&void g_ch = null;
+
+?&int producer(?&int unused) {
     int value = 7;
-    unsafe { chan_send(ch, (void*)&value); }
-    chan_close(ch);
-    return (void*)0;
+    chan_send(g_ch, &value);
+    chan_close(g_ch);
+    return null;
 }
 
-void example2() {
-    void* ch = chan_create(4);
-
-    void* argp;
-    unsafe { argp = (void*)&ch; }
-    long long h = spawn_scoped(producer, argp);
-
+int main() {
+    g_ch = chan_create(4);
+    long long h = spawn_scoped(producer, null);
     int received = 0;
-    void* recvp;
-    unsafe { recvp = (void*)&received; }
-    bool ok = chan_recv(ch, recvp);
-
+    bool ok = chan_recv(g_ch, &received);
     join(h);
+    printf("%d %d\n", (int)ok, received);
+    return 0;
 }
 ```
 
 ## Example: Parallel Computation
 
 ```c
-#include <stdio.h>
-#include <stdlib.h>
+#include <std/collections/slice.h>
 extern int printf(const char* fmt, ...);
 
 struct WorkItem {
-    int *data;
-    int start;
-    int end;
+    struct Slice<int> data;
+    unsigned long start;
+    unsigned long end;
     long long result;
 };
 
-void* sum_range(void *arg) {
-    struct WorkItem *w;
-    unsafe { w = (struct WorkItem*)arg; }   // void* -> WorkItem*: unsafe
-    long long sum = 0;
-    unsafe {
-        // Every access through 'w' (a raw pointer) needs unsafe: member
-        // access, subscript, and the final store all go through it.
-        for (int i = w->start; i < w->end; i = i + 1) {
-            sum = sum + (long long)w->data[i];   // no implicit int -> long long widening
+// Shared with the workers, so it lives in static storage: spawn only
+// accepts references that can't dangle while the thread runs.
+static struct WorkItem w1;
+static struct WorkItem w2;
+
+?&WorkItem sum_range(?&WorkItem arg) {
+    match (arg) {
+        case some(w): {
+            long long sum = 0LL;
+            for (unsigned long i = w.start; i < w.end; i = i + 1UL) {
+                sum = sum + (long long)*w.data.at(i);   // bounds-checked
+            }
+            w.result = sum;
         }
-        w->result = sum;
+        case null: { }
     }
-    return (void*)0;
+    return null;
 }
 
 int main() {
-    int N = 10000;
-    int *data;
-    unsafe { data = (int*)malloc((unsigned long)N * sizeof(int)); }  // no implicit int -> unsigned long
-    unsafe {
-        for (int i = 0; i < N; i = i + 1) {
-            data[i] = i;                          // raw-pointer subscript needs unsafe
-        }
-    }
+    unsigned long n = 10000UL;
+    struct Slice<int> data = std::slice_alloc(n);      // heap, runtime-sized
+    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.set(i, (int)i);
 
-    struct WorkItem w1 = {data, 0, N / 2, 0};
-    struct WorkItem w2 = {data, N / 2, N, 0};
+    w1.data = data; w1.start = 0UL;    w1.end = n / 2UL; w1.result = 0LL;
+    w2.data = data; w2.start = n / 2UL; w2.end = n;      w2.result = 0LL;
 
-    void *arg1;
-    void *arg2;
-    unsafe {
-        arg1 = (void*)&w1;                        // casting a &stack ref to raw pointer needs unsafe
-        arg2 = (void*)&w2;
-    }
-
-    long long h1 = spawn(sum_range, arg1);
-    long long h2 = spawn(sum_range, arg2);
-
+    long long h1 = spawn(sum_range, &w1);
+    long long h2 = spawn(sum_range, &w2);
     join(h1);
     join(h2);
 
-    long long total = w1.result + w2.result;
-    printf("Total: %lld\n", total);
-
-    free(data);
+    printf("Total: %lld\n", w1.result + w2.result);
+    data.free();
     return 0;
 }
 ```

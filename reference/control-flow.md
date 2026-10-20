@@ -184,11 +184,11 @@ it, same as real C.
 `defer` schedules a statement to execute when the enclosing scope exits, in LIFO (last-in, first-out) order. This is ideal for resource cleanup.
 
 ```c
-void process_file(const char *path) {
+void process_file(const &char path) {
     FILE *f = fopen(path, "r");
     defer fclose(f);
 
-    char *buf = (char*)malloc(4096);
+    ?&char buf = malloc(4096);             // C's void* -> ?&char
     defer free(buf);
 
     // ... use f and buf ...
@@ -215,7 +215,7 @@ void example() {
 The `try` operator unwraps an optional value, propagating the empty case (`null`) to the caller immediately if the value is absent — equivalent to `if (x.is_none()) return null; T value = ...;` written inline:
 
 ```c
-?int parse_config(const char *path) {
+?int parse_config(const &char path) {
     ?int fd = open_file(path);
     int file = try fd;         // if fd is empty, return null immediately
 
@@ -231,7 +231,7 @@ A bare `T` returned from a `?T`-returning function implicitly wraps to "present"
 `errdefer` is written like `defer`, but is meant to run only on a `try`-propagated failure exit rather than every exit:
 
 ```c
-?int open_and_process(const char *path) {
+?int open_and_process(const &char path) {
     ?int fd = open_file(path);
     int f = try fd;             // propagates null on failure
     errdefer close_fd(f);       // intended to run only if a later 'try' below fails

@@ -207,9 +207,9 @@ condition ? then_expr : else_expr
 ```c
 int x = 10;
 int y = 20;
-int max = (x > y) ? x : y;       // max는 20
+int max = (x > y) ? x : y;       // max is 20
 
-const char *label = (count == 1) ? "item" : "items";
+const &char label = (count == 1) ? "item" : "items";
 ```
 
 삼항 연산자는 우선순위가 매우 낮습니다 — 복잡한 조건에는 명확성을 위해 괄호를 사용하십시오.

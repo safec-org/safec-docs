@@ -15,21 +15,18 @@ int main() {
     float src[4] = {1.0, 5.0, 3.0, 2.0};
     float dst[4];
 
-    unsafe {
-        f32x4 v = simd_load_f32x4(src);
-        f32x4 doubled = v + v;
-        simd_store_f32x4(doubled, dst);
+    f32x4 v = std::simd_load_f32x4(&src[0]);
+    f32x4 doubled = v + v;
+    std::simd_store_f32x4(doubled, &dst[0]);
 
-        float total = simd_hsum_f32x4(v);   // 수평 합
-        f32x4 a = simd_splat_f32x4(2.0);    // 브로드캐스트
-        f32x4 fma = simd_fma_f32x4(a, a, v); // a*a + v
-    }
+    float total = std::simd_hsum_f32x4(v);      // horizontal sum
+    f32x4 a = std::simd_splat_f32x4(2.0);       // broadcast
+    f32x4 fma = std::simd_fma_f32x4(a, a, v);   // a*a + v
     return 0;
 }
 ```
 
-로드/스토어는 원시 포인터를 받으므로, SafeC의 다른 원시 포인터 접근과
-마찬가지로 호출부에서 `unsafe { }`가 필요하다.
+로드와 스토어는 첫 원소에 대한 참조를 받아 그 위치부터 연속된 N개의 원소를 읽거나 씁니다. 배열 원소의 주소(`&src[0]`)를 넘기는 데에는 `unsafe`가 필요 없습니다.
 
 ## 타입 별칭 {#type-aliases}
 
@@ -54,17 +51,37 @@ LLVM이 이를 두 개의 128비트 연산으로 레거라이즈하며, 여전�
 
 | 함수 | 설명 |
 |---|---|
-| `simd_load_<type>(const T* p)` | 원시 포인터에서 로드 — 구조상 정렬 불필요, 어떤 포인터에도 안전 |
-| `simd_store_<type>(v, T* p)` | 원시 포인터에 스토어 |
+| `simd_load_<type>(const &T p)` | `p`부터 N개 레인을 로드 — 구조상 정렬 불필요 |
+| `simd_store_<type>(v, &T p)` | `p`부터 N개 레인을 스토어 |
 | `simd_splat_<type>(x)` | 스칼라를 모든 레인에 브로드캐스트 |
 | `simd_fma_<type>(a, b, c)` | 융합 곱셈-덧셈: `a*b + c` |
 | `simd_min_<type>(a, b)` / `simd_max_<type>(a, b)` | 원소 단위 최소/최대 |
 | `simd_hsum_<type>(v)` | 수평 합 — 모든 레인을 하나의 스칼라로 축약 |
 | `simd_hmin_<type>(v)` / `simd_hmax_<type>(v)` | 수평 최소/최대 |
 
-모든 함수가 모든 타입 별칭에 대해 정의되어 있지는 않다 — 정확한 목록은
-`std/simd/simd.h`를 참고한다(예: `simd_hmin`/`simd_hmax`는 부동소수점
-전용이며, 정수 타입은 `simd_hsum`은 있지만 수평 최소/최대 변형은 없다).
+모든 함수가 모든 타입 별칭에 대해 정의되어 있지는 않다. 정확한 목록:
+
+| 함수 | 타입 |
+|---|---|
+| `simd_load_*` / `simd_store_*` | `f32x4`, `f32x8`, `f64x2`, `f64x4`, `i32x4`, `i32x8`, `u32x4`, `u32x8`, `i8x16`, `u8x16` |
+| `simd_splat_*` | `f32x4`, `f32x8`, `f64x2`, `f64x4`, `i32x4`, `i32x8`, `u32x4` |
+| `simd_fma_*` | `f32x4`, `f32x8`, `f64x2`, `f64x4` |
+| `simd_min_*` / `simd_max_*` | `f32x4`, `f32x8`, `i32x4` |
+| `simd_hsum_*` | `f32x4`, `f32x8`, `f64x2`, `f64x4`, `i32x4`, `i32x8`, `u32x4` |
+| `simd_hmin_*` / `simd_hmax_*` | `f32x4` |
+
+그 밖의 경우에는 네이티브 `vec<T, N>` 연산자를 직접 쓴다([네이티브 SIMD](/ko/reference/simd) 참고).
+
+```c
+#include <std/simd/simd.h>
+
+float dot4(const &float a, const &float b) {
+    f32x4 va = std::simd_load_f32x4(a);
+    f32x4 vb = std::simd_load_f32x4(b);
+    f32x4 acc = std::simd_fma_f32x4(va, vb, std::simd_splat_f32x4(0.0f));
+    return std::simd_hsum_f32x4(acc);
+}
+```
 
 ## ISA별 편의 헤더 {#per-isa-convenience-headers}
 
@@ -83,6 +100,25 @@ LLVM이 이를 두 개의 128비트 연산으로 레거라이즈하며, 여전�
 | `std/simd/cortex_m.h` | ARM Cortex-M | MVE(M55/M85) 타입 별칭 + DSP 확장 `dsp_*` 함수(M4/M7) — [베어메탈](/ko/reference/baremetal#dsp-extension-cortex-m4-m7) 참고 |
 | `std/simd/cuda.h` | CUDA (NVPTX) | 실제 PTX 벡터 레인 코드 생성 — GPU는 N개의 스칼라 연산으로 스칼라화됨, 아래 유의 사항 참고 |
 | `std/simd/rocm.h` | ROCm (AMDGPU) | 실제 GCN 벡터 ALU 코드 생성 — 동일한 스칼라화 유의 사항 |
+
+### Cortex-M DSP 내장 함수 {#cortex-m-dsp-intrinsics}
+
+Cortex-M4/M7(`+dsp`)의 패킹된 SIMD 명령어는 32비트 레지스터 하나 안의 2×16비트 또는 4×8비트 레인에서 동작하며, LLVM은 `vec<T, N>`을 이 명령어로 벡터화하지 않습니다. 그래서 `std/simd/cortex_m.h`는 이들을 함수로 제공하며, 각 함수는 이름 붙은 명령어 하나로 컴파일됩니다:
+
+| 함수 | 명령어 |
+|---|---|
+| `dsp_qadd(a, b)` / `dsp_qsub(a, b)` | 포화 32비트 덧셈 / 뺄셈 |
+| `dsp_qadd16`, `dsp_qsub16`, `dsp_qadd8`, `dsp_qsub8` | 16비트 또는 8비트 레인별 포화 부호 있는 덧셈 / 뺄셈 |
+| `dsp_uqadd16`, `dsp_uqsub16`, `dsp_uqadd8`, `dsp_uqsub8` | 레인별 포화 부호 없는 연산 |
+| `dsp_sadd16`, `dsp_ssub16`, `dsp_sadd8`, `dsp_ssub8` | 레인별 랩어라운드 부호 있는 연산 |
+| `dsp_smlad(a, b, acc)` / `dsp_smladx` | 16×16 이중 곱셈 후 두 곱을 `acc`에 더함 (`x`: `b`의 상하위 교환) |
+| `dsp_smlsd(a, b, acc)` / `dsp_smlsdx` | 이중 곱셈 후 곱의 차를 `acc`에 더함 |
+| `dsp_smuad(a, b)` / `dsp_smuadx` | 이중 곱셈, 곱의 합 |
+| `dsp_smusd(a, b)` / `dsp_smusdx` | 이중 곱셈, 곱의 차 |
+| `dsp_usad8(a, b)` / `dsp_usada8(a, b, acc)` | 4바이트 절대 차의 합 (`acc` 더함) |
+| `dsp_sxtab16(a, b)` / `dsp_uxtab16(a, b)` | `b`의 두 바이트를 16비트로 부호 / 0 확장해 `a`의 상하위에 더함 |
+
+부호 있는 변형은 `int`를 받고 반환하며, `uq*`, `usad8`, `usada8`, `uxtab16`은 `unsigned int`를 씁니다. Cortex-M55/M85(`+mve`)에서는 `mve_f32x4`, `mve_i32x4`, `mve_i16x8`, `mve_i8x16`이 네이티브 128비트 벡터입니다. Cortex-M0/M0+/M3/M23에는 둘 다 없으며, 거기서도 `vec<T, N>`은 동작하지만 스칼라로 풀립니다.
 
 ### GPU 타겟: 단일 명령어 SIMD가 아닌 SIMT {#gpu-targets-simt-not-simd-in-one-instruction}
 

@@ -259,6 +259,8 @@ There is no preemption: a task that never returns stalls the whole round. A task
 
 ---
 
+Task states: `TASK_READY` (0), `TASK_RUNNING` (1), `TASK_DONE` (2). A scheduler holds up to `TASK_MAX` (1024) tasks.
+
 ## ThreadSched — Priority-Based Freestanding Threads {#threadsched}
 
 `thread_bare.h` adds a per-slot priority to `TaskScheduler`, with the same resumable-function protocol. It is still cooperative: a higher priority only means "served earlier within a tick".

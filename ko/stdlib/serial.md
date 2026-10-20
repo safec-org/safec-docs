@@ -1,4 +1,4 @@
-# serial -- 직렬화 (JSON / XML / HTML / CSV / YAML)
+# serial -- 직렬화 (JSON / XML / HTML / CSV / YAML / Markdown / Protobuf)
 
 `std/serial/`은 형식에 구애받지 않는 `Value` 트리와, 이 트리를 읽고 쓸 수 있는 다섯 가지 형식 백엔드(JSON, XML, HTML, CSV, YAML)를 제공합니다. SafeC에는 필드 이름 리플렉션이 없으므로(오직 개수만 알려주는 `fieldcount(T)`만 있고 이름은 알 수 없습니다), 구조체를 직렬화 가능하게 만들려면 자동 `#[derive]` 스타일 매크로 대신 `to_value()` 메서드를 직접 작성해야 합니다.
 
@@ -21,36 +21,36 @@
 #define VAL_OBJECT 6
 
 struct Value {
-    int kind;   // 위의 VAL_* 상수 중 하나
+    int kind;   // one of the VAL_* constants above
 
     int kind_of() const;
     int is_null() const;
     int as_bool() const;
     long long as_int() const;
     double as_float() const;
-    const char* as_string() const;
+    const &char as_string() const;
 
-    // Array/Object 요소 접근 -- 읽기 전용 뷰 (반환되는 참조는 이 Value가
-    // 소유한 저장소를 가리키므로 별도로 해제하지 마세요). 'array_at'은
-    // 'idx'가 범위 내에 있다고 신뢰합니다 (array_len() 참고); 'object_get'은
-    // 유일하게 널이 될 수 있는 조회입니다 -- 'key'에 해당하는 항목이 없는
-    // 것은 실제로 예상되는 결과이지, 호출자의 실수가 아닙니다.
+    // Array/Object element access -- read-only views (the returned
+    // reference aliases storage owned by this Value, don't free it
+    // separately). 'array_at' trusts 'idx' is in range (see array_len());
+    // 'object_get' is the one nullable lookup -- no entry for 'key' is a
+    // real, expected outcome, not a caller error.
     unsigned long   array_len() const;
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
-    ?&Value         object_get(const char* key) const;   // 키가 없으면 empty(null)
+    ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
 }
 
 struct Value value_null();
 struct Value value_bool(int v);
 struct Value value_int(long long v);
 struct Value value_float(double v);
-struct Value value_string(const char* s);   // s를 복사함
-struct Value value_array();                 // 비어 있음; value_array_push로 확장
-struct Value value_object();                // 비어 있음; value_object_set으로 확장
+struct Value value_string(const &char s);   // copies s
+struct Value value_array();                 // empty; grow with value_array_push
+struct Value value_object();                // empty; grow with value_object_set
 
 void value_array_push(&Value arr, struct Value v);
-void value_object_set(&Value obj, const char* key, struct Value v);
+void value_object_set(&Value obj, const &char key, struct Value v);
 
 struct Value value_clone(const &Value v);
 void value_free(&Value v);
@@ -112,7 +112,7 @@ int main() {
 void json_write(const &Value v, &String out);   // 추가만 함; 'out'을 먼저 비우지 않음
 struct String value_to_json(const &Value v);      // 편의 함수: 새 String 반환
 
-struct Value json_parse(const char* text, int* ok);
+struct Value json_parse(const &char text, ?&int ok);
     // 성공하면 *ok = 1과 파싱된 트리; 실패하면 *ok = 0과 value_null().
     // 첫 완전한 값 이후의 후행 내용은 무시됩니다.
 ```
@@ -143,10 +143,10 @@ value_free(&parsed);
 ## XML {#xml}
 
 ```c
-void xml_write(const &Value v, const char* tag, &String out);
-struct String value_to_xml(const &Value v, const char* root_tag);
+void xml_write(const &Value v, const &char tag, &String out);
+struct String value_to_xml(const &Value v, const &char root_tag);
 
-struct Value xml_parse(const char* text, int* ok);   // 루트 태그 자체는 반환되지 않고, 그 내용만 반환됨
+struct Value xml_parse(const &char text, ?&int ok);   // 루트 태그 자체는 반환되지 않고, 그 내용만 반환됨
 ```
 
 매핑:
@@ -181,11 +181,11 @@ value_free(&parsed);
 ## HTML {#html}
 
 ```c
-void html_escape(&String out, const char* s);   // 단독 사용 가능, Value 렌더러와 무관
+void html_escape(&String out, const &char s);   // 단독 사용 가능, Value 렌더러와 무관
 void html_write(const &Value v, &String out);
 struct String value_to_html(const &Value v);
 
-struct Value html_parse(const char* text, int* ok);
+struct Value html_parse(const &char text, ?&int ok);
 ```
 
 JSON/XML과 달리 HTML은 데이터 교환 형식이 아닙니다 — `html_write`는 `Value` 트리를 사람이 읽을 수 있는 문서 조각으로 렌더링합니다.
@@ -223,7 +223,7 @@ CSV 문서는 행(row)들의 `VAL_ARRAY`이며, 각 행 자체는 `VAL_STRING` �
 void csv_write(const &Value v, &String out);   // 'v'는 반드시 VAL_ARRAY의 VAL_ARRAY여야 함
 struct String value_to_csv(const &Value v);
 
-struct Value csv_parse(const char* text, int* ok);
+struct Value csv_parse(const &char text, ?&int ok);
 ```
 
 콤마, 큰따옴표, 개행을 포함하는 필드는 RFC 4180에 따라 따옴표로 묶이며, 내장된 큰따옴표는 이중으로 표기됩니다(`""`). 파싱 시 `"\n"`과 `"\r\n"` 줄바꿈 모두 허용되며, 후행 개행은 선택 사항입니다. 잘못된 형식의 따옴표 필드(닫는 `"`가 없는 여는 `"`)를 만나면 `*ok`는 0으로 설정되고 반환값은 그때까지 파싱된 내용이 됩니다.
@@ -252,7 +252,7 @@ YAML 1.1의 블록 스타일 서브셋입니다: 블록 스칼라(평문, 각자
 void yaml_write(const &Value v, &String out);
 struct String value_to_yaml(const &Value v);
 
-struct Value yaml_parse(const char* text, int* ok);
+struct Value yaml_parse(const &char text, ?&int ok);
     // 구조적 오류(들여쓰기 불일치, 종료되지 않은 따옴표 스칼라, 시퀀스/매핑
     // 항목도 아니고 맨 스칼라가 기대되는 위치의 맨 스칼라도 아닌 줄)가
     // 있으면 *ok = 0 -- 반환값은 오류 전까지 파싱된 내용입니다.
@@ -271,6 +271,144 @@ printf("%s", yaml.as_ptr());
 yaml.free();
 value_free(&v);
 ```
+
+## Markdown {#markdown}
+
+```c
+#include <std/serial/markdown.h>
+```
+
+Markdown은 키/값 데이터가 아니라 문서 마크업이므로 `Value` 트리 대신 자체의 작은 AST를 씁니다. CommonMark와 비슷한 부분집합을 파싱한 뒤 HTML(예: [HTTP](/ko/stdlib/http) 응답 본문)이나 다시 Markdown으로 렌더링합니다.
+
+지원하는 블록: `#`–`######` 제목, 문단, 평평한 순서 없는(`-`, `*`, `+`) 및 순서 있는(`1.`) 목록, 펜스 코드 블록, 인용, 수평선. 지원하는 인라인: `**굵게**`/`__굵게__`, `*기울임*`/`_기울임_`, `` `코드` ``, `[텍스트](url)`. 미지원: 표, 이미지, 원시 HTML, 참조형 링크, 중첩 목록.
+
+```c
+#define MD_DOC        0
+#define MD_HEADING    1
+#define MD_PARAGRAPH  2
+#define MD_LIST       3   // 'ordered' tells - from 1.
+#define MD_LIST_ITEM  4
+#define MD_CODE_BLOCK 5
+#define MD_BLOCKQUOTE 6
+#define MD_HR         7
+#define MD_TEXT       8   // inline text in 'text'
+#define MD_BOLD       9
+#define MD_ITALIC     10
+#define MD_CODE_SPAN  11  // inline code in 'text'
+#define MD_LINK       12  // children are the link text; 'text' is the URL
+
+struct MdNode {
+    int kind;
+    int level;                          // MD_HEADING: 1-6
+    int ordered;                        // MD_LIST
+    struct String text;
+    struct Vec<&heap MdNode> children;
+};
+
+&heap MdNode  md_parse(const &char text);                  // MD_DOC root; free with md_free()
+struct String md_render_html(const &heap MdNode doc);      // text is HTML-escaped
+struct String md_render_markdown(const &heap MdNode doc);  // canonical form, e.g. *b* -> **b**
+void          md_free(&heap MdNode node);
+```
+
+```c
+#include <std/serial/markdown.h>
+#include <std/io.h>
+
+int main() {
+    &heap MdNode doc = std::md_parse("# Title\n\nSome **bold** text.\n");
+    struct String html = std::md_render_html(doc);
+    std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
+    html.free();
+    std::md_free(doc);
+    return 0;
+}
+```
+
+## Protobuf {#protobuf}
+
+```c
+#include <std/serial/protobuf.h>
+```
+
+Protocol Buffers proto3 바이너리 와이어 포맷입니다 — 바린트, 태그, 지그재그, 길이 구분, fixed32/fixed64 — `protoc`이 생성한 코드와 정확히 같으므로 다른 언어의 protobuf와 상호 운용됩니다. `.proto` 컴파일러는 없습니다: 스키마의 필드 번호를 써서 `to_proto()`/`from_proto()`를 직접 작성하세요. [RPC](/ko/stdlib/http#rpc)와 함께 씁니다.
+
+```c
+#define PB_WIRE_VARINT  0   // int32/int64/uint32/uint64/sint32/sint64/bool/enum
+#define PB_WIRE_FIXED64 1   // fixed64/sfixed64/double
+#define PB_WIRE_LEN     2   // string/bytes/embedded messages/packed repeated
+#define PB_WIRE_FIXED32 5   // fixed32/sfixed32/float
+// Group wire types 3/4 are not supported (proto3 never emits them).
+
+// Writer: each *_field call appends its own tag, then the value.
+void pb_write_varint(&String out, unsigned long long v);
+void pb_write_tag(&String out, int field_num, int wire_type);
+void pb_write_int64_field(&String out, int field_num, long long v);   // negative values take 10 bytes, like protoc
+void pb_write_uint64_field(&String out, int field_num, unsigned long long v);
+void pb_write_sint64_field(&String out, int field_num, long long v);  // zigzag
+void pb_write_bool_field(&String out, int field_num, int v);
+void pb_write_double_field(&String out, int field_num, double v);
+void pb_write_float_field(&String out, int field_num, float v);
+void pb_write_string_field(&String out, int field_num, const &char s);
+void pb_write_bytes_field(&String out, int field_num, const &unsigned char data, unsigned long len); // also nested messages
+
+// Reader: a zero-copy cursor over an existing buffer.
+struct PbReader {
+    const &unsigned char data;
+    unsigned long        len;
+    unsigned long        pos;
+};
+
+struct PbReader pb_reader_new(const &unsigned char data, unsigned long len);
+int pb_reader_has_more(const &PbReader r);
+
+// Each returns 1 on success, 0 on truncated or malformed input.
+int pb_read_varint(&PbReader r, &unsigned long long out);
+int pb_read_tag(&PbReader r, &int field_num, &int wire_type);
+int pb_read_int64(&PbReader r, &long long out);
+int pb_read_uint64(&PbReader r, &unsigned long long out);
+int pb_read_sint64(&PbReader r, &long long out);
+int pb_read_bool(&PbReader r, &int out);
+int pb_read_double(&PbReader r, &double out);
+int pb_read_float(&PbReader r, &float out);
+// *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
+int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsigned long lenOut);
+int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
+```
+
+`pb_read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사하세요.
+
+```c
+#include <std/serial/protobuf.h>
+
+// .proto: message Point { int32 x = 1; int32 y = 2; }
+struct Point { int x; int y; };
+
+int main() {
+    struct String buf = std::string_new();
+    std::pb_write_int64_field(&buf, 1, 3LL);
+    std::pb_write_int64_field(&buf, 2, -4LL);
+
+    struct Point p;
+    p.x = 0; p.y = 0;
+    struct PbReader r;
+    // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
+    unsafe { r = std::pb_reader_new((const &unsigned char)buf.as_ptr(), buf.length()); }
+    while (std::pb_reader_has_more(&r)) {
+        int field = 0; int wire = 0;
+        if (!std::pb_read_tag(&r, &field, &wire)) break;
+        long long v = 0LL;
+        if (wire == PB_WIRE_VARINT && std::pb_read_int64(&r, &v)) {
+            if (field == 1) p.x = (int)v;
+            if (field == 2) p.y = (int)v;
+        } else if (!std::pb_skip_field(&r, wire)) break;
+    }
+    buf.free();
+    return (p.x == 3 && p.y == -4) ? 0 : 1;
+}
+```
+
+`std/serial/serial.h`는 `value.h`, `json.h`, `xml.h`, `html.h`만 포함합니다. `csv.h`, `yaml.h`, `markdown.h`, `protobuf.h`는 직접 include하세요.
 
 ## 왕복 변환 충실도 {#round-trip-fidelity}
 

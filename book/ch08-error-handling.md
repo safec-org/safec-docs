@@ -15,7 +15,7 @@ is where they get their proper introduction. `?T` means "a `T`, or
 nothing":
 
 ```c
-?int parse_positive(const char* s) {
+?int parse_positive(const &char s) {
     int v;
     unsafe { v = atoi(s); }
     if (v <= 0) {
@@ -56,7 +56,7 @@ was `null`, immediately returns `null` from the *enclosing* function
 too — one line instead of a nested `if`:
 
 ```c
-?int double_positive(const char* s) {
+?int double_positive(const &char s) {
     int v = try parse_positive(s);   // if parse_positive returned null,
                                        // double_positive returns null here too
     return v * 2;

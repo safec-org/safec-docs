@@ -153,7 +153,7 @@ size is a memory-safety bug, not a value you can recover from:
 #include <mem.h>
 
 unsigned long n = std::checked_mul_size(count, sizeof(int));
-int* buf = (int*)std::alloc(n);
+?&heap int buf = std::alloc(n);
 ```
 
 ## Comparison with Other Languages

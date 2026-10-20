@@ -61,13 +61,13 @@ struct RamDisk { unsigned char bytes[64 * 512]; };
 
 static int ram_read(&RamDisk d, unsigned long lba, &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)buf, (const void*)&d.bytes[lba * 512UL], count * 512UL); }
+    std::safe_memcpy(buf, &d.bytes[lba * 512UL], count * 512UL);
     return 0;
 }
 
 static int ram_write(&RamDisk d, unsigned long lba, const &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)&d.bytes[lba * 512UL], (const void*)buf, count * 512UL); }
+    std::safe_memcpy(&d.bytes[lba * 512UL], buf, count * 512UL);
     return 0;
 }
 
@@ -85,6 +85,8 @@ int main() {
 ```
 
 ---
+
+`BLOCK_SIZE` is 512 bytes per sector.
 
 ## Partition Table (MBR)
 
@@ -128,6 +130,8 @@ match (parts.get(0)) {
 
 ---
 
+Constants: `PART_MAX` (4 primary entries); partition types `PART_TYPE_EMPTY` (0x00), `PART_TYPE_FAT32` (0x0B), `PART_TYPE_FAT32X` (0x0C, FAT32 with LBA), `PART_TYPE_LINUX` (0x83), `PART_TYPE_SWAP` (0x82).
+
 ## VFS
 
 ```c
@@ -142,16 +146,17 @@ The table a filesystem driver fills in (`tmpfs_ops()`, `fat_ops()`, `ext2_ops()`
 
 ```c
 struct VfsOps {
-    fn int(void* ctx, unsigned long size) mount;
-    fn int(void* ctx) unmount;
-    fn int(void* ctx, const char* path, int flags, &stack VfsNode node_out) open;
-    fn int(void* ctx, const char* path) unlink;
-    fn int(void* ctx, const char* path) mkdir;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      unsigned char* buf, unsigned long len) read;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      const unsigned char* buf, unsigned long len) write;
-    fn int(void* ctx, unsigned long inode, void* cb, void* user) readdir;
+    fn int(?&void ctx, unsigned long size) mount;
+    fn int(?&void ctx) unmount;
+    fn int(?&void ctx, const &char path, int flags, &stack VfsNode node_out) open;
+    fn int(?&void ctx, const &char path) unlink;
+    fn int(?&void ctx, const &char path) mkdir;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      &unsigned char buf, unsigned long len) read;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      const &unsigned char buf, unsigned long len) write;
+    fn int(?&void ctx, unsigned long inode,
+           fn void(&VfsNode, ?&void) cb, ?&void user) readdir;
 }
 ```
 
@@ -163,7 +168,7 @@ struct VfsNode {
     int           type;      // VFS_TYPE_FILE / VFS_TYPE_DIR
     unsigned long size;
     unsigned long inode;
-    void*         fs_ctx;    // driver-internal: the owning VfsMount
+    ?&void        fs_ctx;    // driver-internal: the owning VfsMount
 
     unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
     unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);
@@ -182,17 +187,27 @@ extern struct Vfs vfs_root;  // global VFS instance
 void vfs_init();             // zero it out; call once before any mount
 
 // ctx is the context the driver's ops expect (TmpfsCtx, FatCtx, Ext2Ctx, ...)
-generic<T> int vfs_mount(&Vfs v, const char* mountpoint, struct VfsOps ops, &T ctx);
+generic<T> int vfs_mount(&Vfs v, const &char mountpoint, struct VfsOps ops, &T ctx);
 
 struct Vfs {
-    int  unmount(const char* mountpoint);
-    int  open(const char* path, int flags, &stack VfsNode node_out);
-    int  unlink(const char* path);
-    int  mkdir(const char* path);
+    int  unmount(const &char mountpoint);
+    int  open(const &char path, int flags, &stack VfsNode node_out);
+    int  unlink(const &char path);
+    int  mkdir(const &char path);
 }
 ```
 
 ---
+
+Constants:
+
+| Name | Value | Meaning |
+|------|-------|---------|
+| `VFS_MAX_MOUNTS` | 8 | mount table size |
+| `VFS_MAX_PATH` / `VFS_MAX_NAME` | 256 / 64 | path and name length limits |
+| `VFS_TYPE_FILE` / `VFS_TYPE_DIR` | 0 / 1 | node types |
+| `VFS_O_READ`, `VFS_O_WRITE`, `VFS_O_CREATE`, `VFS_O_TRUNC` | 0x01, 0x02, 0x04, 0x08 | open flags |
+| `VFS_SEEK_SET`, `VFS_SEEK_CUR`, `VFS_SEEK_END` | 0, 1, 2 | seek origins |
 
 ## FAT32 Driver
 
@@ -213,7 +228,7 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // Read a cluster into `buf` (must be >= bytes_per_cluster bytes).
-    int read_cluster(unsigned long cluster, unsigned char* buf);
+    int read_cluster(unsigned long cluster, &unsigned char buf);
 
     // Follow the FAT chain to the cluster at position `idx` from `start_cluster`.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
@@ -229,6 +244,8 @@ struct VfsOps fat_ops();
 `fat_ops()` provides: **open** (8.3 path walk from root cluster), **read** (cluster chain traversal), **readdir**. Write and unlink return `-1` (read-only). Compile-verified only — mounting and reading a real FAT32 volume needs an actual formatted disk image, not available in this environment.
 
 ---
+
+Limits: directory walks go at most `FAT_MAX_DEPTH` (8) levels deep, and `fat_init` rejects clusters larger than `FAT_MAX_CLUSTER` (4096 bytes).
 
 ## ext2 Driver
 
@@ -273,14 +290,14 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // Read block `block_no` into `buf` (must be >= block_size bytes).
-    int  read_block(unsigned long block_no, unsigned char* buf);
+    int  read_block(unsigned long block_no, &unsigned char buf);
 
     // Read inode `ino` into `inode_out`.
     int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
 
     // Read file data for inode `ino` at byte `offset` into `buf` for `len` bytes.
     unsigned long read_file(unsigned long ino, unsigned long offset,
-                             unsigned char* buf, unsigned long len);
+                             &unsigned char buf, unsigned long len);
 }
 
 // Initialise ext2 context from a block device (reads the superblock at
@@ -294,6 +311,8 @@ struct VfsOps ext2_ops();
 `ext2_ops()` provides: **open** (path tokenisation, walks from root inode 2), **read** (direct blocks only — files > 48 KB with 4 KiB blocks need indirect-block support this driver doesn't have), **readdir**. Read-only. Compile-verified only — same real-disk-image caveat as FAT32 above.
 
 ---
+
+Constants: `EXT2_SUPER_MAGIC` (0xEF53), `EXT2_ROOT_INODE` (2), `EXT2_BLOCK_SIZE_BASE` (1024); `ext2_init` rejects blocks larger than `EXT2_MAX_BLOCK_SIZE` (4096). Inode mode bits `EXT2_S_IFREG` (0x8000) and `EXT2_S_IFDIR` (0x4000) tell files from directories.
 
 ## tmpfs — In-Memory Filesystem
 

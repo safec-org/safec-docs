@@ -9,7 +9,7 @@ int add(int a, int b) {
     return a + b;
 }
 
-void greet(const char *name) {
+void greet(const &char name) {
     printf("Hello, %s\n", name);
 }
 ```
@@ -107,7 +107,7 @@ int result = compute(5);       // OK
 Functions that never return (e.g., `abort`, `exit`, infinite loops) can be annotated with `noreturn`:
 
 ```c
-noreturn void panic(const char *msg) {
+noreturn void panic(const &char msg) {
     printf("PANIC: %s\n", msg);
     abort();
 }

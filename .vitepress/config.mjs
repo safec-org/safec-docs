@@ -65,6 +65,10 @@ const enNav = [
       { text: 'IPC', link: '/stdlib/ipc' },
       { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
       { text: 'Networking', link: '/stdlib/net' },
+      { text: 'HTTP & Web', link: '/stdlib/http' },
+      { text: 'Machine Learning', link: '/stdlib/ml' },
+      { text: 'GUI', link: '/stdlib/gui' },
+      { text: 'Encoding', link: '/stdlib/encoding' },
       { text: 'Filesystems', link: '/stdlib/fs' },
       { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
       { text: 'Cryptography', link: '/stdlib/crypto' },
@@ -73,7 +77,8 @@ const enNav = [
       { text: 'Hardware Abstraction', link: '/stdlib/hal' },
       { text: 'Interrupts & MMIO', link: '/stdlib/interrupt' },
       { text: 'Kernel Primitives', link: '/stdlib/kernel' },
-      { text: 'Testing & Benchmarking', link: '/stdlib/testing' }
+      { text: 'Testing & Benchmarking', link: '/stdlib/testing' },
+      { text: 'Utilities & C Compatibility', link: '/stdlib/utilities' }
     ]
   },
   {
@@ -165,7 +170,7 @@ const enSidebar = {
     {
       text: 'Serialization',
       items: [
-        { text: 'JSON / XML / HTML / CSV / YAML', link: '/stdlib/serial' },
+        { text: 'JSON / XML / HTML / CSV / YAML / Markdown / Protobuf', link: '/stdlib/serial' },
       ]
     },
     {
@@ -182,6 +187,10 @@ const enSidebar = {
         { text: 'IPC', link: '/stdlib/ipc' },
         { text: 'Real-Time Scheduler', link: '/stdlib/sched' },
         { text: 'Networking', link: '/stdlib/net' },
+        { text: 'HTTP & Web', link: '/stdlib/http' },
+        { text: 'Machine Learning', link: '/stdlib/ml' },
+        { text: 'GUI', link: '/stdlib/gui' },
+        { text: 'Encoding', link: '/stdlib/encoding' },
         { text: 'Filesystems', link: '/stdlib/fs' },
         { text: 'DSP & Real-Time', link: '/stdlib/dsp' },
         { text: 'Cryptography', link: '/stdlib/crypto' },
@@ -201,6 +210,7 @@ const enSidebar = {
       text: 'Development',
       items: [
         { text: 'Testing & Benchmarking', link: '/stdlib/testing' },
+        { text: 'Utilities & C Compatibility', link: '/stdlib/utilities' },
       ]
     },
   ],
@@ -287,6 +297,10 @@ const koNav = [
       { text: 'IPC', link: '/ko/stdlib/ipc' },
       { text: '실시간 스케줄러', link: '/ko/stdlib/sched' },
       { text: '네트워킹', link: '/ko/stdlib/net' },
+      { text: 'HTTP와 웹', link: '/ko/stdlib/http' },
+      { text: '머신러닝', link: '/ko/stdlib/ml' },
+      { text: 'GUI', link: '/ko/stdlib/gui' },
+      { text: '인코딩', link: '/ko/stdlib/encoding' },
       { text: '파일시스템', link: '/ko/stdlib/fs' },
       { text: 'DSP와 실시간', link: '/ko/stdlib/dsp' },
       { text: '암호화', link: '/ko/stdlib/crypto' },
@@ -295,7 +309,8 @@ const koNav = [
       { text: '하드웨어 추상화', link: '/ko/stdlib/hal' },
       { text: '인터럽트와 MMIO', link: '/ko/stdlib/interrupt' },
       { text: '커널 프리미티브', link: '/ko/stdlib/kernel' },
-      { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' }
+      { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' },
+      { text: '유틸리티와 C 호환', link: '/ko/stdlib/utilities' }
     ]
   },
   {
@@ -387,7 +402,7 @@ const koSidebar = {
     {
       text: '직렬화',
       items: [
-        { text: 'JSON / XML / HTML / CSV / YAML', link: '/ko/stdlib/serial' },
+        { text: 'JSON / XML / HTML / CSV / YAML / Markdown / Protobuf', link: '/ko/stdlib/serial' },
       ]
     },
     {
@@ -404,6 +419,10 @@ const koSidebar = {
         { text: 'IPC', link: '/ko/stdlib/ipc' },
         { text: '실시간 스케줄러', link: '/ko/stdlib/sched' },
         { text: '네트워킹', link: '/ko/stdlib/net' },
+        { text: 'HTTP와 웹', link: '/ko/stdlib/http' },
+        { text: '머신러닝', link: '/ko/stdlib/ml' },
+        { text: 'GUI', link: '/ko/stdlib/gui' },
+        { text: '인코딩', link: '/ko/stdlib/encoding' },
         { text: '파일시스템', link: '/ko/stdlib/fs' },
         { text: 'DSP와 실시간', link: '/ko/stdlib/dsp' },
         { text: '암호화', link: '/ko/stdlib/crypto' },
@@ -423,6 +442,7 @@ const koSidebar = {
       text: '개발',
       items: [
         { text: '테스트와 벤치마킹', link: '/ko/stdlib/testing' },
+        { text: '유틸리티와 C 호환', link: '/ko/stdlib/utilities' },
       ]
     },
   ],

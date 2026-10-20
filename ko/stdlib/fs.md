@@ -61,13 +61,13 @@ struct RamDisk { unsigned char bytes[64 * 512]; };
 
 static int ram_read(&RamDisk d, unsigned long lba, &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)buf, (const void*)&d.bytes[lba * 512UL], count * 512UL); }
+    std::safe_memcpy(buf, &d.bytes[lba * 512UL], count * 512UL);
     return 0;
 }
 
 static int ram_write(&RamDisk d, unsigned long lba, const &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)&d.bytes[lba * 512UL], (const void*)buf, count * 512UL); }
+    std::safe_memcpy(&d.bytes[lba * 512UL], buf, count * 512UL);
     return 0;
 }
 
@@ -85,6 +85,8 @@ int main() {
 ```
 
 ---
+
+`BLOCK_SIZE`는 섹터당 512바이트입니다.
 
 ## 파티션 테이블 (MBR) {#partition-table-mbr}
 
@@ -128,6 +130,8 @@ match (parts.get(0)) {
 
 ---
 
+상수: `PART_MAX`(기본 엔트리 4개); 파티션 타입 `PART_TYPE_EMPTY`(0x00), `PART_TYPE_FAT32`(0x0B), `PART_TYPE_FAT32X`(0x0C, LBA를 쓰는 FAT32), `PART_TYPE_LINUX`(0x83), `PART_TYPE_SWAP`(0x82).
+
 ## VFS {#vfs}
 
 ```c
@@ -142,16 +146,17 @@ VFS 계층은 최장 접두사 매칭(longest-prefix matching)을 사용해 경�
 
 ```c
 struct VfsOps {
-    fn int(void* ctx, unsigned long size) mount;
-    fn int(void* ctx) unmount;
-    fn int(void* ctx, const char* path, int flags, &stack VfsNode node_out) open;
-    fn int(void* ctx, const char* path) unlink;
-    fn int(void* ctx, const char* path) mkdir;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      unsigned char* buf, unsigned long len) read;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      const unsigned char* buf, unsigned long len) write;
-    fn int(void* ctx, unsigned long inode, void* cb, void* user) readdir;
+    fn int(?&void ctx, unsigned long size) mount;
+    fn int(?&void ctx) unmount;
+    fn int(?&void ctx, const &char path, int flags, &stack VfsNode node_out) open;
+    fn int(?&void ctx, const &char path) unlink;
+    fn int(?&void ctx, const &char path) mkdir;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      &unsigned char buf, unsigned long len) read;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      const &unsigned char buf, unsigned long len) write;
+    fn int(?&void ctx, unsigned long inode,
+           fn void(&VfsNode, ?&void) cb, ?&void user) readdir;
 }
 ```
 
@@ -163,7 +168,7 @@ struct VfsNode {
     int           type;      // VFS_TYPE_FILE / VFS_TYPE_DIR
     unsigned long size;
     unsigned long inode;
-    void*         fs_ctx;    // driver-internal: the owning VfsMount
+    ?&void        fs_ctx;    // driver-internal: the owning VfsMount
 
     unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
     unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);
@@ -182,17 +187,27 @@ extern struct Vfs vfs_root;  // global VFS instance
 void vfs_init();             // zero it out; call once before any mount
 
 // ctx is the context the driver's ops expect (TmpfsCtx, FatCtx, Ext2Ctx, ...)
-generic<T> int vfs_mount(&Vfs v, const char* mountpoint, struct VfsOps ops, &T ctx);
+generic<T> int vfs_mount(&Vfs v, const &char mountpoint, struct VfsOps ops, &T ctx);
 
 struct Vfs {
-    int  unmount(const char* mountpoint);
-    int  open(const char* path, int flags, &stack VfsNode node_out);
-    int  unlink(const char* path);
-    int  mkdir(const char* path);
+    int  unmount(const &char mountpoint);
+    int  open(const &char path, int flags, &stack VfsNode node_out);
+    int  unlink(const &char path);
+    int  mkdir(const &char path);
 }
 ```
 
 ---
+
+상수:
+
+| 이름 | 값 | 의미 |
+|------|-------|---------|
+| `VFS_MAX_MOUNTS` | 8 | 마운트 테이블 크기 |
+| `VFS_MAX_PATH` / `VFS_MAX_NAME` | 256 / 64 | 경로와 이름 길이 한도 |
+| `VFS_TYPE_FILE` / `VFS_TYPE_DIR` | 0 / 1 | 노드 타입 |
+| `VFS_O_READ`, `VFS_O_WRITE`, `VFS_O_CREATE`, `VFS_O_TRUNC` | 0x01, 0x02, 0x04, 0x08 | 열기 플래그 |
+| `VFS_SEEK_SET`, `VFS_SEEK_CUR`, `VFS_SEEK_END` | 0, 1, 2 | 탐색 기준 |
 
 ## FAT32 드라이버 {#fat32-driver}
 
@@ -213,7 +228,7 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // 클러스터를 `buf`로 읽어들인다 (bytes_per_cluster 바이트 이상이어야 함).
-    int read_cluster(unsigned long cluster, unsigned char* buf);
+    int read_cluster(unsigned long cluster, &unsigned char buf);
 
     // FAT 체인을 따라가 `start_cluster`로부터 위치 `idx`에 있는 클러스터를 찾는다.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
@@ -229,6 +244,8 @@ struct VfsOps fat_ops();
 `fat_ops()`는 **open**(루트 클러스터부터의 8.3 경로 탐색), **read**(클러스터 체인 순회), **readdir**을 제공합니다. write와 unlink는 `-1`을 반환합니다(읽기 전용). 컴파일 검증만 되었습니다 — 실제 FAT32 볼륨을 마운트하고 읽으려면 실제 포맷된 디스크 이미지가 필요한데, 이 환경에서는 사용할 수 없습니다.
 
 ---
+
+한도: 디렉터리 탐색은 최대 `FAT_MAX_DEPTH`(8)단계까지이며, `fat_init`은 `FAT_MAX_CLUSTER`(4096바이트)보다 큰 클러스터를 거부합니다.
 
 ## ext2 드라이버 {#ext2-driver}
 
@@ -273,14 +290,14 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // 블록 `block_no`를 `buf`로 읽어들인다 (block_size 바이트 이상이어야 함).
-    int  read_block(unsigned long block_no, unsigned char* buf);
+    int  read_block(unsigned long block_no, &unsigned char buf);
 
     // 아이노드 `ino`를 `inode_out`으로 읽어들인다.
     int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
 
     // 아이노드 `ino`의 파일 데이터를 바이트 오프셋 `offset`부터 `len` 바이트만큼 `buf`로 읽는다.
     unsigned long read_file(unsigned long ino, unsigned long offset,
-                             unsigned char* buf, unsigned long len);
+                             &unsigned char buf, unsigned long len);
 }
 
 // 블록 장치로부터 ext2 컨텍스트를 초기화한다 (장치의 LBA 0로부터
@@ -294,6 +311,8 @@ struct VfsOps ext2_ops();
 `ext2_ops()`는 **open**(경로 토큰화, 루트 아이노드 2부터 탐색), **read**(직접 블록만 — 4 KiB 블록 기준 48 KB를 초과하는 파일은 이 드라이버가 갖고 있지 않은 간접 블록 지원이 필요합니다), **readdir**을 제공합니다. 읽기 전용입니다. 위의 FAT32와 마찬가지로 실제 디스크 이미지가 필요하다는 제약 아래 컴파일 검증만 되었습니다.
 
 ---
+
+상수: `EXT2_SUPER_MAGIC`(0xEF53), `EXT2_ROOT_INODE`(2), `EXT2_BLOCK_SIZE_BASE`(1024); `ext2_init`은 `EXT2_MAX_BLOCK_SIZE`(4096)보다 큰 블록을 거부합니다. 아이노드 모드 비트 `EXT2_S_IFREG`(0x8000)와 `EXT2_S_IFDIR`(0x4000)로 파일과 디렉터리를 구분합니다.
 
 ## tmpfs — 인메모리 파일시스템 {#tmpfs-in-memory-filesystem}
 

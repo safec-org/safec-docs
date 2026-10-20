@@ -60,7 +60,7 @@ The programmer decides when memory is allocated, how long it lives, and when it 
 
 // Memory lifetime is explicit
 int x = 10;                          // stack — dies at scope exit
-&heap int h = (int*)malloc(4);       // heap — programmer frees
+&heap int h = new int;               // heap — programmer frees
 arena_reset<SensorPool>();           // arena — explicit bulk free
 
 // Error handling is explicit
@@ -196,9 +196,9 @@ Exceptions hide control flow. In a real-time system, you need to know exactly wh
 SafeC uses return values for error handling. This is more verbose than exceptions, but the control flow is always visible:
 
 ```c
-int readSensor(int id, float* out) {
+int readSensor(int id, &float out) {
     if (id < 0 || id >= SENSOR_COUNT) return -1;
-    unsafe { *out = sensorValues[id]; }   // raw pointer deref always needs unsafe
+    *out = sensorValues[id];              // write through the reference; no unsafe needed
     return 0;
 }
 

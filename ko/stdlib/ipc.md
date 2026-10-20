@@ -65,21 +65,18 @@ int  pipe_close_write(&Pipe p);
 
 int main() {
     struct Pipe p;
-    if (pipe_create(&p) != 0) { println("pipe_create failed"); return 1; }
+    if (std::pipe_create(&p) != 0) { std::println("pipe_create failed"); return 1; }
 
-    const char* msg = "hello";
-    unsafe { std::pipe_write(&p, (const &unsigned char)msg, 5UL); }
+    unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
+    std::pipe_write(&p, &msg[0], 5UL);
 
-    char buf[6];
-    unsafe { buf[5] = (char)0; }
-    long long n;
-    unsafe { n = std::pipe_read(&p, (&unsigned char)&buf[0], 5UL); }
-    print("read "); print_int(n); print(" bytes: ");
-    unsafe { println(&buf[0]); }   // hello
+    unsigned char buf[5];
+    long long n = std::pipe_read(&p, &buf[0], 5UL);
+    std::print("read "); std::print_int(n); std::println(" bytes");   // read 5 bytes
 
-    pipe_close_read(&p);
-    pipe_close_write(&p);
-    return 0;
+    std::pipe_close_read(&p);
+    std::pipe_close_write(&p);
+    return (n == 5LL && buf[4] == 'o') ? 0 : 1;
 }
 ```
 
@@ -125,7 +122,7 @@ Windows의 네이티브 대응물이며, 이 함수 시그니처들에 끼워 �
 // 반환하거나, 실패 시 -1 (정리되지 않은 이전 실행에서 남은 소켓 파일로
 // 'path'가 이미 존재하면 EADDRINUSE — 그럴 가능성이 있으면 먼저
 // uds_unlink를 호출).
-int uds_listen_nb(const char* path);
+int uds_listen_nb(const &char path);
 
 // 논블로킹 accept(): 연결된(그 자체로 논블로킹인) 클라이언트 fd, 또는
 // 아직 대기 중인 것이 없으면 -1/EAGAIN — await_fd(listenfd, SCHED_READ) 후
@@ -136,13 +133,13 @@ int uds_accept_nb(int listenfd);
 // 기다리지 않고 즉시 EINPROGRESS와 함께 반환 — await_fd(fd,
 // SCHED_WRITE)를 사용하고, fd가 쓰기 가능해지는 것을 "연결 완료"로
 // 취급한다.
-int uds_connect_nb(const char* path);
+int uds_connect_nb(const &char path);
 
 // 'path'에 있는 오래된 소켓 파일을 제거한다 — 정리되지 않고 종료된
 // 이전 실행의 파일 시스템 경로가 여전히 존재하면, TCP 포트는 OS가
 // 단순히 반환하는 것과 달리 bind()가 EADDRINUSE로 실패한다. 성공 시
 // 0("경로가 존재하지 않았음"도 포함), 실제 실패 시 -1.
-int uds_unlink(const char* path);
+int uds_unlink(const &char path);
 ```
 
 ### 예제 {#example-1}
@@ -155,31 +152,34 @@ extern int write(int fd, const void* buf, unsigned long count);
 extern long long read(int fd, void* buf, unsigned long count);
 extern int close(int fd);
 
-int main() {
-    const char* path = "/tmp/example.sock";
-    uds_unlink(path);
+// Typed wrappers over C's untyped buffers: references in, raw pointers out.
+long long send_text(int fd, const &char text, unsigned long n) { return (long long)write(fd, text, n); }
+long long recv_text(int fd, &char out, unsigned long n)         { return read(fd, out, n); }
 
-    int listenFd = uds_listen_nb(path);
-    int clientFd = uds_connect_nb(path);
+int main() {
+    const &char path = "/tmp/example.sock";
+    std::uds_unlink(path);
+
+    int listenFd = std::uds_listen_nb(path);
+    int clientFd = std::uds_connect_nb(path);
 
     // Non-blocking accept: retry until the pending connection shows up.
     // A real program would await_fd(listenFd, SCHED_READ) via
     // TaskScheduler/Reactor instead of busy-polling like this.
     int serverFd = -1;
     while (serverFd < 0) {
-        serverFd = uds_accept_nb(listenFd);
+        serverFd = std::uds_accept_nb(listenFd);
     }
 
-    const char* msg = "hi from client";
-    unsafe { write(clientFd, (const void*)msg, 14UL); }
+    send_text(clientFd, "hi from client", 14UL);
 
     char buf[15];
-    unsafe { buf[14] = (char)0; }
-    unsafe { read(serverFd, (void*)&buf[0], 14UL); }
-    unsafe { println(&buf[0]); }   // hi from client
+    buf[14] = (char)0;
+    recv_text(serverFd, &buf[0], 14UL);
+    std::println(&buf[0]);   // hi from client
 
-    unsafe { close(clientFd); close(serverFd); close(listenFd); }
-    uds_unlink(path);
+    close(clientFd); close(serverFd); close(listenFd);
+    std::uds_unlink(path);
     return 0;
 }
 ```

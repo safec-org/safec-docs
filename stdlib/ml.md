@@ -10,12 +10,11 @@ library, GPU backends, and an LLM orchestration layer
 
 ::: warning Scope
 This is a from-scratch, single-session implementation, not a port of an
-existing framework. `tensor.h` covers 1D/2D f64 tensors and the ops
+existing framework. `tensor.h` covers 1D/2D float32 tensors and the ops
 needed for the modules below — not a general n-dimensional array
-library. See `std/ml/ROADMAP.md` in the repo for exactly what's verified
-vs. deliberately deferred (DPM-Solver-v3's calibration-dependent design,
-EDM's own VE-flavored samplers, positional encoding, and patchify — see
-that file for why each one is out of scope rather than faked).
+library. Deliberately not implemented: DPM-Solver-v3 (its design needs
+statistics calibrated from a real trained model), EDM's own VE-flavored
+samplers, positional encoding, and patchify.
 :::
 
 Every function below takes/returns `Tensor` (and the other structs here)
@@ -34,9 +33,11 @@ a reference of any region) converts to these implicitly, with no
 #include <std/ml/tensor.h>
 ```
 
-CPU tensors (1D/2D, `double`) with reverse-mode autograd — PyTorch-style
+CPU tensors (1D/2D, `float` — float32, like PyTorch's default and the
+only precision Metal supports) with reverse-mode autograd — PyTorch-style
 ergonomics: build a computation graph implicitly by calling ops on
-`requiresGrad` tensors, then call `tensor_backward()`.
+`requiresGrad` tensors, then call `tensor_backward()`. For fp16/bf16 storage
+and mixed-precision training, see [Half-precision tensors](#half-precision-tensors).
 
 ```c
 &Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
@@ -48,17 +49,98 @@ Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/`tensor_matmul`/
 `tensor_relu`/`tensor_sum`. Verified against hand-computed gradients and a
 real finite-difference check on a matmul→relu→sum chain.
 
+```c
+struct Tensor {
+    &heap float         data;          // flat row-major, length == size
+    &heap unsigned long shape;
+    unsigned long       ndim;          // 1 or 2
+    unsigned long       size;
+    int                 requiresGrad;
+    &heap float         grad;          // allocated only when requiresGrad
+    // ... autograd bookkeeping (gradFn, parents, visited)
+
+    float at1(unsigned long i) const;
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+};
+
+&Tensor tensor_new_1d(unsigned long n, int requiresGrad);
+&Tensor tensor_new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
+&Tensor tensor_from_1d(const &float values, unsigned long n, int requiresGrad);
+&Tensor tensor_from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+&Tensor tensor_zeros_like(const &Tensor t);
+&Tensor tensor_fill(&Tensor t, float v);
+
+&Tensor tensor_add(const &Tensor a, const &Tensor b);
+&Tensor tensor_sub(const &Tensor a, const &Tensor b);
+&Tensor tensor_mul(const &Tensor a, const &Tensor b);   // elementwise
+&Tensor tensor_scale(const &Tensor a, float k);
+&Tensor tensor_matmul(const &Tensor a, const &Tensor b);
+&Tensor tensor_sum(const &Tensor a);
+
+void tensor_backward(&Tensor t);
+void tensor_zero_grad(&Tensor t);
+int  tensor_is_grad_enabled();
+void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
+```
+
+### Autograd ops and optimizer — `tensor_nn.h`
+
+```c
+#include <std/ml/tensor_nn.h>
+```
+
+Activations with backward passes (the ones every GPU backend uses), 1D pooling, and Adam.
+
+```c
+&Tensor tensor_relu(const &Tensor a);
+&Tensor tensor_sigmoid(const &Tensor a);
+&Tensor tensor_tanh_t(const &Tensor a);
+&Tensor tensor_softmax(const &Tensor a);
+&Tensor tensor_elu(const &Tensor a, float alpha);
+&Tensor tensor_gelu(const &Tensor a);
+&Tensor tensor_silu(const &Tensor a);
+&Tensor tensor_glu(const &Tensor a);      // split last axis into [a1, a2]: a1 * sigmoid(a2)
+&Tensor tensor_swiglu(const &Tensor a);   // silu(a1) * a2 — output has half the columns
+&Tensor tensor_maxpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
+&Tensor tensor_avgpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
+
+struct AdamState {
+    &heap float m; &heap float v;
+    unsigned long size;
+    float lr; float beta1; float beta2; float eps;
+    unsigned long t;
+};
+struct AdamState adam_new(unsigned long size, float lr, float beta1, float beta2, float eps);
+struct AdamState adam_new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
+void adam_step(&AdamState state, &Tensor param);                   // uses param.grad
+void adam_free(&AdamState state);
+```
+
 ## Activations
 
 ```c
 #include <std/ml/activations.h>
 ```
 
-Elementwise `tensor_sigmoid`/`tensor_tanh`/`tensor_silu`/`tensor_gelu`;
+Forward-only elementwise activations (no autograd — for inference layers;
+the autograd versions are in `tensor_nn.h` above);
 `tensor_layernorm_rows` (row-wise mean-0/var-1 normalization, no affine —
 apply your own scale/shift for AdaLN-style conditioning, see DiT below);
 `tensor_residual_add` (a named `tensor_add` alias for residual/skip-
 connection call sites).
+
+```c
+&Tensor tensor_relu_fwd(const &Tensor a);
+&Tensor tensor_sigmoid_fwd(const &Tensor a);
+&Tensor tensor_tanh_fwd(const &Tensor a);
+&Tensor tensor_silu_fwd(const &Tensor a);
+&Tensor tensor_gelu_fwd(const &Tensor a);
+&Tensor tensor_layernorm_rows(const &Tensor x, float eps);
+&Tensor tensor_residual_add(const &Tensor x, const &Tensor sublayerOut);
+```
 
 ## Attention
 
@@ -81,6 +163,21 @@ concatenates results). Also in this file:
   [seqLen,kvLen] score matrix. Verified to match `attention_forward`'s
   output within tolerance for a block size that doesn't evenly divide
   `kvLen`.
+
+```c
+&Tensor softmax_rows(const &Tensor x);
+&Tensor tensor_transpose(const &Tensor in);
+&Tensor tensor_slice_cols(const &Tensor in, unsigned long startCol, unsigned long numCols);
+void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
+
+&Tensor attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
+&Tensor mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long numHeads);
+&Tensor gated_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, const &Tensor gateLogits);
+&Tensor gated_mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+                          unsigned long numHeads, const &Tensor gateLogits);
+&Tensor linear_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
+&Tensor flash_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long kvBlockSize);
+```
 
 Forward-only (inference-focused, no backward pass) throughout. Verified
 against a hand-computed 2×2 example, a self-consistency check between
@@ -111,6 +208,24 @@ Verified via self-consistency checks against manual per-group/per-window
 reconstruction, and a hand-computed 2-step state trace for Gated
 DeltaNet.
 
+```c
+&Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
+                    const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
+&Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
+                       struct Slice<&Tensor> WukGroups, struct Slice<&Tensor> WuvGroups,  // one per group
+                       unsigned long headsPerGroup);
+&Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+                                   unsigned long windowSize, unsigned long shift);
+
+struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
+struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
+&Tensor gated_deltanet_forward(const &GatedDeltaNet layer, const &Tensor X,
+                               const &Tensor Q, const &Tensor K, const &Tensor V);
+void    gated_deltanet_free(&GatedDeltaNet layer);
+```
+
+`eg_mla_forward` takes the per-group up-projections as [`Slice`](/stdlib/collections#slice)s of tensor references — bounds-checked arrays whose length is the group count. Back them with a fixed-size stack or static array (`&Tensor groups[4]`) or, for a count known only at run time, a heap or arena allocation.
+
 ## RNN family
 
 ```c
@@ -125,6 +240,31 @@ xLSTM's mLSTM (matrix-memory) variant is not implemented — sLSTM only.
 Each cell verified against hand-computed gate values for a real forward
 pass.
 
+```c
+struct RNNCell  rnn_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+&Tensor         rnn_cell_forward(const &RNNCell cell, const &Tensor x_t, const &Tensor h_prev);
+void            rnn_cell_free(&RNNCell cell);
+
+struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+&Tensor         gru_cell_forward(const &GRUCell cell, const &Tensor x_t, const &Tensor h_prev);
+void            gru_cell_free(&GRUCell cell);
+
+struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+// Returns h_t; the new cell state is written through c_out.
+&Tensor         lstm_cell_forward(const &LSTMCell cell, const &Tensor x_t,
+                                  const &Tensor h_prev, const &Tensor c_prev,
+                                  &&Tensor c_out);
+void            lstm_cell_free(&LSTMCell cell);
+
+struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
+struct XLSTMCell  xlstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+struct XLSTMState xlstm_cell_forward(const &XLSTMCell cell, const &Tensor x_t, const &XLSTMState prev);
+void              xlstm_cell_free(&XLSTMCell cell);
+void              xlstm_state_free(&XLSTMState s);
+```
+
+Each cell's weight tensors are public fields (`W_ih`, `W_hh`, … — named per gate) so you can load trained weights into them.
+
 ## CNN
 
 ```c
@@ -138,6 +278,28 @@ concatenation) — all over a channels-first `FeatureMap` (not `Tensor`,
 which tops out at 2D). Verified via hand-computed 3×3-kernel and
 pooling-window checks.
 
+```c
+struct FeatureMap {
+    &heap float   data;      // channels × height × width, channels-first
+    unsigned long channels;
+    unsigned long height;
+    unsigned long width;
+};
+struct FeatureMap feature_map_new(unsigned long channels, unsigned long height, unsigned long width);
+void              feature_map_free(&FeatureMap fm);
+
+struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
+                         unsigned long kH, unsigned long kW,
+                         unsigned long stride, unsigned long padding);
+struct FeatureMap conv2d_forward(const &Conv2D layer, const &FeatureMap input);
+void              conv2d_free(&Conv2D layer);
+
+struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
+struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
+struct FeatureMap upsample2x_nearest(const &FeatureMap input);
+struct FeatureMap concat_channels(const &FeatureMap a, const &FeatureMap b);
+```
+
 ## U-Net
 
 ```c
@@ -148,6 +310,13 @@ A fixed 2-level encoder/decoder CNN with skip connections
 (Ronneberger et al. 2015) — the classic DDPM-style diffusion denoiser
 backbone. Verified via output-shape checks and full self-consistency
 against a manual replication of `unet_forward`'s call sequence.
+
+```c
+struct UNet unet_new(unsigned long inChannels, unsigned long c1, unsigned long c2,
+                     unsigned long outChannels);
+struct FeatureMap unet_forward(&UNet net, const &FeatureMap input);
+void unet_free(&UNet net);
+```
 
 ## Diffusion
 
@@ -171,7 +340,36 @@ against a manual replication of `unet_forward`'s call sequence.
 
 DPM-Solver-v3 is not implemented (its distinguishing idea needs
 "empirical model statistics" calibrated from a real trained model over
-real data — see `std/ml/ROADMAP.md`).
+real data).
+
+```c
+void edm_karras_sigmas(unsigned long numSteps, float sigmaMin, float sigmaMax, float rho,
+                       &float outSigmas);                         // numSteps values
+void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd,
+                          &float outBeta, &float outAlphaBar);    // numSteps values each
+
+&Tensor ddpm_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+                          float beta_t, float alphaBar_t, const &Tensor noise);
+&Tensor ddim_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+                          float alphaBar_t, float alphaBar_prev);
+&Tensor dpm_solver_1_step(const &Tensor x_cur, const &Tensor epsPred,
+                          float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+&Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
+                             float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+
+// Order-2 solvers call your model again at the midpoint.
+// model(x, sigma, userData) -> predicted noise (eps) or clean sample (x0).
+generic<T>
+&Tensor dpm_solver_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
+                          const &Tensor x_cur, const &Tensor epsPred,
+                          float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+generic<T>
+&Tensor dpm_solver_pp_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
+                             const &Tensor x_cur, const &Tensor x0Pred,
+                             float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
+```
+
+`userData` is your model's own state (its weights, say); its type is checked against the callback at compile time.
 
 ## Transformer (DiT / JiT)
 
@@ -189,12 +387,28 @@ real data — see `std/ml/ROADMAP.md`).
   opposed to DiT's per-layer adaptive modulation) — the architectural
   distinction this implementation draws between the two.
 
+```c
+struct DiTBlock dit_block_new(unsigned long dModel, unsigned long dHidden,
+                              unsigned long dModelCond, unsigned long numHeads);
+&Tensor dit_block_forward(const &DiTBlock block, const &Tensor x, const &Tensor c);  // c = conditioning
+void    dit_block_free(&DiTBlock block);
+
+struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
+&Tensor jit_block_forward(const &JiTBlock block, const &Tensor x);
+void    jit_block_free(&JiTBlock block);
+// Patch embedding + conditioning, then numBlocks blocks.
+&Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
+                    struct Slice<JiTBlock> blocks);
+```
+
 ## GPU backends
 
 ```c
 #include <std/ml/gpu_mps.h>   // Apple Silicon/macOS — [features] "mps"
 #include <std/ml/gpu_cuda.h>  // NVIDIA — [features] "cuda"
 #include <std/ml/gpu_rocm.h>  // AMD — [features] "rocm"
+#include <std/ml/gpu_spirv.h> // Vulkan/SPIR-V (incomplete, see Backend status)
+#include <std/ml/gpu_webgpu.h>// WebGPU
 ```
 
 The "unified memory" piece of the ML brief: MPS's default buffer storage
@@ -203,14 +417,13 @@ selling point) — no explicit host↔device copy the way CUDA/ROCm's
 discrete memory model needs.
 
 ::: warning Verification status
-- **MPS**: `mps_available()` is fully verified on real Apple Silicon
-  hardware. `mps_add_f32()`'s pipeline — device/queue creation, a real
-  runtime-compiled Metal Shading Language kernel, pipeline state, buffer
-  allocation, encoder setup — is verified through every step except the
-  final `dispatchThreadgroups:threadsPerThreadgroup:` call, which
-  currently segfaults (an apparent codegen gap with two consecutive
-  struct-by-value Objective-C message-send arguments — see
-  `gpu_mps.sc`'s header comment for the precise, bisected failure point).
+- **MPS**: verified end to end on real Apple Silicon hardware — real GPU
+  dispatches with correct output (`mps_add_f32`, and `mps_sub_f32`/
+  `mps_mul_f32` as representative cases; the other elementwise ops share
+  the same code path). An earlier segfault at
+  `dispatchThreadgroups:threadsPerThreadgroup:` was a compiler bug in
+  passing large structs by value through a function-pointer cast, since
+  fixed in the code generator.
 - **ROCm**: verified on an AMD Instinct MI100 (gfx908, ROCm 7.1) —
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
   combinations, graphs and the host-array API against CPU results (29
@@ -219,7 +432,7 @@ discrete memory model needs.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
   combinations with and without the fused ReLU, graphs, the host-array and
-  raw-pointer APIs, the fp16/bf16 kernels and the [cuDNN and cuFFT
+  persistent-buffer APIs, the fp16/bf16 kernels and the [cuDNN and cuFFT
   libraries](#cuda-cudnn-cufft) against CPU results (110 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and ROCm paths.
 :::
@@ -320,7 +533,7 @@ into graphs.
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
-| Raw pointers | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
+| Persistent buffers (`&void` handles) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
 
 The MLP step above, fused:
 
@@ -388,6 +601,103 @@ images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
 one-image convolution (0.022 ms vs 0.034 ms). The device FFTs match cuFFT
 through PyTorch. See the [benchmarks](/benchmarks#h200-conv-fft).
 
+### Host-array API (MPS, CUDA, SPIR-V, WebGPU)
+
+Each backend exposes the same family of functions over plain `float` arrays, prefixed `mps_`, `cuda_`, `spirv_` or `webgpu_`. Each uploads, runs, and copies back in one call, and returns 1 on success or 0 on failure (no device, compile error), leaving `out` untouched. ROCm's equivalents (`rocm_*_f32`) are listed in its table above.
+
+```c
+// <p> = mps | cuda | spirv | webgpu
+int <p>_available();
+
+int <p>_add_f32(const &float a, const &float b, &float out, unsigned long n);   // also sub, mul, div, pow
+int <p>_relu_f32(const &float a, &float out, unsigned long n);                  // also log, exp, sqrt
+int <p>_scale_f32(const &float a, float k, &float out, unsigned long n);
+int <p>_sum_f32(const &float a, &float out, unsigned long n);                   // out[0] = sum
+int <p>_matmul_f32(const &float a, const &float b, &float out,
+                   unsigned long M, unsigned long K, unsigned long N);          // [M,K] x [K,N]
+int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
+                         unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
+```
+
+Host arrays are passed as references to their first element; device buffers below are opaque `&void` handles, since their memory belongs to the GPU driver.
+
+**Persistent buffers** keep weights on the device across calls, so a training loop doesn't re-upload them:
+
+```c
+?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
+void   <p>_release_persistent(&void buf);                               // MPS: (&void buf, unsigned long bytes)
+int   <p>_persistent_available();                                      // cuda, spirv, webgpu
+int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
+                                unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
+int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
+int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
+```
+
+**Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below).
+
+```c
+?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
+int    mps_matmul_f16_persistent(&void bufA, &void bufB, &unsigned short out,
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
+int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+int   mps_matmul_f16(const &float a, const &float b, &float out,
+                     unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
+int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
+```
+
+**MPS batching.** Between `mps_batch_begin()` and `mps_batch_end()`, MPS ops encode onto one shared command buffer instead of each committing and waiting, so a fused forward + loss + backward step runs as one GPU submission. `*_chained` variants take the previous op's output buffer (`mps_batch_last_output_buffer()`) as input without a round trip through host memory.
+
+```c
+void  mps_batch_begin();
+void  mps_batch_end();                      // commit, wait, run finalizers
+int   mps_batch_is_active();
+generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  // runs after mps_batch_end's wait
+?&void mps_batch_last_output_buffer();
+
+// Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
+int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
+int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
+int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, unsigned long n);
+
+// Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
+//   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
+//   mps_square_f32_chained, mps_sum_f32_chained, mps_scale_f32_chained, mps_gated_gelu_f32_chained,
+//   mps_matmul_abt_f32_chained, mps_matmul_atb_f32_chained, mps_matmul_atb_f32_chained_ab,
+//   mps_relu_backward_f32_chained, mps_relu_backward_f32_chained_ab, mps_matmul_abt_f32_persistent,
+//   mps_sgd_update_f32_chained;
+//   mps_relu_{f16,bf16}_chained, mps_sub_{f16,bf16}_chained, mps_scale_{f16,bf16}_chained,
+//   mps_matmul_atb_{f16,bf16}_chained_ab, mps_matmul_abt_{f16,bf16}_persistent,
+//   mps_relu_backward_{f16,bf16}_chained_ab, mps_sgd_update_{f16,bf16}_chained
+```
+
+The `_ab` suffix means both inputs are already GPU buffers. See `std/ml/gpu_mps.h` for each one's argument order.
+
+### Tensor wrappers
+
+Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU backward. Each falls back to the CPU when its device is unavailable.
+
+| Header | Functions | Device |
+|--------|-----------|--------|
+| `tensor_gpu.h` | `tensor_{add,sub,mul,scale,relu,square,sum,matmul}_gpu` | MPS |
+| `tensor_cuda.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_cuda`, `tensor_matmul_cuda_blas` | CUDA |
+| `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
+| `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
+| `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
+| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
+| `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
+| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks naive / vDSP / BLAS by size |
+
+`tensor_gpu.h` also controls MPS batching and persistence at the tensor level:
+
+```c
+void tensor_gpu_batch_begin();
+void tensor_gpu_batch_end();
+void tensor_gpu_mark_persistent(const &Tensor t);   // keep t's data resident on the GPU
+void tensor_gpu_release_all_persistent();
+```
+
+`tensor_auto.h` is CPU-only on purpose: across every size benchmarked (matmul from 2×2×2 to 128×128×128, and a 128×512×1024×256 training step) BLAS never lost to the naive loop and MPS never beat BLAS, so "auto" doesn't pick the GPU. Ask for it explicitly with `tensor_matmul_on(..., DEVICE_MPS)`.
+
 ### Backend status {#backend-status}
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
@@ -401,7 +711,7 @@ SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (gls
 
 ## fp16 / bf16 {#fp16-bf16}
 
-No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float` — and real native `half`/`bfloat` GPU compute on the MPS backend, not just halved storage.
+No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), and native `half`/`bfloat` GPU compute on MPS, CUDA and WebGPU (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)).
 
 | Check | Result |
 |---|---|
@@ -410,6 +720,150 @@ No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `F
 | fp16 normal-range idempotence sweep (every exponent × sampled mantissas, 330 patterns) | 330/330 exact |
 | fp16 round-trip on representable values | exact |
 | bf16 round-trip (lossy by construction — 7 mantissa bits) | within ~0.4% relative error |
+
+```c
+#include <std/ml/float16.h>
+
+unsigned short f32_to_fp16(float v);          // round to nearest even
+float          fp16_to_f32(unsigned short h);
+unsigned short f32_to_bf16(float v);
+float          bf16_to_f32(unsigned short b);
+
+void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
+void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
+void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+```
+
+### Half-precision tensors — `tensor_half.h` {#half-precision-tensors}
+
+```c
+#include <std/ml/tensor_half.h>
+```
+
+Two layers:
+
+- **`HalfTensor`** stores a 1D/2D tensor in fp16 or bf16 — half the memory of a float32 `Tensor`. Its ops widen operands to float32, compute, and round the result back to the storage format, the same arithmetic a GPU half path performs; `half_matmul` accumulates each dot product in float32 and rounds once, like tensor cores. No autograd on this layer.
+- **Mixed precision on float32 `Tensor`s, with autograd.** `tensor_cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
+
+```c
+#define TENSOR_FP16 1
+#define TENSOR_BF16 2
+
+struct HalfTensor {
+    &heap unsigned short data;     // fp16 or bf16 bits, row-major
+    unsigned long        shape[2];
+    unsigned long        ndim;     // 1 or 2
+    unsigned long        size;
+    int                  dtype;    // TENSOR_FP16 or TENSOR_BF16
+
+    float at1(unsigned long i) const;                   // widened to float32
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);               // rounded to dtype
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+};
+
+float          half_round(float v, int dtype);          // nearest dtype value, as float32
+unsigned short half_encode(float v, int dtype);
+float          half_decode(unsigned short bits, int dtype);
+
+struct HalfTensor half_tensor_new_1d(unsigned long n, int dtype);           // zero-filled
+struct HalfTensor half_tensor_new_2d(unsigned long rows, unsigned long cols, int dtype);
+struct HalfTensor tensor_to_half(const &Tensor t, int dtype);                // round to nearest even
+&Tensor           half_to_tensor(const &HalfTensor h, int requiresGrad);     // exact
+
+// Shapes and dtypes must match; otherwise the result is empty (size 0).
+struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
+struct HalfTensor half_scale(const &HalfTensor a, float k);
+struct HalfTensor half_relu(const &HalfTensor a);
+struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
+float             half_sum(const &HalfTensor a);                            // float32 accumulate
+
+&Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
+&Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
+
+struct LossScaler {
+    float scale;            // multiply the loss by this before tensor_backward()
+    float growthFactor;     // 2.0
+    float backoffFactor;    // 0.5
+    int   growthInterval;   // 2000 clean steps
+    int   goodSteps;
+};
+struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
+int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
+```
+
+A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
+
+Storage and arithmetic in bf16:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/io.h>
+
+int main() {
+    // Store weights in bf16 (half the memory), compute a matmul in bf16.
+    struct HalfTensor w = std::half_tensor_new_2d(2UL, 2UL, TENSOR_BF16);
+    struct HalfTensor x = std::half_tensor_new_2d(2UL, 1UL, TENSOR_BF16);
+    w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
+    w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
+    x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
+    struct HalfTensor y = std::half_matmul(&w, &x);      // f32 accumulate, bf16 result
+    std::println_float((double)y.at1(0UL));             // -2.5
+    std::println_float((double)y.at1(1UL));             // 7
+
+    // Back to float32 for anything that needs autograd.
+    &Tensor yf = std::half_to_tensor(&y, 0);
+    yf.free();
+    y.free(); x.free(); w.free();
+    return 0;
+}
+```
+
+Mixed-precision training — fp16 forward, float32 master weights, skipped steps on overflow:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/collections/slice.h>
+
+// One mixed-precision SGD step: fp16 forward, float32 master weights,
+// dynamic loss scaling so small fp16 gradients don't flush to zero.
+int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
+    &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
+    &Tensor diff = std::tensor_sub(y, target);
+    &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
+    std::tensor_backward(std::tensor_scale(loss, scaler.scale));
+
+    int finite = std::loss_scaler_unscale(scaler, w);
+    if (finite) {
+        struct Slice<float> g = std::slice_of(w.grad, w.size);
+        for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
+            w.set1(i, w.at1(i) - lr * *g.at(i));
+        }
+    }
+    std::loss_scaler_update(scaler, finite);
+    std::tensor_zero_grad(w);
+    return finite;
+}
+
+int main() {
+    float wv[2] = { 0.1f, 0.2f };
+    float xv[2] = { 1.0f, 2.0f };
+    float tv[1] = { 1.0f };
+    &Tensor w = std::tensor_from_2d(&wv[0], 2UL, 1UL, 1);
+    &Tensor x = std::tensor_from_2d(&xv[0], 1UL, 2UL, 0);
+    &Tensor t = std::tensor_from_2d(&tv[0], 1UL, 1UL, 0);
+    struct LossScaler scaler = std::loss_scaler_new();
+    int ok = 1;
+    for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
+    float pred = w.at1(0UL) + w.at1(1UL) * (float)2.0;
+    return (ok && pred > (float)0.95 && pred < (float)1.05) ? 0 : 1;
+}
+```
 
 
 ## Device selection {#device-selection}
@@ -421,6 +875,24 @@ Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `
 | CPU | 0.900000 | 1.300000 |
 | CPU + BLAS | 0.900000 | 1.300000 |
 | MPS | 0.900000 | 1.300000 |
+
+```c
+#include <std/ml/tensor_dispatch.h>
+
+enum Device {
+    DEVICE_CPU = 0, DEVICE_CPU_BLAS = 1, DEVICE_MPS = 2,
+    DEVICE_CUDA = 3, DEVICE_CUDA_BLAS = 4,
+    DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
+    DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
+};
+&Tensor tensor_matmul_on(const &Tensor a, const &Tensor b, enum Device device);
+&Tensor tensor_relu_on(const &Tensor a, enum Device device);
+
+#include <std/ml/transformer_dispatch.h>
+&Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
+&Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
+                       struct Slice<JiTBlock> blocks, enum Device device);
+```
 
 Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `tensor_sigmoid`/`tensor_relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
 
@@ -453,6 +925,39 @@ Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`
   edges, run until `"__end__"`.
 - **`Tracer`** — an in-memory, JSON-dumpable log of named
   input/output/timing events (LangSmith-style).
+
+```c
+struct LlmMessage { struct String role; struct String content; };
+struct LlmClient  { struct String host; unsigned short port; struct String model; struct String apiKey; };
+
+struct LlmClient llm_client_new(const &char host, unsigned short port,
+                                const &char model, const &char apiKey);
+// The assistant's reply text; *ok = 0 on transport or response-shape failure.
+struct String llm_chat(&LlmClient client, &Vec<struct LlmMessage> messages, ?&int ok);
+
+struct String prompt_template_render(const &char tmpl, const &Value vars);   // {name} -> vars.name
+
+typedef fn struct Value(const &Value input) ChainStepFn;
+struct Chain chain_new();
+void         chain_add_step(&Chain c, ChainStepFn step);
+struct Value chain_run(&Chain c, const &Value input);
+void         chain_free(&Chain c);
+
+typedef fn struct Value(const &Value state) GraphNodeFn;
+typedef fn struct String(const &Value state) GraphRouterFn;   // name of the next node, or "__end__"
+struct Graph graph_new(const &char entryNode);
+void         graph_add_node(&Graph g, const &char name, GraphNodeFn nodeFn, const &char nextNode);
+void         graph_add_conditional_node(&Graph g, const &char name, GraphNodeFn nodeFn, GraphRouterFn router);
+struct Value graph_run(&Graph g, struct Value initialState, int maxSteps);
+void         graph_free(&Graph g);
+
+struct TraceEvent { struct String name; struct String inputJson; struct String outputJson; double durationMs; };
+struct Tracer tracer_new();
+void          tracer_record(&Tracer t, const &char name, const &Value input,
+                            const &Value output, double durationMs);
+struct String tracer_to_json(const &Tracer t);
+void          tracer_free(&Tracer t);
+```
 
 All five verified end-to-end, including `LlmClient` against a real local
 mock HTTP server standing in for an LLM endpoint (the same technique

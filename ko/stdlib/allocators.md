@@ -92,7 +92,7 @@ int main() {
 struct SlabAllocator {
     unsigned long obj_size;
     &heap void    alloc();                    // byte level; null if full
-    void          dealloc(void* ptr);
+    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
     unsigned long available() const;          // free slots
     void          destroy();
 };
@@ -132,7 +132,7 @@ int main() {
 struct PoolAllocator {
     unsigned long cap;
     &heap void    alloc(unsigned long size);  // byte level; null if no block fits
-    void          dealloc(void* ptr);
+    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
     unsigned long available() const;         // total free bytes
     void          destroy();
 };
@@ -182,6 +182,8 @@ int main() {
 - 힙 단편화가 우려되는 장시간 실행 임베디드 애플리케이션
 
 ---
+
+인덱스 크기: `TLSF_FL_MAX`(1단계 클래스 32개) × `TLSF_SL_COUNT`(2단계 분할 16개).
 
 ## 얼로케이터 선택하기 {#choosing-an-allocator}
 

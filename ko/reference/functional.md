@@ -178,7 +178,7 @@ int main() {
 (검증됨: 컴파일 및 실행 성공, `10/2=5 10/0=-1` 출력.) `try`는 `?T`를 언래핑(unwrap)하고, 실패 시 비어 있는 경우를 즉시 *호출자(caller)*에게 전파합니다 — Rust의 `?` 연산자나 `Maybe`/`Either` 모나드의 bind와 같은 정신을 가진, 단축(short-circuit) 방식의 에러 전파이며, 이를 감싸는 함수의 반환 타입 처리를 호출 지점마다 일일이 적어줄 필요가 없습니다:
 
 ```c
-?int parse_config(const char *path) {
+?int parse_config(const &char path) {
     ?int fd = open_file(path);
     int file = try fd;          // fd가 비어 있으면 즉시 null을 반환
     ?int value = read_int(file);

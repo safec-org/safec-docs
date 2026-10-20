@@ -53,21 +53,18 @@ int  pipe_close_write(&Pipe p);
 
 int main() {
     struct Pipe p;
-    if (pipe_create(&p) != 0) { println("pipe_create failed"); return 1; }
+    if (std::pipe_create(&p) != 0) { std::println("pipe_create failed"); return 1; }
 
-    const char* msg = "hello";
-    unsafe { std::pipe_write(&p, (const &unsigned char)msg, 5UL); }
+    unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
+    std::pipe_write(&p, &msg[0], 5UL);
 
-    char buf[6];
-    unsafe { buf[5] = (char)0; }
-    long long n;
-    unsafe { n = std::pipe_read(&p, (&unsigned char)&buf[0], 5UL); }
-    print("read "); print_int(n); print(" bytes: ");
-    unsafe { println(&buf[0]); }   // hello
+    unsigned char buf[5];
+    long long n = std::pipe_read(&p, &buf[0], 5UL);
+    std::print("read "); std::print_int(n); std::println(" bytes");   // read 5 bytes
 
-    pipe_close_read(&p);
-    pipe_close_write(&p);
-    return 0;
+    std::pipe_close_read(&p);
+    std::pipe_close_write(&p);
+    return (n == 5LL && buf[4] == 'o') ? 0 : 1;
 }
 ```
 
@@ -94,7 +91,7 @@ Two backends: `uds_bsd.sc` (macOS, iOS, FreeBSD — `struct sockaddr_un` has a l
 // fd, or -1 on failure (EADDRINUSE if 'path' already exists as a socket
 // file from a previous run that didn't clean up — call uds_unlink first
 // if that's a possibility).
-int uds_listen_nb(const char* path);
+int uds_listen_nb(const &char path);
 
 // Non-blocking accept(): a connected client fd (itself non-blocking), or
 // -1/EAGAIN if none pending yet — await_fd(listenfd, SCHED_READ) and retry.
@@ -103,13 +100,13 @@ int uds_accept_nb(int listenfd);
 // socket()+connect() to 'path', non-blocking: returns immediately with
 // EINPROGRESS rather than waiting for the handshake — await_fd(fd,
 // SCHED_WRITE) and treat the fd becoming writable as "connect finished".
-int uds_connect_nb(const char* path);
+int uds_connect_nb(const &char path);
 
 // Removes a stale socket file at 'path' — bind() fails EADDRINUSE if the
 // filesystem path from a previous, uncleanly-terminated run still
 // exists, unlike a TCP port which the OS simply releases. 0 on success
 // (including "path didn't exist"), -1 on a real failure.
-int uds_unlink(const char* path);
+int uds_unlink(const &char path);
 ```
 
 ### Example
@@ -122,31 +119,34 @@ extern int write(int fd, const void* buf, unsigned long count);
 extern long long read(int fd, void* buf, unsigned long count);
 extern int close(int fd);
 
-int main() {
-    const char* path = "/tmp/example.sock";
-    uds_unlink(path);
+// Typed wrappers over C's untyped buffers: references in, raw pointers out.
+long long send_text(int fd, const &char text, unsigned long n) { return (long long)write(fd, text, n); }
+long long recv_text(int fd, &char out, unsigned long n)         { return read(fd, out, n); }
 
-    int listenFd = uds_listen_nb(path);
-    int clientFd = uds_connect_nb(path);
+int main() {
+    const &char path = "/tmp/example.sock";
+    std::uds_unlink(path);
+
+    int listenFd = std::uds_listen_nb(path);
+    int clientFd = std::uds_connect_nb(path);
 
     // Non-blocking accept: retry until the pending connection shows up.
     // A real program would await_fd(listenFd, SCHED_READ) via
     // TaskScheduler/Reactor instead of busy-polling like this.
     int serverFd = -1;
     while (serverFd < 0) {
-        serverFd = uds_accept_nb(listenFd);
+        serverFd = std::uds_accept_nb(listenFd);
     }
 
-    const char* msg = "hi from client";
-    unsafe { write(clientFd, (const void*)msg, 14UL); }
+    send_text(clientFd, "hi from client", 14UL);
 
     char buf[15];
-    unsafe { buf[14] = (char)0; }
-    unsafe { read(serverFd, (void*)&buf[0], 14UL); }
-    unsafe { println(&buf[0]); }   // hi from client
+    buf[14] = (char)0;
+    recv_text(serverFd, &buf[0], 14UL);
+    std::println(&buf[0]);   // hi from client
 
-    unsafe { close(clientFd); close(serverFd); close(listenFd); }
-    uds_unlink(path);
+    close(clientFd); close(serverFd); close(listenFd);
+    std::uds_unlink(path);
     return 0;
 }
 ```

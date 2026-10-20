@@ -57,7 +57,7 @@ int result = compute(5);   // 괜찮음, 경고 없음
 ```c
 #include <stdlib.h>
 
-noreturn void die(const char* msg) {
+noreturn void die(const &char msg) {
     printf("PANIC: %s\n", msg);
     abort();
 }

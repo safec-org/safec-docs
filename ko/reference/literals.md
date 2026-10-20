@@ -86,7 +86,7 @@ char null = '\0';          // 널 바이트
 (널로 종료됨):
 
 ```c
-const char *msg = "hello, world";
+const &char msg = "hello, world";
 ```
 
 문자열 리터럴은 `extern` C 함수에 직접 전달할 수 있다. `&static`은
@@ -129,7 +129,7 @@ const double PI = 3.14159265358979;
 함수 매개변수에 붙은 `const`는 인자의 수정을 방지한다:
 
 ```c
-int length(const char *str) {
+int length(const &char str) {
     // str의 내용은 수정될 수 없음
 }
 ```

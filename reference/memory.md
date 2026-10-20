@@ -71,9 +71,9 @@ The `heap` region is for dynamically allocated data. Heap references require exp
 
 ```c
 void example() {
-    &heap int p = (int*)malloc(sizeof(int));
+    &heap int p = new int;
     *p = 42;
-    free(p);
+    std::dealloc(p);
 }
 ```
 
@@ -81,8 +81,8 @@ The compiler tracks heap references but does not automatically free them. Use `d
 
 ```c
 void process() {
-    &heap char buf = (char*)malloc(4096UL);
-    defer free(buf);
+    &heap char buf = new char[4096];
+    defer std::dealloc(buf);
 
     // ... use buf ...
 }   // buf freed here via defer
@@ -97,25 +97,30 @@ an `unsigned long` (`size_t`), and there's no implicit `int` →
 `unsigned long` conversion (see [Types](/reference/types)).
 :::
 
-`<mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer free()` pattern
+`<std/mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer dealloc` pattern
 above into a single call. `malloc_defer` isn't a real function — it's
 parser-level sugar recognized only as a var-decl initializer, and it
-desugars into `std::alloc(n)` for the declaration plus a synthesized
-`defer std::dealloc(buf);` right after it. Because it's backed by
-`std::alloc`, the declared variable's type is `void*` (same as `alloc()`
-everywhere else in `std/`), so an explicit `unsafe` cast is still needed to
-use it as a typed pointer:
+desugars into `std::alloc_raw_(n)` (the type-erased allocator behind the
+generic `std::alloc`) for the declaration plus a synthesized
+`defer std::dealloc_raw_(buf);` right after it. The result is a raw
+`void*`, so declare the variable as a nullable heap reference to get a
+typed, null-checked view:
 
 ```c
-#include <mem.h>
+#include <std/mem.h>
 
 void process2() {
-    auto buf = malloc_defer(4096UL);   // void*, freed automatically at scope exit
-    int* typed;
-    unsafe { typed = (int*)buf; }
-    // ... use typed ...
-}   // std::dealloc(buf) runs here via the synthesized defer
+    ?&heap int buf = malloc_defer(4096UL);   // freed automatically at scope exit
+    match (buf) {
+        case some(p): { *p = 1; }   // ... use p ...
+        case null:    { }           // out of memory
+    }
+}   // std::dealloc_raw_(buf) runs here via the synthesized defer
 ```
+
+A deferred free runs when the scope exits, so it doesn't count as freeing
+the reference for the statements after it — only an explicit `dealloc`
+that has already run does (see below).
 
 ### Compile-Time Use-After-Free and Double-Free Checking
 
@@ -187,7 +192,7 @@ region AudioPool {
 &arena<AudioPool> Sample s = new<AudioPool> Sample;
 ```
 
-The `new<R> T` expression performs a bump-pointer allocation from the arena. It is fast (just an offset increment) and never fails as long as capacity is available.
+The `new<R> T` expression performs a bump-pointer allocation from the arena. It is fast (just an offset increment plus a capacity check). An allocation that doesn't fit in the region's remaining capacity aborts the program, the same way an out-of-bounds index does — it never hands out memory past the end of the arena.
 
 ### Resetting an Arena
 
@@ -311,7 +316,85 @@ At the LLVM level, each arena is a global struct `{ptr, i64 used, i64 cap}`:
 - `used` -- current bump offset
 - `cap` -- total capacity in bytes
 
-`new<R> T` increments `used` by `sizeof(T)` and returns `ptr + old_used`. `arena_reset<R>()` sets `used` back to 0.
+`new<R> T` (or `new<R> T[n]`) checks that `sizeof(T)` (times `n`) fits in `cap - used`, aborting if it doesn't, then increments `used` and returns `ptr + old_used`. `arena_reset<R>()` sets `used` back to 0.
+
+## Arrays by Region {#arrays-by-region}
+
+How big an array can be decided depends on where it lives:
+
+| Region | Declaration | Size |
+|--------|-------------|------|
+| stack | `int buf[8];` | compile-time constant (a runtime size is only allowed inside `unsafe`) |
+| static | `static int table[16];` | compile-time constant |
+| heap | `&heap int h = new int[n];` | any runtime `n`; free with `std::dealloc(h)` |
+| arena | `&arena<R> int a = new<R> int[n];` | any runtime `n`, but it must fit in `R`'s remaining capacity — otherwise the program aborts |
+
+`new` returns a reference to the first element. A reference carries no length and can't be indexed, so pass and walk arrays as a bounds-checked [`Slice<T>`](/stdlib/collections#slice) (`std::slice_of(first, n)`) or a `[]T` slice. Arrays of references work the same way — `&T items[N]` on the stack, `Slice<&T>` across function boundaries — which is what replaces C's `T**` "array of pointers":
+
+```c
+#include <std/collections/slice.h>
+struct Sample { int v; };
+region Frame { capacity: 4096 }
+
+static int g_table[16];                      // static: size fixed at compile time
+
+void fill(struct Slice<int> s, int v) {
+    for (unsigned long i = 0UL; i < s.length(); i = i + 1UL) s.set(i, v);
+}
+
+int arrays(unsigned long n) {
+    int local[8];                            // stack: size fixed at compile time
+    // int bad[n];                           // error: 'n' is not a compile-time constant
+    &heap int h = new int[n];                // heap: runtime size
+    &arena<Frame> int a = new<Frame> int[n]; // arena: runtime size, within Frame's 4096 bytes
+
+    fill(std::slice_of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
+    fill(std::slice_of(h, n), 2);
+    fill(std::slice_of(a, n), 3);
+    int t = local[7] + *std::slice_of(h, n).at(n - 1UL) + *std::slice_of(a, n).at(0UL) + g_table[0];
+
+    std::dealloc(h);
+    arena_reset<Frame>();
+    return t;                                // 1 + 2 + 3 + 0
+}
+
+// Arrays of references follow the same rules.
+int count_live(struct Slice<&Sample> items) { return (int)items.length(); }
+
+int main() {
+    struct Sample a; a.v = 1;
+    struct Sample b; b.v = 2;
+    &Sample fixed[2] = { &a, &b };           // stack array of references
+    int c = count_live(std::slice_of(&fixed[0], 2UL));
+    return arrays(4UL) == 6 && c == 2 ? 0 : 1;
+}
+```
+
+## References to References {#references-to-references}
+
+A reference can refer to another reference — the replacement for C's `T**`. Pick the form by what each level may hold:
+
+| Type | Outer | Inner | Typical use |
+|------|-------|-------|-------------|
+| `&&T` | always present | always present | out-parameter that always receives a reference |
+| `&?&T` | always present | may be null | out-parameter whose result may be "none" (a tokenizer's position, a lookup) |
+| `?&&T` | optional | always present | optional out-parameter (`strtol`'s `end`) |
+| `?&?&T` | optional | may be null | optional out-parameter whose result may be "none" |
+
+```c
+static int g_value = 7;
+
+void always(&&int out)      { *out = &g_value; }   // writes a non-null reference
+void maybe(&?&int out)      { *out = null; }       // may write null
+void optional(?&&int out) {
+    match (out) {
+        case some(o): { *o = &g_value; }
+        case null:    { }                          // caller didn't ask
+    }
+}
+```
+
+`&&T` and `& &T` mean the same thing. An array of references is not a reference to a reference — wrap it in an array or `Slice<&T>` as above.
 
 ## Region Rules
 

@@ -15,7 +15,7 @@ SafeC에는 예외가 없습니다. `throw`도, `catch`도, 뒤에서 몰래 돌
 뜻합니다.
 
 ```c
-?int parse_positive(const char* s) {
+?int parse_positive(const &char s) {
     int v;
     unsafe { v = atoi(s); }
     if (v <= 0) {
@@ -55,7 +55,7 @@ match (parse_positive("21")) {
 중첩된 `if` 대신 한 줄입니다.
 
 ```c
-?int double_positive(const char* s) {
+?int double_positive(const &char s) {
     int v = try parse_positive(s);   // parse_positive가 null을 반환했다면
                                        // double_positive도 여기서 null을 반환
     return v * 2;

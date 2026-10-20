@@ -11,8 +11,8 @@ The `atomic` module provides lock-free atomic operations on shared integers, wra
 ### Load / Store
 
 ```c
-int  atomic_load_int(const int* addr);
-void atomic_store_int(int* addr, int val);
+int  atomic_load_int(const &int addr);
+void atomic_store_int(&int addr, int val);
 ```
 
 Atomically read or write `*addr`.
@@ -20,11 +20,11 @@ Atomically read or write `*addr`.
 ### Fetch-and-Modify
 
 ```c
-int atomic_fetch_add_int(int* addr, int delta);
-int atomic_fetch_sub_int(int* addr, int delta);
-int atomic_fetch_and_int(int* addr, int mask);
-int atomic_fetch_or_int(int* addr, int mask);
-int atomic_fetch_xor_int(int* addr, int mask);
+int atomic_fetch_add_int(&int addr, int delta);
+int atomic_fetch_sub_int(&int addr, int delta);
+int atomic_fetch_and_int(&int addr, int mask);
+int atomic_fetch_or_int(&int addr, int mask);
+int atomic_fetch_xor_int(&int addr, int mask);
 ```
 
 Each atomically applies the operation and returns the **old** value.
@@ -32,7 +32,7 @@ Each atomically applies the operation and returns the **old** value.
 ### Exchange
 
 ```c
-int atomic_exchange_int(int* addr, int val);
+int atomic_exchange_int(&int addr, int val);
 ```
 
 Atomically replace `*addr` with `val` and return the old value.
@@ -40,7 +40,7 @@ Atomically replace `*addr` with `val` and return the old value.
 ### Compare-and-Swap (CAS)
 
 ```c
-int atomic_cas_int(int* addr, int* expected, int desired);
+int atomic_cas_int(&int addr, &int expected, int desired);
 ```
 
 If `*addr == *expected`, atomically store `desired` into `*addr` and return 1 (success). Otherwise, update `*expected` to the current value of `*addr` and return 0 (failure).
@@ -48,12 +48,12 @@ If `*addr == *expected`, atomically store `desired` into `*addr` and return 1 (s
 ## atomic_long (64-bit signed)
 
 ```c
-long long  atomic_load_ll(const long long* addr);
-void       atomic_store_ll(long long* addr, long long val);
-long long  atomic_fetch_add_ll(long long* addr, long long delta);
-long long  atomic_fetch_sub_ll(long long* addr, long long delta);
-long long  atomic_exchange_ll(long long* addr, long long val);
-int        atomic_cas_ll(long long* addr, long long* expected, long long desired);
+long long  atomic_load_ll(const &long long addr);
+void       atomic_store_ll(&long long addr, long long val);
+long long  atomic_fetch_add_ll(&long long addr, long long delta);
+long long  atomic_fetch_sub_ll(&long long addr, long long delta);
+long long  atomic_exchange_ll(&long long addr, long long val);
+int        atomic_cas_ll(&long long addr, &long long expected, long long desired);
 ```
 
 Same semantics as the `_int` variants, operating on `long long` (64-bit) values.

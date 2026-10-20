@@ -161,7 +161,7 @@ static_assert(fieldcount(Packet) == 3, "Packet field count changed");
 
 const int DEBUG = 1;
 
-void log_message(const char *msg) {
+void log_message(const &char msg) {
     if const (DEBUG) {
         println(msg);
     }

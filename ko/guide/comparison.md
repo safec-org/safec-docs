@@ -127,17 +127,17 @@ C++는 생성자, 소멸자, 복사/이동 연산자를 암묵적으로 생성�
 
 ```c
 struct Buffer {
-    ?&heap char   data;   // 할당 전에는 null
+    ?&heap char   data;   // null until allocated
     unsigned long size;
 };
 
-// 암묵적 생성자 없음 — 필드를 명시적으로 초기화합니다
+// No implicit constructor — you initialize fields explicitly
 struct Buffer b;
-unsafe { b.data = (?&heap char)std::alloc(1024UL); }
+b.data = std::alloc(1024UL);           // T = char, from the field's type
 b.size = 1024UL;
 
-// 암묵적 소멸자 없음 — 명시적으로 해제합니다
-defer { unsafe { std::dealloc((void*)b.data); } }
+// No implicit destructor — you free explicitly
+defer { std::dealloc(b.data); }
 ```
 
 ### 예외 없음 {#no-exceptions}

@@ -92,7 +92,7 @@ Fixed-size objects from a free list embedded in the buffer: O(1) alloc and free.
 struct SlabAllocator {
     unsigned long obj_size;
     &heap void    alloc();                    // byte level; null if full
-    void          dealloc(void* ptr);
+    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
     unsigned long available() const;          // free slots
     void          destroy();
 };
@@ -132,7 +132,7 @@ A variable-size, first-fit allocator: each block carries a small header, and fre
 struct PoolAllocator {
     unsigned long cap;
     &heap void    alloc(unsigned long size);  // byte level; null if no block fits
-    void          dealloc(void* ptr);
+    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
     unsigned long available() const;         // total free bytes
     void          destroy();
 };
@@ -182,6 +182,8 @@ int main() {
 - Long-running embedded applications where heap fragmentation is a concern
 
 ---
+
+Index sizes: `TLSF_FL_MAX` (32 first-level classes) × `TLSF_SL_COUNT` (16 second-level subdivisions).
 
 ## Choosing an Allocator
 
