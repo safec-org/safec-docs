@@ -472,17 +472,8 @@ def bench_attention(runs):
         out = os.path.join(BUILD, "attention", "safec_mps")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         try:
-            # Built from the std sources it uses rather than std_archive():
-            # safeguard's whole-std archive skips several of them on macOS.
-            wrap = os.path.join(BUILD, "attention", "clang_metal.sh")
-            with open(wrap, "w") as f:
-                f.write(f'#!/bin/sh\nexec "{CLANG}" "$@" -framework Metal -framework Foundation -lobjc\n')
-            os.chmod(wrap, 0o755)
-            std = os.path.join(SAFEC_HOME, "std")
-            deps = [os.path.join(std, d) for d in ("ml/gpu_mps.sc", "ml/float16.sc", "math.sc", "mem.sc", "atomic.sc",
-                                                   "panic.sc", "time.sc", "str.sc", "sys.sc")]
-            sh([SAFEC, os.path.join(HERE, "attention/safec/attn_mps.sc")] + deps +
-               ["-I", SAFEC_HOME, "-O2", "--emit-bin", "-o", out], env=dict(os.environ, SAFEC_CLANG=wrap))
+            timed_build(safec_cmds(os.path.join(HERE, "attention/safec/attn_mps.sc"), out, True,
+                                   extra_libs=["-framework", "Metal", "-framework", "Foundation", "-lobjc"]))
             res["safec_mps"] = best_labeled([sh([out]) for _ in range(runs)])
         except Exception as e:
             res["safec_mps"] = {"error": str(e).splitlines()[0][:200]}
@@ -553,7 +544,8 @@ def thirdparty_runs(kind, runs):
         exe = os.path.join(out_dir, "kfr_bench")
         libs = sorted(glob.glob(os.path.join(k, "lib", "*.a")))
         build = [[CLANGXX, "-std=c++20", "-O2", "-march=native", "-w", os.path.join(HERE, "dsp/cpp/kfr_bench.cpp"),
-                  f"-I{k}/include", "-Wl,--start-group"] + libs + ["-Wl,--end-group", "-lpthread", "-o", exe]]
+                  f"-I{k}/include"] + (libs if IS_MAC else ["-Wl,--start-group"] + libs + ["-Wl,--end-group"]) +
+                 ["-lpthread", "-o", exe]]   # Apple's ld resolves archives in any order
         run("kfr", build, [exe])
     if kind == "dsp" and T.get("Q_ROOT") and T.get("MADRONALIB_ROOT"):
         q, m = T["Q_ROOT"], T["MADRONALIB_ROOT"]
