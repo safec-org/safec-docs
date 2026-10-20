@@ -222,6 +222,10 @@ void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
 그리고 gated/linear/flash 각 변형에 대한 손으로 계산/교차 검증된
 테스트를 통해 검증되었다.
 
+flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼리 K/V를
+갖춘 멀티헤드 형태로 실행된다 — [MPS 어텐션과 트랜스포머
+연산](#mps-attention)을 참고하라.
+
 ## 고급 어텐션 {#advanced-attention}
 
 ```c
@@ -472,7 +476,10 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
   `mps_sub_f32`/`mps_mul_f32`; 다른 원소 단위 연산은 같은 코드 경로를
   공유한다). 예전에 `dispatchThreadgroups:threadsPerThreadgroup:`에서
   나던 세그폴트는 함수 포인터 캐스트를 통해 큰 구조체를 값으로 넘길 때의
-  컴파일러 버그였으며, 코드 생성기에서 수정되었다.
+  컴파일러 버그였으며, 코드 생성기에서 수정되었다. bf16 [어텐션과
+  트랜스포머 연산](#mps-attention)은 M1 Pro에서 지원하는 헤드 차원 네
+  가지 모두, GQA, causal·슬라이딩 윈도·non-causal 마스킹에 걸쳐 CPU 참조
+  구현과 대조해 확인했다.
 - **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
   그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
@@ -779,6 +786,75 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 ```
 
 `_ab` 접미사는 두 입력이 모두 이미 GPU 버퍼라는 뜻입니다. 각 함수의 인자 순서는 `std/ml/gpu_mps.h`를 참고하세요.
+
+### MPS 어텐션과 트랜스포머 연산 {#mps-attention}
+
+Apple GPU에서 트랜스포머 레이어를 실행하기 위한 bf16 구성 요소입니다. 텐서는 원시 bf16 비트(`unsigned short`, `float16.h`로 변환)이며 행 우선이고, 각 행에 헤드가 나란히 놓입니다: Q와 출력은 `[rows, numHeads*headDim]`, K/V는 `[rows, numKvHeads*headDim]`입니다. `numHeads`는 `numKvHeads`의 배수여야 하고(그룹 쿼리 어텐션), `headDim`은 64, 128, 256, 512 중 하나여야 합니다. 다른 MPS 함수와 마찬가지로 실행할 수 없으면(장치 없음, 지원하지 않는 형태) 0을 반환하므로 호출자가 CPU로 대체할 수 있습니다.
+
+| 함수 | 계산 |
+|---|---|
+| `mps_attn_batch_bf16` | 배치 전체와 모든 헤드에 대해, 시퀀스마다 새 쿼리 토큰 하나를 그 시퀀스의 KV 캐시와 계산합니다 — 디코드 스텝. KV 길이 제한이 없고, 슬라이딩 윈도 밖의 키는 건너뜁니다. |
+| `mps_flash_attn_bf16` | 임의 개수의 쿼리 행(프리필)에 대한 `flash_attention_forward`의 GPU 버전: K/V 타일을 스레드그룹 메모리에 올려 쿼리 행 16개가 공유하고, 소프트맥스는 온라인으로 계산하며, 점수 행렬을 만들지 않습니다. causal과 슬라이딩 윈도 마스킹을 지원합니다. |
+| `mps_linear_attn_bf16` | `linear_attention_forward`(`phi(x) = elu(x)+1`)의 GPU 버전, non-causal 또는 causal. |
+| `mps_linear_attn_bf16_chained` | 순환 상태를 GPU에 두고 제자리에서 갱신하는 causal 선형 어텐션 — 프리필을 한 번 하고, 이후 디코드 스텝마다 토큰 하나를 시퀀스 길이와 무관한 비용으로 처리합니다. |
+
+```c
+int mps_attn_batch_bf16(const &unsigned short q, const &unsigned short kAll, const &unsigned short vAll,
+                        const &unsigned int cacheLens, &unsigned short out,
+                        unsigned long batchSize, unsigned long numHeads, unsigned long numKvHeads,
+                        unsigned long headDim, unsigned long maxKvLen,
+                        int isSliding, unsigned long slidingWindow);
+
+int mps_flash_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                        &unsigned short out, unsigned long seqLen, unsigned long kvLen,
+                        unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                        float scale, int causal, int isSliding, unsigned long slidingWindow);
+
+int mps_linear_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                         &unsigned short out, unsigned long seqLen, unsigned long kvLen,
+                         unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                         int causal);
+
+// 순환 선형 어텐션 상태(헤드마다 S와 z), GPU에 상주.
+?&void        mps_linear_attn_state_new(unsigned long numHeads, unsigned long headDim);   // 0으로 초기화
+unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim); // mps_release_persistent용
+int mps_linear_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufState, &unsigned short out,
+                                 unsigned long seqLen, unsigned long numHeads,
+                                 unsigned long numKvHeads, unsigned long headDim);
+
+// 레이어 나머지를 위한 체인 bf16 원소 단위/정규화 연산:
+int mps_gated_gelu_bf16_chained(&void bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
+int mps_add_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);       // 잔차 연결
+int mps_gelu_mul_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
+int mps_rmsnorm_bf16_chained(&void bufX, &void weightBuf, &unsigned short out,
+                             unsigned long rows, unsigned long cols, float eps);
+```
+
+- **마스킹.** `causal`이면 쿼리 `i`는 위치 `kvLen - seqLen + i`에 놓입니다 — 마지막 `seqLen`개의 키가 쿼리 자신의 토큰이고 그 앞은 캐시입니다 — 그리고 자기 위치 이하의 키만 봅니다. `isSliding`은 쿼리보다 `slidingWindow` 이상 뒤에 있는 키도 가립니다. `mps_attn_batch_bf16`의 `cacheLens[b]`는 새 토큰을 포함한 각 시퀀스의 KV 길이입니다.
+- **스케일.** `mps_flash_attn_bf16`은 `q·k`에 `scale`을 곱합니다: `flash_attention_forward`와 맞추려면 `1/sqrt(headDim)`을, q를 미리 스케일하는 모델이면 `1.0`을 넘기세요. 디코드 커널은 스케일을 적용하지 않습니다. 선형 어텐션은 `phi(q)·z`로 나누는 과정에서 q의 스케일이 상쇄되므로 필요 없습니다.
+- **배칭.** 원샷 함수는 열린 배치 안에서도(결과는 `mps_batch_end()`에서 `out`에 채워짐) 단독으로도(반환 시 채워짐) 동작합니다. `mps_attn_batch_bf16_chained`와 `mps_flash_attn_bf16_chained`는 디바이스 버퍼를 받고 출력을 `mps_batch_last_output_buffer()`로 남기므로, 어텐션 결과를 같은 제출 안에서 출력 프로젝션(`mps_matmul_abt_bf16_persistent`)에 바로 넘길 수 있습니다. `M == 1`인 `mps_matmul_abt_bf16_persistent`는 전용 행렬-벡터 커널을 씁니다.
+
+선형 어텐션 디코드 루프:
+
+```c
+match (mps_linear_attn_state_new(numHeads, headDim)) {
+    case some(state): {
+        mps_batch_begin();
+        mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
+                                     numHeads, numKvHeads, headDim);
+        mps_batch_end();
+        // 생성하는 토큰마다:
+        mps_batch_begin();
+        mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
+        mps_batch_end();
+        // ...
+        mps_release_persistent(state, mps_linear_attn_state_bytes(numHeads, headDim));
+    }
+    case null: { /* Metal 장치 없음: CPU의 linear_attention_forward 사용 */ }
+}
+```
+
+M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 256)의 디코드 스텝은 약 0.3–0.5 ms, 1024 토큰 causal flash 어텐션 프리필(헤드 8개, 헤드 차원 256)은 약 9 ms, 1024 토큰 causal 선형 어텐션(헤드 8개, 헤드 차원 128)은 약 3.5 ms가 걸립니다.
 
 ### 텐서 래퍼 {#tensor-wrappers}
 
