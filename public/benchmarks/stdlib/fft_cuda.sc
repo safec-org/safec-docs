@@ -142,15 +142,15 @@ static int fft_host_z2z_(struct Complex* data, unsigned long nx, unsigned long n
     return 1;
 }
 
-int cuda_fft(struct Complex* data, unsigned long n) { return fft_host_z2z_(data, n, 0UL, 1UL, 0); }
-int cuda_ifft(struct Complex* data, unsigned long n) { return fft_host_z2z_(data, n, 0UL, 1UL, 1); }
+int cuda_fft(&Complex data, unsigned long n) { return fft_host_z2z_(data, n, 0UL, 1UL, 0); }
+int cuda_ifft(&Complex data, unsigned long n) { return fft_host_z2z_(data, n, 0UL, 1UL, 1); }
 
-int cuda_fft_batch(struct Complex* data, unsigned long n, unsigned long batch, int inverse) {
+int cuda_fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse) {
     return fft_host_z2z_(data, n, 0UL, batch, inverse);
 }
 
-int cuda_fft2d(struct Complex* img, unsigned long h, unsigned long w) { return fft_host_z2z_(img, h, w, 1UL, 0); }
-int cuda_ifft2d(struct Complex* img, unsigned long h, unsigned long w) { return fft_host_z2z_(img, h, w, 1UL, 1); }
+int cuda_fft2d(&Complex img, unsigned long h, unsigned long w) { return fft_host_z2z_(img, h, w, 1UL, 0); }
+int cuda_ifft2d(&Complex img, unsigned long h, unsigned long w) { return fft_host_z2z_(img, h, w, 1UL, 1); }
 
 // ── Queued device ops (fp32) ─────────────────────────────────────────────────
 

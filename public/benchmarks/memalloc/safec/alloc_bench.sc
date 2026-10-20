@@ -24,11 +24,20 @@ static double interleaved(int useStd) {
     unsigned long i = 0UL;
     while (i < INTERLEAVED) {
         unsafe {
-            void* p = useStd ? std::alloc(48UL) : malloc(48UL);
-            *(unsigned long*)p = i;        // touch it
-            g_escape = g_escape ^ (unsigned long)p;
-            sink = sink + *(unsigned long*)p;
-            if (useStd) std::dealloc(p); else free(p);
+            if (useStd) {
+                ?&heap unsigned long p = std::alloc(48UL);
+                unsigned long* q = (unsigned long*)p;
+                *q = i;                        // touch it
+                g_escape = g_escape ^ (unsigned long)q;
+                sink = sink + *q;
+                std::dealloc(p);
+            } else {
+                unsigned long* q = (unsigned long*)malloc(48UL);
+                *q = i;
+                g_escape = g_escape ^ (unsigned long)q;
+                sink = sink + *q;
+                free((void*)q);
+            }
         }
         i = i + 1UL;
     }
@@ -46,7 +55,9 @@ static double batch(int useStd) {
         unsigned long i = 0UL;
         while (i < BATCH) {
             unsafe {
-                void* p = useStd ? std::alloc(24UL) : malloc(24UL);
+                void* p;
+                if (useStd) { ?&heap unsigned long blk = std::alloc(24UL); p = (void*)blk; }
+                else p = malloc(24UL);
                 *(unsigned long*)p = i;
                 g_escape = g_escape ^ (unsigned long)p;
                 ptrs[i] = p;
@@ -55,7 +66,10 @@ static double batch(int useStd) {
         }
         i = 0UL;
         while (i < BATCH) {
-            unsafe { if (useStd) std::dealloc(ptrs[i]); else free(ptrs[i]); }
+            unsafe {
+                if (useStd) std::dealloc((?&heap unsigned long)ptrs[i]);
+                else free(ptrs[i]);
+            }
             i = i + 1UL;
         }
         r = r + 1UL;

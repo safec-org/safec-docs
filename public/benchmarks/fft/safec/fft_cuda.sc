@@ -19,18 +19,24 @@ extern void srand48(long seed);
 #include <std/ml/gpu_cuda.h>
 #include <std/collections/vec.h>
 #include <std/mem.h>
+#include <std/panic.h>
 #include <std/time.h>
 
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
-static struct Complex* random_complex(unsigned long n) {
-    struct Complex* p;
-    unsafe {
-        p = (struct Complex*)std::alloc(n * sizeof(struct Complex));
-        unsigned long i = 0UL;
-        while (i < n) { p[i].re = drand48() * 2.0 - 1.0; p[i].im = drand48() * 2.0 - 1.0; i = i + 1UL; }
+static &heap Complex random_complex(unsigned long n) {
+    ?&heap Complex q = std::alloc(n * sizeof(struct Complex));
+    match (q) {
+        case some(p): {
+            unsafe {
+                unsigned long i = 0UL;
+                while (i < n) { p[i].re = drand48() * 2.0 - 1.0; p[i].im = drand48() * 2.0 - 1.0; i = i + 1UL; }
+            }
+            return p;
+        }
+        case null: { std::panic_at("random_complex: out of memory", "fft_cuda.sc", 0); }
     }
-    return p;
+    std::panic_at("random_complex: unreachable", "fft_cuda.sc", 0);
 }
 
 static struct CudaBuf random_buf(unsigned long n) {
@@ -46,7 +52,7 @@ int main() {
     if (!std::cuda_available()) { unsafe { printf("no CUDA GPU\n"); } return 1; }
     unsafe { srand48(42L); }
     unsigned long n = 1048576UL;
-    struct Complex* x = random_complex(n);
+    &heap Complex x = random_complex(n);
     std::cuda_fft(x, n);   // warm-up: plan + scratch
     int iters = 50;
     double t0 = now_ms();
@@ -54,17 +60,17 @@ int main() {
     while (it < iters) { std::cuda_fft(x, n); it = it + 1; }
     double ms = (now_ms() - t0) / (double)iters;
     unsafe { printf("[fft1d n=1048576 c128 cuda] ms_per_call=%.4f\n", ms); }
-    unsafe { std::dealloc((void*)x); }
+    unsafe { std::dealloc(x); }
 
     unsigned long side = 1024UL;
-    struct Complex* img = random_complex(side * side);
+    &heap Complex img = random_complex(side * side);
     std::cuda_fft2d(img, side, side);
     t0 = now_ms();
     it = 0;
     while (it < iters) { std::cuda_fft2d(img, side, side); it = it + 1; }
     ms = (now_ms() - t0) / (double)iters;
     unsafe { printf("[fft2d 1024x1024 c128 cuda] ms_per_call=%.4f\n", ms); }
-    unsafe { std::dealloc((void*)img); }
+    unsafe { std::dealloc(img); }
 
     unsigned long rows = 1024UL;
     unsigned long len = 4096UL;

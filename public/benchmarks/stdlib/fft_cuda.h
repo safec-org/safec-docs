@@ -19,13 +19,13 @@ namespace std {
 // 1 on success, 0 on failure (no GPU, n == 0, cuFFT error). Same
 // conventions as fft.h: forward is unnormalized, inverse includes 1/N.
 
-int cuda_fft(struct Complex* data, unsigned long n);
-int cuda_ifft(struct Complex* data, unsigned long n);
+int cuda_fft(&Complex data, unsigned long n);
+int cuda_ifft(&Complex data, unsigned long n);
 // 'batch' independent length-n transforms stored back to back, in one call.
-int cuda_fft_batch(struct Complex* data, unsigned long n, unsigned long batch, int inverse);
+int cuda_fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
 // 2D transform of a row-major h x w image (imaging.h's fft2d / ifft2d).
-int cuda_fft2d(struct Complex* img, unsigned long h, unsigned long w);
-int cuda_ifft2d(struct Complex* img, unsigned long h, unsigned long w);
+int cuda_fft2d(&Complex img, unsigned long h, unsigned long w);
+int cuda_ifft2d(&Complex img, unsigned long h, unsigned long w);
 
 // ── Queued device ops, fp32 (1 = enqueued) ───────────────────────────────────
 // Complex CudaBufs hold interleaved (re, im) float pairs, so a buffer of

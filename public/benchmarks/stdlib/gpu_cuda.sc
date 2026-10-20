@@ -387,24 +387,24 @@ static int cuda_build_kernels_(int major, int minor) {
         if (nvrtcCompileProgram(prog, 3, &opts[0]) != 0) {
             size_t logSize = 0UL;
             nvrtcGetProgramLogSize(prog, &logSize);
-            char* log = (char*)alloc(logSize + 1UL);
+            char* log = (char*)alloc_raw_((unsigned long)logSize + 1UL);
             if (log != (char*)0) {
                 nvrtcGetProgramLog(prog, log);
                 printf("std::cuda: kernel compile failed (%s):\n%s\n", (const char*)&arch[0], (const char*)log);
-                dealloc((void*)log);
+                dealloc_raw_((void*)log);
             }
             nvrtcDestroyProgram(&prog);
             return 0;
         }
         size_t size = 0UL;
         nvrtcGetCUBINSize(prog, &size);
-        char* cubin = (char*)alloc(size);
+        char* cubin = (char*)alloc_raw_(size);
         if (cubin == (char*)0) { nvrtcDestroyProgram(&prog); return 0; }
         nvrtcGetCUBIN(prog, cubin);
         nvrtcDestroyProgram(&prog);
         void* module = (void*)0;
         int loaded = cuModuleLoadData(&module, (const void*)cubin);
-        dealloc((void*)cubin);
+        dealloc_raw_((void*)cubin);
         if (loaded != CUDA_OK) return 0;
         int k = 0;
         while (k < K_COUNT) {
@@ -475,7 +475,7 @@ static int cuda_ensure_() {
 
 int cuda_available() { return cuda_ensure_(); }
 
-const char* cuda_device_name() {
+const &char cuda_device_name() {
     cuda_ensure_();
     unsafe { return (const char*)&g_cuda_name[0]; }
 }
@@ -844,7 +844,7 @@ int cuda_upsample2x_nearest(struct CudaBuf in, struct CudaBuf out,
 
 // ── Interop ──────────────────────────────────────────────────────────────────
 
-void* cuda_stream_handle() {
+?&void cuda_stream_handle() {
     if (!cuda_ensure_()) return (void*)0;
     return g_cuda_stream;
 }
@@ -920,18 +920,18 @@ static int cuda_host_unary_(int kernel, const float* a, float k, float* out, uns
     return ok;
 }
 
-int cuda_add_f32(const float* a, const float* b, float* out, unsigned long n) { return cuda_host_binary_(K_ADD, a, b, out, n); }
-int cuda_sub_f32(const float* a, const float* b, float* out, unsigned long n) { return cuda_host_binary_(K_SUB, a, b, out, n); }
-int cuda_mul_f32(const float* a, const float* b, float* out, unsigned long n) { return cuda_host_binary_(K_MUL, a, b, out, n); }
-int cuda_div_f32(const float* a, const float* b, float* out, unsigned long n) { return cuda_host_binary_(K_DIV, a, b, out, n); }
-int cuda_pow_f32(const float* a, const float* b, float* out, unsigned long n) { return cuda_host_binary_(K_POW, a, b, out, n); }
-int cuda_relu_f32(const float* a, float* out, unsigned long n) { return cuda_host_unary_(K_RELU, a, 0.0f, out, n); }
-int cuda_log_f32(const float* a, float* out, unsigned long n) { return cuda_host_unary_(K_LOG, a, 0.0f, out, n); }
-int cuda_exp_f32(const float* a, float* out, unsigned long n) { return cuda_host_unary_(K_EXP, a, 0.0f, out, n); }
-int cuda_sqrt_f32(const float* a, float* out, unsigned long n) { return cuda_host_unary_(K_SQRT, a, 0.0f, out, n); }
-int cuda_scale_f32(const float* a, float k, float* out, unsigned long n) { return cuda_host_unary_(K_SCALE, a, k, out, n); }
+int cuda_add_f32(const &float a, const &float b, &float out, unsigned long n) { return cuda_host_binary_(K_ADD, a, b, out, n); }
+int cuda_sub_f32(const &float a, const &float b, &float out, unsigned long n) { return cuda_host_binary_(K_SUB, a, b, out, n); }
+int cuda_mul_f32(const &float a, const &float b, &float out, unsigned long n) { return cuda_host_binary_(K_MUL, a, b, out, n); }
+int cuda_div_f32(const &float a, const &float b, &float out, unsigned long n) { return cuda_host_binary_(K_DIV, a, b, out, n); }
+int cuda_pow_f32(const &float a, const &float b, &float out, unsigned long n) { return cuda_host_binary_(K_POW, a, b, out, n); }
+int cuda_relu_f32(const &float a, &float out, unsigned long n) { return cuda_host_unary_(K_RELU, a, 0.0f, out, n); }
+int cuda_log_f32(const &float a, &float out, unsigned long n) { return cuda_host_unary_(K_LOG, a, 0.0f, out, n); }
+int cuda_exp_f32(const &float a, &float out, unsigned long n) { return cuda_host_unary_(K_EXP, a, 0.0f, out, n); }
+int cuda_sqrt_f32(const &float a, &float out, unsigned long n) { return cuda_host_unary_(K_SQRT, a, 0.0f, out, n); }
+int cuda_scale_f32(const &float a, float k, &float out, unsigned long n) { return cuda_host_unary_(K_SCALE, a, k, out, n); }
 
-int cuda_sum_f32(const float* a, float* out, unsigned long n) {
+int cuda_sum_f32(const &float a, &float out, unsigned long n) {
     if (n == 0UL || n > 4294967295UL || !cuda_ensure_()) return 0;
     unsigned long bytes = checked_mul_size(n, sizeof(float));
     unsigned long long da = cuda_alloc_bytes_(bytes);
@@ -997,12 +997,12 @@ static int cuda_host_matmul_(const float* a, const float* b, float* out,
     return ok;
 }
 
-int cuda_matmul_f32(const float* a, const float* b, float* out,
+int cuda_matmul_f32(const &float a, const &float b, &float out,
                     unsigned long M, unsigned long K, unsigned long N) {
     return cuda_host_matmul_(a, b, out, M, K, N, 0);
 }
 
-int cuda_matmul_f32_blas(const float* a, const float* b, float* out,
+int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
                          unsigned long M, unsigned long K, unsigned long N) {
     return cuda_host_matmul_(a, b, out, M, K, N, 1);
 }
@@ -1011,7 +1011,7 @@ int cuda_matmul_f32_blas(const float* a, const float* b, float* out,
 
 int cuda_persistent_available() { return cuda_ensure_(); }
 
-void* cuda_upload_persistent(const float* data, unsigned long bytes) {
+?&void cuda_upload_persistent(const &float data, unsigned long bytes) {
     unsigned long long p = cuda_alloc_bytes_(bytes);
     if (p == 0ULL) return (void*)0;
     unsafe {
@@ -1020,12 +1020,12 @@ void* cuda_upload_persistent(const float* data, unsigned long bytes) {
     }
 }
 
-void cuda_release_persistent(void* devPtr) {
+void cuda_release_persistent(&void devPtr) {
     if (devPtr == (void*)0 || !cuda_ensure_()) return;
     unsafe { cuMemFree_v2((unsigned long long)(unsigned long)devPtr); }
 }
 
-int cuda_matmul_f32_persistent(void* devA, void* devB, float* out,
+int cuda_matmul_f32_persistent(&void devA, &void devB, &float out,
                                 unsigned long M, unsigned long K, unsigned long N) {
     if (devA == (void*)0 || devB == (void*)0 || !cuda_gemm_dims_ok_(M, N, K) || !cuda_ensure_()) return 0;
     unsigned long bytesC = checked_mul_size(checked_mul_size(M, N), sizeof(float));
@@ -1040,7 +1040,7 @@ int cuda_matmul_f32_persistent(void* devA, void* devB, float* out,
     return ok;
 }
 
-int cuda_sgd_update_f32(void* devW, void* devGrad, float lr, unsigned long n) {
+int cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n) {
     if (devW == (void*)0 || devGrad == (void*)0 || n == 0UL || n > 4294967295UL || !cuda_ensure_()) return 0;
     unsafe { return cuda_sgd_raw_(K_SGD, (unsigned long)devW, (unsigned long)devGrad, lr, n); }
 }
@@ -1063,8 +1063,8 @@ static void* cuda_upload_16_(const float* data, unsigned long n, int bf) {
     }
 }
 
-void* cuda_upload_f16_persistent(const float* data, unsigned long n) { return cuda_upload_16_(data, n, 0); }
-void* cuda_upload_bf16_persistent(const float* data, unsigned long n) { return cuda_upload_16_(data, n, 1); }
+?&void cuda_upload_f16_persistent(const &float data, unsigned long n) { return cuda_upload_16_(data, n, 0); }
+?&void cuda_upload_bf16_persistent(const &float data, unsigned long n) { return cuda_upload_16_(data, n, 1); }
 
 static int cuda_matmul_16_(int kernel, void* devA, void* devB, unsigned short* out,
                            unsigned long M, unsigned long K, unsigned long N) {
@@ -1092,22 +1092,22 @@ static int cuda_matmul_16_(int kernel, void* devA, void* devB, unsigned short* o
     return ok;
 }
 
-int cuda_matmul_f16_persistent(void* devA, void* devB, unsigned short* out,
+int cuda_matmul_f16_persistent(&void devA, &void devB, &unsigned short out,
                                 unsigned long M, unsigned long K, unsigned long N) {
     return cuda_matmul_16_(K_MATMUL_F16, devA, devB, out, M, K, N);
 }
 
-int cuda_matmul_bf16_persistent(void* devA, void* devB, unsigned short* out,
+int cuda_matmul_bf16_persistent(&void devA, &void devB, &unsigned short out,
                                  unsigned long M, unsigned long K, unsigned long N) {
     return cuda_matmul_16_(K_MATMUL_BF16, devA, devB, out, M, K, N);
 }
 
-int cuda_sgd_update_f16(void* devW, void* devGrad, float lr, unsigned long n) {
+int cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n) {
     if (devW == (void*)0 || devGrad == (void*)0 || n == 0UL || n > 4294967295UL || !cuda_ensure_()) return 0;
     unsafe { return cuda_sgd_raw_(K_SGD_F16, (unsigned long)devW, (unsigned long)devGrad, lr, n); }
 }
 
-int cuda_sgd_update_bf16(void* devW, void* devGrad, float lr, unsigned long n) {
+int cuda_sgd_update_bf16(&void devW, &void devGrad, float lr, unsigned long n) {
     if (devW == (void*)0 || devGrad == (void*)0 || n == 0UL || n > 4294967295UL || !cuda_ensure_()) return 0;
     unsafe { return cuda_sgd_raw_(K_SGD_BF16, (unsigned long)devW, (unsigned long)devGrad, lr, n); }
 }
