@@ -439,7 +439,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했다 —
   `tests/stdlib/cuda/run.sh`가 모든 연산, 네 가지 GEMM 전치 조합(ReLU 융합
   유무 모두), 그래프, 호스트 배열 API와 영구 버퍼 API, fp16/bf16 커널,
-  [cuDNN·cuFFT 라이브러리](#cuda-cudnn-cufft)를 CPU 결과와 비교하고(110개 검사),
+  [cuDNN·cuFFT 라이브러리](#cuda-cudnn-cufft)를 CPU 결과와 비교하고(216개 검사),
   [ML 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference)는
   CPU 및 ROCm 경로와 같은 손실까지 학습한다.
 :::
@@ -526,17 +526,22 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 - `cuda_sgd2` — 텐서 두 개짜리 모델의 가중치 갱신 두 번을 커널 하나로 한다.
 
 그 밖의 CUDA 전용 선택: 64 KB 이하 읽기(손실 값, 출력 하나)는 pinned 스테이징
-버퍼를 거쳐 DMA 한 번으로 끝난다. 블록 하나짜리 리덕션은 결과를 바로 저장하므로
+버퍼를 거쳐 DMA 한 번으로 끝난다. 1 MiB 이상의 복사는 방향과 상관없이 병렬 레인
+네 개(호출 스레드와 처음 쓸 때 띄우는 보조 스레드 세 개)로 나뉜다. 레인마다 자기
+몫을 자기 스트림에서 pinned 메모리를 거쳐 옮기므로, 한 청크의 DMA가 다음 청크의
+복사와 겹친다. H200 호스트에서 16 MB를 0.45–0.7 ms에 옮기며, 스레드 하나로 복사하는
+드라이버 자체의 pageable 메모리 경로는 1.05 ms가 걸린다. 블록 하나짜리 리덕션은 결과를 바로 저장하므로
 `cuda_mse_grad`/`cuda_sum`에 0으로 채우는 memset이 필요 없다. cuBLAS에는
 32 MB 고정 작업 공간을 주어 그래프 캡처가 가능하다.
 
 | 분류 | 함수 |
 |---|---|
 | 장치 | `cuda_available`, `cuda_device_name`, `cuda_sync` |
-| 버퍼 | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free` |
+| 버퍼 | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free`; 바이트 단위 복사 `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | 행렬곱 | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu`(같은 인자, ReLU 융합) |
 | 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
+| fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 | 영구 버퍼(`&void` 핸들) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, fp16/bf16용 `cuda_*_f16_*`/`cuda_*_bf16_*`(2바이트 저장, fp32 연산) |
@@ -572,16 +577,19 @@ cuBLAS 핸들을 만들고 없앴다. `tensor_matmul_cuda_blas`를 거친 작은
 
 **`gpu_cudnn.h`**는 [CNN](#cnn)과 [U-Net](#u-net)을 GPU에서 돌린다. 텐서는
 NCHW 순서의 `CudaBuf`로, `FeatureMap`의 CHW 레이아웃 앞에 배치 축을 붙인 것이다.
-모양마다 첫 합성곱에서 cuDNN이 알고리즘들의 시간을 재게 하고
-(`cudnnFindConvolutionForwardAlgorithm`), 가장 빠른 것을 전용 워크스페이스와
-함께 캐시한다. 이 첫 호출은 그래프 캡처 밖에서 해야 한다. 합성곱은
+모양마다(ReLU 유무별로) 첫 합성곱에서 cuDNN 그래프 API로 합성곱 → + 바이어스
+(→ ReLU)를 융합한 그래프를 만든다. cuDNN 휴리스틱이 제안한 엔진 구성들과 레거시
+API의 최선 알고리즘(`cudnnFindConvolutionForwardAlgorithm`)을 그 호출의 버퍼로
+시간을 재고, 가장 빠른 것을 전용 워크스페이스와 함께 캐시한다. 이 첫 호출은
+그래프 캡처 밖에서 해야 한다. 이후 호출의 호스트 비용은 몇 마이크로초다. 레거시
+`cudnnConvolutionForward`는 cuDNN 9에서 호출마다 CPU를 약 40 µs 쓴다. 합성곱은
 `cuda_set_tf32(1)`을 켜지 않는 한 순수 fp32로 돈다. cuBLAS GEMM과 같은
 스위치다.
 
 | 분류 | 함수 |
 |---|---|
 | 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU를 cuDNN 호출 한 번으로), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels`; `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy` |
+| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (가중치와 모든 활성값을 미리 할당), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | 호스트 배열 | `conv2d_forward_cuda`, `unet_forward_cuda`: `conv2d_forward`/`unet_forward`와 같은 시그니처. 호출마다 가중치를 올리고, 쓸 수 있는 GPU가 없으면 CPU 구현으로 돌아간다 |
 
@@ -597,7 +605,9 @@ GPU판이다. `fft.h`와 달리 2의 거듭제곱이 아닌 길이도 받는다.
 `tests/stdlib/cuda`는 두 라이브러리를 CPU 코드와 비교한다: stride 1과 2,
 배치를 쓴 `conv2d_forward`, 풀링·업샘플·연결, U-Net 전체, `fft`/`ifft`,
 2의 거듭제곱이 아닌 길이에 대한 `dft`, 배치 변환과 2D 변환, fp32 장치 변환.
-그래프로 합성곱을 재실행하는 경우와 TF32를 켠 경우도 검사한다.
+그래프로 합성곱을 재실행하는 경우, TF32를 켠 경우, 다른 버퍼로 실행하는 경우,
+크고 길이가 어중간한 호스트 전송(아직 이전 내용을 읽는 커널 뒤에 쓰기를 큐에
+넣는 경우 포함)도 검사한다.
 
 H200에서 큐 연산은 배치 합성곱(이미지 32장: fp32에서 0.164 ms, PyTorch-CUDA
 0.257 ms)과 U-Net(배치 1: 0.175 ms, PyTorch 0.206 ms, 그래프 하나로는
@@ -746,7 +756,7 @@ void tensor_gpu_release_all_persistent();
 | 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
 |---|---|---|---|---|
 | ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 110개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference), [합성곱/FFT 벤치마크](/ko/benchmarks#h200-conv-fft) |
+| CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference), [합성곱/FFT 벤치마크](/ko/benchmarks#h200-conv-fft) |
 | Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
 | WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
 

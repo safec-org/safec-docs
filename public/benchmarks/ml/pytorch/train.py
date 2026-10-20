@@ -11,15 +11,22 @@ OUT_DIM = 64
 LR = 0.001
 STEPS = 100
 
-def run(device_name):
+# Optional second argument: fp32 (default), fp16 or bf16. The 16-bit runs
+# cast the same fp32 data and weights with .to(dtype) and train entirely in
+# that dtype (cuBLAS still accumulates matmuls in fp32), like train_cuda.sc's
+# fp16/bf16 modes.
+DTYPES = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
+
+
+def run(device_name, dtype=torch.float32):
     torch.manual_seed(42)
     device = torch.device(device_name)
 
-    X = (torch.rand(BATCH, IN_DIM, device=device) - 0.5)
-    target = (torch.rand(BATCH, OUT_DIM, device=device) - 0.5)
+    X = (torch.rand(BATCH, IN_DIM, device=device) - 0.5).to(dtype)
+    target = (torch.rand(BATCH, OUT_DIM, device=device) - 0.5).to(dtype)
 
-    W1 = ((torch.rand(IN_DIM, HIDDEN, device=device) - 0.5) * 0.1).requires_grad_(True)
-    W2 = ((torch.rand(HIDDEN, OUT_DIM, device=device) - 0.5) * 0.1).requires_grad_(True)
+    W1 = ((torch.rand(IN_DIM, HIDDEN, device=device) - 0.5) * 0.1).to(dtype).requires_grad_(True)
+    W2 = ((torch.rand(HIDDEN, OUT_DIM, device=device) - 0.5) * 0.1).to(dtype).requires_grad_(True)
 
     if device_name == "mps":
         torch.mps.synchronize()
@@ -64,10 +71,11 @@ def run(device_name):
 
 if __name__ == "__main__":
     device_name = sys.argv[1] if len(sys.argv) > 1 else "cpu"
+    dtype = DTYPES[sys.argv[2] if len(sys.argv) > 2 else "fp32"]
     # Warm-up pass, not reported: the framework's first backward / first
     # kernel launch pays one-time init (on the ROCm PyTorch build the first
     # CPU backward alone takes ~10 s). run() reseeds, so the timed pass
     # starts from the same weights.
     with contextlib.redirect_stdout(io.StringIO()):
-        run(device_name)
-    run(device_name)
+        run(device_name, dtype)
+    run(device_name, dtype)

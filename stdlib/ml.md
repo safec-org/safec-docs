@@ -449,7 +449,7 @@ discrete memory model needs.
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
   combinations with and without the fused ReLU, graphs, the host-array and
   persistent-buffer APIs, the fp16/bf16 kernels and the [cuDNN and cuFFT
-  libraries](#cuda-cudnn-cufft) against CPU results (110 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  libraries](#cuda-cudnn-cufft) against CPU results (216 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and ROCm paths.
 :::
 
@@ -538,7 +538,12 @@ from 10 to 7:
 - `cuda_sgd2` — both weight updates of a two-tensor model in one kernel.
 
 Other CUDA-specific choices: reads of up to 64 KB (a loss, one output) go
-through a pinned staging buffer, and so take one DMA. A one-block reduction
+through a pinned staging buffer, and so take one DMA. Copies of 1 MiB and up
+in either direction run as four parallel lanes (the caller plus three helper
+threads started on first use). Each lane stages its slice through pinned
+memory on its own stream, so the DMA of one chunk overlaps the copy of the
+next. On the H200 host that moves 16 MB in 0.45–0.7 ms, against 1.05 ms for
+the driver's own pageable-memory path, which copies on one thread. A one-block reduction
 stores its result directly, so `cuda_mse_grad`/`cuda_sum` need no zeroing
 memset. cuBLAS gets a fixed 32 MB workspace, so its calls can be captured
 into graphs.
@@ -546,10 +551,11 @@ into graphs.
 | Group | Functions |
 |---|---|
 | Device | `cuda_available`, `cuda_device_name`, `cuda_sync` |
-| Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free` |
+| Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free`; raw byte copies `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | Matmul | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu` (same arguments, fused ReLU) |
 | Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
+| fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
 | Persistent buffers (`&void` handles) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
@@ -586,16 +592,20 @@ in the std archive.
 
 **`gpu_cudnn.h`** runs [CNN](#cnn) and [U-Net](#u-net) on the GPU. Tensors are
 `CudaBuf`s in NCHW order, which is `FeatureMap`'s CHW layout with a batch axis
-in front. The first convolution of each shape asks cuDNN to time its
-algorithms (`cudnnFindConvolutionForwardAlgorithm`) and caches the fastest one
-together with its own workspace. Make that first call outside graph capture.
+in front. The first convolution of each shape (plain or with ReLU) builds the
+fused graph conv → + bias (→ ReLU) with cuDNN's graph API. It times the
+engine configs cuDNN's heuristics suggest, and the legacy API's best
+algorithm (`cudnnFindConvolutionForwardAlgorithm`), on that call's buffers,
+then caches the fastest one with its own workspace. Make that first call
+outside graph capture. Later calls cost a few microseconds of host time. The
+legacy `cudnnConvolutionForward` spends about 40 µs of CPU per call on cuDNN 9.
 Convolutions run in plain fp32 unless `cuda_set_tf32(1)` is on, the same
 switch the cuBLAS GEMMs use.
 
 | Group | Functions |
 |---|---|
 | Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU in one cuDNN call), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels`; in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy` |
+| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU, fused), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | Host arrays | `conv2d_forward_cuda`, `unet_forward_cuda`: the signatures of `conv2d_forward`/`unet_forward`. They upload the weights on every call and fall back to the CPU when no GPU is usable |
 
@@ -611,8 +621,10 @@ transforms are unnormalized and inverse ones include 1/N, as in `fft.h`.
 `tests/stdlib/cuda` checks both libraries against the CPU code: `conv2d_forward`
 at stride 1 and 2, batched; pooling, upsample and concat; a whole U-Net;
 `fft`/`ifft`, `dft` for a non-power-of-two length, batched and 2D transforms;
-and the fp32 device transforms. It also replays a convolution from a graph and
-runs one with TF32 on.
+and the fp32 device transforms. It also replays a convolution from a graph,
+runs one with TF32 on and one on other buffers, and checks large and odd-sized
+host transfers, including a write queued after kernels that still read the
+old contents.
 
 On the H200, the queued ops beat PyTorch-CUDA on batched convolutions (32
 images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
@@ -763,7 +775,7 @@ void tensor_gpu_release_all_persistent();
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
 | ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 110 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) and the [conv/FFT benchmarks](/benchmarks#h200-conv-fft) |
+| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) and the [conv/FFT benchmarks](/benchmarks#h200-conv-fft) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
 

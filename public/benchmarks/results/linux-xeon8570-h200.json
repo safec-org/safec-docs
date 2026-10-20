@@ -1,6 +1,6 @@
 {
  "machine": {
-  "safec": "safec 1.0.0 (main @ 449420a, built from source)",
+  "safec": "safec 1.0.0",
   "clang": "Ubuntu clang version 21.1.8 (++20251221032922+2078da43e25a-1~exp1~20251221153059.70)",
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "go": "go version go1.27.3 linux/amd64",
@@ -17,124 +17,160 @@
  },
  "ml": {
   "small/safec_cpu": {
-   ":train_ms": 58.215,
+   ":train_ms": 58.721,
    ":last_loss": 100.333267,
-   ":inference_ms_per_1000": 281.601
+   ":inference_ms_per_1000": 294.153
   },
   "small/safec_blas": {
-   ":train_ms": 35.313,
+   ":train_ms": 34.85,
    ":last_loss": 100.333267,
-   ":inference_ms_per_1000": 83.486
+   ":inference_ms_per_1000": 85.038
   },
   "big/safec_cpu": {
-   ":train_ms": 327.393,
+   ":train_ms": 340.422,
    ":last_loss": 95.429657,
-   ":inference_ms_per_200": 389.864
+   ":inference_ms_per_200": 402.956
   },
   "big/safec_blas": {
-   ":train_ms": 178.149,
+   ":train_ms": 176.38,
    ":last_loss": 95.424927,
-   ":inference_ms_per_200": 247.391
+   ":inference_ms_per_200": 245.784
   },
   "cuda/safec": {
    "small 128-256-64 plain": {
-    "train_ms": 6.711,
+    "train_ms": 6.763,
     "last_loss": 100.333282,
-    "throughput_samples_per_sec": 946291.87,
-    "inference_ms_per_1000": 38.734,
+    "throughput_samples_per_sec": 942243.42,
+    "inference_ms_per_1000": 38.814,
     "checksum": -98.959379
    },
    "big 512-1024-256 plain": {
-    "train_ms": 4.066,
-    "last_loss": 95.427269,
-    "throughput_samples_per_sec": 1563374.8,
-    "inference_ms_per_200": 8.222,
+    "train_ms": 4.078,
+    "last_loss": 95.427338,
+    "throughput_samples_per_sec": 1559205.33,
+    "inference_ms_per_200": 8.231,
     "checksum": 0.721703
    },
    "small 128-256-64 fused": {
-    "train_ms": 6.176,
-    "last_loss": 100.333282,
-    "throughput_samples_per_sec": 1015470.38,
-    "inference_ms_per_1000": 34.81,
+    "train_ms": 6.224,
+    "last_loss": 100.33329,
+    "throughput_samples_per_sec": 1028348.03,
+    "inference_ms_per_1000": 34.79,
     "checksum": -98.959379
    },
    "big 512-1024-256 fused": {
-    "train_ms": 3.754,
-    "last_loss": 95.427284,
-    "throughput_samples_per_sec": 1695700.21,
-    "inference_ms_per_200": 7.586,
+    "train_ms": 3.785,
+    "last_loss": 95.42733,
+    "throughput_samples_per_sec": 1688051.31,
+    "inference_ms_per_200": 7.505,
     "checksum": 0.721703
    },
    "small 128-256-64 graph": {
-    "train_ms": 3.814,
+    "train_ms": 3.796,
     "last_loss": 100.333282,
-    "throughput_samples_per_sec": 1676118.39,
+    "throughput_samples_per_sec": 1679246.15,
     "inference_ms_per_1000": 19.649,
     "checksum": -98.959379
    },
    "big 512-1024-256 graph": {
-    "train_ms": 3.127,
-    "last_loss": 95.427269,
-    "throughput_samples_per_sec": 2045605.54,
-    "inference_ms_per_200": 5.62,
+    "train_ms": 3.128,
+    "last_loss": 95.42733,
+    "throughput_samples_per_sec": 2045787.94,
+    "inference_ms_per_200": 5.569,
     "checksum": 0.721703
    },
    "small 128-256-64 tf32": {
-    "train_ms": 3.795,
+    "train_ms": 3.791,
     "last_loss": 100.334084,
-    "throughput_samples_per_sec": 1685673.98,
-    "inference_ms_per_1000": 19.687,
+    "throughput_samples_per_sec": 1680017.55,
+    "inference_ms_per_1000": 19.615,
     "checksum": -99.043354
    },
    "big 512-1024-256 tf32": {
     "train_ms": 2.308,
-    "last_loss": 90.685463,
-    "throughput_samples_per_sec": 2772555.23,
-    "inference_ms_per_200": 5.577,
+    "last_loss": 90.685493,
+    "throughput_samples_per_sec": 2761650.25,
+    "inference_ms_per_200": 5.557,
     "checksum": 0.770854
+   },
+   "small 128-256-64 fp16": {
+    "train_ms": 2.976,
+    "last_loss": 100.335869,
+    "throughput_samples_per_sec": 2143584.64,
+    "inference_ms_per_1000": 19.558,
+    "checksum": -98.999023
+   },
+   "big 512-1024-256 fp16": {
+    "train_ms": 1.896,
+    "last_loss": 93.444328,
+    "throughput_samples_per_sec": 3375911.99,
+    "inference_ms_per_200": 3.903,
+    "checksum": 0.961304
+   },
+   "small 128-256-64 bf16": {
+    "train_ms": 2.972,
+    "last_loss": 99.951088,
+    "throughput_samples_per_sec": 2137881.31,
+    "inference_ms_per_1000": 19.585,
+    "checksum": -89.84375
+   },
+   "big 512-1024-256 bf16": {
+    "train_ms": 1.898,
+    "last_loss": 62.006176,
+    "throughput_samples_per_sec": 3364159.11,
+    "inference_ms_per_200": 3.921,
+    "checksum": -2.807617
    }
   },
   "small/pytorch_cpu": {
-   "cpu:train_ms": 23.4,
+   "cpu:train_ms": 23.644,
    ":last_loss": 100.018272,
-   "cpu:inference_ms_per_1000": 43.201
+   "cpu:inference_ms_per_1000": 44.903
   },
   "small/pytorch_cuda": {
-   "cuda:train_ms": 51.999,
+   "cuda:train_ms": 53.287,
    ":last_loss": 103.07663,
-   "cuda:inference_ms_per_1000": 56.373
+   "cuda:inference_ms_per_1000": 56.727
+  },
+  "small/pytorch_cuda_fp16": {
+   "cuda:train_ms": 48.125,
+   ":last_loss": 103.0625,
+   "cuda:inference_ms_per_1000": 52.799
+  },
+  "small/pytorch_cuda_bf16": {
+   "cuda:train_ms": 47.821,
+   ":last_loss": 103.0,
+   "cuda:inference_ms_per_1000": 54.468
   },
   "big/pytorch_cpu": {
-   "cpu:train_ms": 64.425,
+   "cpu:train_ms": 61.461,
    ":last_loss": 106.544487,
-   "cpu:inference_ms_per_200": 54.493
+   "cpu:inference_ms_per_200": 54.466
   },
   "big/pytorch_cuda": {
-   "cuda:train_ms": 17.897,
+   "cuda:train_ms": 17.76,
    ":last_loss": 871.826538,
-   "cuda:inference_ms_per_200": 11.781
+   "cuda:inference_ms_per_200": 11.819
+  },
+  "big/pytorch_cuda_fp16": {
+   "cuda:train_ms": 16.895,
+   ":last_loss": 1281.0,
+   "cuda:inference_ms_per_200": 10.542
+  },
+  "big/pytorch_cuda_bf16": {
+   "cuda:train_ms": 16.805,
+   ":last_loss": 91.5,
+   "cuda:inference_ms_per_200": 10.507
   },
   "small/tensorflow_cpu": {
-   "cpu:train_ms": 122.767,
+   "cpu:train_ms": 123.608,
    ":last_loss": 106.182999,
-   "cpu:inference_ms_per_1000": 265.647
+   "cpu:inference_ms_per_1000": 265.329
   },
   "big/tensorflow_cpu": {
-   "cpu:train_ms": 224.427,
+   "cpu:train_ms": 227.672,
    ":last_loss": 316.611603,
-   "cpu:inference_ms_per_200": 238.674
-  },
-  "small/pytorch_cuda_fp32": {
-   "cuda:train_ms": 52.651,
-   ":last_loss": 103.071129,
-   "cuda:inference_ms_per_1000": 56.704,
-   "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0 (the NGC container defaults to 1, i.e. TF32), best of 3"
-  },
-  "big/pytorch_cuda_fp32": {
-   "cuda:train_ms": 18.196,
-   ":last_loss": 1754.826172,
-   "cuda:inference_ms_per_200": 12.646,
-   "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0, best of 3"
+   "cpu:inference_ms_per_200": 238.025
   }
  },
  "fib": {
@@ -422,172 +458,172 @@
  "conv": {
   "safec_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_image": 1.594,
+    "ms_per_image": 1.534,
     "checksum": 528.2296
    },
    "unet128 b=1 cpu": {
-    "ms_per_image": 5.979,
+    "ms_per_image": 6.504,
     "checksum": 994784.9294
    }
   },
   "safec_cuda": {
    "conv64 b=1 fp32": {
-    "ms_per_batch": 0.0335,
-    "ms_per_image": 0.03353
+    "ms_per_batch": 0.0181,
+    "ms_per_image": 0.01813
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.1634,
-    "ms_per_image": 0.00511
+    "ms_per_batch": 0.1646,
+    "ms_per_image": 0.00514
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.1754,
-    "ms_per_image": 0.17544
+    "ms_per_batch": 0.1555,
+    "ms_per_image": 0.1555
    },
    "unet128 b=1 graph fp32": {
-    "ms_per_batch": 0.1643,
-    "ms_per_image": 0.16435
+    "ms_per_batch": 0.1436,
+    "ms_per_image": 0.14359
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 0.7314,
-    "ms_per_image": 0.04571
+    "ms_per_batch": 0.534,
+    "ms_per_image": 0.03338
    },
    "conv64 b=1 tf32": {
-    "ms_per_batch": 0.0335,
-    "ms_per_image": 0.03353
+    "ms_per_batch": 0.0182,
+    "ms_per_image": 0.01821
    },
    "conv64 b=32 tf32": {
-    "ms_per_batch": 0.1058,
-    "ms_per_image": 0.00331
+    "ms_per_batch": 0.0835,
+    "ms_per_image": 0.00261
    },
    "unet128 b=1 tf32": {
-    "ms_per_batch": 0.1763,
-    "ms_per_image": 0.17632
+    "ms_per_batch": 0.104,
+    "ms_per_image": 0.10398
    },
    "unet128 b=1 graph tf32": {
-    "ms_per_batch": 0.1234,
-    "ms_per_image": 0.12341
+    "ms_per_batch": 0.0873,
+    "ms_per_image": 0.08733
    },
    "unet128 b=16 tf32": {
-    "ms_per_batch": 0.6625,
-    "ms_per_image": 0.04141
+    "ms_per_batch": 0.4545,
+    "ms_per_image": 0.02841
    }
   },
   "pytorch_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_batch": 0.3002,
-    "ms_per_image": 0.30019
+    "ms_per_batch": 0.3458,
+    "ms_per_image": 0.3458
    },
    "unet128 b=1 cpu": {
-    "ms_per_batch": 3.4189,
-    "ms_per_image": 3.4189
+    "ms_per_batch": 2.9258,
+    "ms_per_image": 2.92584
    }
   },
   "pytorch_cuda": {
    "conv64 b=1 fp32": {
     "ms_per_batch": 0.0224,
-    "ms_per_image": 0.02243
+    "ms_per_image": 0.02239
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.2567,
-    "ms_per_image": 0.00802
+    "ms_per_batch": 0.2571,
+    "ms_per_image": 0.00803
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.2062,
-    "ms_per_image": 0.20619
+    "ms_per_batch": 0.206,
+    "ms_per_image": 0.20605
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 0.8732,
-    "ms_per_image": 0.05458
+    "ms_per_batch": 0.8744,
+    "ms_per_image": 0.05465
    },
    "conv64 b=1 tf32": {
-    "ms_per_batch": 0.0382,
-    "ms_per_image": 0.03817
+    "ms_per_batch": 0.0381,
+    "ms_per_image": 0.03806
    },
    "conv64 b=32 tf32": {
-    "ms_per_batch": 0.0966,
+    "ms_per_batch": 0.0967,
     "ms_per_image": 0.00302
    },
    "unet128 b=1 tf32": {
-    "ms_per_batch": 0.273,
-    "ms_per_image": 0.27301
+    "ms_per_batch": 0.2714,
+    "ms_per_image": 0.27137
    },
    "unet128 b=16 tf32": {
-    "ms_per_batch": 0.5527,
-    "ms_per_image": 0.03454
+    "ms_per_batch": 0.553,
+    "ms_per_image": 0.03456
    },
    "conv64 b=1 fp32 heuristic": {
-    "ms_per_batch": 0.0223,
-    "ms_per_image": 0.02227
+    "ms_per_batch": 0.022,
+    "ms_per_image": 0.022
    },
    "conv64 b=32 fp32 heuristic": {
-    "ms_per_batch": 0.2566,
-    "ms_per_image": 0.00802
+    "ms_per_batch": 0.2569,
+    "ms_per_image": 0.00803
    },
    "unet128 b=1 fp32 heuristic": {
-    "ms_per_batch": 0.2093,
-    "ms_per_image": 0.2093
+    "ms_per_batch": 0.2065,
+    "ms_per_image": 0.20655
    },
    "unet128 b=16 fp32 heuristic": {
-    "ms_per_batch": 0.8728,
-    "ms_per_image": 0.05455
+    "ms_per_batch": 0.873,
+    "ms_per_image": 0.05457
    }
   }
  },
  "fft": {
   "safec_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 2.65
+    "ms_per_call": 2.675
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 2.65
+    "ms_per_call": 2.763
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 7.141
+    "ms_per_call": 7.054
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 5.312
+    "ms_per_call": 5.204
    }
   },
   "safec_cuda": {
    "fft1d n=1048576 c128 cuda": {
-    "ms_per_call": 2.7138
+    "ms_per_call": 1.2512
    },
    "fft2d 1024x1024 c128 cuda": {
-    "ms_per_call": 2.7083
+    "ms_per_call": 1.2469
    },
    "batch 1024x4096 c2c cuda": {
-    "ms_per_call": 0.0247
+    "ms_per_call": 0.0245
    },
    "rfft 1024x4096 r2c cuda": {
-    "ms_per_call": 0.0109
+    "ms_per_call": 0.0108
    }
   },
   "pytorch_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 1.1946
+    "ms_per_call": 1.1906
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 0.6632
+    "ms_per_call": 0.6708
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 3.2639
+    "ms_per_call": 3.3145
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 0.2859
+    "ms_per_call": 0.288
    }
   },
   "pytorch_cuda": {
    "fft1d n=1048576 c128 cuda": {
-    "ms_per_call": 2.0549
+    "ms_per_call": 2.0774
    },
    "fft2d 1024x1024 c128 cuda": {
-    "ms_per_call": 2.0447
+    "ms_per_call": 2.0685
    },
    "batch 1024x4096 c2c cuda": {
     "ms_per_call": 0.024
    },
    "rfft 1024x4096 r2c cuda": {
-    "ms_per_call": 0.0118
+    "ms_per_call": 0.0117
    }
   }
  }
