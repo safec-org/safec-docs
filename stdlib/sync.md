@@ -9,6 +9,7 @@ SafeC provides six synchronization modules in `std/sync/` for both hosted (OS-ba
 #include <std/sync/mpsc.h>         // MpscQueue<T>
 #include <std/sync/task.h>         // TaskScheduler, task_spawn
 #include <std/sync/thread_bare.h>  // ThreadSched, thread_spawn
+#include <std/sync/parallel.h>     // parallel_for (thread pool)
 ```
 
 For communicating with a *different process* rather than another thread, see [IPC](/stdlib/ipc) (`std/ipc/pipe.h`, `std/ipc/uds.h`).
@@ -300,3 +301,60 @@ void run() {
 ```
 
 A `ThreadSched` holds `TASK_MAX` task slots inline (tens of KB); on small targets keep it in static storage.
+
+---
+
+## parallel_for — Data-Parallel Loops {#parallel}
+
+```c
+#include <std/sync/parallel.h>
+```
+
+Splits `[0, n)` into chunks of at least `grain` indices and runs `body(ctx, lo, hi)` on each, on the calling thread plus a persistent pool of worker threads. It returns once every chunk has finished. Chunks are handed out from an atomic counter, so uneven chunks balance out.
+
+The workers start on the first call and are then kept, parked on a condition variable, so later calls cost a wake-up (a few microseconds) instead of a thread spawn. std's own CPU kernels use the pool: `sgemm` (and through it `tensor_matmul` and `conv2d_forward`), the large-FFT and batched-FFT paths, `fft2d` and `stft_forward`.
+
+```c
+generic<T>
+void parallel_for(unsigned long n, unsigned long grain,
+                  fn void(&T, unsigned long, unsigned long) body, &T ctx);
+
+unsigned long parallel_threads();               // threads a call uses, counting the caller
+void          parallel_set_threads(unsigned long n);   // 1 .. PARALLEL_MAX_THREADS (64)
+```
+
+| Situation | Behaviour |
+|---|---|
+| `n <= grain`, or one thread configured | `body(ctx, 0, n)` inline |
+| A `parallel_for` already running (nested call from a body, or a concurrent call from another thread) | inline, on the calling thread |
+| Freestanding / bare-metal, WebAssembly | inline (no threads) |
+
+The thread count is `SAFEC_NUM_THREADS` if set, else the number of online CPUs (capped at 64), or whatever `parallel_set_threads` last set.
+
+Choose `grain` so a chunk does at least ~10–50 µs of work. Each index range belongs to exactly one call of `body`, so chunks can write disjoint parts of the output without locking.
+
+```c
+#include <std/sync/parallel.h>
+
+struct Scale { &float data; float k; };
+
+static void scale_range(&Scale s, unsigned long lo, unsigned long hi) {
+    unsigned long i = lo;
+    while (i < hi) {
+        unsafe { s.data[i] = s.data[i] * s.k; }
+        i = i + 1UL;
+    }
+}
+
+void scale_all(&float data, unsigned long n, float k) {
+    struct Scale s;
+    s.data = data;
+    s.k = k;
+    std::parallel_for(n, 65536UL, scale_range, &s);
+}
+```
+
+::: warning Not for real-time code
+A call blocks until its slowest chunk finishes, and it wakes threads through the OS scheduler. Audio callbacks and other hard-deadline code should stay on one thread: use `sgemm_serial`, `fft_serial` and friends there.
+:::
+

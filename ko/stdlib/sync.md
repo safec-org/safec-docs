@@ -9,6 +9,7 @@ SafeC는 호스트(OS 기반) 환경과 프리스탠딩(베어메탈) 환경 모
 #include <std/sync/mpsc.h>         // MpscQueue<T>
 #include <std/sync/task.h>         // TaskScheduler, task_spawn
 #include <std/sync/thread_bare.h>  // ThreadSched, thread_spawn
+#include <std/sync/parallel.h>     // parallel_for (스레드 풀)
 ```
 
 다른 스레드가 아니라 *다른 프로세스*와 통신하려면 [IPC](/ko/stdlib/ipc)(`std/ipc/pipe.h`, `std/ipc/uds.h`)를 참고하세요.
@@ -300,3 +301,60 @@ void run() {
 ```
 
 `ThreadSched`는 `TASK_MAX`개의 태스크 슬롯을 인라인으로 담습니다(수십 KB). 작은 타깃에서는 정적 저장소에 두세요.
+
+---
+
+## parallel_for — 데이터 병렬 루프 {#parallel}
+
+```c
+#include <std/sync/parallel.h>
+```
+
+`[0, n)`을 최소 `grain`개 인덱스 단위의 청크로 나누고, 호출한 스레드와 상주하는 워커 스레드 풀에서 각 청크마다 `body(ctx, lo, hi)`를 실행합니다. 모든 청크가 끝나면 반환합니다. 청크는 원자적 카운터로 나눠 주므로 청크마다 작업량이 달라도 균형이 맞춰집니다.
+
+워커는 첫 호출에서 시작된 뒤 조건 변수에서 대기하며 유지되므로, 이후 호출의 비용은 스레드 생성이 아니라 깨우기(수 마이크로초)입니다. std의 CPU 커널들이 이 풀을 씁니다: `sgemm`(그리고 이를 통해 `tensor_matmul`과 `conv2d_forward`), 큰 FFT와 배치 FFT 경로, `fft2d`, `stft_forward`.
+
+```c
+generic<T>
+void parallel_for(unsigned long n, unsigned long grain,
+                  fn void(&T, unsigned long, unsigned long) body, &T ctx);
+
+unsigned long parallel_threads();               // 호출 하나가 쓰는 스레드 수 (호출자 포함)
+void          parallel_set_threads(unsigned long n);   // 1 .. PARALLEL_MAX_THREADS (64)
+```
+
+| 상황 | 동작 |
+|---|---|
+| `n <= grain`이거나 스레드가 하나로 설정됨 | `body(ctx, 0, n)`을 그 자리에서 실행 |
+| 이미 `parallel_for`가 실행 중 (body 안에서의 중첩 호출, 또는 다른 스레드의 동시 호출) | 호출한 스레드에서 그 자리에서 실행 |
+| 프리스탠딩 / 베어메탈, WebAssembly | 그 자리에서 실행 (스레드 없음) |
+
+스레드 수는 `SAFEC_NUM_THREADS`가 설정되어 있으면 그 값, 아니면 온라인 CPU 수(최대 64)이며, `parallel_set_threads`로 마지막에 정한 값이 우선합니다.
+
+청크 하나가 최소 10–50 µs 정도의 일을 하도록 `grain`을 고르세요. 각 인덱스 범위는 정확히 한 번의 `body` 호출에 속하므로, 청크들은 락 없이 출력의 서로 겹치지 않는 부분에 쓸 수 있습니다.
+
+```c
+#include <std/sync/parallel.h>
+
+struct Scale { &float data; float k; };
+
+static void scale_range(&Scale s, unsigned long lo, unsigned long hi) {
+    unsigned long i = lo;
+    while (i < hi) {
+        unsafe { s.data[i] = s.data[i] * s.k; }
+        i = i + 1UL;
+    }
+}
+
+void scale_all(&float data, unsigned long n, float k) {
+    struct Scale s;
+    s.data = data;
+    s.k = k;
+    std::parallel_for(n, 65536UL, scale_range, &s);
+}
+```
+
+::: warning 실시간 코드용이 아님
+호출은 가장 느린 청크가 끝날 때까지 블록되며, OS 스케줄러를 통해 스레드를 깨웁니다. 오디오 콜백 같은 데드라인이 엄격한 코드는 한 스레드에 머물러야 합니다: 그런 곳에서는 `sgemm_serial`, `fft_serial` 등을 쓰세요.
+:::
+

@@ -86,6 +86,27 @@ way an array element is — `v[i]` lowers to `extractelement`/
 `insertelement` against the whole SSA-resident vector value, not a pointer
 computation.
 
+## Loads and stores through pointers
+
+Dereferencing a `vec<T, N>` pointer reads or writes all `N` lanes at once:
+
+```c
+unsafe {
+    *(vec<float, 8>*)&y[i] = *(vec<float, 8>*)&y[i] + a * *(const vec<float, 8>*)&x[i];
+}
+```
+
+Such a pointer usually comes from an element address inside an array, which is only aligned to the element. So the access assumes the element's alignment (4 bytes here), not the vector's own (32), and compiles to an unaligned vector load or store. Vector locals and globals, which the compiler lays out itself, keep the full alignment.
+
+## Built-ins {#builtins}
+
+| Built-in | Types | Lowers to |
+|---|---|---|
+| `__builtin_fmuladd(a, b, c)` | `float`, `double`, `vec<float/double, N>` (all three the same type) | `a*b + c` as one fused multiply-add where the target has FMA, else a multiply and an add (`llvm.fmuladd`) |
+| `__builtin_sqrt(x)` | `float`, `double`, `vec<float/double, N>` | IEEE square root (`llvm.sqrt`); one instruction with hardware sqrt, and vectorizable inside loops (unlike a call to `sqrtf`) |
+
+Plain `a * b + c` is never contracted into an FMA, because that changes the rounding. Use `__builtin_fmuladd` where fusing is acceptable, as in dot products and matrix kernels.
+
 ## Relationship to `std::simd`
 
 `vec<T,N>` is the compiler-level building block. [`std::simd`](/stdlib/simd)

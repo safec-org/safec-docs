@@ -47,6 +47,11 @@ tensor_backward(y);                         // 이제 x.grad는 2x를 담고 있
 matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검사를
 통해 검증되었다.
 
+`tensor_matmul`과 그 역전파는 [`sgemm`](/ko/stdlib/simd#gemm) 위에서
+실행된다: 패킹된 SIMD 커널이며, 큰 곱은 [스레드 풀](/ko/stdlib/sync#parallel)에
+나뉘어 실행된다. 역전파는 기존 그래디언트에 바로 누적한다. 스레드 수를
+제한하려면 `SAFEC_NUM_THREADS`를 설정한다.
+
 ```c
 struct Tensor {
     &heap float         data;          // flat row-major, length == size
@@ -273,6 +278,13 @@ void              xlstm_state_free(&XLSTMState s);
 동작한다. 손으로 계산한 3×3 커널 검사와 풀링 윈도우 검사를 통해
 검증되었다.
 
+`conv2d_forward`는 im2col + [`sgemm`](/ko/stdlib/simd#gemm)이다. 출력
+픽셀 블록마다 수용 영역을 스레드별 열 버퍼에 모아 가중치 행렬과 곱한다.
+블록들은 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행되므로 전체 im2col
+행렬은 만들어지지 않는다. 1×1 컨볼루션은 모으는 단계를 건너뛴다.
+`conv2d_relu_forward`는 같은 패스에서 ReLU를 적용한다. 풀링, 업샘플링,
+연결은 맵이 충분히 크면 채널 단위로 풀에 나뉘어 실행된다.
+
 ```c
 struct FeatureMap {
     &heap float   data;      // channels × height × width, channels-first
@@ -287,6 +299,7 @@ struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
                          unsigned long kH, unsigned long kW,
                          unsigned long stride, unsigned long padding);
 struct FeatureMap conv2d_forward(const &Conv2D layer, const &FeatureMap input);
+struct FeatureMap conv2d_relu_forward(const &Conv2D layer, const &FeatureMap input);  // relu(conv), 한 패스
 void              conv2d_free(&Conv2D layer);
 
 struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
@@ -715,7 +728,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
 | `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
-| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 naive / vDSP / BLAS 선택 |
+| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 core(`sgemm`) / vDSP / BLAS 선택 |
 
 `tensor_gpu.h`는 텐서 수준에서 MPS 배칭과 영구 버퍼도 제어합니다:
 
@@ -726,7 +739,7 @@ void tensor_gpu_mark_persistent(const &Tensor t);   // keep t's data resident on
 void tensor_gpu_release_all_persistent();
 ```
 
-`tensor_auto.h`는 의도적으로 CPU 전용입니다: 측정한 모든 크기(2×2×2부터 128×128×128까지의 행렬곱, 그리고 128×512×1024×256 학습 스텝)에서 BLAS가 naive 루프에 진 적이 없고 MPS가 BLAS를 이긴 적이 없으므로 "auto"는 GPU를 고르지 않습니다. 필요하면 `tensor_matmul_on(..., DEVICE_MPS)`로 명시하세요.
+`tensor_auto.h`는 의도적으로 CPU 전용입니다: 측정한 모든 크기(2×2×2부터 128×128×128까지의 행렬곱, 그리고 128×512×1024×256 학습 스텝)에서 BLAS가 (`tensor_matmul`이 `sgemm`으로 바뀌기 전에 측정한) core 루프에 진 적이 없고 MPS가 BLAS를 이긴 적이 없으므로 "auto"는 GPU를 고르지 않습니다. 필요하면 `tensor_matmul_on(..., DEVICE_MPS)`로 명시하세요.
 
 ### 백엔드 상태 {#backend-status}
 

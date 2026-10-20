@@ -253,84 +253,84 @@
  },
  "ml": {
   "small/safec_cpu": {
-   ":train_ms": 107.437,
-   ":last_loss": 100.333427,
-   ":inference_ms_per_1000": 285.753
+   ":train_ms": 39.874,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 143.281
   },
   "small/safec_blas": {
-   ":train_ms": 29.573,
-   ":last_loss": 100.33342,
-   ":inference_ms_per_1000": 55.693
+   ":train_ms": 27.838,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 55.634
   },
   "big/safec_cpu": {
-   ":train_ms": 1761.207,
-   ":last_loss": 95.428474,
-   ":inference_ms_per_200": 1504.16
+   ":train_ms": 190.545,
+   ":last_loss": 95.429657,
+   ":inference_ms_per_200": 295.555
   },
   "big/safec_blas": {
-   ":train_ms": 160.559,
-   ":last_loss": 95.424973,
-   ":inference_ms_per_200": 217.185
+   ":train_ms": 131.537,
+   ":last_loss": 95.424927,
+   ":inference_ms_per_200": 216.123
   },
   "rocm/safec": {
    "small 128-256-64 plain": {
-    "train_ms": 7.172,
+    "train_ms": 7.16,
     "last_loss": 100.333282,
-    "throughput_samples_per_sec": 852223.5,
-    "inference_ms_per_1000": 34.943,
+    "throughput_samples_per_sec": 834582.7,
+    "inference_ms_per_1000": 35.018,
     "checksum": -98.959394
    },
    "big 512-1024-256 plain": {
-    "train_ms": 8.401,
-    "last_loss": 95.428131,
-    "throughput_samples_per_sec": 761771.0,
-    "inference_ms_per_200": 13.026,
+    "train_ms": 8.363,
+    "last_loss": 95.428116,
+    "throughput_samples_per_sec": 748634.59,
+    "inference_ms_per_200": 13.076,
     "checksum": 0.721696
    },
    "small 128-256-64 graph": {
-    "train_ms": 7.182,
-    "last_loss": 100.333298,
-    "throughput_samples_per_sec": 846645.95,
-    "inference_ms_per_1000": 39.167,
+    "train_ms": 7.384,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 863846.09,
+    "inference_ms_per_1000": 39.295,
     "checksum": -98.959394
    },
    "big 512-1024-256 graph": {
-    "train_ms": 8.307,
-    "last_loss": 95.428093,
-    "throughput_samples_per_sec": 770290.86,
-    "inference_ms_per_200": 14.058,
+    "train_ms": 8.287,
+    "last_loss": 95.428116,
+    "throughput_samples_per_sec": 769711.02,
+    "inference_ms_per_200": 14.036,
     "checksum": 0.721696
    }
   },
   "small/pytorch_cpu": {
-   "cpu:train_ms": 14.108,
+   "cpu:train_ms": 14.152,
    ":last_loss": 100.018272,
-   "cpu:inference_ms_per_1000": 21.874
+   "cpu:inference_ms_per_1000": 21.769
   },
   "small/pytorch_cuda": {
-   "cuda:train_ms": 20.052,
+   "cuda:train_ms": 20.532,
    ":last_loss": 103.071129,
-   "cuda:inference_ms_per_1000": 36.326
+   "cuda:inference_ms_per_1000": 36.396
   },
   "big/pytorch_cpu": {
-   "cpu:train_ms": 38.444,
+   "cpu:train_ms": 38.449,
    ":last_loss": 106.601181,
-   "cpu:inference_ms_per_200": 50.215
+   "cpu:inference_ms_per_200": 50.789
   },
   "big/pytorch_cuda": {
-   "cuda:train_ms": 10.083,
+   "cuda:train_ms": 10.342,
    ":last_loss": 1868.155273,
-   "cuda:inference_ms_per_200": 13.338
+   "cuda:inference_ms_per_200": 13.366
   },
   "small/tensorflow_cpu": {
-   "cpu:train_ms": 79.324,
+   "cpu:train_ms": 79.808,
    ":last_loss": 106.182999,
-   "cpu:inference_ms_per_1000": 203.968
+   "cpu:inference_ms_per_1000": 206.563
   },
   "big/tensorflow_cpu": {
-   "cpu:train_ms": 106.673,
+   "cpu:train_ms": 106.179,
    ":last_loss": 316.611603,
-   "cpu:inference_ms_per_200": 118.101
+   "cpu:inference_ms_per_200": 108.269
   }
  },
  "web": {
@@ -387,152 +387,152 @@
  "conv": {
   "safec_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_image": 101.361,
-    "checksum": 528.2298
+    "ms_per_image": 1.161,
+    "checksum": 528.2296
    },
    "unet128 b=1 cpu": {
-    "ms_per_image": 286.149,
-    "checksum": 994784.9736
+    "ms_per_image": 4.864,
+    "checksum": 994784.9294
    }
   },
   "safec_rocm": {
    "conv64 b=1 fp32": {
     "ms_per_batch": 0.027,
-    "ms_per_image": 0.02701
+    "ms_per_image": 0.02696
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.3424,
-    "ms_per_image": 0.0107
+    "ms_per_batch": 0.3416,
+    "ms_per_image": 0.01068
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.2268,
-    "ms_per_image": 0.22682
+    "ms_per_batch": 0.2233,
+    "ms_per_image": 0.22327
    },
    "unet128 b=1 graph fp32": {
-    "ms_per_batch": 0.2221,
-    "ms_per_image": 0.22215
+    "ms_per_batch": 0.2183,
+    "ms_per_image": 0.21829
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 1.2926,
-    "ms_per_image": 0.08079
+    "ms_per_batch": 1.2819,
+    "ms_per_image": 0.08012
    }
   },
   "pytorch_cpu": {
    "conv64 b=1 cpu": {
-    "ms_per_batch": 0.3144,
-    "ms_per_image": 0.31441
+    "ms_per_batch": 0.3113,
+    "ms_per_image": 0.3113
    },
    "unet128 b=1 cpu": {
-    "ms_per_batch": 2.8022,
-    "ms_per_image": 2.80218
+    "ms_per_batch": 2.7214,
+    "ms_per_image": 2.72141
    }
   },
   "pytorch_cuda": {
    "conv64 b=1 fp32": {
-    "ms_per_batch": 0.0628,
-    "ms_per_image": 0.06275
+    "ms_per_batch": 0.0626,
+    "ms_per_image": 0.06261
    },
    "conv64 b=32 fp32": {
-    "ms_per_batch": 0.3463,
-    "ms_per_image": 0.01082
+    "ms_per_batch": 0.3455,
+    "ms_per_image": 0.0108
    },
    "unet128 b=1 fp32": {
-    "ms_per_batch": 0.3153,
-    "ms_per_image": 0.31528
+    "ms_per_batch": 0.3142,
+    "ms_per_image": 0.31415
    },
    "unet128 b=16 fp32": {
-    "ms_per_batch": 1.2676,
-    "ms_per_image": 0.07922
+    "ms_per_batch": 1.2558,
+    "ms_per_image": 0.07848
    },
    "conv64 b=1 tf32": {
-    "ms_per_batch": 0.0628,
-    "ms_per_image": 0.06278
+    "ms_per_batch": 0.0627,
+    "ms_per_image": 0.06266
    },
    "conv64 b=32 tf32": {
-    "ms_per_batch": 0.3478,
-    "ms_per_image": 0.01087
+    "ms_per_batch": 0.3472,
+    "ms_per_image": 0.01085
    },
    "unet128 b=1 tf32": {
-    "ms_per_batch": 0.3149,
-    "ms_per_image": 0.3149
+    "ms_per_batch": 0.314,
+    "ms_per_image": 0.31401
    },
    "unet128 b=16 tf32": {
-    "ms_per_batch": 1.269,
-    "ms_per_image": 0.07931
+    "ms_per_batch": 1.2575,
+    "ms_per_image": 0.07859
    },
    "conv64 b=1 fp32 heuristic": {
     "ms_per_batch": 0.0627,
-    "ms_per_image": 0.06272
+    "ms_per_image": 0.0627
    },
    "conv64 b=32 fp32 heuristic": {
-    "ms_per_batch": 0.3482,
-    "ms_per_image": 0.01088
+    "ms_per_batch": 0.3473,
+    "ms_per_image": 0.01085
    },
    "unet128 b=1 fp32 heuristic": {
-    "ms_per_batch": 0.3154,
-    "ms_per_image": 0.3154
+    "ms_per_batch": 0.3138,
+    "ms_per_image": 0.31376
    },
    "unet128 b=16 fp32 heuristic": {
-    "ms_per_batch": 1.2696,
-    "ms_per_image": 0.07935
+    "ms_per_batch": 1.2582,
+    "ms_per_image": 0.07864
    }
   }
  },
  "fft": {
   "safec_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 156.66
+    "ms_per_call": 1.809
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 163.647
+    "ms_per_call": 2.06
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 377.441
+    "ms_per_call": 4.353
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 371.595
+    "ms_per_call": 2.547
    }
   },
   "safec_rocm": {
    "fft1d n=1048576 c128 rocm": {
-    "ms_per_call": 1.5206
+    "ms_per_call": 1.529
    },
    "fft2d 1024x1024 c128 rocm": {
-    "ms_per_call": 1.4948
+    "ms_per_call": 1.5136
    },
    "batch 1024x4096 c2c rocm": {
     "ms_per_call": 0.1001
    },
    "rfft 1024x4096 r2c rocm": {
-    "ms_per_call": 0.095
+    "ms_per_call": 0.0948
    }
   },
   "pytorch_cpu": {
    "fft1d n=1048576 c128 cpu": {
-    "ms_per_call": 8.3188
+    "ms_per_call": 8.2851
    },
    "fft2d 1024x1024 c128 cpu": {
-    "ms_per_call": 0.7192
+    "ms_per_call": 0.7586
    },
    "batch 1024x4096 c2c cpu": {
-    "ms_per_call": 4.4129
+    "ms_per_call": 4.518
    },
    "rfft 1024x4096 r2c cpu": {
-    "ms_per_call": 0.4423
+    "ms_per_call": 0.4371
    }
   },
   "pytorch_cuda": {
    "fft1d n=1048576 c128 cuda": {
-    "ms_per_call": 1.5567
+    "ms_per_call": 1.5502
    },
    "fft2d 1024x1024 c128 cuda": {
-    "ms_per_call": 1.5215
+    "ms_per_call": 1.5194
    },
    "batch 1024x4096 c2c cuda": {
-    "ms_per_call": 0.1708
+    "ms_per_call": 0.1693
    },
    "rfft 1024x4096 r2c cuda": {
-    "ms_per_call": 0.1306
+    "ms_per_call": 0.1304
    }
   }
  }

@@ -171,13 +171,30 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 
 제자리(in-place), 반복적인 시간 데시메이션 FFT입니다: `dft.h`의 O(n²) 대신 O(n log n)이지만, 그 대가로 `n`이 2의 거듭제곱이어야 합니다(그렇지 않으면 함수들은 0을 반환하고 `data`를 수정하지 않은 채로 둡니다 — 임의 길이에는 `dft.h`를 사용하세요).
 
+실행 방식:
+
+- **트위들 테이블.** 트위들 계수는 모든 스레드가 공유하는 테이블 하나에서 옵니다. 어떤 길이가 처음 필요할 때 만들어져 유지되며, 커지기만 하므로 읽는 쪽은 락을 잡지 않습니다.
+- **블로킹과 SIMD.** 2048점까지의 단계는 블록 단위로 실행되어, 블록 하나가 그 단계들 내내 L1/L2에 머뭅니다. 버터플라이는 `f64x2`를 씁니다.
+- **스레드.** 32768점 이상의 변환은 [스레드 풀](/ko/stdlib/sync#parallel)에 나뉘어 실행됩니다. `fft_batch`와 `fft_real_batch`는 여러 변환을 풀에 분산합니다.
+- **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다.
+
+::: tip 실시간 사용
+오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 쓰세요. 이들은 메모리 할당, 락, 스레드 풀 사용을 전혀 하지 않습니다. 테이블이 준비되면 32768점 미만의 `fft`/`ifft`도 마찬가지입니다.
+:::
+
 NVIDIA GPU에서는 [`fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)가 같은 변환과 2D 변환을 cuFFT로 실행하며, 길이 제한이 없습니다. AMD GPU에서는 [`fft_rocm.h`](/ko/stdlib/ml#rocm-miopen-hipfft)가 같은 일을 hipFFT로 합니다.
 
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1이고 2의 거듭제곱이면
 int fft(&Complex data, unsigned long n);                      // 제자리 순변환, 1=성공/0=2의거듭제곱아님
 int ifft(&Complex data, unsigned long n);                     // 제자리 역변환 (1/N 포함)
-int fft_real(const &double in, &Complex out, unsigned long n); // 실수 -> 복소수 편의 함수
+int fft_serial(&Complex data, unsigned long n);              // 호출한 스레드에서만 fft
+int ifft_serial(&Complex data, unsigned long n);
+int fft_prepare(unsigned long n);                             // n 이하 길이의 트위들 테이블 생성
+int fft_real(const &double in, &Complex out, unsigned long n); // 실수 -> n점 전체 스펙트럼
+// 연속으로 저장된 'batch'개 변환 (행 r은 data[r*n]), 스레드 사용
+int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
+int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 int ffft(&FComplex data, unsigned long n);                    // Q8.24 순변환
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 역변환
 ```
@@ -253,7 +270,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 #include <std/dsp/filter.h>
 ```
 
-한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다.
+한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다. 메모리 할당이나 스레드를 전혀 쓰지 않습니다. `FirFilter::process`는 링 버퍼를 탭마다 나머지 연산을 하지 않고 두 개의 연속 구간으로, 네 개의 부분합으로 순회합니다.
 
 ```
 FIR ("피드포워드"): y[n] = sum_{k=0}^{M-1} b[k]*x[n-k]
@@ -410,7 +427,7 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 역변�
 #include <std/dsp/stft.h>
 ```
 
-`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
+`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. 프레임들은 `fft_batch`로 함께 변환되므로 호스트에서는 스레드 풀에서 실행됩니다. 스트리밍에서는 프레임을 하나씩 윈도우 처리하고 `fft_serial`을 쓰세요. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
 
 ```c
 #define STFT_WIN_RECTANGULAR 0
@@ -619,7 +636,7 @@ void cwt_morlet(const &double signal, unsigned long signalLen,
 #include <std/dsp/imaging.h>
 ```
 
-위의 1D 빌딩 블록들에 대응하는 2D 버전입니다: `conv2d`는 제로 패딩된("same" 크기) 2D 컨볼루션이고; `fft2d`/`ifft2d`는 `fft.h`의 1D 변환을 모든 행에, 그다음 모든 열에 적용합니다(2D DFT는 분리 가능(separable)하므로 정확합니다); 커널 생성 함수들은 거의 모든 이미지 파이프라인에 필요한 두 가지 컨볼루션 커널을 다룹니다.
+위의 1D 빌딩 블록들에 대응하는 2D 버전입니다: `conv2d`는 제로 패딩된("same" 크기) 2D 컨볼루션이고; `fft2d`/`ifft2d`는 `fft.h`의 1D 변환을 모든 행에, 그다음 모든 열에 적용합니다(2D DFT는 분리 가능(separable)하므로 정확합니다). 행은 `fft_batch`로 처리하고, 열은 8개씩 연속 버퍼로 모아 변환하며 열 묶음들은 스레드 풀에서 실행됩니다; 커널 생성 함수들은 거의 모든 이미지 파이프라인에 필요한 두 가지 컨볼루션 커널을 다룹니다.
 
 ```c
 // img: h*w개, 행 우선; kernel: kh*kw개, 행 우선 (kh/kw는 홀수여야 함);

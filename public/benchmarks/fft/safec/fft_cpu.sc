@@ -1,12 +1,15 @@
 // FFT on the CPU with std/dsp/fft.h and imaging.h (radix-2, double
-// precision, one thread). Same transforms as fft_cuda.sc and
+// precision, on std/sync/parallel.h's thread pool). Same transforms as
+// fft_cuda.sc and
 // ../pytorch/fft.py:
 //   fft1d   one complex transform of length 2^20
 //   fft2d   one 1024 x 1024 complex 2D transform
-//   batch   1024 complex transforms of length 4096 (the GPU rows run
-//           these in fp32)
-//   rfft    1024 real transforms of length 4096 (fft_real)
-// Prints the mean time per call.
+//   batch   1024 complex transforms of length 4096 (fft_batch; the GPU
+//           rows run these in fp32)
+//   rfft    1024 real transforms of length 4096 (fft_real_batch)
+// Prints the mean time per call, after one warm-up call of each (which
+// starts the thread pool and builds the twiddle table; ../pytorch/fft.py
+// warms up too).
 //
 // Build: safec fft_cpu.sc -I <SafeC> -O2 -o fft_cpu.ll
 //        clang -O2 fft_cpu.ll libsafec_std.a -lm -lpthread -o fft_cpu
@@ -42,6 +45,7 @@ int main() {
     unsigned long n = 1048576UL;
     &heap Complex x = random_complex(n);
     int iters = 3;
+    std::fft(x, n);
     double t0 = now_ms();
     int it = 0;
     while (it < iters) { std::fft(x, n); it = it + 1; }
@@ -51,6 +55,7 @@ int main() {
 
     unsigned long side = 1024UL;
     &heap Complex img = random_complex(side * side);
+    std::fft2d(img, side, side);
     t0 = now_ms();
     it = 0;
     while (it < iters) { std::fft2d(img, side, side); it = it + 1; }
@@ -61,11 +66,11 @@ int main() {
     unsigned long rows = 1024UL;
     unsigned long len = 4096UL;
     &heap Complex b = random_complex(rows * len);
+    std::fft_batch(b, len, rows, 0);
     t0 = now_ms();
     it = 0;
     while (it < iters) {
-        unsigned long r = 0UL;
-        unsafe { while (r < rows) { std::fft(&b[r * len], len); r = r + 1UL; } }
+        std::fft_batch(b, len, rows, 0);
         it = it + 1;
     }
     ms = (now_ms() - t0) / (double)iters;
@@ -78,11 +83,11 @@ int main() {
         unsigned long i = 0UL;
         while (i < rows * len) { re[i] = drand48() * 2.0 - 1.0; i = i + 1UL; }
     }
+    unsafe { std::fft_real_batch((const double*)re, b, len, rows); }
     t0 = now_ms();
     it = 0;
     while (it < iters) {
-        unsigned long r = 0UL;
-        unsafe { while (r < rows) { std::fft_real((const double*)(re + r * len), &b[r * len], len); r = r + 1UL; } }
+        unsafe { std::fft_real_batch((const double*)re, b, len, rows); }
         it = it + 1;
     }
     ms = (now_ms() - t0) / (double)iters;

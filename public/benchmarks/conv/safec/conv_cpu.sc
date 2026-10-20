@@ -1,10 +1,12 @@
-// Convolution on the CPU with std/ml/cnn.h and unet.h (plain SafeC loops,
-// one image at a time). Same layer and network as conv_cuda.sc and
+// Convolution on the CPU with std/ml/cnn.h and unet.h, one image at a time
+// (im2col + std/simd/gemm.h's SIMD GEMM on std/sync/parallel.h's thread
+// pool). Same layer and network as conv_cuda.sc and
 // ../pytorch/conv.py:
 //   conv64  Conv2D 64 -> 64, 3x3, stride 1, pad 1, on a 64 x 56 x 56 map
 //           (a ResNet stage-1 layer), + bias
 //   unet    unet_new(3, 32, 64, 3) forward on a 3 x 128 x 128 image
-// Prints the mean time per image over a few images.
+// Prints the mean time per image over a few images, after one warm-up call
+// (which starts the thread pool; ../pytorch/conv.py warms up too).
 //
 // Build: safec conv_cpu.sc -I <SafeC> -O2 -o conv_cpu.ll
 //        clang -O2 conv_cpu.ll libsafec_std.a -lm -lpthread -o conv_cpu
@@ -37,6 +39,8 @@ int main() {
     unsafe { srand48(42L); }
     struct Conv2D layer = std::conv2d_new(64UL, 64UL, 3UL, 3UL, 1UL, 1UL);
     struct FeatureMap x = random_map(64UL, 56UL, 56UL);
+    struct FeatureMap warm = std::conv2d_forward(&layer, &x);
+    std::feature_map_free(&warm);
     unsigned long images = 3UL;
     double sum = 0.0;
     double t0 = now_ms();
@@ -52,6 +56,8 @@ int main() {
 
     struct UNet net = std::unet_new(3UL, 32UL, 64UL, 3UL);
     struct FeatureMap img = random_map(3UL, 128UL, 128UL);
+    struct FeatureMap uwarm = std::unet_forward(&net, &img);
+    std::feature_map_free(&uwarm);
     images = 2UL;
     sum = 0.0;
     t0 = now_ms();

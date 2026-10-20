@@ -183,18 +183,20 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 프레임워크 | 장치 | 학습 (100 스텝) | 처리량 | 추론 (1000회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 107.4 ms | 59,600 samples/s | 285.8 ms | 100.333427 |
-| SafeC | CPU (OpenBLAS) | 29.6 ms | 216,400 samples/s | 55.7 ms | 100.333420 |
-| SafeC | ROCm (MI100) | **7.17 ms (가장 빠름)** | **892,400 samples/s** | 34.9 ms | 100.333282 |
-| SafeC | ROCm, 그래프 재생 | 7.18 ms | 891,100 samples/s | 39.2 ms | 100.333298 |
-| PyTorch | CPU | 14.1 ms | 453,600 samples/s | **21.9 ms (가장 빠름)** | 100.018272 |
-| PyTorch | ROCm (MI100) | 20.1 ms | 319,200 samples/s | 36.3 ms | 103.071129 |
-| TensorFlow | CPU | 79.3 ms | 80,700 samples/s | 204.0 ms | 106.182999 |
+| SafeC | CPU (`sgemm`, 16 스레드) | 39.9 ms | 160,500 samples/s | 143.3 ms | 100.333267 |
+| SafeC | CPU (OpenBLAS) | 27.8 ms | 229,900 samples/s | 55.6 ms | 100.333267 |
+| SafeC | ROCm (MI100) | **7.16 ms (가장 빠름)** | **893,900 samples/s** | 35.0 ms | 100.333282 |
+| SafeC | ROCm, 그래프 재생 | 7.38 ms | 866,700 samples/s | 39.3 ms | 100.333282 |
+| PyTorch | CPU | 14.2 ms | 452,200 samples/s | **21.8 ms (가장 빠름)** | 100.018272 |
+| PyTorch | ROCm (MI100) | 20.5 ms | 311,700 samples/s | 36.4 ms | 103.071129 |
+| TensorFlow | CPU | 79.8 ms | 80,200 samples/s | 206.6 ms | 106.182999 |
 
-이 크기에서는 GPU 스텝 하나가 마이크로초 단위 커널 몇 개와 손실의 블로킹 읽기로 이루어지므로, 실행 시작과 동기화 지연이 시간을 지배합니다. CPU에서는 PyTorch의 CPU 경로(번들된 튜닝 GEMM 커널)가 SafeC의 OpenBLAS 경로보다 빠르고, 추론에서 가장 빠릅니다. 프레임워크마다 손실이 다른 것은 각자 자기 RNG로 데이터와 초기 가중치를 뽑기 때문입니다. SafeC 행들은 모두 시드가 같은 하나의 스트림(`drand48`)을 공유하며, CPU와 GPU에서 6자리까지 일치합니다.
+이 크기에서는 GPU 스텝 하나가 마이크로초 단위 커널 몇 개와 손실의 블로킹 읽기로 이루어지므로, 실행 시작과 동기화 지연이 시간을 지배합니다. CPU에서는 PyTorch의 CPU 경로(번들된 튜닝 GEMM 커널)가 SafeC의 OpenBLAS 경로보다 빠르고, 추론에서 가장 빠릅니다.
+
+SafeC 자체 CPU 행은 `tensor_matmul`을 패킹된 SIMD GEMM인 [`sgemm`](/ko/stdlib/simd#gemm)으로 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다. 이것이 대체한 단순 스칼라 루프는 학습 107.4 ms, 추론 285.8 ms였습니다. 여기서 std 라이브러리는 x86-64 베이스라인 타깃(SSE2, FMA 없음)으로 빌드되며, OpenBLAS와 PyTorch는 실행 시점에 AVX2/AVX-512 커널을 고릅니다. 프레임워크마다 손실이 다른 것은 각자 자기 RNG로 데이터와 초기 가중치를 뽑기 때문입니다. SafeC 행들은 모두 시드가 같은 하나의 스트림(`drand48`)을 공유하며, CPU와 GPU에서 6자리까지 일치합니다.
 
 ::: details 소스
-[train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
+[train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [tensor.h](/benchmarks/stdlib/tensor.h) · [tensor.sc](/benchmarks/stdlib/tensor.sc) · [gemm.h](/benchmarks/stdlib/gemm.h) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [parallel.h](/benchmarks/stdlib/parallel.h) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [tensor_blas.h](/benchmarks/stdlib/tensor_blas.h) · [tensor_blas.sc](/benchmarks/stdlib/tensor_blas.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py)
 :::
 
 ## 머신러닝, 더 큰 모델 — 512→1024→256 {#machine-learning-bigger-model-512-1024-256}
@@ -203,17 +205,17 @@ Benchmarks Game의 고전적인 n-body 테스트(태양/목성/토성/천왕성/
 
 | 프레임워크 | 장치 | 학습 (50 스텝) | 처리량 | 추론 (200회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 1761.2 ms | 3,600 samples/s | 1504.2 ms | 95.428474 |
-| SafeC | CPU (OpenBLAS) | 160.6 ms | 39,900 samples/s | 217.2 ms | 95.424973 |
-| SafeC | ROCm (MI100) | 8.40 ms | 761,800 samples/s | **13.0 ms (가장 빠름)** | 95.428131 |
-| SafeC | ROCm, 그래프 재생 | **8.31 ms (가장 빠름)** | **770,400 samples/s** | 14.1 ms | 95.428093 |
-| PyTorch | CPU | 38.4 ms | 166,500 samples/s | 50.2 ms | 106.601181 |
-| PyTorch | ROCm (MI100) | 10.1 ms | 634,700 samples/s | 13.3 ms | 1868.155273 |
-| TensorFlow | CPU | 106.7 ms | 60,000 samples/s | 118.1 ms | 316.611603 |
+| SafeC | CPU (`sgemm`, 16 스레드) | 190.5 ms | 33,600 samples/s | 295.6 ms | 95.429657 |
+| SafeC | CPU (OpenBLAS) | 131.5 ms | 48,700 samples/s | 216.1 ms | 95.424927 |
+| SafeC | ROCm (MI100) | 8.36 ms | 765,300 samples/s | **13.1 ms (가장 빠름)** | 95.428116 |
+| SafeC | ROCm, 그래프 재생 | **8.29 ms (가장 빠름)** | **772,300 samples/s** | 14.0 ms | 95.428116 |
+| PyTorch | CPU | 38.4 ms | 166,500 samples/s | 50.8 ms | 106.601181 |
+| PyTorch | ROCm (MI100) | 10.3 ms | 618,900 samples/s | 13.4 ms | 1868.155273 |
+| TensorFlow | CPU | 106.2 ms | 60,300 samples/s | 108.3 ms | 316.611603 |
 
-GPU에서 SafeC는 PyTorch보다 ~17% 빠르게 학습하고, 추론은 비깁니다(둘 다 한 번에 rocBLAS GEMM 두 개, 원소별 커널 하나, 읽기 한 번). 그래프 재생은 학습 스텝 전체를 `RocmGraph` 하나에 기록해 한 번의 호출로 실행하지만, 매 스텝 손실을 블로킹으로 읽으면 많아야 1% 정도만 줄어듭니다. 스텝마다 읽지 않으면, 같은 루프의 C++ 프로토타입이 7.1ms 대신 3.8ms로 돌았습니다. PyTorch-ROCm의 손실은 GPU RNG로 뽑은 초기 가중치에서 lr 0.001로 발산합니다. 속도와는 상관없지만, 검증용 값이 이상해 보이는 이유입니다.
+GPU에서 SafeC는 PyTorch보다 ~25% 빠르게 학습하고, 추론은 비깁니다(둘 다 한 번에 rocBLAS GEMM 두 개, 원소별 커널 하나, 읽기 한 번). 그래프 재생은 학습 스텝 전체를 `RocmGraph` 하나에 기록해 한 번의 호출로 실행하지만, 매 스텝 손실을 블로킹으로 읽으면 많아야 1% 정도만 줄어듭니다. 스텝마다 읽지 않으면, 같은 루프의 C++ 프로토타입이 7.1ms 대신 3.8ms로 돌았습니다. PyTorch-ROCm의 손실은 GPU RNG로 뽑은 초기 가중치에서 lr 0.001로 발산합니다. 속도와는 상관없지만, 검증용 값이 이상해 보이는 이유입니다.
 
-CPU에서는 여기서 쓴 OpenBLAS(Ubuntu 패키지의 범용 pthreads 빌드)가 약점입니다: 이 크기에서 PyTorch의 CPU GEMM이 학습에서 4.2배 빠릅니다.
+CPU에서는 여기서 쓴 OpenBLAS(Ubuntu 패키지의 범용 pthreads 빌드)가 약점입니다: 이 크기에서 PyTorch의 CPU GEMM이 학습에서 3.4배 빠릅니다. SafeC의 `sgemm` 경로는 이것이 대체한 스칼라 루프(학습 1761.2 ms, 추론 1504.2 ms)보다 9.2배 빠르고, SSE2 베이스라인 빌드로도 OpenBLAS의 1.45배 이내입니다.
 
 ::: details 소스
 [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
@@ -242,27 +244,29 @@ CPU에서는 여기서 쓴 OpenBLAS(Ubuntu 패키지의 범용 pthreads 빌드)�
 
 | 프레임워크 | 장치 | conv64, 이미지 1장 | conv64, 32장 | unet128, 1장 | unet128, 16장 |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive, 1 스레드) | 101.4 | — | 286.1 | — |
-| PyTorch | CPU (8 스레드) | 0.314 | — | 2.80 | — |
-| SafeC | ROCm | **0.0270** | **0.342** | 0.227 | 1.293 |
-| SafeC | ROCm, U-Net을 그래프 하나로 | | | **0.222** | |
-| PyTorch | ROCm | 0.0628 | 0.346 | 0.315 | **1.268** |
+| SafeC | CPU (im2col + `sgemm`, 16 스레드) | 1.16 | — | 4.86 | — |
+| PyTorch | CPU (8 스레드) | 0.311 | — | 2.72 | — |
+| SafeC | ROCm | **0.0270** | **0.342** | 0.223 | 1.282 |
+| SafeC | ROCm, U-Net을 그래프 하나로 | | | **0.218** | |
+| PyTorch | ROCm | 0.0626 | 0.346 | 0.314 | **1.256** |
 
 FFT, 호출당 ms. `fft1d`와 `fft2d`는 호스트 메모리에서 시작해 끝나는 복소 `double` 배열이라, GPU 호출마다 업로드와 읽기가 포함됩니다. `batch`와 `rfft`는 이미 GPU에 있는 데이터(complex64, float32)로 실행합니다.
 
 | 프레임워크 | 장치 | fft1d, 2²⁰점 | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
 |---|---|---|---|---|---|
-| SafeC | CPU (radix-2, 1 스레드) | 156.7 | 163.6 | 377.4 | 371.6 |
-| PyTorch | CPU (8 스레드) | 8.32 | **0.719** | 4.41 | 0.442 |
-| SafeC | ROCm | **1.52** | 1.49 | **0.100** | **0.095** |
-| PyTorch | ROCm | 1.56 | 1.52 | 0.171 | 0.131 |
+| SafeC | CPU (radix-2, 16 스레드) | 1.81 | 2.06 | 4.35 | 2.55 |
+| PyTorch | CPU (8 스레드) | 8.29 | **0.759** | 4.52 | 0.437 |
+| SafeC | ROCm | **1.53** | 1.51 | **0.100** | **0.095** |
+| PyTorch | ROCm | 1.55 | 1.52 | 0.169 | 0.130 |
 
-- **합성곱**: 이미지 1장에서 SafeC가 PyTorch보다 2.3배, 배치 1 U-Net에서 1.39배(그래프로는 1.42배) 빠릅니다. 32장에서는 비기고, 16장 U-Net에서는 PyTorch가 2% 빠릅니다. SafeC의 합성곱은 MIOpen 호출 하나와 바이어스(및 ReLU)용 HIP 커널 하나이고, U-Net 디코더 단계는 연결 버퍼로 바로 업샘플하는 커널 하나입니다. 이 융합 전에는 16장 U-Net이 1.51 ms였습니다.
+- **합성곱**: 이미지 1장에서 SafeC가 PyTorch보다 2.3배, 배치 1 U-Net에서 1.41배(그래프로는 1.44배) 빠릅니다. 32장에서는 비기고, 16장 U-Net에서는 PyTorch가 2% 빠릅니다. SafeC의 합성곱은 MIOpen 호출 하나와 바이어스(및 ReLU)용 HIP 커널 하나이고, U-Net 디코더 단계는 연결 버퍼로 바로 업샘플하는 커널 하나입니다. 이 융합 전에는 16장 U-Net이 1.51 ms였습니다.
 - **FFT**: 양쪽 모두 rocFFT를 부릅니다. 호스트 배열은 PCIe가 지배해 시간이 같습니다. 장치 데이터에서는 SafeC가 1.4–1.7배 빠릅니다. 호출당 0.1 ms 수준에서는 같은 변환을 둘러싼 PyTorch의 호출당 작업(출력 텐서 할당, 디스패치)이 큰 몫을 차지하지만, 따로 재지는 않았습니다.
-- **CPU**: H200에서처럼 SafeC의 CPU 합성곱은 단일 스레드 직접 루프이고 `fft.h`는 버터플라이 안에서 회전 인자를 계산합니다. PyTorch의 CPU 경로는 `conv64`에서 320배, 2²⁰점 FFT에서 19배 빠릅니다.
+- **CPU 합성곱**: `conv2d_forward`는 [스레드 풀](/ko/stdlib/sync#parallel) 위의 im2col + [`sgemm`](/ko/stdlib/simd#gemm)입니다. 이것이 대체한 단일 스레드 직접 루프(101.4 ms)보다 `conv64`에서 87배, U-Net(286.1 ms)에서 59배 빠릅니다. PyTorch의 CPU 경로(oneDNN, AVX-512)는 여전히 `conv64`에서 3.7배, U-Net에서 1.8배 빠릅니다. 여기서 SafeC의 std는 x86-64 베이스라인(SSE2, FMA 없음)으로 빌드됩니다.
+- **CPU FFT**: `fft.h`는 이제 공유 회전 인자 테이블, 캐시 블로킹된 `f64x2` 버터플라이, 스레드 풀을 씁니다. 2²⁰점 변환에 1.81 ms가 걸려, PyTorch의 CPU FFT보다 4.6배, 이전(156.7 ms)보다 87배 빠릅니다. 2D 변환은 PyTorch가 2.7배 빠릅니다. `batch`는 비슷하지만, SafeC는 `double` 데이터를, PyTorch는 complex64 행을 변환합니다. `rfft`에서 PyTorch는 float32로 계산해 중복되지 않는 n/2 + 1개 빈만 돌려주고, `fft_real_batch`는 n개 빈 전부를 `double`로 씁니다.
+- **워밍업**: CPU 행은 이제 각각 시간을 재지 않는 워밍업 호출을 한 번 합니다(스레드 풀을 시작하고 FFT 회전 인자 테이블을 만듭니다). PyTorch 스크립트는 다섯 번 합니다.
 
 ::: details 소스
-[conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
+[conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [cnn.sc](/benchmarks/stdlib/cnn.sc) · [unet.sc](/benchmarks/stdlib/unet.sc) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [fft.h](/benchmarks/stdlib/fft.h) · [fft.sc](/benchmarks/stdlib/fft.sc) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
 :::
 
 ## Xeon Platinum 8570 + NVIDIA H200 {#xeon-8570-h200}
@@ -288,7 +292,7 @@ NVIDIA NGC PyTorch 컨테이너는 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`을 설�
 
 | 프레임워크 | 장치 | 학습 (100 스텝) | 처리량 | 추론 (1000회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 144.0 ms | 44,459 samples/s | 481.1 ms | 100.333427 |
+| SafeC | CPU (스칼라 루프, beta-5) | 144.0 ms | 44,459 samples/s | 481.1 ms | 100.333427 |
 | SafeC | CPU (OpenBLAS) | 40.8 ms | 157,036 samples/s | 93.9 ms | 100.333420 |
 | SafeC | CUDA (H200), plain | 6.72 ms | 951,673 samples/s | 38.7 ms | 100.333282 |
 | SafeC | CUDA, fused | 6.23 ms | 1,027,287 samples/s | 34.9 ms | 100.333282 |
@@ -303,7 +307,7 @@ NVIDIA NGC PyTorch 컨테이너는 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`을 설�
 
 | 프레임워크 | 장치 | 학습 (50 스텝) | 처리량 | 추론 (200회) | 손실 (검증용) |
 |---|---|---|---|---|---|
-| SafeC | CPU (naive) | 2323.4 ms | 2,755 samples/s | 2764.1 ms | 95.428474 |
+| SafeC | CPU (스칼라 루프, beta-5) | 2323.4 ms | 2,755 samples/s | 2764.1 ms | 95.428474 |
 | SafeC | CPU (OpenBLAS) | 205.8 ms | 31,094 samples/s | 255.3 ms | 95.424973 |
 | SafeC | CUDA (H200), plain | 4.08 ms | 1,569,397 samples/s | 8.21 ms | 95.427277 |
 | SafeC | CUDA, fused | 3.76 ms | 1,701,223 samples/s | 7.59 ms | 95.427292 |
@@ -321,7 +325,7 @@ NVIDIA NGC PyTorch 컨테이너는 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`을 설�
 
 ### H200에서의 합성곱과 FFT {#h200-conv-fft}
 
-SafeC의 순수 CPU 코드(`cnn.h`, `unet.h`, `fft.h`)를 GPU 라이브러리
+SafeC의 beta-5 CPU 코드(`cnn.h`, `unet.h`, `fft.h`, 당시에는 순수 스칼라 루프)를 GPU 라이브러리
 [`gpu_cudnn.h`와 `fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)(cuDNN 9.15,
 CUDA 13.0의 cuFFT), 그리고 두 장치의 PyTorch와 비교합니다. 텐서는 호출
 사이에 GPU에 머뭅니다. SafeC CUDA와 PyTorch-CUDA 행은 두 번의 동기화 사이에
@@ -342,7 +346,7 @@ PyTorch에서 `cudnn.allow_tf32 = False`로 두고 SafeC에서 `cuda_set_tf32`�
 
 | 프레임워크 | 장치 | conv64, 이미지 1장 | conv64, 이미지 32장 | unet128, 이미지 1장 | unet128, 이미지 16장 |
 |---|---|---|---|---|---|
-| SafeC | CPU (단순 루프, 1 스레드) | 169.8 | — | 459.1 | — |
+| SafeC | CPU (직접 루프, 1 스레드, beta-5) | 169.8 | — | 459.1 | — |
 | PyTorch | CPU (12 스레드) | 0.307 | — | 3.21 | — |
 | SafeC | CUDA, fp32 | 0.0336 | **0.164** | 0.175 | **0.731** |
 | SafeC | CUDA, fp32, U-Net을 그래프 하나로 | | | **0.164** | |
@@ -356,19 +360,19 @@ FFT, 호출당 ms. `fft1d`와 `fft2d`는 호스트 메모리에서 시작해 호
 (`cuda_fft`/`cuda_fft2d`; `.to("cuda")`, `torch.fft`, `.cpu()`). `batch`와
 `rfft`는 이미 GPU에 있는 데이터로 실행합니다(`cuda_fft_c2c`/`cuda_fft_r2c`;
 complex64와 float32). 이 둘의 SafeC CPU 행은 `double`로 각 행에
-`fft`/`fft_real`을 반복합니다.
+`fft`/`fft_real`을 반복합니다(beta-5 벤치마크 소스).
 
 | 프레임워크 | 장치 | fft1d, 2²⁰점 | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
 |---|---|---|---|---|---|
-| SafeC | CPU (radix-2, 1 스레드) | 198.1 | 193.7 | 448.0 | 445.7 |
+| SafeC | CPU (radix-2, 1 스레드, beta-5) | 198.1 | 193.7 | 448.0 | 445.7 |
 | PyTorch | CPU (12 스레드) | **1.20** | **0.660** | 3.08 | 0.291 |
 | SafeC | CUDA | 2.68 | 2.68 | 0.0245 | **0.0108** |
 | PyTorch | CUDA | 2.07 | 2.06 | **0.0240** | 0.0119 |
 
 - **GPU 합성곱**: fp32에서 SafeC는 32장 배치에서 PyTorch보다 1.6배, U-Net에서는 두 배치 크기 모두 1.18–1.25배 빠릅니다. 배치 1의 U-Net은 연산 11개의 실행 비용이 지배하므로, 그래프 하나로 기록하면 TF32에서 가장 효과가 큽니다: 0.123 ms, PyTorch는 0.274 ms. 이미지 한 장짜리 합성곱 하나는 PyTorch가 이깁니다(0.022 ms 대 0.034 ms). 두 가지 차이가 원인일 수 있지만 따로 측정하지는 않았습니다: SafeC는 바이어스를 두 번째 cuDNN 호출로 더하고, PyTorch는 다른 커널을 제공하는 cuDNN 그래프 API를 씁니다. TF32 배치 16–32에서는 PyTorch가 9–19% 빠릅니다. TF32는 SafeC의 배치 합성곱을 35% 줄이고 배치 1에서는 차이가 없습니다.
-- **CPU와 비교**: SafeC의 `conv2d_forward`는 한 스레드에서 도는 7중 직접 루프입니다. 같은 레이어를 cuDNN으로 돌리면 배치 1에서 1/5,000, U-Net은 1/2,600 시간이 걸립니다. PyTorch의 CPU 경로(oneDNN, 12 스레드)는 `conv64`에서 SafeC CPU 루프보다 550배 빠릅니다.
+- **CPU와 비교**: 이 측정(v1.0.0-beta-5)에서 SafeC의 `conv2d_forward`는 한 스레드에서 도는 7중 직접 루프였습니다. 같은 레이어를 cuDNN으로 돌리면 배치 1에서 1/5,000, U-Net은 1/2,600 시간이 걸렸습니다. PyTorch의 CPU 경로(oneDNN, 12 스레드)는 `conv64`에서 그 루프보다 550배 빨랐습니다. 이후 CPU 경로는 스레드 풀 위의 SIMD GEMM과 FFT로 바뀌었습니다. 새 코드는 [7800X3D 표](#mi100-conv-fft)에 있으며, 이 머신에서는 아직 다시 재지 않았습니다.
 - **GPU FFT**: 데이터가 GPU에 있으면 SafeC와 PyTorch 모두 cuFFT를 부르고, 시간 차이는 10% 이내입니다. 호스트 배열에서는 PCIe가 지배합니다. 16 MB 복사는 방향마다 1.05 ms로 SafeC와 PyTorch가 같습니다. 그런데도 SafeC의 왕복이 PyTorch보다 0.6 ms 더 걸리며, 원인은 아직 모릅니다.
-- **CPU FFT**: `fft.h`는 버터플라이 루프 안에서 회전 인자마다 `cos`/`sin`을 계산하고 한 스레드에서 돕니다. 2²⁰점 변환에서 PyTorch의 CPU FFT가 165배 빠릅니다. 같은 호출을 `cuda_fft`로 하면 PCIe 전송을 포함해 `fft`보다 74배 빠릅니다.
+- **CPU FFT**: 이 측정에서 `fft.h`는 버터플라이 루프 안에서 회전 인자마다 `cos`/`sin`을 계산하고 한 스레드에서 돌았습니다. 2²⁰점 변환에서 PyTorch의 CPU FFT가 165배, 같은 호출의 `cuda_fft`가 PCIe 전송을 포함해 `fft`보다 74배 빨랐습니다. 현재 `fft.h`는 [7800X3D 표](#mi100-conv-fft)를 보세요.
 
 ### Xeon 8570에서의 기본 벤치마크 {#xeon-8570-classic}
 

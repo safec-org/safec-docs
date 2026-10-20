@@ -167,13 +167,30 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 inver
 
 In-place, iterative decimation-in-time FFT: O(n log n) instead of `dft.h`'s O(n²), at the cost of requiring `n` to be a power of two (functions return 0 and leave `data` unmodified otherwise — fall back to `dft.h` for arbitrary lengths).
 
+How it runs:
+
+- **Twiddle table.** Twiddle factors come from one table shared by all threads. It is built the first time a length needs it and then kept; it only ever grows, so readers never lock.
+- **Blocking and SIMD.** Stages up to 2048 points run block by block, so a block stays in L1/L2 through all of them. Butterflies use `f64x2`.
+- **Threads.** Transforms of 32768 points or more are split across the [thread pool](/stdlib/sync#parallel). `fft_batch` and `fft_real_batch` spread many transforms over it.
+- **Real input.** `fft_real` computes the full n-point spectrum from one n/2-point complex transform.
+
+::: tip Real-time use
+In an audio callback, call `fft_prepare(maxN)` once beforehand, then use `fft_serial`/`ifft_serial`. They never allocate, lock or touch the thread pool. Once the table is prepared, `fft`/`ifft` below 32768 points don't either.
+:::
+
 On NVIDIA GPUs, [`fft_cuda.h`](/stdlib/ml#cuda-cudnn-cufft) runs the same transforms, and 2D ones, through cuFFT, for any length; on AMD GPUs, [`fft_rocm.h`](/stdlib/ml#rocm-miopen-hipfft) does the same through hipFFT.
 
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1 and a power of two
 int fft(&Complex data, unsigned long n);                      // in-place forward, 1=ok/0=not-pow2
 int ifft(&Complex data, unsigned long n);                     // in-place inverse (includes 1/N)
-int fft_real(const &double in, &Complex out, unsigned long n); // real -> complex convenience
+int fft_serial(&Complex data, unsigned long n);              // fft on the calling thread only
+int ifft_serial(&Complex data, unsigned long n);
+int fft_prepare(unsigned long n);                             // build twiddles for lengths <= n
+int fft_real(const &double in, &Complex out, unsigned long n); // real -> full n-point spectrum
+// 'batch' transforms stored back to back (row r at data[r*n]), threaded
+int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
+int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
 int ffft(&FComplex data, unsigned long n);                    // Q8.24 forward
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 inverse
 ```
@@ -249,7 +266,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 #include <std/dsp/filter.h>
 ```
 
-One-sample-at-a-time difference-equation filters, keeping their own history/state internally so a caller can feed real-time samples one at a time (e.g. inside a `std::Reactor` task) rather than needing the whole signal in memory the way `convolution.h` does.
+One-sample-at-a-time difference-equation filters, keeping their own history/state internally so a caller can feed real-time samples one at a time (e.g. inside a `std::Reactor` task) rather than needing the whole signal in memory the way `convolution.h` does. They never allocate or use threads. `FirFilter::process` walks its ring buffer as two contiguous runs with four partial sums, without a per-tap modulo.
 
 ```
 FIR ("feedforward"): y[n] = sum_{k=0}^{M-1} b[k]*x[n-k]
@@ -406,7 +423,7 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 inverse
 #include <std/dsp/stft.h>
 ```
 
-`stft_forward` slides a windowed frame across a signal and FFTs each one (`frameSize` must be a power of two), producing a spectrogram. `stft_inverse` reconstructs the signal via windowed overlap-add, normalized by the accumulated squared analysis window — exact whenever the window/hop combination satisfies the constant-overlap-add condition (e.g. Hann at 50%/75% overlap).
+`stft_forward` slides a windowed frame across a signal and FFTs each one (`frameSize` must be a power of two), producing a spectrogram. The frames are transformed together with `fft_batch`, so on a host they run on the thread pool. For streaming, window a frame at a time and use `fft_serial`. `stft_inverse` reconstructs the signal via windowed overlap-add, normalized by the accumulated squared analysis window — exact whenever the window/hop combination satisfies the constant-overlap-add condition (e.g. Hann at 50%/75% overlap).
 
 ```c
 #define STFT_WIN_RECTANGULAR 0
@@ -615,7 +632,7 @@ void cwt_morlet(const &double signal, unsigned long signalLen,
 #include <std/dsp/imaging.h>
 ```
 
-The 2D analogues of the 1D building blocks above: `conv2d` is zero-padded ("same"-size) 2D convolution; `fft2d`/`ifft2d` apply `fft.h`'s 1D transform to every row then every column (exact, since the 2D DFT is separable); the kernel generators cover the two convolution kernels almost every image pipeline needs.
+The 2D analogues of the 1D building blocks above: `conv2d` is zero-padded ("same"-size) 2D convolution; `fft2d`/`ifft2d` apply `fft.h`'s 1D transform to every row then every column (exact, since the 2D DFT is separable). Rows go through `fft_batch`. Columns are gathered 8 at a time into a contiguous buffer, and groups of columns run on the thread pool; the kernel generators cover the two convolution kernels almost every image pipeline needs.
 
 ```c
 // img: h*w row-major; kernel: kh*kw row-major (kh/kw should be odd);

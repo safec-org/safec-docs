@@ -26,7 +26,7 @@ int main() {
 }
 ```
 
-로드와 스토어는 첫 원소에 대한 참조를 받아 그 위치부터 연속된 N개의 원소를 읽거나 씁니다. 배열 원소의 주소(`&src[0]`)를 넘기는 데에는 `unsafe`가 필요 없습니다.
+로드와 스토어는 첫 원소에 대한 참조를 받아 그 위치부터 연속된 N개의 원소를 정렬되지 않은(unaligned) 벡터 로드/스토어 하나로 읽거나 씁니다. 배열 원소의 주소(`&src[0]`)를 넘기는 데에는 `unsafe`가 필요 없습니다.
 
 ## 타입 별칭 {#type-aliases}
 
@@ -54,7 +54,7 @@ LLVM이 이를 두 개의 128비트 연산으로 레거라이즈하며, 여전�
 | `simd_load_<type>(const &T p)` | `p`부터 N개 레인을 로드 — 구조상 정렬 불필요 |
 | `simd_store_<type>(v, &T p)` | `p`부터 N개 레인을 스토어 |
 | `simd_splat_<type>(x)` | 스칼라를 모든 레인에 브로드캐스트 |
-| `simd_fma_<type>(a, b, c)` | 융합 곱셈-덧셈: `a*b + c` |
+| `simd_fma_<type>(a, b, c)` | 곱셈-덧셈 `a*b + c`, 타깃에 FMA가 있으면 융합된 명령어 하나 |
 | `simd_min_<type>(a, b)` / `simd_max_<type>(a, b)` | 원소 단위 최소/최대 |
 | `simd_hsum_<type>(v)` | 수평 합 — 모든 레인을 하나의 스칼라로 축약 |
 | `simd_hmin_<type>(v)` / `simd_hmax_<type>(v)` | 수평 최소/최대 |
@@ -82,6 +82,43 @@ float dot4(const &float a, const &float b) {
     return std::simd_hsum_f32x4(acc);
 }
 ```
+
+## 행렬 곱셈 — `gemm.h` {#gemm}
+
+```c
+#include <std/simd/gemm.h>
+```
+
+CPU용 단정밀도 GEMM으로, `vec<float, 8>` 위에 작성되어 하나의 소스가 x86-64에서는 SSE/AVX, AArch64에서는 NEON, WebAssembly에서는 SIMD128, 그 밖에서는 스칼라 코드가 됩니다. A와 B를 연속된 스트립으로 패킹한 뒤 4 × 16 레지스터 타일 커널로 곱합니다. 곱셈-덧셈이 약 백만 회 이상인 곱은 C를 타일로 나누어 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다.
+
+```c
+#define SGEMM_NO_TRANS 0
+#define SGEMM_TRANS    1
+
+// C = alpha * op(A) * op(B) + beta * C, 행 우선; op(A)는 m x k, op(B)는 k x n.
+// 'ld' = 두 행의 시작 사이의 원소 수. beta == 0이면 C를 읽지 않음.
+void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k,
+           float alpha, const &float a, unsigned long lda,
+           const &float b, unsigned long ldb,
+           float beta, &float c, unsigned long ldc);
+
+// 같은 연산을 항상 호출한 스레드에서만 (풀 없음): 이미 병렬이거나
+// 다른 스레드를 기다리면 안 되는 코드용.
+void sgemm_serial(/* 같은 매개변수 */);
+```
+
+`tensor_matmul`(순전파와 역전파)과 `conv2d_forward`가 이것을 기반으로 합니다.
+
+Ryzen 7 7800X3D(8코어 / 16스레드)에서 정사각 행렬의 처리량:
+
+| 빌드 | N = 256 | N = 512 | N = 1024 |
+|---|---|---|---|
+| 기본 타깃 (x86-64 베이스라인, SSE2), 1스레드 | 25 GFLOP/s | 25 GFLOP/s | 25 GFLOP/s |
+| 기본 타깃, 16스레드 | 161 GFLOP/s | 201 GFLOP/s | 226 GFLOP/s |
+| `-march=native` (AVX-512 + FMA), 1스레드 | 109 GFLOP/s | 106 GFLOP/s | 100 GFLOP/s |
+| `-march=native`, 16스레드 | 336 GFLOP/s | 503 GFLOP/s | 614 GFLOP/s |
+
+기본 타깃은 이식 가능한 베이스라인입니다. 호스트의 전체 벡터 폭을 쓰려면 생성된 IR을 std까지 포함해 `clang -march=native`(또는 특정 `-march=`)로 컴파일하세요.
 
 ## ISA별 편의 헤더 {#per-isa-convenience-headers}
 

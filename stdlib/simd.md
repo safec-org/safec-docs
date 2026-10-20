@@ -26,7 +26,7 @@ int main() {
 }
 ```
 
-Load and store take a reference to the first element and read or write N consecutive elements from there. Passing the address of an array element (`&src[0]`) needs no `unsafe`.
+Load and store take a reference to the first element and read or write N consecutive elements from there, as one unaligned vector load or store. Passing the address of an array element (`&src[0]`) needs no `unsafe`.
 
 ## Type Aliases
 
@@ -54,7 +54,7 @@ just not a single instruction).
 | `simd_load_<type>(const &T p)` | Load N lanes starting at `p` — unaligned by construction |
 | `simd_store_<type>(v, &T p)` | Store N lanes starting at `p` |
 | `simd_splat_<type>(x)` | Broadcast a scalar to every lane |
-| `simd_fma_<type>(a, b, c)` | Fused multiply-add: `a*b + c` |
+| `simd_fma_<type>(a, b, c)` | Multiply-add `a*b + c`, as one fused instruction where the target has FMA |
 | `simd_min_<type>(a, b)` / `simd_max_<type>(a, b)` | Elementwise min/max |
 | `simd_hsum_<type>(v)` | Horizontal sum — reduce all lanes to one scalar |
 | `simd_hmin_<type>(v)` / `simd_hmax_<type>(v)` | Horizontal min/max |
@@ -82,6 +82,43 @@ float dot4(const &float a, const &float b) {
     return std::simd_hsum_f32x4(acc);
 }
 ```
+
+## Matrix multiply — `gemm.h` {#gemm}
+
+```c
+#include <std/simd/gemm.h>
+```
+
+Single-precision GEMM for the CPU, written on `vec<float, 8>`, so one source uses SSE/AVX on x86-64, NEON on AArch64, SIMD128 on WebAssembly, and scalar code elsewhere. A and B are packed into contiguous strips and multiplied by a 4 × 16 register-tile kernel; C is cut into tiles that run on the [thread pool](/stdlib/sync#parallel) once a product has about a million multiply-adds.
+
+```c
+#define SGEMM_NO_TRANS 0
+#define SGEMM_TRANS    1
+
+// C = alpha * op(A) * op(B) + beta * C, row-major; op(A) is m x k, op(B) is k x n.
+// 'ld' = elements between the starts of two rows. beta == 0 never reads C.
+void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k,
+           float alpha, const &float a, unsigned long lda,
+           const &float b, unsigned long ldb,
+           float beta, &float c, unsigned long ldc);
+
+// Same, always on the calling thread (no pool): for code that is already
+// parallel or must not block on other threads.
+void sgemm_serial(/* same parameters */);
+```
+
+`tensor_matmul` (forward and backward) and `conv2d_forward` are built on it.
+
+Throughput on a Ryzen 7 7800X3D (8 cores / 16 threads), square matrices:
+
+| Build | N = 256 | N = 512 | N = 1024 |
+|---|---|---|---|
+| default target (x86-64 baseline, SSE2), 1 thread | 25 GFLOP/s | 25 GFLOP/s | 25 GFLOP/s |
+| default target, 16 threads | 161 GFLOP/s | 201 GFLOP/s | 226 GFLOP/s |
+| `-march=native` (AVX-512 + FMA), 1 thread | 109 GFLOP/s | 106 GFLOP/s | 100 GFLOP/s |
+| `-march=native`, 16 threads | 336 GFLOP/s | 503 GFLOP/s | 614 GFLOP/s |
+
+The default target is the portable baseline. Building with the host's full vector width means compiling the generated IR, std included, with `clang -march=native` (or a specific `-march=`).
 
 ## Per-ISA Convenience Headers
 

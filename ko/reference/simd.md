@@ -86,6 +86,27 @@ vec<float, 4> global_v = {10.0, 20.0, 30.0, 40.0};   // 괜찮음 — 리터럴�
 `v[i]`는 포인터 연산이 아니라, SSA로 존재하는 벡터 값 전체에 대한
 `extractelement`/`insertelement`로 낮춰진다.
 
+## 포인터를 통한 로드와 스토어 {#loads-and-stores-through-pointers}
+
+`vec<T, N>` 포인터를 역참조하면 `N`개 레인을 한 번에 읽거나 쓴다:
+
+```c
+unsafe {
+    *(vec<float, 8>*)&y[i] = *(vec<float, 8>*)&y[i] + a * *(const vec<float, 8>*)&x[i];
+}
+```
+
+이런 포인터는 보통 배열 안 원소의 주소에서 오며, 원소 크기로만 정렬되어 있다. 그래서 이 접근은 벡터 자체의 정렬(32)이 아니라 원소의 정렬(여기서는 4바이트)을 가정하고, 정렬되지 않은 벡터 로드/스토어로 컴파일된다. 컴파일러가 직접 배치하는 벡터 지역 변수와 전역 변수는 전체 정렬을 유지한다.
+
+## 빌트인 {#builtins}
+
+| 빌트인 | 타입 | 낮춰지는 형태 |
+|---|---|---|
+| `__builtin_fmuladd(a, b, c)` | `float`, `double`, `vec<float/double, N>` (세 인자 모두 같은 타입) | 타깃에 FMA가 있으면 융합 곱셈-덧셈 하나, 없으면 곱셈과 덧셈 (`llvm.fmuladd`) |
+| `__builtin_sqrt(x)` | `float`, `double`, `vec<float/double, N>` | IEEE 제곱근 (`llvm.sqrt`); 하드웨어 sqrt가 있으면 명령어 하나이며, (`sqrtf` 호출과 달리) 루프 안에서 벡터화된다 |
+
+일반 `a * b + c`는 반올림이 달라지므로 절대 FMA로 축약되지 않는다. 내적이나 행렬 커널처럼 융합해도 되는 곳에서 `__builtin_fmuladd`를 쓴다.
+
 ## `std::simd`와의 관계 {#relationship-to-stdsimd}
 
 `vec<T,N>`는 컴파일러 수준의 빌딩 블록이다. [`std::simd`](/ko/stdlib/simd)는

@@ -49,6 +49,11 @@ Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/`tensor_matmul`/
 `tensor_relu`/`tensor_sum`. Verified against hand-computed gradients and a
 real finite-difference check on a matmul→relu→sum chain.
 
+`tensor_matmul` and its backward pass run on [`sgemm`](/stdlib/simd#gemm):
+packed SIMD kernels, split across the [thread pool](/stdlib/sync#parallel)
+for larger products. The backward pass accumulates straight into the
+existing gradients. Set `SAFEC_NUM_THREADS` to limit the thread count.
+
 ```c
 struct Tensor {
     &heap float         data;          // flat row-major, length == size
@@ -278,6 +283,14 @@ concatenation) — all over a channels-first `FeatureMap` (not `Tensor`,
 which tops out at 2D). Verified via hand-computed 3×3-kernel and
 pooling-window checks.
 
+`conv2d_forward` is im2col + [`sgemm`](/stdlib/simd#gemm). Each block of
+output pixels gathers its receptive fields into a per-thread column buffer
+and multiplies it by the weight matrix. Blocks run on the
+[thread pool](/stdlib/sync#parallel), so the full im2col matrix is never
+built. 1×1 convolutions skip the gather. `conv2d_relu_forward` applies
+the ReLU in the same pass. Pooling, upsampling and concatenation are split
+across the pool by channel once a map is large enough.
+
 ```c
 struct FeatureMap {
     &heap float   data;      // channels × height × width, channels-first
@@ -292,6 +305,7 @@ struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
                          unsigned long kH, unsigned long kW,
                          unsigned long stride, unsigned long padding);
 struct FeatureMap conv2d_forward(const &Conv2D layer, const &FeatureMap input);
+struct FeatureMap conv2d_relu_forward(const &Conv2D layer, const &FeatureMap input);  // relu(conv), one pass
 void              conv2d_free(&Conv2D layer);
 
 struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
@@ -731,7 +745,7 @@ Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
 | `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
-| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks naive / vDSP / BLAS by size |
+| `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks core (`sgemm`) / vDSP / BLAS by size |
 
 `tensor_gpu.h` also controls MPS batching and persistence at the tensor level:
 
@@ -742,7 +756,7 @@ void tensor_gpu_mark_persistent(const &Tensor t);   // keep t's data resident on
 void tensor_gpu_release_all_persistent();
 ```
 
-`tensor_auto.h` is CPU-only on purpose: across every size benchmarked (matmul from 2×2×2 to 128×128×128, and a 128×512×1024×256 training step) BLAS never lost to the naive loop and MPS never beat BLAS, so "auto" doesn't pick the GPU. Ask for it explicitly with `tensor_matmul_on(..., DEVICE_MPS)`.
+`tensor_auto.h` is CPU-only on purpose: across every size benchmarked (matmul from 2×2×2 to 128×128×128, and a 128×512×1024×256 training step) BLAS never lost to the core loop (measured before `tensor_matmul` moved to `sgemm`) and MPS never beat BLAS, so "auto" doesn't pick the GPU. Ask for it explicitly with `tensor_matmul_on(..., DEVICE_MPS)`.
 
 ### Backend status {#backend-status}
 
