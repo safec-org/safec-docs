@@ -529,7 +529,7 @@ the backend picks the one with the most compute units.
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
 | fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
-| Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32` |
+| Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)` (matrix cores on CDNA GPUs) |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
 | Host arrays | `rocm_add_f32` … `rocm_matmul_f32_blas` — upload, compute, read back in one call |
@@ -598,21 +598,23 @@ rejected or no ROCm GPU is present.
   approximates softmax attention, so its results differ from flash attention.
   It matches `std::linear_attention_forward` on the CPU.
 
-MI100, 16 heads, `headDim` 64, fp32, ms per call (PyTorch 2 `scaled_dot_product_attention` on the same GPU for reference):
+On GPUs with matrix cores (CDNA: MI100, MI200, MI300) both ops run on them in
+fp32 (MFMA). Other AMD GPUs use CUDA-core kernels that give the same results up to
+rounding. `rocm_attention_use_mfma(0)` selects the CUDA-core kernels on a
+CDNA GPU too, for comparison; `rocm_attention_use_mfma(1)` restores the
+default, and both return whether the matrix-core kernels are in use.
 
-| seqLen | causal | `rocm_flash_attention` | `rocm_linear_attention` | PyTorch SDPA |
-|---:|:---:|---:|---:|---:|
-| 1024 | no | 1.39 | 0.35 | 0.72 |
-| 1024 | yes | 0.86 | 0.43 | 0.93 |
-| 4096 | no | 12.5 | 1.22 | 11.4 |
-| 4096 | yes | 7.28 | 1.73 | 15.1 |
-| 16384 | no | 184 | 5.14 | out of memory |
-| 16384 | yes | 91.4 | 6.40 | out of memory |
+MI100, batch 4 × 16 heads, fp32, ms per call, against PyTorch 2.9.1 on ROCm on
+the same GPU ([full results](/benchmarks#mi100-attention)):
 
-On gfx908, PyTorch runs SDPA as plain math and materializes the score matrix,
-so at 16k tokens (a 17 GB score matrix per copy) it runs out of memory. The flash kernel uses
-vector fp32 units rather than matrix cores, so for short non-causal
-sequences PyTorch's rocBLAS-backed path is faster.
+| Op | `headDim` | Tokens | Causal | SafeC | PyTorch |
+|---|---:|---:|:---:|---:|---:|
+| flash | 64 | 4096 | no | 10.7 (25.7 TFLOPS) | 42.8 |
+| flash | 64 | 4096 | yes | 5.48 | 56.2 |
+| flash | 128 | 4096 | no | 24.8 (22.2 TFLOPS) | 53.4 |
+| linear | 64 | 4096 | no | 0.464 | 1.40 |
+| linear | 64 | 16384 | yes | 2.76 | 14.6 |
+| linear | 128 | 4096 | yes | 2.84 | 8.73 |
 
 ### CUDA (NVIDIA) {#cuda}
 

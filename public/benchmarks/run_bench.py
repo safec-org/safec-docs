@@ -445,10 +445,27 @@ def bench_fft(runs):
 
 def bench_attention(runs):
     """Flash and linear attention on the GPU: SafeC's CUDA kernels
-    (attention/safec/attn_cuda.sc) against PyTorch (attention/pytorch/attn.py:
+    (attention/safec/attn_cuda.sc) and ROCm kernels (attention/safec/attn_rocm.sc,
+    fp32 rows) against PyTorch (attention/pytorch/attn.py:
     scaled_dot_product_attention, a vectorized linear-attention baseline and,
     if installed, flash-linear-attention's Triton kernel)."""
     res = {}
+    if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
+        out = os.path.join(BUILD, "attention", "safec_rocm")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        libs = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, "attention/safec/attn_rocm.sc"), out, True, extra_libs=libs))
+            res["safec_rocm"] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res["safec_rocm"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention safec_rocm {res['safec_rocm']}", flush=True)
+        try:
+            res["pytorch_rocm"] = best_labeled([sh([MLPY, os.path.join(HERE, "attention/pytorch/attn.py"), "rocm"])
+                                                for _ in range(runs)])
+        except Exception as e:
+            res["pytorch_rocm"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention pytorch_rocm {res['pytorch_rocm']}", flush=True)
     if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
         out = os.path.join(BUILD, "attention", "safec_cuda")
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -459,7 +476,7 @@ def bench_attention(runs):
         except Exception as e:
             res["safec_cuda"] = {"error": str(e).splitlines()[0][:200]}
         print(f"  attention safec_cuda {res['safec_cuda']}", flush=True)
-    if "cuda" in torch_devices():
+    if shutil.which("nvidia-smi") and "cuda" in torch_devices():
         try:
             res["pytorch_cuda"] = best_labeled([sh([MLPY, os.path.join(HERE, "attention/pytorch/attn.py"), "cuda"])
                                                 for _ in range(runs)])

@@ -519,7 +519,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
 | fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
-| 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32` |
+| 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)`(CDNA GPU의 행렬 코어) |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
 | 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
@@ -586,22 +586,23 @@ ROCm GPU가 없으면 0을 돌려준다.
   계산한다. softmax 어텐션의 근사이므로 flash 어텐션과 결과가 다르며, CPU의
   `std::linear_attention_forward`와 일치한다.
 
-MI100, 헤드 16개, `headDim` 64, fp32, 호출당 ms(같은 GPU의 PyTorch 2
-`scaled_dot_product_attention`을 참고로 함):
+행렬 코어가 있는 GPU(CDNA: MI100, MI200, MI300)에서는 두 연산 모두 행렬 코어에서
+fp32(MFMA)로 돈다. 다른 AMD GPU는 반올림 오차 범위에서 같은 결과를 내는 CUDA 코어
+커널을 쓴다. `rocm_attention_use_mfma(0)`은 비교를 위해 CDNA GPU에서도 CUDA 코어
+커널을 고르고, `rocm_attention_use_mfma(1)`은 기본값으로 되돌린다. 둘 다 행렬
+코어 커널을 쓰고 있는지를 돌려준다.
 
-| seqLen | causal | `rocm_flash_attention` | `rocm_linear_attention` | PyTorch SDPA |
-|---:|:---:|---:|---:|---:|
-| 1024 | 아니오 | 1.39 | 0.35 | 0.72 |
-| 1024 | 예 | 0.86 | 0.43 | 0.93 |
-| 4096 | 아니오 | 12.5 | 1.22 | 11.4 |
-| 4096 | 예 | 7.28 | 1.73 | 15.1 |
-| 16384 | 아니오 | 184 | 5.14 | 메모리 부족 |
-| 16384 | 예 | 91.4 | 6.40 | 메모리 부족 |
+MI100, 배치 4 × 헤드 16, fp32, 호출당 ms, 같은 GPU의 ROCm용 PyTorch 2.9.1과
+비교([전체 결과](/ko/benchmarks#mi100-attention)):
 
-gfx908에서 PyTorch는 SDPA를 일반 수학 경로로 돌려 점수 행렬을 만들므로
-16k 토큰에서는(복사본 하나당 17 GB 점수 행렬) 메모리가 부족하다. flash
-커널은 행렬 코어가 아닌 벡터 fp32 유닛을 쓰므로, 짧은 non-causal
-시퀀스에서는 rocBLAS 기반인 PyTorch 경로가 더 빠르다.
+| 연산 | `headDim` | 토큰 | Causal | SafeC | PyTorch |
+|---|---:|---:|:---:|---:|---:|
+| flash | 64 | 4096 | 아니오 | 10.7 (25.7 TFLOPS) | 42.8 |
+| flash | 64 | 4096 | 예 | 5.48 | 56.2 |
+| flash | 128 | 4096 | 아니오 | 24.8 (22.2 TFLOPS) | 53.4 |
+| linear | 64 | 4096 | 아니오 | 0.464 | 1.40 |
+| linear | 64 | 16384 | 예 | 2.76 | 14.6 |
+| linear | 128 | 4096 | 예 | 2.84 | 8.73 |
 
 ### CUDA (NVIDIA) {#cuda}
 

@@ -21,6 +21,7 @@ Release-build wall-clock time (lower is better; fastest in bold). SafeC's binary
 - **CPU convolution and FFT** ([details](#mi100-conv-fft)): with Winograd 3×3 convolutions and per-image arenas the U-Net runs in 1.35 ms on the CPU vs PyTorch's 2.68 ms. A 2²⁰-point FFT takes 0.89 ms vs 16-thread FFTW's 1.63 ms; FFTW is 1.1–1.6× faster on the 2D, batched and real transforms.
 - **DSP** ([details](#dsp-cpu)): `std/dsp` is the fastest of SafeC, SciPy, KFR, Q, madronalib and dasp on every workload measured, in double and in float. A biquad over 2²⁰ samples takes 0.48 ms vs Q's 1.69 ms (float), a 127-tap streaming FIR 3.0 ms vs SciPy's 19.5 ms, and resampling 44.1→48 kHz 3.7 ms vs SciPy's 9.1 ms.
 - **Attention on the H200** ([details](#h200-attention)): fp16/bf16 flash attention through cuDNN matches PyTorch (within 3%, up to 690 TFLOPS); fp32 flash attention on tensor cores (3xTF32) matches it at head dim 64 and reaches 0.7× at 128. Linear attention at head dim 64 is up to 1.6× faster than PyTorch and level with flash-linear-attention; at head dim 128 it is 0.45–0.78×.
+- **Attention on the MI100** ([details](#mi100-attention)): fp32 flash attention runs on the matrix cores at 18–26 TFLOPS. That is 1.8–4× faster than PyTorch-ROCm without a mask and 4–10× faster with a causal one. Linear attention is 2–5.4× faster.
 - **Convolution and FFT on the H200** ([details](#h200-conv-fft)): with cuDNN, SafeC is faster than PyTorch-CUDA in every convolution row. A one-image 64-channel 3×3 convolution takes 0.018 ms vs 0.023 ms (fp32), a batch of 32 takes 0.084 ms vs 0.098 ms (TF32), and the U-Net at batch 16 takes 0.45 ms vs 0.56 ms (TF32). A 2²⁰-point FFT of a host array, including both PCIe copies, takes 1.25 ms vs 2.05 ms. Device-resident cuFFT transforms take the same time as through PyTorch.
 - **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 2.2× faster than a `malloc`-per-node one; `HashMap` is within 1.1× of plain C and `Vec` push 1.5× slower.
 - **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, and with its slabs 1.1× faster with a million blocks live at once.
@@ -322,6 +323,43 @@ The single-thread SafeC rows were run separately (`SAFEC_NUM_THREADS=1`), after 
 
 ::: details Sources
 [conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_rocm.sc](/benchmarks/fft/safec/fft_rocm.sc) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft.py](/benchmarks/fft/pytorch/fft.py) · [fftw_bench.c](/benchmarks/fft/c/fftw_bench.c) · [kfr_bench.cpp](/benchmarks/dsp/cpp/kfr_bench.cpp) · [RustFFT main.rs](/benchmarks/dsp/rust/src/main.rs) · [cnn.sc](/benchmarks/stdlib/cnn.sc) · [unet.sc](/benchmarks/stdlib/unet.sc) · [gemm.sc](/benchmarks/stdlib/gemm.sc) · [fft.h](/benchmarks/stdlib/fft.h) · [fft.sc](/benchmarks/stdlib/fft.sc) · [fft_f32.sc](/benchmarks/stdlib/fft_f32.sc) · [fft_core.h](/benchmarks/stdlib/fft_core.h) · [parallel.sc](/benchmarks/stdlib/parallel.sc) · [gpu_miopen.h](/benchmarks/stdlib/gpu_miopen.h) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [fft_rocm.h](/benchmarks/stdlib/fft_rocm.h) · [fft_rocm.sc](/benchmarks/stdlib/fft_rocm.sc) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
+:::
+
+## Attention on the MI100 {#mi100-attention}
+
+Flash and linear attention from [`gpu_rocm.h`](/stdlib/ml#rocm-attention) against PyTorch 2.9.1 on ROCm 6.4, with the fp32 shapes of the [H200 run](#h200-attention): batch 4 × 16 heads (passed to SafeC as 64 heads, the same memory layout), data on the GPU. Each number is the mean of 5–40 queued calls between two synchronizations, best of 3 runs. TFLOPS count 4·B·H·S²·D (halved when causal). On gfx908, PyTorch's `scaled_dot_product_attention` has no fused kernel: it forms the whole score matrix with batched matrix products and runs the softmax over it. Its linear-attention rows are the same vectorized PyTorch code as on the H200, in IEEE fp32 (the MI100 has no TF32).
+
+Flash attention, ms per call (TFLOPS):
+
+| Head dim | Tokens | Causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | PyTorch / SafeC |
+|---|---|---|---|---|---|
+| 64 | 1024 | no | **0.858 (20.0)** | 2.52 (6.8) | 2.93 |
+| 64 | 1024 | yes | **0.457 (18.7)** | 3.28 (2.6) | 7.17 |
+| 64 | 4096 | no | **10.7 (25.7)** | 42.8 (6.4) | 4.00 |
+| 64 | 4096 | yes | **5.48 (25.0)** | 56.2 (2.5) | 10.25 |
+| 128 | 1024 | no | **1.81 (18.9)** | 3.32 (10.3) | 1.83 |
+| 128 | 1024 | yes | **0.950 (18.0)** | 4.05 (4.2) | 4.26 |
+| 128 | 4096 | no | **24.8 (22.2)** | 53.4 (10.3) | 2.16 |
+| 128 | 4096 | yes | **12.6 (21.9)** | 66.4 (4.1) | 5.29 |
+
+Linear attention (φ(x) = elu(x) + 1), ms per call:
+
+| Head dim | Tokens | Causal | SafeC | PyTorch | PyTorch / SafeC |
+|---|---|---|---|---|---|
+| 64 | 4096 | no | **0.464** | 1.40 | 3.02 |
+| 64 | 4096 | yes | **0.673** | 3.64 | 5.41 |
+| 64 | 16384 | no | **1.62** | 5.63 | 3.49 |
+| 64 | 16384 | yes | **2.76** | 14.6 | 5.28 |
+| 128 | 4096 | no | **1.60** | 3.25 | 2.03 |
+| 128 | 4096 | yes | **2.84** | 8.73 | 3.07 |
+
+- **Flash attention** runs on the MI100's matrix cores in fp32: `v_mfma_f32_32x32x2f32` up to head dim 64, and `16x16x4` at 128, which needs half the registers per wave and so keeps two waves per SIMD. The scores are computed transposed (Sᵀ = K Qᵀ), so each lane owns one query row. Its q stays in registers, the row max and sum need one cross-half shuffle, and P feeds the P·V product straight from registers. Causal blocks start longest first, and the output is rescaled only when a row's max grows by more than 2⁸, as in FlashAttention-4. That gives 18–26 TFLOPS of the MI100's 46 TFLOPS fp32 matrix peak, 4–7× faster than the CUDA-core kernel it replaces (45.5 ms → 10.7 ms at head dim 64 and 4096 tokens).
+- **Against PyTorch**, SafeC is 1.8–4× faster without a mask and 4–10× faster with a causal one. PyTorch's math path computes the whole score matrix whether or not it is masked, so masking makes it slower; SafeC skips fully masked tiles.
+- **Linear attention** works on 128-row chunks. Non-causal, and causal at head dim 128, it has three passes. Per-chunk states φ(K)ᵀV come from matrix cores. A scan runs over the chunks. Then an output pass holds φ(Q) rows in registers as the MFMA operand and adds the masked term inside each chunk. Causal attention up to head dim 64 runs as one pass. Each chunk's block loads its K/V tiles once and uses them twice: for the masked term and for its own state. It gets the prefix of earlier chunks with a decoupled look-back (Merrill & Garland's single-pass scan): blocks take chunks in order from an atomic ticket, publish their state at once, and add up predecessors' states back to the first published prefix. That removes the separate state and scan passes and a second read of K and V. Causal is 13% faster at 4096 tokens than with three passes (0.775 → 0.673 ms) and 10% faster at 16k. Overall that is 7–11× faster than the previous kernels and 2–5.4× faster than PyTorch.
+- GPUs without matrix cores (RDNA) use the CUDA-core kernels. `rocm_attention_use_mfma(0)` selects them on an MI100 too. `tests/stdlib/rocm/rocm_check.sc` checks both paths against a double-precision reference and attention.h's CPU functions: 251 checks.
+
+::: details Sources
+[attn_rocm.sc](/benchmarks/attention/safec/attn_rocm.sc) · [attn.py](/benchmarks/attention/pytorch/attn.py) · [gpu_rocm.h](/benchmarks/stdlib/gpu_rocm.h) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc)
 :::
 
 ## DSP on the CPU {#dsp-cpu}
