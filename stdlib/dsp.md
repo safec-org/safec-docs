@@ -167,6 +167,8 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 inver
 
 In-place, iterative decimation-in-time FFT: O(n log n) instead of `dft.h`'s O(n²), at the cost of requiring `n` to be a power of two (functions return 0 and leave `data` unmodified otherwise — fall back to `dft.h` for arbitrary lengths).
 
+On NVIDIA GPUs, [`fft_cuda.h`](/stdlib/ml#cuda-cudnn-cufft) runs the same transforms, and 2D ones, through cuFFT, for any length.
+
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1 and a power of two
 int fft(&Complex data, unsigned long n);                      // in-place forward, 1=ok/0=not-pow2

@@ -171,6 +171,8 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 
 제자리(in-place), 반복적인 시간 데시메이션 FFT입니다: `dft.h`의 O(n²) 대신 O(n log n)이지만, 그 대가로 `n`이 2의 거듭제곱이어야 합니다(그렇지 않으면 함수들은 0을 반환하고 `data`를 수정하지 않은 채로 둡니다 — 임의 길이에는 `dft.h`를 사용하세요).
 
+NVIDIA GPU에서는 [`fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)가 같은 변환과 2D 변환을 cuFFT로 실행하며, 길이 제한이 없습니다.
+
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1이고 2의 거듭제곱이면
 int fft(&Complex data, unsigned long n);                      // 제자리 순변환, 1=성공/0=2의거듭제곱아님
