@@ -897,7 +897,7 @@ Metal buffers (`mps_upload_persistent`, `mps_upload_f16/bf16_persistent`,
 | Host arrays | `mps_flash_attention_f32`, `mps_linear_attention_f32` (upload, compute, read back) |
 | Buffers | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
-On an M1 Pro, fp32 flash attention is 1.04–1.22× faster than MLX's fused attention and 1.16–1.43× faster than PyTorch's `mps` device, fp16/bf16 reach 0.80–0.97× of them (2.3–3.2 TFLOPS), and linear attention is 2.1–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#m1pro-attention).
+On an M1 Pro, fp32 flash attention is 1.01–1.42× faster than MLX's fused attention and 1.13–1.70× faster than PyTorch's `mps` device, bf16 at head dim 128 is level with MLX, fp16 and bf16 at 64 reach 0.80–1.02× of them (2.6–3.4 TFLOPS), and linear attention is 2.0–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#m1pro-attention).
 
 `tests/stdlib/mps/run.sh` builds `mps_attention_check`, which compares every path (both flash kernels, the chunked and sequential linear kernels, all three data types, GQA, KV-cache offsets, sliding windows, the host-array forms) with a double-precision reference and attention.h's CPU functions: 95 checks.
 

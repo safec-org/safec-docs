@@ -16,416 +16,416 @@
  "attention": {
   "safec_mps": {
    "flash fp16 d64 s1024 c0": {
-    "ms_per_call": 5.4611,
-    "tflops": 3.09
+    "ms_per_call": 4.9261,
+    "tflops": 3.4
    },
    "flash fp16 d64 s1024 c1": {
-    "ms_per_call": 2.9845,
-    "tflops": 2.86
+    "ms_per_call": 2.808,
+    "tflops": 2.99
    },
    "flash fp16 d64 s4096 c0": {
-    "ms_per_call": 87.2533,
-    "tflops": 3.15
+    "ms_per_call": 77.9922,
+    "tflops": 3.42
    },
    "flash fp16 d64 s4096 c1": {
-    "ms_per_call": 44.245,
-    "tflops": 3.04
+    "ms_per_call": 39.9959,
+    "tflops": 3.22
    },
    "flash fp16 d128 s1024 c0": {
-    "ms_per_call": 10.6854,
-    "tflops": 3.04
+    "ms_per_call": 10.958,
+    "tflops": 3.07
    },
    "flash fp16 d128 s1024 c1": {
-    "ms_per_call": 5.7193,
-    "tflops": 2.9
+    "ms_per_call": 6.1592,
+    "tflops": 2.72
    },
    "flash fp16 d128 s4096 c0": {
-    "ms_per_call": 169.1095,
-    "tflops": 3.19
+    "ms_per_call": 171.4948,
+    "tflops": 3.17
    },
    "flash fp16 d128 s4096 c1": {
-    "ms_per_call": 86.7084,
-    "tflops": 3.15
+    "ms_per_call": 89.7568,
+    "tflops": 2.97
    },
    "flash bf16 d64 s1024 c0": {
-    "ms_per_call": 5.9785,
-    "tflops": 2.86
+    "ms_per_call": 6.0435,
+    "tflops": 2.77
    },
    "flash bf16 d64 s1024 c1": {
-    "ms_per_call": 3.1875,
-    "tflops": 2.58
+    "ms_per_call": 3.2488,
+    "tflops": 2.55
    },
    "flash bf16 d64 s4096 c0": {
-    "ms_per_call": 92.981,
-    "tflops": 2.79
+    "ms_per_call": 95.7106,
+    "tflops": 2.8
    },
    "flash bf16 d64 s4096 c1": {
-    "ms_per_call": 47.6516,
-    "tflops": 2.84
+    "ms_per_call": 49.0912,
+    "tflops": 2.76
    },
    "flash bf16 d128 s1024 c0": {
-    "ms_per_call": 14.8888,
-    "tflops": 2.31
+    "ms_per_call": 12.1084,
+    "tflops": 2.82
    },
    "flash bf16 d128 s1024 c1": {
-    "ms_per_call": 7.608,
-    "tflops": 2.26
+    "ms_per_call": 6.7619,
+    "tflops": 2.52
    },
    "flash bf16 d128 s4096 c0": {
-    "ms_per_call": 231.895,
-    "tflops": 2.36
+    "ms_per_call": 189.1073,
+    "tflops": 2.9
    },
    "flash bf16 d128 s4096 c1": {
-    "ms_per_call": 113.4874,
-    "tflops": 2.26
+    "ms_per_call": 98.2186,
+    "tflops": 2.8
    },
    "flash fp32 d64 s1024 c0": {
-    "ms_per_call": 5.776,
-    "tflops": 2.96
+    "ms_per_call": 6.052,
+    "tflops": 2.82
    },
    "flash fp32 d64 s1024 c1": {
-    "ms_per_call": 3.1293,
-    "tflops": 2.74
+    "ms_per_call": 3.2054,
+    "tflops": 2.68
    },
    "flash fp32 d64 s4096 c0": {
-    "ms_per_call": 90.5778,
-    "tflops": 3.02
+    "ms_per_call": 93.7544,
+    "tflops": 2.93
    },
    "flash fp32 d64 s4096 c1": {
-    "ms_per_call": 46.5662,
-    "tflops": 2.95
+    "ms_per_call": 47.8302,
+    "tflops": 2.87
    },
    "flash fp32 d128 s1024 c0": {
-    "ms_per_call": 14.7256,
-    "tflops": 2.33
+    "ms_per_call": 12.1548,
+    "tflops": 2.83
    },
    "flash fp32 d128 s1024 c1": {
-    "ms_per_call": 7.5134,
-    "tflops": 2.27
+    "ms_per_call": 6.7408,
+    "tflops": 2.55
    },
    "flash fp32 d128 s4096 c0": {
-    "ms_per_call": 232.8616,
-    "tflops": 2.36
+    "ms_per_call": 187.0942,
+    "tflops": 2.94
    },
    "flash fp32 d128 s4096 c1": {
-    "ms_per_call": 112.706,
-    "tflops": 2.43
+    "ms_per_call": 97.8252,
+    "tflops": 2.81
    },
    "flash bf16 gqa32/8 d128 s4096 c1": {
-    "ms_per_call": 226.1706,
-    "tflops": 2.43
+    "ms_per_call": 194.9229,
+    "tflops": 2.82
    },
    "linear fp32 d64 s4096 c0": {
-    "ms_per_call": 3.2422
+    "ms_per_call": 3.2679
    },
    "linear fp32 d64 s4096 c1": {
-    "ms_per_call": 6.9168
+    "ms_per_call": 6.9853
    },
    "linear fp32 d64 s16384 c0": {
-    "ms_per_call": 12.1674
+    "ms_per_call": 12.2808
    },
    "linear fp32 d64 s16384 c1": {
-    "ms_per_call": 27.6026
+    "ms_per_call": 28.0978
    },
    "linear fp32 d128 s4096 c0": {
-    "ms_per_call": 10.1345
+    "ms_per_call": 10.2875
    },
    "linear fp32 d128 s4096 c1": {
-    "ms_per_call": 21.5869
+    "ms_per_call": 21.974
    },
    "linear bf16 d64 s4096 c0": {
-    "ms_per_call": 3.0701
+    "ms_per_call": 3.1461
    },
    "linear bf16 d64 s4096 c1": {
-    "ms_per_call": 6.5049
+    "ms_per_call": 6.6124
    },
    "linear bf16 d64 s16384 c0": {
-    "ms_per_call": 11.6526
+    "ms_per_call": 11.8624
    },
    "linear bf16 d64 s16384 c1": {
-    "ms_per_call": 26.2412
+    "ms_per_call": 26.5692
    },
    "linear bf16 d128 s4096 c0": {
-    "ms_per_call": 9.7971
+    "ms_per_call": 9.92
    },
    "linear bf16 d128 s4096 c1": {
-    "ms_per_call": 20.7841
+    "ms_per_call": 21.1353
    }
   },
   "pytorch_mps": {
    "flash fp16 d64 s1024 c0": {
-    "ms_per_call": 4.7774,
-    "tflops": 3.59
+    "ms_per_call": 4.8762,
+    "tflops": 3.42
    },
    "flash fp16 d64 s1024 c1": {
-    "ms_per_call": 2.6522,
-    "tflops": 3.23
-   },
-   "flash fp16 d64 s4096 c0": {
-    "ms_per_call": 74.8421,
-    "tflops": 3.66
-   },
-   "flash fp16 d64 s4096 c1": {
-    "ms_per_call": 39.0104,
-    "tflops": 3.5
-   },
-   "flash fp16 d128 s1024 c0": {
-    "ms_per_call": 9.111,
-    "tflops": 3.74
-   },
-   "flash fp16 d128 s1024 c1": {
-    "ms_per_call": 5.5391,
+    "ms_per_call": 2.7214,
     "tflops": 3.09
    },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 76.2543,
+    "tflops": 3.51
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 40.0888,
+    "tflops": 3.38
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 9.66,
+    "tflops": 3.54
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 5.7901,
+    "tflops": 2.96
+   },
    "flash fp16 d128 s4096 c0": {
-    "ms_per_call": 143.4361,
-    "tflops": 3.79
+    "ms_per_call": 150.8943,
+    "tflops": 3.64
    },
    "flash fp16 d128 s4096 c1": {
-    "ms_per_call": 81.5869,
-    "tflops": 3.34
+    "ms_per_call": 84.3793,
+    "tflops": 3.23
    },
    "flash bf16 d64 s1024 c0": {
-    "ms_per_call": 5.5151,
-    "tflops": 3.08
+    "ms_per_call": 5.6872,
+    "tflops": 2.96
    },
    "flash bf16 d64 s1024 c1": {
-    "ms_per_call": 3.0591,
-    "tflops": 2.79
-   },
-   "flash bf16 d64 s4096 c0": {
-    "ms_per_call": 86.0918,
-    "tflops": 3.16
-   },
-   "flash bf16 d64 s4096 c1": {
-    "ms_per_call": 44.8406,
-    "tflops": 3.05
-   },
-   "flash bf16 d128 s1024 c0": {
-    "ms_per_call": 12.992,
-    "tflops": 2.63
-   },
-   "flash bf16 d128 s1024 c1": {
-    "ms_per_call": 7.0934,
-    "tflops": 2.42
-   },
-   "flash bf16 d128 s4096 c0": {
-    "ms_per_call": 202.2649,
-    "tflops": 2.72
-   },
-   "flash bf16 d128 s4096 c1": {
-    "ms_per_call": 103.8872,
-    "tflops": 2.63
-   },
-   "flash fp32 d64 s1024 c0": {
-    "ms_per_call": 6.7842,
-    "tflops": 2.52
-   },
-   "flash fp32 d64 s1024 c1": {
-    "ms_per_call": 3.7112,
-    "tflops": 2.31
-   },
-   "flash fp32 d64 s4096 c0": {
-    "ms_per_call": 105.2467,
-    "tflops": 2.61
-   },
-   "flash fp32 d64 s4096 c1": {
-    "ms_per_call": 55.1871,
-    "tflops": 2.49
-   },
-   "flash fp32 d128 s1024 c0": {
-    "ms_per_call": 19.6939,
-    "tflops": 1.74
-   },
-   "flash fp32 d128 s1024 c1": {
-    "ms_per_call": 10.7668,
-    "tflops": 1.59
-   },
-   "flash fp32 d128 s4096 c0": {
-    "ms_per_call": 312.3212,
-    "tflops": 1.75
-   },
-   "flash fp32 d128 s4096 c1": {
-    "ms_per_call": 160.3372,
-    "tflops": 1.69
-   },
-   "flash bf16 gqa32/8 d128 s4096 c1": {
-    "ms_per_call": 206.4322,
+    "ms_per_call": 3.1099,
     "tflops": 2.64
    },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 88.974,
+    "tflops": 3.05
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 45.83,
+    "tflops": 2.96
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 13.1964,
+    "tflops": 2.55
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 7.219,
+    "tflops": 2.35
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 200.924,
+    "tflops": 2.73
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 106.3428,
+    "tflops": 2.53
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 6.8666,
+    "tflops": 2.43
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 3.8327,
+    "tflops": 2.22
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 107.438,
+    "tflops": 2.52
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 56.146,
+    "tflops": 2.42
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 19.97,
+    "tflops": 1.68
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 10.9616,
+    "tflops": 1.53
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 317.2731,
+    "tflops": 1.71
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 163.358,
+    "tflops": 1.65
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 213.7793,
+    "tflops": 2.57
+   },
    "linear fp32 d64 s4096 c0": {
-    "ms_per_call": 10.262
+    "ms_per_call": 10.6052
    },
    "linear fp32 d64 s4096 c1": {
-    "ms_per_call": 27.4707
+    "ms_per_call": 28.3837
    },
    "linear fp32 d64 s16384 c0": {
-    "ms_per_call": 39.466
+    "ms_per_call": 41.8208
    },
    "linear fp32 d64 s16384 c1": {
-    "ms_per_call": 110.3295
+    "ms_per_call": 113.0029
    },
    "linear fp32 d128 s4096 c0": {
-    "ms_per_call": 21.4906
+    "ms_per_call": 21.8711
    },
    "linear fp32 d128 s4096 c1": {
-    "ms_per_call": 57.0834
+    "ms_per_call": 57.9566
    },
    "linear bf16 d64 s4096 c0": {
-    "ms_per_call": 12.2802
+    "ms_per_call": 12.1132
    },
    "linear bf16 d64 s4096 c1": {
-    "ms_per_call": 28.8756
+    "ms_per_call": 29.2995
    },
    "linear bf16 d64 s16384 c0": {
-    "ms_per_call": 47.1957
+    "ms_per_call": 47.5055
    },
    "linear bf16 d64 s16384 c1": {
-    "ms_per_call": 114.1692
+    "ms_per_call": 117.0589
    },
    "linear bf16 d128 s4096 c0": {
-    "ms_per_call": 24.3974
+    "ms_per_call": 25.1942
    },
    "linear bf16 d128 s4096 c1": {
-    "ms_per_call": 58.9298
+    "ms_per_call": 60.3833
    }
   },
   "mlx": {
    "flash fp16 d64 s1024 c0": {
-    "ms_per_call": 4.5253,
-    "tflops": 3.75
+    "ms_per_call": 4.5917,
+    "tflops": 3.74
    },
    "flash fp16 d64 s1024 c1": {
-    "ms_per_call": 2.5849,
-    "tflops": 3.32
+    "ms_per_call": 2.6474,
+    "tflops": 3.24
    },
    "flash fp16 d64 s4096 c0": {
-    "ms_per_call": 71.1541,
-    "tflops": 3.86
+    "ms_per_call": 72.5699,
+    "tflops": 3.79
    },
    "flash fp16 d64 s4096 c1": {
-    "ms_per_call": 39.7908,
-    "tflops": 3.44
+    "ms_per_call": 40.7321,
+    "tflops": 3.31
    },
    "flash fp16 d128 s1024 c0": {
-    "ms_per_call": 9.1688,
-    "tflops": 3.75
+    "ms_per_call": 9.4037,
+    "tflops": 3.63
    },
    "flash fp16 d128 s1024 c1": {
-    "ms_per_call": 4.9088,
-    "tflops": 3.5
+    "ms_per_call": 4.9514,
+    "tflops": 3.47
    },
    "flash fp16 d128 s4096 c0": {
-    "ms_per_call": 146.2838,
-    "tflops": 3.76
+    "ms_per_call": 147.9744,
+    "tflops": 3.72
    },
    "flash fp16 d128 s4096 c1": {
-    "ms_per_call": 74.705,
-    "tflops": 3.67
+    "ms_per_call": 75.0561,
+    "tflops": 3.66
    },
    "flash bf16 d64 s1024 c0": {
-    "ms_per_call": 5.0852,
-    "tflops": 3.33
+    "ms_per_call": 5.245,
+    "tflops": 3.23
    },
    "flash bf16 d64 s1024 c1": {
-    "ms_per_call": 2.733,
-    "tflops": 3.14
+    "ms_per_call": 2.7955,
+    "tflops": 3.07
    },
    "flash bf16 d64 s4096 c0": {
-    "ms_per_call": 80.5729,
-    "tflops": 3.41
+    "ms_per_call": 82.4814,
+    "tflops": 3.32
    },
    "flash bf16 d64 s4096 c1": {
-    "ms_per_call": 41.7617,
-    "tflops": 3.22
+    "ms_per_call": 42.5296,
+    "tflops": 3.17
    },
    "flash bf16 d128 s1024 c0": {
-    "ms_per_call": 11.8505,
-    "tflops": 2.7
+    "ms_per_call": 12.0523,
+    "tflops": 2.85
    },
    "flash bf16 d128 s1024 c1": {
-    "ms_per_call": 6.2697,
-    "tflops": 2.52
+    "ms_per_call": 6.5397,
+    "tflops": 2.63
    },
    "flash bf16 d128 s4096 c0": {
-    "ms_per_call": 198.5581,
-    "tflops": 2.67
+    "ms_per_call": 189.5153,
+    "tflops": 2.9
    },
    "flash bf16 d128 s4096 c1": {
-    "ms_per_call": 97.0472,
-    "tflops": 2.71
+    "ms_per_call": 96.6074,
+    "tflops": 2.85
    },
    "flash fp32 d64 s1024 c0": {
-    "ms_per_call": 6.0746,
-    "tflops": 2.7
+    "ms_per_call": 6.1152,
+    "tflops": 2.81
    },
    "flash fp32 d64 s1024 c1": {
-    "ms_per_call": 3.4052,
-    "tflops": 2.48
+    "ms_per_call": 3.4777,
+    "tflops": 2.47
    },
    "flash fp32 d64 s4096 c0": {
-    "ms_per_call": 94.5346,
-    "tflops": 2.91
+    "ms_per_call": 97.4932,
+    "tflops": 2.81
    },
    "flash fp32 d64 s4096 c1": {
-    "ms_per_call": 49.8009,
-    "tflops": 2.76
+    "ms_per_call": 51.9654,
+    "tflops": 2.64
    },
    "flash fp32 d128 s1024 c0": {
-    "ms_per_call": 16.0727,
-    "tflops": 2.13
+    "ms_per_call": 16.3367,
+    "tflops": 2.1
    },
    "flash fp32 d128 s1024 c1": {
-    "ms_per_call": 8.8571,
-    "tflops": 1.89
+    "ms_per_call": 9.2241,
+    "tflops": 1.85
    },
    "flash fp32 d128 s4096 c0": {
-    "ms_per_call": 257.7516,
-    "tflops": 2.13
+    "ms_per_call": 264.8074,
+    "tflops": 2.07
    },
    "flash fp32 d128 s4096 c1": {
-    "ms_per_call": 137.4333,
-    "tflops": 2.0
+    "ms_per_call": 124.825,
+    "tflops": 1.93
    },
    "flash bf16 gqa32/8 d128 s4096 c1": {
-    "ms_per_call": 200.2754,
-    "tflops": 2.69
+    "ms_per_call": 196.9595,
+    "tflops": 2.76
    },
    "linear fp32 d64 s4096 c0": {
-    "ms_per_call": 10.5558
+    "ms_per_call": 10.9503
    },
    "linear fp32 d64 s4096 c1": {
-    "ms_per_call": 19.5203
+    "ms_per_call": 21.1258
    },
    "linear fp32 d64 s16384 c0": {
-    "ms_per_call": 39.9414
+    "ms_per_call": 40.7904
    },
    "linear fp32 d64 s16384 c1": {
-    "ms_per_call": 74.2411
+    "ms_per_call": 81.0334
    },
    "linear fp32 d128 s4096 c0": {
-    "ms_per_call": 21.7363
+    "ms_per_call": 22.9496
    },
    "linear fp32 d128 s4096 c1": {
-    "ms_per_call": 41.0905
+    "ms_per_call": 43.4835
    },
    "linear bf16 d64 s4096 c0": {
-    "ms_per_call": 12.2225
+    "ms_per_call": 12.5251
    },
    "linear bf16 d64 s4096 c1": {
-    "ms_per_call": 21.6372
+    "ms_per_call": 22.6182
    },
    "linear bf16 d64 s16384 c0": {
-    "ms_per_call": 47.4294
+    "ms_per_call": 48.9564
    },
    "linear bf16 d64 s16384 c1": {
-    "ms_per_call": 82.8952
+    "ms_per_call": 87.5516
    },
    "linear bf16 d128 s4096 c0": {
-    "ms_per_call": 25.2419
+    "ms_per_call": 26.3101
    },
    "linear bf16 d128 s4096 c1": {
-    "ms_per_call": 45.935
+    "ms_per_call": 45.6706
    }
   }
  }

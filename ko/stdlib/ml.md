@@ -875,7 +875,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 | 호스트 배열 | `mps_flash_attention_f32`, `mps_linear_attention_f32` (업로드, 계산, 읽어 오기) |
 | 버퍼 | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
-M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.04–1.22배, PyTorch `mps` 장치보다 1.16–1.43배 빠르고, fp16/bf16은 이들의 0.80–0.97배(2.3–3.2 TFLOPS)이며, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.1–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#m1pro-attention)를 참고하세요.
+M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같으며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배(2.6–3.4 TFLOPS)이고, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#m1pro-attention)를 참고하세요.
 
 `tests/stdlib/mps/run.sh`는 `mps_attention_check`를 빌드해 모든 경로(두 flash 커널, 청크 병렬과 순차 linear 커널, 세 데이터 타입, GQA, KV 캐시 오프셋, 슬라이딩 윈도, 호스트 배열 형태)를 배정밀도 참조와 attention.h의 CPU 함수와 비교합니다: 95개 검사.
 

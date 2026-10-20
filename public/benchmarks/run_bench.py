@@ -472,17 +472,8 @@ def bench_attention(runs):
         out = os.path.join(BUILD, "attention", "safec_mps")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         try:
-            # Built from the std sources it uses rather than std_archive():
-            # safeguard's whole-std archive skips several of them on macOS.
-            wrap = os.path.join(BUILD, "attention", "clang_metal.sh")
-            with open(wrap, "w") as f:
-                f.write(f'#!/bin/sh\nexec "{CLANG}" "$@" -framework Metal -framework Foundation -lobjc\n')
-            os.chmod(wrap, 0o755)
-            std = os.path.join(SAFEC_HOME, "std")
-            deps = [os.path.join(std, d) for d in ("ml/gpu_mps.sc", "ml/float16.sc", "math.sc", "mem.sc", "atomic.sc",
-                                                   "panic.sc", "time.sc", "str.sc", "sys.sc")]
-            sh([SAFEC, os.path.join(HERE, "attention/safec/attn_mps.sc")] + deps +
-               ["-I", SAFEC_HOME, "-O2", "--emit-bin", "-o", out], env=dict(os.environ, SAFEC_CLANG=wrap))
+            timed_build(safec_cmds(os.path.join(HERE, "attention/safec/attn_mps.sc"), out, True,
+                                   extra_libs=["-framework", "Metal", "-framework", "Foundation", "-lobjc"]))
             res["safec_mps"] = best_labeled([sh([out]) for _ in range(runs)])
         except Exception as e:
             res["safec_mps"] = {"error": str(e).splitlines()[0][:200]}
