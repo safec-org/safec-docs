@@ -225,6 +225,9 @@ against a hand-computed 2×2 example, a self-consistency check between
 `mha_forward` and manual per-head slicing, and per-variant hand-computed/
 cross-checked tests for the gated/linear/flash forms.
 
+Flash and linear attention also run on Apple GPUs, in bf16 and multi-head
+with grouped-query K/V — see [MPS attention and transformer ops](#mps-attention).
+
 ## Advanced attention
 
 ```c
@@ -482,7 +485,10 @@ discrete memory model needs.
   the same code path). An earlier segfault at
   `dispatchThreadgroups:threadsPerThreadgroup:` was a compiler bug in
   passing large structs by value through a function-pointer cast, since
-  fixed in the code generator.
+  fixed in the code generator. The bf16 [attention and transformer
+  ops](#mps-attention) were checked against CPU reference implementations
+  on an M1 Pro across all four supported head dims, GQA, causal,
+  sliding-window and non-causal masking.
 - **ROCm**: verified on an AMD Instinct MI100 (gfx908, ROCm 7.1) —
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
   combinations, graphs, the host-array API and the fp16/bf16 buffers
@@ -798,6 +804,75 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 ```
 
 The `_ab` suffix means both inputs are already GPU buffers. See `std/ml/gpu_mps.h` for each one's argument order.
+
+### MPS attention and transformer ops {#mps-attention}
+
+bf16 building blocks for running a transformer layer on an Apple GPU. Tensors are raw bf16 bits (`unsigned short`, convert with `float16.h`), row-major, with heads side by side in each row: Q and outputs are `[rows, numHeads*headDim]`, K/V `[rows, numKvHeads*headDim]`. `numHeads` must be a multiple of `numKvHeads` (grouped-query attention), and `headDim` must be 64, 128, 256 or 512. Like every MPS entry point, each returns 0 when it can't run (no device, unsupported shape) so the caller can fall back to the CPU.
+
+| Function | Computes |
+|---|---|
+| `mps_attn_batch_bf16` | One new query token per sequence against that sequence's KV cache, for a whole batch and every head in one dispatch — the decode step. No KV-length limit; keys outside a sliding window are skipped. |
+| `mps_flash_attn_bf16` | GPU counterpart of `flash_attention_forward` for any number of query rows (prefill): K/V tiles are staged in threadgroup memory and shared by 16 query rows, softmax is online, and the score matrix is never materialized. Causal and sliding-window masking. |
+| `mps_linear_attn_bf16` | GPU counterpart of `linear_attention_forward` (`phi(x) = elu(x)+1`), non-causal or causal. |
+| `mps_linear_attn_bf16_chained` | Causal linear attention with the recurrent state kept on the GPU and advanced in place — prefill once, then one token per decode step at a cost independent of sequence length. |
+
+```c
+int mps_attn_batch_bf16(const &unsigned short q, const &unsigned short kAll, const &unsigned short vAll,
+                        const &unsigned int cacheLens, &unsigned short out,
+                        unsigned long batchSize, unsigned long numHeads, unsigned long numKvHeads,
+                        unsigned long headDim, unsigned long maxKvLen,
+                        int isSliding, unsigned long slidingWindow);
+
+int mps_flash_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                        &unsigned short out, unsigned long seqLen, unsigned long kvLen,
+                        unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                        float scale, int causal, int isSliding, unsigned long slidingWindow);
+
+int mps_linear_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                         &unsigned short out, unsigned long seqLen, unsigned long kvLen,
+                         unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                         int causal);
+
+// Recurrent linear-attention state (S and z for every head), GPU-resident.
+?&void        mps_linear_attn_state_new(unsigned long numHeads, unsigned long headDim);   // zeroed
+unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim); // for mps_release_persistent
+int mps_linear_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufState, &unsigned short out,
+                                 unsigned long seqLen, unsigned long numHeads,
+                                 unsigned long numKvHeads, unsigned long headDim);
+
+// Chained bf16 elementwise/normalization ops for the rest of the layer:
+int mps_gated_gelu_bf16_chained(&void bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
+int mps_add_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);       // residuals
+int mps_gelu_mul_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
+int mps_rmsnorm_bf16_chained(&void bufX, &void weightBuf, &unsigned short out,
+                             unsigned long rows, unsigned long cols, float eps);
+```
+
+- **Masking.** With `causal`, query `i` sits at position `kvLen - seqLen + i` — the last `seqLen` keys are the queries' own tokens and any before them are a cache — and sees keys at or before it. `isSliding` also hides keys `slidingWindow` or more positions behind the query. `mps_attn_batch_bf16`'s `cacheLens[b]` is each sequence's KV length including the new token.
+- **Scale.** `mps_flash_attn_bf16` multiplies `q·k` by `scale`: pass `1/sqrt(headDim)` to match `flash_attention_forward`, or `1.0` for models that pre-scale q. The decode kernel applies no scale. Linear attention needs none, since dividing by `phi(q)·z` cancels any scaling of q.
+- **Batching.** The one-shot functions work inside an open batch (results land in `out` at `mps_batch_end()`) or on their own (filled on return). `mps_attn_batch_bf16_chained` and `mps_flash_attn_bf16_chained` take device buffers and leave their output as `mps_batch_last_output_buffer()` — so attention can feed the output projection (`mps_matmul_abt_bf16_persistent`) in the same submission. `mps_matmul_abt_bf16_persistent` with `M == 1` uses a dedicated matrix-vector kernel.
+
+Linear attention decode loop:
+
+```c
+match (mps_linear_attn_state_new(numHeads, headDim)) {
+    case some(state): {
+        mps_batch_begin();
+        mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
+                                     numHeads, numKvHeads, headDim);
+        mps_batch_end();
+        // each generated token:
+        mps_batch_begin();
+        mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
+        mps_batch_end();
+        // ...
+        mps_release_persistent(state, mps_linear_attn_state_bytes(numHeads, headDim));
+    }
+    case null: { /* no Metal device: use linear_attention_forward on the CPU */ }
+}
+```
+
+On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, head dim 256) takes about 0.3–0.5 ms, a 1024-token causal flash-attention prefill (8 heads, head dim 256) about 9 ms, and 1024 tokens of causal linear attention (8 heads, head dim 128) about 3.5 ms.
 
 ### Tensor wrappers
 
