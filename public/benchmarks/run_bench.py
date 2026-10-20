@@ -336,6 +336,66 @@ def bench_ml(runs):
     return res
 
 
+# ── convolution / FFT (CPU vs CUDA) ───────────────────────────────────────────
+
+def best_labeled(outputs):
+    """'[label] k=v ...' lines from several runs -> {label: {k: min v}}."""
+    best = {}
+    for o in outputs:
+        for line in o.splitlines():
+            m = re.match(r"\[(.+?)\] (.*)", line)
+            if not m:
+                continue
+            vals = dict((k, float(v)) for k, v in re.findall(r"(\w+)=(-?[\d.]+)", m.group(2)))
+            cur = best.setdefault(m.group(1), {})
+            for k, v in vals.items():
+                cur[k] = min(cur.get(k, 1e18), v) if "ms" in k else v
+    return best
+
+
+def torch_devices():
+    try:
+        return ["cpu"] + (["cuda"] if sh([MLPY, "-c", "import torch;print(torch.cuda.is_available())"]).strip() == "True" else [])
+    except Exception:
+        return []
+
+
+def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs):
+    """SafeC CPU, SafeC CUDA (when an NVIDIA GPU is present) and PyTorch rows."""
+    res = {}
+    cases = [("safec_cpu", cpu_src, [])]
+    if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
+        cases.append(("safec_cuda", cuda_src, [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas",
+                                                "-lcublasLt", "-lnvrtc"] + cuda_libs))
+    for key, src, libs in cases:
+        out = os.path.join(BUILD, bench, key)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
+            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  {bench} {key} {res[key]}", flush=True)
+    for dev in torch_devices():
+        key = f"pytorch_{dev}"
+        try:
+            res[key] = best_labeled([sh([MLPY, os.path.join(HERE, torch_script), dev]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  {bench} {key} {res[key]}", flush=True)
+    return res
+
+
+def bench_conv(runs):
+    return cpu_vs_cuda("conv", "conv/safec/conv_cpu.sc", "conv/safec/conv_cuda.sc", ["-lcudnn"],
+                       "conv/pytorch/conv.py", runs)
+
+
+def bench_fft(runs):
+    return cpu_vs_cuda("fft", "fft/safec/fft_cpu.sc", "fft/safec/fft_cuda.sc", ["-lcufft"],
+                       "fft/pytorch/fft.py", runs)
+
+
 # ── web service ───────────────────────────────────────────────────────────────
 
 def wait_port(port, timeout=20.0):
@@ -447,6 +507,8 @@ BENCHES = {
     "collections": bench_collections,
     "memalloc": bench_memalloc,
     "ml": bench_ml,
+    "conv": bench_conv,
+    "fft": bench_fft,
     "web": bench_web,
 }
 

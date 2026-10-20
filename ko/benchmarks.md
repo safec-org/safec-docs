@@ -17,6 +17,7 @@
 
 - **머신러닝** (2층 MLP, [자세히](#machine-learning-small-mlp-training-and-inference)): MI100에서 SafeC는 작은 모델을 7.2 ms에 학습하며(PyTorch-ROCm 20.1 ms), 큰 모델은 8.3 ms입니다(PyTorch-ROCm 10.1 ms). CPU에서는 PyTorch가 더 빠릅니다(14.1 ms, SafeC + OpenBLAS 29.6 ms).
 - **NVIDIA H200** ([자세히](#h200-machine-learning)): SafeC의 CUDA 백엔드는 작은 모델을 3.80 ms에 학습하며(PyTorch-CUDA fp32 50.9 ms), 큰 모델은 3.13 ms에 학습합니다(16.9 ms). Xeon 8570 CPU 결과는 [별도 절](#xeon-8570-classic)에 있습니다.
+- **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 64채널 3×3 합성곱을 이미지 32장 배치로 0.164 ms에 실행하고(PyTorch-CUDA fp32 0.257 ms), U-Net은 0.175 ms입니다(0.206 ms). 이미지 한 장짜리 합성곱 하나와 TF32 배치 16–32에서는 PyTorch가 더 빠릅니다. GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 1.9배 빠르고, `Vec` push와 `HashMap`은 순수 C보다 1.2–1.6배 느립니다.
 - **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 살아 있는 블록이 100만 개면 1.4배 느립니다.
 
@@ -286,6 +287,57 @@ NVIDIA NGC PyTorch 컨테이너는 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`을 설�
 - **이 백엔드 이전**: v1.0.0-beta-5에서는 `tensor_matmul_cuda_blas`가 호출마다 CUDA 컨텍스트와 cuBLAS 핸들을 만들고 없앴습니다. 이 GPU에서 그 경로로 작은 벤치마크를 돌리면 학습에 83초, 추론에 816초가 걸렸습니다. fused + graph 행보다 20,000배 넘게 느립니다.
 - **CPU**: 이 12코어는 스레드당 성능이 7800X3D보다 낮습니다. 여기서 OpenBLAS는 작은 모델 학습에서 PyTorch 자체 CPU 커널보다 1.7배, 큰 모델에서 3.4배 느립니다.
 
+### H200에서의 합성곱과 FFT {#h200-conv-fft}
+
+SafeC의 순수 CPU 코드(`cnn.h`, `unet.h`, `fft.h`)를 GPU 라이브러리
+[`gpu_cudnn.h`와 `fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)(cuDNN 9.15,
+CUDA 13.0의 cuFFT), 그리고 두 장치의 PyTorch와 비교합니다. 텐서는 호출
+사이에 GPU에 머뭅니다. SafeC CUDA와 PyTorch-CUDA 행은 두 번의 동기화 사이에
+큐에 넣은 300–2000번 호출의 평균이고, CPU 행은 몇 번 호출한 평균입니다. 모든
+숫자는 학습 작업을 멈춘 상태에서 3회 중 최고 기록입니다.
+
+SafeC는 첫 호출에서 cuDNN 후보 알고리즘들의 시간을 재서 합성곱마다
+알고리즘을 고릅니다. PyTorch 행도 같은 방식(`cudnn.benchmark = True`)이며,
+PyTorch 기본 휴리스틱을 써도 시간 차이는 1% 이내였습니다. "fp32"는
+PyTorch에서 `cudnn.allow_tf32 = False`로 두고 SafeC에서 `cuda_set_tf32`를
+끈 상태입니다. "TF32"는 둘 다 켭니다. PyTorch는 합성곱에 TF32를 기본으로
+씁니다.
+
+합성곱, 호출당 ms (낮을수록 좋음). `conv64`는 Conv2D 레이어 하나(64→64
+채널, 3×3, stride 1, 패딩 1, 56×56 맵, 바이어스 포함)입니다. `unet128`은
+128×128에서의 `unet_new(3, 32, 64, 3)` 순전파로, 합성곱 5개, 최대 풀링 2개,
+업샘플 + 연결 2단계입니다.
+
+| 프레임워크 | 장치 | conv64, 이미지 1장 | conv64, 이미지 32장 | unet128, 이미지 1장 | unet128, 이미지 16장 |
+|---|---|---|---|---|---|
+| SafeC | CPU (단순 루프, 1 스레드) | 169.8 | — | 459.1 | — |
+| PyTorch | CPU (12 스레드) | 0.307 | — | 3.21 | — |
+| SafeC | CUDA, fp32 | 0.0336 | **0.164** | 0.175 | **0.731** |
+| SafeC | CUDA, fp32, U-Net을 그래프 하나로 | | | **0.164** | |
+| PyTorch | CUDA, fp32 | **0.0224** | 0.257 | 0.206 | 0.873 |
+| SafeC | CUDA, TF32 | **0.0334** | 0.106 | 0.175 | 0.659 |
+| SafeC | CUDA, TF32, U-Net을 그래프 하나로 | | | **0.123** | |
+| PyTorch | CUDA, TF32 (기본값) | 0.0381 | **0.097** | 0.274 | **0.556** |
+
+FFT, 호출당 ms. `fft1d`와 `fft2d`는 호스트 메모리에서 시작해 호스트 메모리로
+끝나는 복소수 `double` 배열이라, GPU 호출마다 업로드와 읽어오기가 포함됩니다
+(`cuda_fft`/`cuda_fft2d`; `.to("cuda")`, `torch.fft`, `.cpu()`). `batch`와
+`rfft`는 이미 GPU에 있는 데이터로 실행합니다(`cuda_fft_c2c`/`cuda_fft_r2c`;
+complex64와 float32). 이 둘의 SafeC CPU 행은 `double`로 각 행에
+`fft`/`fft_real`을 반복합니다.
+
+| 프레임워크 | 장치 | fft1d, 2²⁰점 | fft2d, 1024×1024 | batch, 1024 × 4096 | rfft, 1024 × 4096 |
+|---|---|---|---|---|---|
+| SafeC | CPU (radix-2, 1 스레드) | 198.1 | 193.7 | 448.0 | 445.7 |
+| PyTorch | CPU (12 스레드) | **1.20** | **0.660** | 3.08 | 0.291 |
+| SafeC | CUDA | 2.68 | 2.68 | 0.0245 | **0.0108** |
+| PyTorch | CUDA | 2.07 | 2.06 | **0.0240** | 0.0119 |
+
+- **GPU 합성곱**: fp32에서 SafeC는 32장 배치에서 PyTorch보다 1.6배, U-Net에서는 두 배치 크기 모두 1.18–1.25배 빠릅니다. 배치 1의 U-Net은 연산 11개의 실행 비용이 지배하므로, 그래프 하나로 기록하면 TF32에서 가장 효과가 큽니다: 0.123 ms, PyTorch는 0.274 ms. 이미지 한 장짜리 합성곱 하나는 PyTorch가 이깁니다(0.022 ms 대 0.034 ms). 두 가지 차이가 원인일 수 있지만 따로 측정하지는 않았습니다: SafeC는 바이어스를 두 번째 cuDNN 호출로 더하고, PyTorch는 다른 커널을 제공하는 cuDNN 그래프 API를 씁니다. TF32 배치 16–32에서는 PyTorch가 9–19% 빠릅니다. TF32는 SafeC의 배치 합성곱을 35% 줄이고 배치 1에서는 차이가 없습니다.
+- **CPU와 비교**: SafeC의 `conv2d_forward`는 한 스레드에서 도는 7중 직접 루프입니다. 같은 레이어를 cuDNN으로 돌리면 배치 1에서 1/5,000, U-Net은 1/2,600 시간이 걸립니다. PyTorch의 CPU 경로(oneDNN, 12 스레드)는 `conv64`에서 SafeC CPU 루프보다 550배 빠릅니다.
+- **GPU FFT**: 데이터가 GPU에 있으면 SafeC와 PyTorch 모두 cuFFT를 부르고, 시간 차이는 10% 이내입니다. 호스트 배열에서는 PCIe가 지배합니다. 16 MB 복사는 방향마다 1.05 ms로 SafeC와 PyTorch가 같습니다. 그런데도 SafeC의 왕복이 PyTorch보다 0.6 ms 더 걸리며, 원인은 아직 모릅니다.
+- **CPU FFT**: `fft.h`는 버터플라이 루프 안에서 회전 인자마다 `cos`/`sin`을 계산하고 한 스레드에서 돕니다. 2²⁰점 변환에서 PyTorch의 CPU FFT가 165배 빠릅니다. 같은 호출을 `cuda_fft`로 하면 PCIe 전송을 포함해 `fft`보다 74배 빠릅니다.
+
 ### Xeon 8570에서의 기본 벤치마크 {#xeon-8570-classic}
 
 릴리스 빌드 실행 시간, 3회 중 최고값(낮을수록 좋음, 가장 빠른 값 굵게). 웹 서비스는 초당 요청 수입니다(높을수록 좋음). 멀티스레드와 웹 벤치마크의 Zig 소스는 Zig 0.16용으로 작성되어, `**` 배열 반복 문법을 바꾸고 `@cImport`를 없앤 0.17.0에서는 빌드되지 않습니다.
@@ -304,7 +356,7 @@ NVIDIA NGC PyTorch 컨테이너는 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`을 설�
 컬렉션 (1,000,000개 요소, ms): `Vec` push 3.23 대 C 1.73, `vec_sort` **74.8** 대 `qsort` 148.8, `HashMap` insert 62.1 대 54.3, get 20.4 대 18.9, `List` push+pop **17.5** 대 27.5, `Queue` **4.16** 대 6.78, `BST` insert 357.7 대 **315.5**, get 348.4 대 **337.2**. 할당자: 번갈아 할당·해제하는 쌍 하나에 `std::alloc`/`dealloc` 10.06 ns 대 `malloc`/`free` **8.52** ns, 일괄 패턴은 158 ms 대 **119** ms. 순위는 7800X3D와 같지만, 번갈아 할당하는 패턴만은 이 장비에서 glibc `malloc`이 앞섭니다.
 
 ::: details 소스
-[train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [PyTorch 큰 모델 train.py](/benchmarks/ml_big/pytorch/train.py) · 기본 벤치마크 소스는 위의 각 절에 있습니다.
+[train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv_cuda.sc](/benchmarks/conv/safec/conv_cuda.sc) · [PyTorch conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft_cuda.sc](/benchmarks/fft/safec/fft_cuda.sc) · [PyTorch fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_cudnn.h](/benchmarks/stdlib/gpu_cudnn.h) · [gpu_cudnn.sc](/benchmarks/stdlib/gpu_cudnn.sc) · [fft_cuda.h](/benchmarks/stdlib/fft_cuda.h) · [fft_cuda.sc](/benchmarks/stdlib/fft_cuda.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [PyTorch 큰 모델 train.py](/benchmarks/ml_big/pytorch/train.py) · 기본 벤치마크 소스는 위의 각 절에 있습니다.
 :::
 
 ## 다른 플랫폼의 이전 측정 {#earlier-runs}

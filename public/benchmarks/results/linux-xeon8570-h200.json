@@ -425,5 +425,179 @@
    "failed": 0,
    "rss_mb": 60.5
   }
+ },
+ "conv": {
+  "safec_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_image": 169.77,
+    "checksum": 528.2298
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_image": 459.06,
+    "checksum": 994784.9736
+   }
+  },
+  "safec_cuda": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.0336,
+    "ms_per_image": 0.03364
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.1642,
+    "ms_per_image": 0.00513
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.1746,
+    "ms_per_image": 0.1746
+   },
+   "unet128 b=1 graph fp32": {
+    "ms_per_batch": 0.1643,
+    "ms_per_image": 0.16432
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 0.7308,
+    "ms_per_image": 0.04568
+   },
+   "conv64 b=1 tf32": {
+    "ms_per_batch": 0.0334,
+    "ms_per_image": 0.03339
+   },
+   "conv64 b=32 tf32": {
+    "ms_per_batch": 0.1058,
+    "ms_per_image": 0.00331
+   },
+   "unet128 b=1 tf32": {
+    "ms_per_batch": 0.1754,
+    "ms_per_image": 0.17545
+   },
+   "unet128 b=1 graph tf32": {
+    "ms_per_batch": 0.1233,
+    "ms_per_image": 0.12332
+   },
+   "unet128 b=16 tf32": {
+    "ms_per_batch": 0.659,
+    "ms_per_image": 0.04119
+   }
+  },
+  "pytorch_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_batch": 0.3066,
+    "ms_per_image": 0.30664
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_batch": 3.213,
+    "ms_per_image": 3.21301
+   }
+  },
+  "pytorch_cuda": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.0224,
+    "ms_per_image": 0.02244
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.2568,
+    "ms_per_image": 0.00802
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.2059,
+    "ms_per_image": 0.20586
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 0.8728,
+    "ms_per_image": 0.05455
+   },
+   "conv64 b=1 tf32": {
+    "ms_per_batch": 0.0381,
+    "ms_per_image": 0.03813
+   },
+   "conv64 b=32 tf32": {
+    "ms_per_batch": 0.0971,
+    "ms_per_image": 0.00303
+   },
+   "unet128 b=1 tf32": {
+    "ms_per_batch": 0.2738,
+    "ms_per_image": 0.27384
+   },
+   "unet128 b=16 tf32": {
+    "ms_per_batch": 0.556,
+    "ms_per_image": 0.03475
+   },
+   "conv64 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.0223,
+    "ms_per_image": 0.0223
+   },
+   "conv64 b=32 fp32 heuristic": {
+    "ms_per_batch": 0.2565,
+    "ms_per_image": 0.00802
+   },
+   "unet128 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.2076,
+    "ms_per_image": 0.20758
+   },
+   "unet128 b=16 fp32 heuristic": {
+    "ms_per_batch": 0.8727,
+    "ms_per_image": 0.05454
+   }
+  },
+  "note": "2026-10-20, best of 3, training job paused (SIGSTOP) so GPU and the 12 cores were idle; cuDNN 9.15.0. PyTorch CUDA rows set cudnn.allow_tf32 per mode; 'fp32'/'tf32' use cudnn.benchmark=True"
+ },
+ "fft": {
+  "safec_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 198.065
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 193.727
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 448.01
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 445.714
+   }
+  },
+  "safec_cuda": {
+   "fft1d n=1048576 c128 cuda": {
+    "ms_per_call": 2.684
+   },
+   "fft2d 1024x1024 c128 cuda": {
+    "ms_per_call": 2.6794
+   },
+   "batch 1024x4096 c2c cuda": {
+    "ms_per_call": 0.0245
+   },
+   "rfft 1024x4096 r2c cuda": {
+    "ms_per_call": 0.0108
+   }
+  },
+  "pytorch_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 1.1996
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 0.6604
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 3.0805
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 0.2911
+   }
+  },
+  "pytorch_cuda": {
+   "fft1d n=1048576 c128 cuda": {
+    "ms_per_call": 2.0736
+   },
+   "fft2d 1024x1024 c128 cuda": {
+    "ms_per_call": 2.0618
+   },
+   "batch 1024x4096 c2c cuda": {
+    "ms_per_call": 0.024
+   },
+   "rfft 1024x4096 r2c cuda": {
+    "ms_per_call": 0.0119
+   }
+  },
+  "note": "2026-10-20, best of 3, training job paused (SIGSTOP); cuFFT 12.0 (CUDA 13.0)"
  }
 }
