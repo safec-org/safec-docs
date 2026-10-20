@@ -443,6 +443,32 @@ def bench_fft(runs):
     return res
 
 
+def bench_attention(runs):
+    """Flash and linear attention on the GPU: SafeC's CUDA kernels
+    (attention/safec/attn_cuda.sc) against PyTorch (attention/pytorch/attn.py:
+    scaled_dot_product_attention, a vectorized linear-attention baseline and,
+    if installed, flash-linear-attention's Triton kernel)."""
+    res = {}
+    if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
+        out = os.path.join(BUILD, "attention", "safec_cuda")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        libs = [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas", "-lcublasLt", "-lnvrtc"]
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, "attention/safec/attn_cuda.sc"), out, True, extra_libs=libs))
+            res["safec_cuda"] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res["safec_cuda"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention safec_cuda {res['safec_cuda']}", flush=True)
+    if "cuda" in torch_devices():
+        try:
+            res["pytorch_cuda"] = best_labeled([sh([MLPY, os.path.join(HERE, "attention/pytorch/attn.py"), "cuda"])
+                                                for _ in range(runs)])
+        except Exception as e:
+            res["pytorch_cuda"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  attention pytorch_cuda {res['pytorch_cuda']}", flush=True)
+    return res
+
+
 # Third-party CPU libraries for the FFT/DSP comparison, each built and linked
 # only into its own benchmark program (never into SafeC's std). Install
 # prefixes come from the environment; a library that isn't there is skipped.
@@ -630,6 +656,7 @@ BENCHES = {
     "ml": bench_ml,
     "conv": bench_conv,
     "fft": bench_fft,
+    "attention": bench_attention,
     "dsp": bench_dsp,
     "web": bench_web,
 }

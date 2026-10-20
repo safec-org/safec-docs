@@ -733,6 +733,32 @@ images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
 one-image convolution (0.022 ms vs 0.034 ms). The device FFTs match cuFFT
 through PyTorch. See the [benchmarks](/benchmarks#h200-conv-fft).
 
+### Attention on CUDA {#cuda-attention}
+
+```c
+#include <std/ml/gpu_cuda_attention.h>   // link: the gpu_cuda libraries (cuDNN is loaded at run time)
+```
+
+Batched multi-head versions of [`flash_attention_forward` and
+`linear_attention_forward`](#attention) on `CudaBuf`s, queued on `gpu_cuda`'s
+stream (so they order with the other ops and can be recorded into a
+`CudaGraph`). Forward only.
+
+- **Flash attention**, `softmax(Q Kᵀ · scale) V` without the score matrix. fp16/bf16 go to cuDNN's fused attention engine when `libcudnn.so.9` can be loaded with `dlopen` — SafeC builds the same graph cudnn-frontend's `sdpa()` does, one cached plan per shape — and otherwise to this library's FlashAttention-2 kernel on tensor cores (`mma.sync`, sm_80+, head dim ≤ 128). fp32 runs that kernel in 3xTF32 (fp32-level error, ~2e-7). Head dim 256 and older GPUs use a CUDA-core kernel with the same algorithm. `cuda_attention_use_cudnn(0)` forces the own kernels.
+- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): per-64-key-chunk states φ(K)ᵀV, a prefix over chunks (causal) or their total (non-causal), then every chunk's outputs at once. Exact fp32 arithmetic for every data type.
+- **Shapes**: the `cuda_flash_attention` / `cuda_linear_attention` / `_f32` forms take the same arguments as [ROCm's](#rocm-attention) `rocm_flash_attention` / `rocm_linear_attention` (fp32, `[heads][seq][dim]`). The `_ex` and `cuda_half_` forms take a `CudaAttnShape`: batch, grouped-query K/V (`kvHeads` dividing `heads`), and a sliding window. Head dims 32, 64, 96, 128, 256.
+- **Masking**: query i sits at position `kvLen - seqLen + i` (the last `seqLen` keys are the queries' own tokens, any before them a cache, as in [`mps_flash_attn_bf16`](#mps-attention)). `causal` hides later keys; `window` (flash only) also hides keys `window` or more positions back.
+- Each (kernel, dtype, head dim) variant is compiled by NVRTC on its first call, and cuDNN plans and the linear-attention workspace are made then too, so make one call per shape before capturing a graph.
+
+| Group | Functions |
+|---|---|
+| Flash | `cuda_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `cuda_flash_attention_ex(q, k, v, out, shape, scale, causal)`, `cuda_half_flash_attention` (fp16/bf16 `CudaHalfBuf`s) |
+| Linear | `cuda_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `cuda_linear_attention_ex`, `cuda_half_linear_attention` |
+| Host arrays | `cuda_flash_attention_f32`, `cuda_linear_attention_f32` (upload, compute, read back) |
+| Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
+
+On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 matches it at head dim 64, and linear attention at head dim 64 is up to 1.6× faster than PyTorch and level with flash-linear-attention. Head dim 128 trails in fp32 flash (0.7×) and linear attention (0.45–0.78×). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
+
 ### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
 
 ```c

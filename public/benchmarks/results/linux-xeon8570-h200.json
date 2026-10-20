@@ -1,6 +1,6 @@
 {
  "machine": {
-  "safec": "safec 1.0.0 (main @ 3848bf1, built from source)",
+  "safec": "safec 1.0.0",
   "clang": "Ubuntu clang version 21.1.8 (++20251221032922+2078da43e25a-1~exp1~20251221153059.70)",
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "go": "go version go1.27.3 linux/amd64",
@@ -13,8 +13,7 @@
   "os": "Ubuntu 24.04.3 LTS",
   "cores": 12,
   "cuda": "Build cuda_13.0.r13.0/compiler.36424714_0",
-  "gpu": "NVIDIA H200, 580.126.20",
-  "third_party": "oneMKL 2026.2.0 (pip), FFTW 3.3.10 (Ubuntu libfftw3), KFR 7.2.0, SciPy 1.16.3, RustFFT 6 / dasp 0.11 (crates.io), Q and madronalib (git HEAD 2026-10-20)"
+  "gpu": "NVIDIA H200, 580.126.20"
  },
  "ml": {
   "small/safec_cpu": {
@@ -1054,6 +1053,326 @@
    },
    "resample n=1048576 44100->48000": {
     "ms_per_call": 656.88
+   }
+  }
+ },
+ "attention": {
+  "safec_cuda": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 0.0434,
+    "tflops": 393.69
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 0.0361,
+    "tflops": 237.09
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 0.574,
+    "tflops": 478.26
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 0.3379,
+    "tflops": 405.0
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 0.0601,
+    "tflops": 569.73
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 0.0488,
+    "tflops": 349.65
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 0.831,
+    "tflops": 660.92
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 0.4801,
+    "tflops": 572.42
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 0.0432,
+    "tflops": 397.02
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 0.0359,
+    "tflops": 237.01
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 0.5723,
+    "tflops": 479.63
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 0.3374,
+    "tflops": 406.76
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 0.0587,
+    "tflops": 581.35
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 0.0486,
+    "tflops": 351.12
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 0.7972,
+    "tflops": 688.2
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 0.4664,
+    "tflops": 588.51
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 0.5029,
+    "tflops": 34.16
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 0.3581,
+    "tflops": 23.83
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 7.2918,
+    "tflops": 37.7
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 4.482,
+    "tflops": 30.56
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 1.0539,
+    "tflops": 32.6
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 0.712,
+    "tflops": 24.13
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 15.7973,
+    "tflops": 34.69
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 9.0197,
+    "tflops": 30.18
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 0.892,
+    "tflops": 615.62
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 0.3589
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 0.6687
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 1.2852
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 2.5043
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 1.4047
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 2.6032
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 0.3402
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 0.6442
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 1.2274
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 2.4276
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 1.3937
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 2.5669
+   }
+  },
+  "pytorch_cuda": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 0.0436,
+    "tflops": 391.88
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 0.0353,
+    "tflops": 243.01
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 0.574,
+    "tflops": 478.34
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 0.3316,
+    "tflops": 413.7
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 0.0599,
+    "tflops": 571.58
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 0.0494,
+    "tflops": 342.37
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 0.8204,
+    "tflops": 669.18
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 0.4811,
+    "tflops": 568.52
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 0.0433,
+    "tflops": 391.79
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 0.0349,
+    "tflops": 242.94
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 0.5728,
+    "tflops": 476.29
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 0.3306,
+    "tflops": 410.68
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 0.0589,
+    "tflops": 578.97
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 0.0497,
+    "tflops": 344.23
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 0.7862,
+    "tflops": 699.24
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 0.4634,
+    "tflops": 591.36
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 0.5205,
+    "tflops": 32.85
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 0.3508,
+    "tflops": 24.49
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 7.7825,
+    "tflops": 35.07
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 4.1793,
+    "tflops": 32.74
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 0.7885,
+    "tflops": 43.56
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 0.4848,
+    "tflops": 35.44
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 11.8886,
+    "tflops": 46.24
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 6.1828,
+    "tflops": 44.4
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 0.884,
+    "tflops": 621.39
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 0.3508
+   },
+   "linear fp32 ieee d64 s4096 c0": {
+    "ms_per_call": 0.5015
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 0.8799
+   },
+   "linear fp32 ieee d64 s4096 c1": {
+    "ms_per_call": 1.0004
+   },
+   "linear fla fp32 d64 s4096 c1": {
+    "ms_per_call": 0.8171,
+    "maxdiff": 0.00121
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 1.405
+   },
+   "linear fp32 ieee d64 s16384 c0": {
+    "ms_per_call": 1.9727
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 3.3217
+   },
+   "linear fp32 ieee d64 s16384 c1": {
+    "ms_per_call": 3.7408
+   },
+   "linear fla fp32 d64 s16384 c1": {
+    "ms_per_call": 3.0784,
+    "maxdiff": 0.0012
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 0.6287
+   },
+   "linear fp32 ieee d128 s4096 c0": {
+    "ms_per_call": 0.9348
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 1.6906
+   },
+   "linear fp32 ieee d128 s4096 c1": {
+    "ms_per_call": 2.0425
+   },
+   "linear fla fp32 d128 s4096 c1": {
+    "ms_per_call": 1.5882,
+    "maxdiff": 0.00121
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 0.5031
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 1.0304
+   },
+   "linear fla bf16 d64 s4096 c1": {
+    "ms_per_call": 0.6443,
+    "maxdiff": 0.00398
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 1.9736
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 3.8938
+   },
+   "linear fla bf16 d64 s16384 c1": {
+    "ms_per_call": 2.3825,
+    "maxdiff": 0.00393
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 0.9215
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 1.9814
+   },
+   "linear fla bf16 d128 s4096 c1": {
+    "ms_per_call": 1.1533,
+    "maxdiff": 0.00392
    }
   }
  }

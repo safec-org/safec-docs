@@ -20,6 +20,7 @@
 - **MI100의 합성곱과 FFT** ([자세히](#mi100-conv-fft)): MIOpen으로 SafeC는 64채널 3×3 합성곱 하나를 0.027 ms에 실행하고(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.222 ms입니다(0.314 ms). 배치 16–32에서는 2% 이내입니다. 장치 상주 hipFFT 변환은 PyTorch를 거칠 때보다 1.3–1.7배 빠릅니다.
 - **CPU 합성곱과 FFT** ([자세히](#mi100-conv-fft)): Winograd 3×3 합성곱과 이미지별 아레나로 U-Net이 CPU에서 1.35 ms에 실행됩니다(PyTorch 2.68 ms). 2²⁰점 FFT는 0.89 ms입니다(16스레드 FFTW 1.63 ms). 2D, 배치, 실수 변환에서는 FFTW가 1.1–1.6배 빠릅니다.
 - **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.48 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.5 ms), 44.1→48 kHz 리샘플링은 3.7 ms(SciPy 9.1 ms)입니다.
+- **H200에서의 어텐션** ([자세히](#h200-attention)): cuDNN을 거치는 fp16/bf16 flash 어텐션은 PyTorch와 같고(3% 이내, 최대 690 TFLOPS), 텐서 코어(3xTF32)의 fp32 flash 어텐션은 head dim 64에서 같고 128에서 0.7배입니다. head dim 64의 linear 어텐션은 PyTorch보다 최대 1.6배 빠르고 flash-linear-attention과 같으며, head dim 128에서는 0.45–0.78배입니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 모든 합성곱 행에서 PyTorch-CUDA보다 빠릅니다. 이미지 한 장의 64채널 3×3 합성곱은 0.018 ms(PyTorch 0.023 ms, fp32), 32장 배치는 0.084 ms(0.098 ms, TF32), 배치 16의 U-Net은 0.45 ms(0.56 ms, TF32)입니다. 호스트 배열의 2²⁰점 FFT는 PCIe 복사 두 번을 포함해 1.25 ms입니다(2.05 ms). GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 2.2배 빠르고, `HashMap`은 순수 C의 1.1배 이내, `Vec` push는 1.5배 느립니다.
 - **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 슬랩 덕분에 블록 100만 개가 동시에 살아 있을 때도 1.1배 빠릅니다.
@@ -497,6 +498,67 @@ CPU의 FFT, 호출당 ms. FFTW 3.3.10(Ubuntu 패키지, `FFTW_MEASURE`로 계획
 - **GPU에서의 FFT**: 데이터가 GPU에 있으면 SafeC와 PyTorch 모두 cuFFT를 부르고 시간이 10% 안에서 같습니다. 호스트 배열은 PCIe와 호스트 쪽 복사가 지배합니다. SafeC의 pinned 레인 덕분에 왕복이 PyTorch의 `.to("cuda")` … `.cpu()`보다 1.64배 빠르고, 이제 CPU의 `fft.h`와 거의 같은 시간이 걸립니다(1.25 ms 대 1.21 ms).
 - **CPU에서의 FFT, double**: 2²⁰점 변환은 1.21 ms로, 이 장비에서 beta-5(198.1 ms)보다 164배 빠르고, oneMKL·PyTorch(1.18 ms)와 비슷하며, 12 스레드 FFTW보다 1.9배 빠릅니다. 나머지 셋에서는 oneMKL DFTI(batch, rfft)나 PyTorch(fft2d, 0.654 ms 대 SafeC 1.08 ms)가 앞섭니다. batch에서는 SafeC와 FFTW가 비슷하고, `rfft`에서는 SafeC가 FFTW보다 1.15배 느립니다.
 - **CPU에서의 FFT, float**: 이 장비에서는 SafeC의 `fft_f32`가 double 코드보다 느립니다. 2²⁰점에서 3.06 ms 대 1.21 ms, 2D에서 2.01 ms 대 1.08 ms이고, batch와 `rfft`는 비슷합니다. 7800X3D에서는 float 행이 double의 0.6–0.8배 시간이 걸립니다. 원인은 아직 조사하지 않았습니다. 2D, batch, (PyTorch 다음으로) `rfft`에서는 oneMKL이, 2²⁰점에서는 FFTW가 앞섭니다.
+
+### H200에서의 어텐션 {#h200-attention}
+
+[`gpu_cuda_attention.h`](/ko/stdlib/ml#cuda-attention)의 flash 어텐션과 linear 어텐션을 PyTorch 2.10과 비교합니다. flash 어텐션은 `scaled_dot_product_attention`(이 GPU에서 PyTorch는 fp16/bf16에 cuDNN fused flash 커널을, fp32에 CUTLASS memory-efficient 커널을 고릅니다)과, linear 어텐션은 벡터화한 PyTorch 구현(non-causal은 einsum 두 번, causal은 64행 청크와 누적 상태 합)과 flash-linear-attention 0.5.2의 Triton `chunk_linear_attn`(causal만)과 비교합니다. 배치 4, 헤드 16, [batch, heads, tokens, head dim] 배치, 데이터는 GPU에 있습니다. 각 수치는 동기화 두 번 사이에 쌓은 10–100번 호출의 평균이며, 학습 작업을 멈춘 상태에서 3회 중 최고값입니다. TFLOPS는 4·B·H·S²·D(causal이면 절반)로 셉니다.
+
+Flash 어텐션, 호출당 ms (TFLOPS):
+
+| 데이터 | head dim | 토큰 | causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | PyTorch / SafeC |
+|---|---|---|---|---|---|---|
+| fp16 | 64 | 1024 | 아니오 | **0.043 (396)** | 0.044 (394) | 1.00 |
+| fp16 | 64 | 1024 | 예 | 0.036 (238) | **0.035 (243)** | 0.98 |
+| fp16 | 64 | 4096 | 아니오 | 0.574 (479) | 0.574 (479) | 1.00 |
+| fp16 | 64 | 4096 | 예 | 0.338 (407) | **0.332 (414)** | 0.98 |
+| fp16 | 128 | 1024 | 아니오 | 0.060 (572) | **0.060 (574)** | 1.00 |
+| fp16 | 128 | 1024 | 예 | **0.049 (352)** | 0.049 (348) | 1.01 |
+| fp16 | 128 | 4096 | 아니오 | 0.831 (662) | **0.820 (670)** | 0.99 |
+| fp16 | 128 | 4096 | 예 | **0.480 (573)** | 0.481 (571) | 1.00 |
+| bf16 | 64 | 1024 | 아니오 | **0.043 (398)** | 0.043 (397) | 1.00 |
+| bf16 | 64 | 1024 | 예 | 0.036 (239) | **0.035 (246)** | 0.97 |
+| bf16 | 64 | 4096 | 아니오 | **0.572 (480)** | 0.573 (480) | 1.00 |
+| bf16 | 64 | 4096 | 예 | 0.337 (407) | **0.331 (416)** | 0.98 |
+| bf16 | 128 | 1024 | 아니오 | **0.059 (585)** | 0.059 (583) | 1.00 |
+| bf16 | 128 | 1024 | 예 | **0.049 (353)** | 0.050 (346) | 1.02 |
+| bf16 | 128 | 4096 | 아니오 | 0.797 (690) | **0.786 (699)** | 0.99 |
+| bf16 | 128 | 4096 | 예 | 0.466 (589) | **0.463 (593)** | 0.99 |
+| fp32 | 64 | 1024 | 아니오 | **0.503 (34)** | 0.520 (33) | 1.03 |
+| fp32 | 64 | 1024 | 예 | 0.358 (24) | **0.351 (24)** | 0.98 |
+| fp32 | 64 | 4096 | 아니오 | **7.29 (38)** | 7.78 (35) | 1.07 |
+| fp32 | 64 | 4096 | 예 | 4.48 (31) | **4.18 (33)** | 0.93 |
+| fp32 | 128 | 1024 | 아니오 | 1.05 (33) | **0.788 (44)** | 0.75 |
+| fp32 | 128 | 1024 | 예 | 0.712 (24) | **0.485 (35)** | 0.68 |
+| fp32 | 128 | 4096 | 아니오 | 15.8 (35) | **11.9 (46)** | 0.75 |
+| fp32 | 128 | 4096 | 예 | 9.02 (30) | **6.18 (44)** | 0.69 |
+| bf16 (GQA 32 / 8 헤드) | 128 | 4096 | 예 | 0.892 (616) | **0.884 (622)** | 0.99 |
+
+Linear 어텐션 (phi(x) = elu(x) + 1), 호출당 ms:
+
+| 데이터 | head dim | 토큰 | causal | SafeC | PyTorch (기본값: fp32는 TF32) | PyTorch, IEEE fp32 | fla (Triton) |
+|---|---|---|---|---|---|---|---|
+| fp32 | 64 | 4096 | 아니오 | 0.359 | **0.351** | 0.501 | — |
+| fp32 | 64 | 4096 | 예 | **0.669** | 0.880 | 1.00 | 0.817 |
+| fp32 | 64 | 16384 | 아니오 | **1.29** | 1.41 | 1.97 | — |
+| fp32 | 64 | 16384 | 예 | **2.50** | 3.32 | 3.74 | 3.08 |
+| fp32 | 128 | 4096 | 아니오 | 1.40 | **0.629** | 0.935 | — |
+| fp32 | 128 | 4096 | 예 | 2.60 | 1.69 | 2.04 | **1.59** |
+| bf16 | 64 | 4096 | 아니오 | **0.340** | 0.503 | — | — |
+| bf16 | 64 | 4096 | 예 | **0.644** | 1.03 | — | 0.644 |
+| bf16 | 64 | 16384 | 아니오 | **1.23** | 1.97 | — | — |
+| bf16 | 64 | 16384 | 예 | 2.43 | 3.89 | — | **2.38** |
+| bf16 | 128 | 4096 | 아니오 | 1.39 | **0.921** | — | — |
+| bf16 | 128 | 4096 | 예 | 2.57 | 1.98 | — | **1.15** |
+
+- **fp16/bf16 flash 어텐션**은 여기서 PyTorch가 쓰는 것과 같은 cuDNN fused attention 엔진으로 가므로, 모든 행에서 3% 안에서 같습니다(최대 690 TFLOPS). SafeC는 cuDNN 그래프를 직접 만들고(dlopen, 링크 의존성 없음), cuDNN이 없으면 자체 FlashAttention-2 커널(mma.sync)로 돌립니다. grouped-query 어텐션도 PyTorch와 같은 속도입니다.
+- **fp32 flash 어텐션**은 SafeC의 FlashAttention-2 커널을 텐서 코어에서 3xTF32(곱마다 TF32 두 조각의 hi·hi + hi·lo + lo·hi)로 돌립니다. CUTLASS와 같은 방법이며 오차는 ~2e-7입니다. head dim 64에서는 PyTorch와 7% 안이고 causal 마스크가 없으면 더 빠릅니다. head dim 128에서는 PyTorch의 0.68–0.75입니다: SafeC는 SM당 블록 두 개가 들어가도록 32키 타일을 쓰고, CUTLASS는 64×128 타일을 레지스터에 둡니다.
+- **Linear 어텐션, head dim 64**: SafeC의 청크 병렬 커널(청크별 상태, 청크에 걸친 prefix, 모든 청크의 출력을 한 번에)은 벡터화한 PyTorch보다 bf16에서 1.5–1.6배, fp32 causal에서 1.3배 빠르고, fp32 non-causal은 PyTorch의 TF32 einsum과 비슷합니다(0.98–1.09). fla와는 bf16에서 같고 fp32에서 1.2배 빠릅니다. SafeC는 정확한 fp32로 계산합니다: NVIDIA NGC 컨테이너의 PyTorch fp32 einsum은 기본으로 TF32를 쓰고(`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`), fla의 fp32 출력은 정확한 결과와 ~1e-3 차이가 나서 내부에서 TF32 내적을 쓰는 것으로 보입니다. IEEE fp32 PyTorch보다는 1.4–1.5배 빠릅니다.
+- **Linear 어텐션, head dim 128**은 SafeC의 약점입니다: PyTorch와 fla의 0.45–0.78. 청크 커널이 CUDA 코어에서 돌며, 텐서 코어 버전(m16n8k16 / 3xTF32)도 시도했지만 아직 빨라지지 않았으므로 시간은 다른 곳(패스 사이의 상태 트래픽)에 쓰입니다.
+- `tests/stdlib/cuda/cuda_attention_check.sc`가 모든 경로(cuDNN, 자체 flash 커널 두 가지, CUDA 코어 대체 경로, 청크/순차 linear 어텐션, 두 인자 형태, sliding window, GQA, 그래프 재생)를 배정밀도 기준값 및 attention.h의 CPU 함수와 비교합니다: 97개 검사.
+
+::: details 소스
+[attn_cuda.sc](/benchmarks/attention/safec/attn_cuda.sc) · [attn.py](/benchmarks/attention/pytorch/attn.py) · [gpu_cuda_attention.h](/benchmarks/stdlib/gpu_cuda_attention.h) · [gpu_cuda_attention.sc](/benchmarks/stdlib/gpu_cuda_attention.sc)
+:::
 
 ### Xeon 8570의 CPU DSP {#h200-dsp}
 
