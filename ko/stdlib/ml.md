@@ -726,7 +726,7 @@ PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친
 [`flash_attention_forward`와 `linear_attention_forward`](#attention)의 배치·멀티헤드 버전을 `CudaBuf` 위에서, `gpu_cuda`의 스트림에 쌓아 실행합니다(다른 연산과 순서가 맞고 `CudaGraph`에 기록할 수 있습니다). 순전파만 있습니다.
 
 - **Flash 어텐션**, 점수 행렬 없이 `softmax(Q Kᵀ · scale) V`. fp16/bf16은 `libcudnn.so.9`를 `dlopen`으로 열 수 있으면 cuDNN fused attention 엔진으로 가고(SafeC가 cudnn-frontend의 `sdpa()`와 같은 그래프를 만들어 모양마다 계획을 캐시), 아니면 이 라이브러리의 FlashAttention-2 커널이 텐서 코어(`mma.sync`, sm_80+, head dim ≤ 128)에서 돌립니다. fp32는 그 커널을 3xTF32로 돌립니다(fp32 수준 오차, ~2e-7). head dim 256과 오래된 GPU는 같은 알고리즘의 CUDA 코어 커널을 씁니다. `cuda_attention_use_cudnn(0)`이면 자체 커널만 씁니다.
-- **Linear 어텐션**, φ(x) = elu(x) + 1, O(n d²): 64키 청크별 상태 φ(K)ᵀV, 청크에 걸친 prefix(causal) 또는 합계(non-causal), 그다음 모든 청크의 출력을 한 번에. 데이터 형식과 관계없이 정확한 fp32로 계산합니다.
+- **Linear 어텐션**, φ(x) = elu(x) + 1, O(n d²): head dim 128까지는 헤드별 패스가 상태 φ(K)ᵀV를 레지스터에 둔 채 64키 청크를 훑고(causal이면 각 청크 앞에서 저장), 그다음 모든 청크의 출력을 한 번에. 데이터 형식과 관계없이 정확한 fp32로 계산합니다.
 - **모양**: `cuda_flash_attention` / `cuda_linear_attention` / `_f32` 형태는 [ROCm](#rocm-attention)의 `rocm_flash_attention` / `rocm_linear_attention`과 같은 인자를 받습니다(fp32, `[heads][seq][dim]`). `_ex`와 `cuda_half_` 형태는 `CudaAttnShape`(배치, grouped-query K/V — `kvHeads`가 `heads`를 나눔, sliding window)를 받습니다. head dim은 32, 64, 96, 128, 256.
 - **마스킹**: 쿼리 i는 위치 `kvLen - seqLen + i`에 있습니다(마지막 `seqLen`개 키가 쿼리 자신의 토큰이고 그 앞은 캐시, [`mps_flash_attn_bf16`](#mps-attention)과 같음). `causal`은 뒤쪽 키를 가리고, `window`(flash만)는 `window`칸 이상 앞의 키도 가립니다.
 - (커널, 데이터 형식, head dim) 조합마다 첫 호출에서 NVRTC가 컴파일하고, cuDNN 계획과 linear 어텐션 작업 공간도 그때 만들어지므로, 그래프를 캡처하기 전에 모양마다 한 번 호출하세요.
@@ -738,7 +738,7 @@ PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친
 | 호스트 배열 | `cuda_flash_attention_f32`, `cuda_linear_attention_f32`(업로드, 계산, 읽기) |
 | 제어 | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
 
-H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 같으며, head dim 64의 linear 어텐션은 PyTorch보다 최대 1.6배 빠르고 flash-linear-attention과 같습니다. head dim 128에서는 fp32 flash(0.7배)와 linear 어텐션(0.45–0.78배)이 뒤처집니다. [벤치마크](/ko/benchmarks#h200-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`와 `cuda_load_module(source, name)`이 추가되었습니다.
+H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 1.34배 빠르고 128에서 같으며(0.97–1.05배), linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠릅니다(head dim 128 fp32 non-causal에서는 PyTorch의 TF32 einsum과 같음). [벤치마크](/ko/benchmarks#h200-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`와 `cuda_load_module(source, name)`이 추가되었습니다.
 
 ### ROCm의 합성곱(MIOpen)과 FFT(hipFFT) {#rocm-miopen-hipfft}
 
