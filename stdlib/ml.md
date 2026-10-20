@@ -216,8 +216,12 @@ discrete memory model needs.
   combinations, graphs and the host-array API against CPU results (29
   checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and MPS paths.
-- **CUDA**: written against the real Driver API ABI and type-checked, but
-  unverified — no NVIDIA GPU in the environments this was tested in.
+- **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
+  `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
+  combinations with and without the fused ReLU, graphs, the host-array and
+  raw-pointer APIs, the fp16/bf16 kernels and the [cuDNN and cuFFT
+  libraries](#cuda-cudnn-cufft) against CPU results (110 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  train to the same loss as the CPU and ROCm paths.
 :::
 
 ### ROCm / HIP (AMD)
@@ -277,16 +281,123 @@ faster at the small sizes a training loop uses (≈5 µs, close to the launch
 floor). So matmuls use rocBLAS, and the custom kernels cover the work rocBLAS
 doesn't do.
 
+### CUDA (NVIDIA) {#cuda}
+
+```c
+#include <std/ml/gpu_cuda.h>   // link: -lcuda -lcublas -lcublasLt -lnvrtc
+```
+
+The same model as the ROCm backend, with the same function names under
+`cuda_`: `CudaBuf`s are GPU buffers carrying their element count, ops queue in
+order on one CUDA stream, and only what you `cuda_read` comes back. Matmuls go
+to cuBLAS in full fp32 (no TF32). The rest runs this library's own CUDA
+kernels, compiled by NVRTC at first use into a cubin for the GPU that is
+present (`-arch=sm_90` on an H100/H200), so one build runs on any GPU the
+installed CUDA knows. The backend uses the device's primary context, the one
+the CUDA runtime and PyTorch use, so buffers can coexist with other CUDA code
+in the process.
+
+On top of the ROCm op set, two fusions cut the launches per training step
+from 10 to 7:
+
+- `cuda_gemm_relu` — `relu(op(a) op(b))` as one cuBLASLt matmul with the ReLU
+  epilogue. The ReLU gradient can then test the activation instead of the
+  pre-activation (`h > 0` exactly where `z > 0`), so `Z1` is never stored.
+- `cuda_sgd2` — both weight updates of a two-tensor model in one kernel.
+
+Other CUDA-specific choices: reads of up to 64 KB (a loss, one output) go
+through a pinned staging buffer, and so take one DMA. A one-block reduction
+stores its result directly, so `cuda_mse_grad`/`cuda_sum` need no zeroing
+memset. cuBLAS gets a fixed 32 MB workspace, so its calls can be captured
+into graphs.
+
+| Group | Functions |
+|---|---|
+| Device | `cuda_available`, `cuda_device_name`, `cuda_sync` |
+| Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free` |
+| Matmul | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu` (same arguments, fused ReLU) |
+| Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
+| Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
+| Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
+| Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
+| Raw pointers | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
+
+The MLP step above, fused:
+
+```c
+std::cuda_gemm_relu(X, 0, W1, 0, H, B, H_DIM, I);    // H = relu(X W1)
+std::cuda_gemm(H, 0, W2, 0, Y, B, O, H_DIM);
+std::cuda_mse_grad(Y, T, dY, loss);
+std::cuda_gemm(H, 1, dY, 0, dW2, H_DIM, O, B);
+std::cuda_gemm(dY, 0, W2, 1, dH, B, H_DIM, O);
+std::cuda_relu_grad(H, dH, dZ1);                      // H > 0 where Z1 > 0
+std::cuda_gemm(X, 1, dZ1, 0, dW1, I, H_DIM, B);
+std::cuda_sgd2(W2, dW2, W1, dW1, lr);
+```
+
+Before this backend was verified, each host-array call created and destroyed
+a CUDA context and a cuBLAS handle. Through `tensor_matmul_cuda_blas`, the
+small MLP benchmark took 83 s to train and 816 s for inference on the H200.
+The host-array functions now share the backend's context, stream and kernels.
+
+### Convolution (cuDNN) and FFT (cuFFT) on CUDA {#cuda-cudnn-cufft}
+
+```c
+#include <std/ml/gpu_cudnn.h>   // link: -lcudnn + the gpu_cuda libraries
+#include <std/dsp/fft_cuda.h>   // link: -lcufft + the gpu_cuda libraries
+```
+
+Two libraries on top of `gpu_cuda.h`. They queue their work on the same
+stream, so they order with the `CudaBuf` ops and can be recorded into a
+`CudaGraph`. Link them only when you use them: each is its own object file
+in the std archive.
+
+**`gpu_cudnn.h`** runs [CNN](#cnn) and [U-Net](#u-net) on the GPU. Tensors are
+`CudaBuf`s in NCHW order, which is `FeatureMap`'s CHW layout with a batch axis
+in front. The first convolution of each shape asks cuDNN to time its
+algorithms (`cudnnFindConvolutionForwardAlgorithm`) and caches the fastest one
+together with its own workspace. Make that first call outside graph capture.
+Convolutions run in plain fp32 unless `cuda_set_tf32(1)` is on, the same
+switch the cuBLAS GEMMs use.
+
+| Group | Functions |
+|---|---|
+| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
+| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU in one cuDNN call), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels`; in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy` |
+| U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
+| Host arrays | `conv2d_forward_cuda`, `unet_forward_cuda`: the signatures of `conv2d_forward`/`unet_forward`. They upload the weights on every call and fall back to the CPU when no GPU is usable |
+
+**`fft_cuda.h`** is the GPU counterpart of [`fft.h`](/stdlib/dsp#fft-fast-fourier-transform-radix-2-cooley-tukey).
+Unlike `fft.h`, it accepts any length, not only powers of two. Forward
+transforms are unnormalized and inverse ones include 1/N, as in `fft.h`.
+
+| Group | Functions |
+|---|---|
+| Host arrays, `double` | `cuda_fft`, `cuda_ifft`, `cuda_fft_batch(data, n, batch, inverse)`, `cuda_fft2d`, `cuda_ifft2d` (`imaging.h`'s `fft2d`) |
+| Queued, fp32 `CudaBuf` | `cuda_fft_c2c(in, out, n, batch, inverse)` (interleaved re/im), `cuda_fft_r2c` (n reals → n/2+1 complex), `cuda_fft_c2r` (overwrites its input, as cuFFT does) |
+
+`tests/stdlib/cuda` checks both libraries against the CPU code: `conv2d_forward`
+at stride 1 and 2, batched; pooling, upsample and concat; a whole U-Net;
+`fft`/`ifft`, `dft` for a non-power-of-two length, batched and 2D transforms;
+and the fp32 device transforms. It also replays a convolution from a graph and
+runs one with TF32 on.
+
+On the H200, the queued ops beat PyTorch-CUDA on batched convolutions (32
+images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
+0.206 ms, or 0.164 ms as one graph). PyTorch is faster for a single
+one-image convolution (0.022 ms vs 0.034 ms). The device FFTs match cuFFT
+through PyTorch. See the [benchmarks](/benchmarks#h200-conv-fft).
+
 ### Backend status {#backend-status}
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
 | ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | real (PTX, text IR) | real (PTX) | real (cuBLAS) | unmeasured — no NVIDIA GPU in the test environment |
+| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 110 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) and the [conv/FFT benchmarks](/benchmarks#h200-conv-fft) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
 
-SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; CUDA and WebGPU take text IR (PTX, WGSL) and are written in full, but no NVIDIA GPU or wgpu-native/Dawn library was available to run them.
+SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; WebGPU takes text IR (WGSL) and is written in full, but no wgpu-native/Dawn library was available to run it.
 
 ## fp16 / bf16 {#fp16-bf16}
 

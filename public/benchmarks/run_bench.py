@@ -15,6 +15,7 @@ through these environment variables:
   BLAS_LIBS    linker flags for a CBLAS library on non-macOS hosts
                (e.g. "-L/opt/openblas/lib -lopenblas")
   ROCM_PATH    ROCm install for the AMD GPU rows (default /opt/rocm)
+  CUDA_PATH    CUDA toolkit for the NVIDIA GPU rows (default /usr/local/cuda)
 """
 import argparse, json, os, platform, re, shutil, signal, socket, subprocess, sys, time
 
@@ -37,6 +38,7 @@ MLPY = os.environ.get("MLPY") or PYTHON
 WEBPY = os.environ.get("WEBPY") or MLPY
 AB = tool("AB", "ab")
 ROCM = os.environ.get("ROCM_PATH", "/opt/rocm")
+CUDA = os.environ.get("CUDA_PATH", "/usr/local/cuda")
 BLAS = (os.environ.get("BLAS_LIBS", "-lopenblas").split() if not IS_MAC else ["-framework", "Accelerate"])
 BUILD = os.path.join(HERE, "build")
 
@@ -276,6 +278,9 @@ def bench_ml(runs):
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
         rocm = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]
         cases.append(("rocm/safec", "ml/safec/train_rocm.sc", rocm, None))
+    if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
+        cuda = [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas", "-lcublasLt", "-lnvrtc"]
+        cases.append(("cuda/safec", "ml/safec/train_cuda.sc", cuda, None))
     if IS_MAC:
         cases += [("small/safec_mps", "ml/safec/train_gpu_small.sc", ["-framework", "Metal", "-framework", "Foundation"], None),
                   ("big/safec_mps", "ml_big/safec/train_gpu.sc", ["-framework", "Metal", "-framework", "Foundation"], None)]
@@ -285,7 +290,7 @@ def bench_ml(runs):
         try:
             timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
             runs_out = [sh([out]) for _ in range(runs)]
-            if key == "rocm/safec":
+            if key in ("rocm/safec", "cuda/safec"):
                 # one line per shape x mode: keep the best train/inference per line label
                 best = {}
                 for o in runs_out:
@@ -329,6 +334,66 @@ def bench_ml(runs):
             res[f"{shape}/tensorflow_cpu"] = {"error": str(e).splitlines()[0][:200]}
         print(f"  ml {shape}/tensorflow_cpu {res[f'{shape}/tensorflow_cpu']}", flush=True)
     return res
+
+
+# ── convolution / FFT (CPU vs CUDA) ───────────────────────────────────────────
+
+def best_labeled(outputs):
+    """'[label] k=v ...' lines from several runs -> {label: {k: min v}}."""
+    best = {}
+    for o in outputs:
+        for line in o.splitlines():
+            m = re.match(r"\[(.+?)\] (.*)", line)
+            if not m:
+                continue
+            vals = dict((k, float(v)) for k, v in re.findall(r"(\w+)=(-?[\d.]+)", m.group(2)))
+            cur = best.setdefault(m.group(1), {})
+            for k, v in vals.items():
+                cur[k] = min(cur.get(k, 1e18), v) if "ms" in k else v
+    return best
+
+
+def torch_devices():
+    try:
+        return ["cpu"] + (["cuda"] if sh([MLPY, "-c", "import torch;print(torch.cuda.is_available())"]).strip() == "True" else [])
+    except Exception:
+        return []
+
+
+def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs):
+    """SafeC CPU, SafeC CUDA (when an NVIDIA GPU is present) and PyTorch rows."""
+    res = {}
+    cases = [("safec_cpu", cpu_src, [])]
+    if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
+        cases.append(("safec_cuda", cuda_src, [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas",
+                                                "-lcublasLt", "-lnvrtc"] + cuda_libs))
+    for key, src, libs in cases:
+        out = os.path.join(BUILD, bench, key)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
+            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  {bench} {key} {res[key]}", flush=True)
+    for dev in torch_devices():
+        key = f"pytorch_{dev}"
+        try:
+            res[key] = best_labeled([sh([MLPY, os.path.join(HERE, torch_script), dev]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  {bench} {key} {res[key]}", flush=True)
+    return res
+
+
+def bench_conv(runs):
+    return cpu_vs_cuda("conv", "conv/safec/conv_cpu.sc", "conv/safec/conv_cuda.sc", ["-lcudnn"],
+                       "conv/pytorch/conv.py", runs)
+
+
+def bench_fft(runs):
+    return cpu_vs_cuda("fft", "fft/safec/fft_cpu.sc", "fft/safec/fft_cuda.sc", ["-lcufft"],
+                       "fft/pytorch/fft.py", runs)
 
 
 # ── web service ───────────────────────────────────────────────────────────────
@@ -411,7 +476,8 @@ def versions():
         "rustc": first([RUSTC, "--version"]), "go": first([GO, "version"]), "zig": first([ZIG, "version"]),
         "python": first([PYTHON, "--version"]),
         "torch": first([MLPY, "-c", "import torch;print(torch.__version__)"]),
-        "tensorflow": first([MLPY, "-c", "import os;os.environ['TF_CPP_MIN_LOG_LEVEL']='3';import tensorflow as tf;print(tf.__version__)"]),
+        "tensorflow": (sh([MLPY, "-c", "import os;os.environ['TF_CPP_MIN_LOG_LEVEL']='3';import tensorflow as tf;print(tf.__version__)"],
+                          check=False).strip().splitlines() or [None])[-1],  # last line: absl may log before the version
         "numpy": first([MLPY, "-c", "import numpy;print(numpy.__version__)"]),
     }
     if IS_MAC:
@@ -422,6 +488,11 @@ def versions():
         v["os"] = first(["sh", "-c", ". /etc/os-release; echo $PRETTY_NAME"])
     v["cores"] = os.cpu_count()
     gpu = first(["sh", "-c", f"{ROCM}/bin/rocminfo 2>/dev/null | grep 'Marketing Name' | sed -n 2p | sed 's/.*: *//'"])
+    if not gpu:
+        gpu = first(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
+        if gpu:
+            v["cuda"] = first([os.path.join(CUDA, "bin", "nvcc"), "--version"]) and \
+                sh([os.path.join(CUDA, "bin", "nvcc"), "--version"], check=False).strip().splitlines()[-1]
     if gpu:
         v["gpu"] = gpu
     return v
@@ -436,6 +507,8 @@ BENCHES = {
     "collections": bench_collections,
     "memalloc": bench_memalloc,
     "ml": bench_ml,
+    "conv": bench_conv,
+    "fft": bench_fft,
     "web": bench_web,
 }
 
