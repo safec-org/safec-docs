@@ -16,6 +16,7 @@ Release-build wall-clock time (lower is better; fastest in bold). SafeC's binary
 | [Web service](#web-service-json-hello-world-endpoint) (req/s, higher is better) | **25,216** | 24,618 | 24,870 | 24,814 | 24,828 | 23,573 | 5,047 |
 
 - **Machine learning** (2-layer MLP, [details](#machine-learning-small-mlp-training-and-inference)): on the MI100, SafeC trains the small model in 7.2 ms vs PyTorch-ROCm's 20.1 ms, and the big one in 8.3 ms vs 10.1 ms. On CPU, PyTorch is faster (14.1 ms vs SafeC + OpenBLAS 29.6 ms).
+- **NVIDIA H200** ([details](#h200-machine-learning)): SafeC's CUDA backend trains the small model in 3.80 ms vs PyTorch-CUDA's 50.9 ms (fp32), and the big one in 3.13 ms vs 16.9 ms. Results for the Xeon 8570 CPU are in [their own section](#xeon-8570-classic).
 - **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 1.9× faster than a `malloc`-per-node one; `Vec` push and `HashMap` are 1.2–1.6× slower than plain C.
 - **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, 1.4× slower for a million live blocks.
 
@@ -229,6 +230,81 @@ The cache wins whenever freed blocks are reused soon. Short-lived objects and bi
 
 ::: details Sources
 [mem.h](/benchmarks/stdlib/mem.h) · [mem.sc](/benchmarks/stdlib/mem.sc) · [alloc_bench.sc](/benchmarks/memalloc/safec/alloc_bench.sc)
+:::
+
+## Xeon Platinum 8570 + NVIDIA H200 {#xeon-8570-h200}
+
+This is the same suite on a GPU server, and the first run of SafeC's CUDA backend on NVIDIA hardware. Compare these numbers with each other, not with the 7800X3D tables above: the CPU, the core count and the toolchain versions all differ.
+
+- **Machine**: Intel Xeon Platinum 8570 in a Backend.AI container limited to 12 of the host's 112 cores, NVIDIA H200 (sm_90, 141 GB HBM3e, driver 580.126.20, CUDA 13.0), Ubuntu 24.04.3 — `safec` 1.0.0 (v1.0.0-beta-5) · clang 21.1.8 · Rust 1.99.1 · Go 1.27.3 · Zig 0.17.0 · Python 3.12.3 · PyTorch 2.10.0a0 (NGC 25.11) · TensorFlow 2.21.0 (CPU) · OpenBLAS (pthreads, Ubuntu package).
+- **Method**: same as [above](#methodology), best of 3. The H200 is shared with a training job, which was paused (`SIGSTOP`) for the whole run, so the GPU and the 12 cores were idle. While that job ran, the same GPU benchmarks varied 5× from run to run, for SafeC and PyTorch alike.
+- **Numbers**: [`results/linux-xeon8570-h200.json`](/benchmarks/results/linux-xeon8570-h200.json).
+
+### Machine learning on the H200 {#h200-machine-learning}
+
+The models, loops and per-step readback are the same as in the [MI100 tables](#machine-learning-small-mlp-training-and-inference). The SafeC CUDA rows come from [train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc), which runs four modes:
+
+- **plain**: the same 10-launch step as the ROCm benchmark.
+- **fused**: `relu(X W1)` in one cuBLASLt call and both SGD updates in one kernel, 7 launches per step.
+- **fused + graph**: the fused step replayed as one CUDA graph.
+- **TF32**: the graph step with TF32 tensor cores turned on (`cuda_set_tf32`).
+
+NVIDIA's NGC PyTorch container sets `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`, so PyTorch's fp32 matmuls already run in TF32 by default. The PyTorch fp32 row sets that variable to 0.
+
+Small model (128→256→64, batch 64, 100 training steps, 1000 inference passes):
+
+| Framework | Device | Train (100 steps) | Throughput | Inference (1000 passes) | Loss (sanity check) |
+|---|---|---|---|---|---|
+| SafeC | CPU (naive) | 144.0 ms | 44,459 samples/s | 481.1 ms | 100.333427 |
+| SafeC | CPU (OpenBLAS) | 40.8 ms | 157,036 samples/s | 93.9 ms | 100.333420 |
+| SafeC | CUDA (H200), plain | 6.72 ms | 951,673 samples/s | 38.7 ms | 100.333282 |
+| SafeC | CUDA, fused | 6.23 ms | 1,027,287 samples/s | 34.9 ms | 100.333282 |
+| SafeC | CUDA, fused + graph | 3.80 ms | 1,683,325 samples/s | 19.6 ms | 100.333290 |
+| SafeC | CUDA, graph + TF32 | **3.79 ms (fastest)** | **1,687,319 samples/s** | **19.5 ms (fastest)** | 100.334076 |
+| PyTorch | CPU | 23.3 ms | 274,560 samples/s | 43.4 ms | 100.018272 |
+| PyTorch | CUDA, TF32 (NGC default) | 47.7 ms | 134,166 samples/s | 55.6 ms | 103.076630 |
+| PyTorch | CUDA, fp32 | 50.9 ms | 125,811 samples/s | 56.5 ms | 103.071129 |
+| TensorFlow | CPU | 122.0 ms | 52,470 samples/s | 265.5 ms | 106.182999 |
+
+Bigger model (512→1024→256, batch 128, 50 training steps, 200 inference passes):
+
+| Framework | Device | Train (50 steps) | Throughput | Inference (200 passes) | Loss (sanity check) |
+|---|---|---|---|---|---|
+| SafeC | CPU (naive) | 2323.4 ms | 2,755 samples/s | 2764.1 ms | 95.428474 |
+| SafeC | CPU (OpenBLAS) | 205.8 ms | 31,094 samples/s | 255.3 ms | 95.424973 |
+| SafeC | CUDA (H200), plain | 4.08 ms | 1,569,397 samples/s | 8.21 ms | 95.427277 |
+| SafeC | CUDA, fused | 3.76 ms | 1,701,223 samples/s | 7.59 ms | 95.427292 |
+| SafeC | CUDA, fused + graph | 3.13 ms | 2,046,690 samples/s | **5.56 ms (fastest)** | 95.427284 |
+| SafeC | CUDA, graph + TF32 | **2.31 ms (fastest)** | **2,770,563 samples/s** | 5.57 ms | 90.685478 |
+| PyTorch | CPU | 60.5 ms | 105,864 samples/s | 54.9 ms | 106.544487 |
+| PyTorch | CUDA, TF32 (NGC default) | 18.0 ms | 356,506 samples/s | 11.9 ms | 871.826538 |
+| PyTorch | CUDA, fp32 | 16.9 ms | 379,192 samples/s | 12.1 ms | 1754.826172 |
+| TensorFlow | CPU | 225.7 ms | 28,353 samples/s | 237.4 ms | 316.611603 |
+
+- **SafeC versus PyTorch on the GPU, fp32 against fp32**: training is 13× faster on the small model (3.80 ms vs 50.9 ms) and 5.4× on the big one (3.13 ms vs 16.9 ms); inference is 2.9× and 2.2× faster. At these sizes a step is a few microsecond-scale kernels plus a blocking loss read, so the cost per launch decides the result. One SafeC step is about 38 µs (one graph launch plus the readback). One PyTorch step is about 500 µs of Python, autograd and dispatcher work around the same handful of cuBLAS calls.
+- **Where SafeC's time goes**: fusing removes 3 of the 10 launches and saves 7–8%. The graph saves another 39% on the small model, where launch cost dominates, and 17% on the big one. TF32 changes nothing on the small model, which isn't compute-bound, and takes 26% off training on the big one. With TF32, the big model's loss after 50 steps is 90.69 instead of 95.43: this loop amplifies rounding differences, and the CPU, fp32 GPU and ROCm runs all agree to 4 digits.
+- **Before this backend**: in v1.0.0-beta-5, `tensor_matmul_cuda_blas` created and destroyed a CUDA context and a cuBLAS handle on every call. On this GPU the small benchmark took 83 s to train and 816 s for inference through that path, more than 20,000× slower than the fused + graph row.
+- **CPU**: these 12 cores are slower per thread than the 7800X3D. OpenBLAS trains the small model 1.7× slower than PyTorch's own CPU kernels here, and the big one 3.4× slower.
+
+### Classic benchmarks on the Xeon 8570 {#xeon-8570-classic}
+
+Release-build wall-clock time, best of 3 (lower is better; fastest in bold). Web service is requests per second (higher is better). The Zig sources for the threaded and web benchmarks were written for Zig 0.16 and don't build with 0.17.0, which changed `**` array repetition and removed `@cImport`.
+
+| Benchmark | SafeC | C | C++ | Rust | Zig | Go | Python |
+|---|---|---|---|---|---|---|---|
+| fib(37) | 0.086s | 0.087s | 0.090s | 0.092s | **0.071s** | 0.134s | 2.432s |
+| n-body | 0.146s | **0.144s** | 0.145s | 0.154s | 0.154s | 0.190s | 9.334s |
+| binary-trees (SafeC: arena) | **0.310s** | 1.165s | 1.372s | 1.400s | 1.248s | 3.319s | 29.399s |
+| binary-trees, SafeC heap | 1.160s | | | | | | |
+| binary-trees, 8 threads (SafeC: arena) | **0.092s** | 0.407s | 0.450s | 0.459s | N/A | 0.412s | 74.727s |
+| binary-trees, 8 threads, SafeC heap | 0.395s | | | | | | |
+| SIMD, explicit vectors | 0.114s | 0.110s | 0.112s | 0.110s | **0.093s** | — | 0.334s (NumPy) |
+| Web service (req/s) | **33,738** | 32,177 | 32,606 | 32,652 | N/A | 32,182 | 2,886 |
+
+Collections (1,000,000 elements, ms): `Vec` push 3.23 vs C 1.73, `vec_sort` **74.8** vs `qsort` 148.8, `HashMap` insert 62.1 vs 54.3, get 20.4 vs 18.9, `List` push+pop **17.5** vs 27.5, `Queue` **4.16** vs 6.78, `BST` insert 357.7 vs **315.5**, get 348.4 vs **337.2**. Allocator: `std::alloc`/`dealloc` 10.06 ns per interleaved pair vs `malloc`/`free` **8.52** ns, and the batch pattern takes 158 ms vs **119** ms. The ordering matches the 7800X3D except for the interleaved allocator pattern, where glibc's `malloc` comes out ahead on this machine.
+
+::: details Sources
+[train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [PyTorch big train.py](/benchmarks/ml_big/pytorch/train.py) · the classic benchmarks' sources are linked in their sections above.
 :::
 
 ## Earlier runs on other platforms {#earlier-runs}

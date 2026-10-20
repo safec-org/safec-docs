@@ -15,6 +15,7 @@ through these environment variables:
   BLAS_LIBS    linker flags for a CBLAS library on non-macOS hosts
                (e.g. "-L/opt/openblas/lib -lopenblas")
   ROCM_PATH    ROCm install for the AMD GPU rows (default /opt/rocm)
+  CUDA_PATH    CUDA toolkit for the NVIDIA GPU rows (default /usr/local/cuda)
 """
 import argparse, json, os, platform, re, shutil, signal, socket, subprocess, sys, time
 
@@ -37,6 +38,7 @@ MLPY = os.environ.get("MLPY") or PYTHON
 WEBPY = os.environ.get("WEBPY") or MLPY
 AB = tool("AB", "ab")
 ROCM = os.environ.get("ROCM_PATH", "/opt/rocm")
+CUDA = os.environ.get("CUDA_PATH", "/usr/local/cuda")
 BLAS = (os.environ.get("BLAS_LIBS", "-lopenblas").split() if not IS_MAC else ["-framework", "Accelerate"])
 BUILD = os.path.join(HERE, "build")
 
@@ -276,6 +278,9 @@ def bench_ml(runs):
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
         rocm = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]
         cases.append(("rocm/safec", "ml/safec/train_rocm.sc", rocm, None))
+    if os.path.exists(os.path.join(CUDA, "lib64", "libnvrtc.so")) and shutil.which("nvidia-smi"):
+        cuda = [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas", "-lcublasLt", "-lnvrtc"]
+        cases.append(("cuda/safec", "ml/safec/train_cuda.sc", cuda, None))
     if IS_MAC:
         cases += [("small/safec_mps", "ml/safec/train_gpu_small.sc", ["-framework", "Metal", "-framework", "Foundation"], None),
                   ("big/safec_mps", "ml_big/safec/train_gpu.sc", ["-framework", "Metal", "-framework", "Foundation"], None)]
@@ -285,7 +290,7 @@ def bench_ml(runs):
         try:
             timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
             runs_out = [sh([out]) for _ in range(runs)]
-            if key == "rocm/safec":
+            if key in ("rocm/safec", "cuda/safec"):
                 # one line per shape x mode: keep the best train/inference per line label
                 best = {}
                 for o in runs_out:
@@ -411,7 +416,8 @@ def versions():
         "rustc": first([RUSTC, "--version"]), "go": first([GO, "version"]), "zig": first([ZIG, "version"]),
         "python": first([PYTHON, "--version"]),
         "torch": first([MLPY, "-c", "import torch;print(torch.__version__)"]),
-        "tensorflow": first([MLPY, "-c", "import os;os.environ['TF_CPP_MIN_LOG_LEVEL']='3';import tensorflow as tf;print(tf.__version__)"]),
+        "tensorflow": (sh([MLPY, "-c", "import os;os.environ['TF_CPP_MIN_LOG_LEVEL']='3';import tensorflow as tf;print(tf.__version__)"],
+                          check=False).strip().splitlines() or [None])[-1],  # last line: absl may log before the version
         "numpy": first([MLPY, "-c", "import numpy;print(numpy.__version__)"]),
     }
     if IS_MAC:
@@ -422,6 +428,11 @@ def versions():
         v["os"] = first(["sh", "-c", ". /etc/os-release; echo $PRETTY_NAME"])
     v["cores"] = os.cpu_count()
     gpu = first(["sh", "-c", f"{ROCM}/bin/rocminfo 2>/dev/null | grep 'Marketing Name' | sed -n 2p | sed 's/.*: *//'"])
+    if not gpu:
+        gpu = first(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
+        if gpu:
+            v["cuda"] = first([os.path.join(CUDA, "bin", "nvcc"), "--version"]) and \
+                sh([os.path.join(CUDA, "bin", "nvcc"), "--version"], check=False).strip().splitlines()[-1]
     if gpu:
         v["gpu"] = gpu
     return v

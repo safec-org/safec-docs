@@ -216,8 +216,12 @@ discrete memory model needs.
   combinations, graphs and the host-array API against CPU results (29
   checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
   train to the same loss as the CPU and MPS paths.
-- **CUDA**: written against the real Driver API ABI and type-checked, but
-  unverified — no NVIDIA GPU in the environments this was tested in.
+- **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
+  `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
+  combinations with and without the fused ReLU, graphs, the host-array and
+  raw-pointer APIs and the fp16/bf16 kernels against CPU results (59
+  checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  train to the same loss as the CPU and ROCm paths.
 :::
 
 ### ROCm / HIP (AMD)
@@ -277,16 +281,75 @@ faster at the small sizes a training loop uses (≈5 µs, close to the launch
 floor). So matmuls use rocBLAS, and the custom kernels cover the work rocBLAS
 doesn't do.
 
+### CUDA (NVIDIA) {#cuda}
+
+```c
+#include <std/ml/gpu_cuda.h>   // link: -lcuda -lcublas -lcublasLt -lnvrtc
+```
+
+The same model as the ROCm backend, with the same function names under
+`cuda_`: `CudaBuf`s are GPU buffers carrying their element count, ops queue in
+order on one CUDA stream, and only what you `cuda_read` comes back. Matmuls go
+to cuBLAS in full fp32 (no TF32). The rest runs this library's own CUDA
+kernels, compiled by NVRTC at first use into a cubin for the GPU that is
+present (`-arch=sm_90` on an H100/H200), so one build runs on any GPU the
+installed CUDA knows. The backend uses the device's primary context, the one
+the CUDA runtime and PyTorch use, so buffers can coexist with other CUDA code
+in the process.
+
+On top of the ROCm op set, two fusions cut the launches per training step
+from 10 to 7:
+
+- `cuda_gemm_relu` — `relu(op(a) op(b))` as one cuBLASLt matmul with the ReLU
+  epilogue. The ReLU gradient can then test the activation instead of the
+  pre-activation (`h > 0` exactly where `z > 0`), so `Z1` is never stored.
+- `cuda_sgd2` — both weight updates of a two-tensor model in one kernel.
+
+Other CUDA-specific choices: reads of up to 64 KB (a loss, one output) go
+through a pinned staging buffer, and so take one DMA. A one-block reduction
+stores its result directly, so `cuda_mse_grad`/`cuda_sum` need no zeroing
+memset. cuBLAS gets a fixed 32 MB workspace, so its calls can be captured
+into graphs.
+
+| Group | Functions |
+|---|---|
+| Device | `cuda_available`, `cuda_device_name`, `cuda_sync` |
+| Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free` |
+| Matmul | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu` (same arguments, fused ReLU) |
+| Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
+| Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
+| Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
+| Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
+| Raw pointers | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
+
+The MLP step above, fused:
+
+```c
+std::cuda_gemm_relu(X, 0, W1, 0, H, B, H_DIM, I);    // H = relu(X W1)
+std::cuda_gemm(H, 0, W2, 0, Y, B, O, H_DIM);
+std::cuda_mse_grad(Y, T, dY, loss);
+std::cuda_gemm(H, 1, dY, 0, dW2, H_DIM, O, B);
+std::cuda_gemm(dY, 0, W2, 1, dH, B, H_DIM, O);
+std::cuda_relu_grad(H, dH, dZ1);                      // H > 0 where Z1 > 0
+std::cuda_gemm(X, 1, dZ1, 0, dW1, I, H_DIM, B);
+std::cuda_sgd2(W2, dW2, W1, dW1, lr);
+```
+
+Before this backend was verified, each host-array call created and destroyed
+a CUDA context and a cuBLAS handle. Through `tensor_matmul_cuda_blas`, the
+small MLP benchmark took 83 s to train and 816 s for inference on the H200.
+The host-array functions now share the backend's context, stream and kernels.
+
 ### Backend status {#backend-status}
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
 | ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | real (PTX, text IR) | real (PTX) | real (cuBLAS) | unmeasured — no NVIDIA GPU in the test environment |
+| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 59 checks in `tests/stdlib/cuda`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
 
-SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; CUDA and WebGPU take text IR (PTX, WGSL) and are written in full, but no NVIDIA GPU or wgpu-native/Dawn library was available to run them.
+SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; WebGPU takes text IR (WGSL) and is written in full, but no wgpu-native/Dawn library was available to run it.
 
 ## fp16 / bf16 {#fp16-bf16}
 
