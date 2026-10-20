@@ -745,7 +745,7 @@ stream (so they order with the other ops and can be recorded into a
 `CudaGraph`). Forward only.
 
 - **Flash attention**, `softmax(Q Kᵀ · scale) V` without the score matrix. fp16/bf16 go to cuDNN's fused attention engine when `libcudnn.so.9` can be loaded with `dlopen` — SafeC builds the same graph cudnn-frontend's `sdpa()` does, one cached plan per shape — and otherwise to this library's FlashAttention-2 kernel on tensor cores (`mma.sync`, sm_80+, head dim ≤ 128). fp32 runs that kernel in 3xTF32 (fp32-level error, ~2e-7). Head dim 256 and older GPUs use a CUDA-core kernel with the same algorithm. `cuda_attention_use_cudnn(0)` forces the own kernels.
-- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): per-64-key-chunk states φ(K)ᵀV, a prefix over chunks (causal) or their total (non-causal), then every chunk's outputs at once. Exact fp32 arithmetic for every data type.
+- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): up to head dim 128, a per-head pass walks the 64-key chunks with the state φ(K)ᵀV in registers (storing it before each chunk when causal), then every chunk's outputs run at once. Exact fp32 arithmetic for every data type.
 - **Shapes**: the `cuda_flash_attention` / `cuda_linear_attention` / `_f32` forms take the same arguments as [ROCm's](#rocm-attention) `rocm_flash_attention` / `rocm_linear_attention` (fp32, `[heads][seq][dim]`). The `_ex` and `cuda_half_` forms take a `CudaAttnShape`: batch, grouped-query K/V (`kvHeads` dividing `heads`), and a sliding window. Head dims 32, 64, 96, 128, 256.
 - **Masking**: query i sits at position `kvLen - seqLen + i` (the last `seqLen` keys are the queries' own tokens, any before them a cache, as in [`mps_flash_attn_bf16`](#mps-attention)). `causal` hides later keys; `window` (flash only) also hides keys `window` or more positions back.
 - Each (kernel, dtype, head dim) variant is compiled by NVRTC on its first call, and cuDNN plans and the linear-attention workspace are made then too, so make one call per shape before capturing a graph.
@@ -757,7 +757,7 @@ stream (so they order with the other ops and can be recorded into a
 | Host arrays | `cuda_flash_attention_f32`, `cuda_linear_attention_f32` (upload, compute, read back) |
 | Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
 
-On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 matches it at head dim 64, and linear attention at head dim 64 is up to 1.6× faster than PyTorch and level with flash-linear-attention. Head dim 128 trails in fp32 flash (0.7×) and linear attention (0.45–0.78×). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
+On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
 
 ### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
 
