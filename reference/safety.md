@@ -304,11 +304,12 @@ void scale(&Buf b, float k) {
 Safe code can't break the rule: reinterpreting a pointer as another pointer type requires `unsafe`. Inside `unsafe`, copy bytes instead of casting when you need a value's bit pattern as another type:
 
 ```c
-extern void* memcpy(void* dst, const void* src, unsigned long n);
+#include <std/stddef.h>
+extern void* memcpy(void* dst, const void* src, size_t n);   // size_t, not unsigned long: it's 32-bit on wasm32
 
 unsigned int float_bits(float f) {
     unsigned int bits = 0U;
-    unsafe { memcpy((void*)&bits, (const void*)&f, 4UL); }   // not *(unsigned int*)&f
+    unsafe { memcpy((void*)&bits, (const void*)&f, (size_t)4); }   // not *(unsigned int*)&f
     return bits;
 }
 ```

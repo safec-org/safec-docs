@@ -21,7 +21,7 @@ safec firmware.sc --freestanding --emit-llvm -o firmware.ll
 
 ## 베어메탈 타깃 {#targets}
 
-`--target=<alias>`는 OS 없는 타깃을 이름으로 선택합니다: LLVM 트리플, CPU, ISA 기능, ABI를 고르고 `--freestanding`을 함의합니다. `safec --list-targets`가 다음 표를 출력합니다:
+`--target=<alias>`는 OS 없는 타깃을 이름으로 선택합니다(WebAssembly는 아래 [WebAssembly](#wasm) 절에서 따로 다룹니다): LLVM 트리플, CPU, ISA 기능, ABI를 고르고 `--freestanding`을 함의합니다. `safec --list-targets`가 다음 표를 출력합니다:
 
 | 별칭 | 트리플 | CPU / ISA | ABI | `size_t` / 포인터 |
 |---|---|---|---|---|
@@ -39,6 +39,8 @@ safec firmware.sc --freestanding --emit-llvm -o firmware.ll
 | `rv32e` | `riscv32-unknown-elf` | RV32E (레지스터 16개) | `ilp32e` | 32비트 |
 | `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64비트 |
 | `rv64e` | `riscv64-unknown-elf` | RV64E (레지스터 16개) | `lp64e` | 64비트 |
+| `wasm32` | `wasm32-unknown-unknown` | WebAssembly | — | 32비트 |
+| `wasm64` | `wasm64-unknown-unknown` | 64비트 메모리 WebAssembly (memory64) | — | 64비트 |
 
 그 밖의 LLVM 트리플도 `--target=<triple>`로 동작하며, `--target-cpu=<name>`, `--target-features=<+a,-b>`(LLVM `-mattr` 문법), `--target-abi=<name>`으로 세부 조정할 수 있습니다. 이 값들은 모듈에 기록되므로, 이후 `clang -c`가 만드는 오브젝트도 이와 일치해야 합니다: `safec --print-target-clang-flags --target=<alias>`는 그에 맞는 clang 플래그(`--target=…`, RISC-V의 `-march`/`-mabi`, ARM의 `-mcpu`/`-mfloat-abi`)를 한 줄에 하나씩 출력합니다.
 
@@ -52,6 +54,7 @@ ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a lib
 
 타깃마다 달라지는 것:
 
+- **아키텍처 매크로.** 컴파일러는 clang과 같은 아키텍처 매크로를 미리 정의하므로 `#if` 블록으로 ISA별 코드를 고를 수 있습니다: `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__`, `__riscv`와 `__riscv_xlen`(32 또는 64), `__wasm__`과 `__wasm32__`/`__wasm64__`, 그리고 32비트 ARM에서는 `__arm__`, `__ARM_ARCH`(6, 7, 8), `__ARM_ARCH_PROFILE`(`'A'`, `'R'`, `'M'`), `__ARM_ARCH_<name>__`(`__ARM_ARCH_6M__`, `__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, `__ARM_ARCH_7A__`, …), `__thumb__`, 그리고 ARMv7(및 ARMv6T2)부터 `__thumb2__`. 모든 베어메탈 타깃은 `__SAFEC_FREESTANDING__`도 정의하며, OS 매크로(`__linux__`, `__APPLE__`, `_WIN32`)는 어느 것도 정의하지 않습니다. [전처리기](/ko/reference/preprocessor#predefined-macros)를 참고하세요.
 - **포인터 너비.** `size_t`, `ptrdiff_t`, `uintptr_t`, `__SIZEOF_POINTER__`는 타깃을 따릅니다(위의 32비트 타깃에서는 4바이트). SafeC의 `long`은 항상 64비트이므로, 포인터 크기 정수가 필요한 코드는 `long`이 아니라 `size_t`/`uintptr_t`를 써야 합니다.
 - **C 구조체 반환 ABI.** 값으로 반환되는 집합체는 타깃의 규약으로 lowering됩니다: i386은 항상 숨겨진 포인터로 구조체를 반환하고, AAPCS32는 4바이트 초과일 때, RISC-V는 2×XLEN 초과일 때, x86-64와 AArch64는 16바이트 초과일 때(AArch64는 동종 부동소수점 집합체 제외), Win64는 1, 2, 4, 8바이트 이외의 모든 크기에서 그렇게 합니다. 큰 구조체 복사는 `memcpy`/`memset` 호출로 생성되며, 런타임이 이를 제공해야 합니다.
 - **런타임 헬퍼.** 하드웨어 곱셈/나눗셈이나 원자적 연산이 없는 타깃은 compiler-rt 내장 함수(`__muldi3`, `__udivdi3`, …)와 `__atomic_*` 라이브러리 함수를 호출합니다: 해당 타깃용 `libclang_rt.builtins.a`를 링크하고 원자적 연산을 제공하세요(단일 코어 런타임은 인터럽트를 마스킹한 채로 구현할 수 있습니다).
@@ -62,7 +65,60 @@ ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a lib
 
 ### 베어메탈에서 테스트하기 {#testing}
 
-표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). 현재 14개 타깃 모두 모든 검사를 통과합니다.
+표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). wasm32와 wasm64 이미지는 `wasm-ld`로 링크해 Node에서 실행합니다(`run_wasm.mjs`). 현재 16개 타깃 모두 모든 검사를 통과합니다.
+
+## WebAssembly {#wasm}
+
+`--target=wasm32`와 `--target=wasm64`는 브라우저, Node 등 어떤 호스트에서든 쓸 WebAssembly 모듈을 빌드합니다. 베어메탈 타깃처럼 프리스탠딩이라 libc도 WASI도 없습니다. 모듈은 `main`이 있는 프로그램이 아니라 호스트가 인스턴스화하는 라이브러리입니다:
+
+- `--emit-bin`을 주면 safec는 clang으로 `-nostdlib`, `--no-entry`, `--allow-undefined`를 붙여 링크합니다.
+- 모듈은 `export_name`이 붙은 함수(와 선형 메모리)만 내보냅니다.
+- 정의하지 않고 호출하는 extern은 모두 임포트가 되며, `import_module`로 다른 모듈을 지정하지 않으면 `env` 모듈에서 가져옵니다.
+
+```c
+// add.sc
+__attribute__((import_name("log_int"))) void host_log(int v);   // env.log_int
+
+int counter = 0;
+
+__attribute__((export_name)) int add(int a, int b) {               // "add"로 내보냄
+    return a + b;
+}
+
+__attribute__((export_name("bump"))) int bump_counter(int by) {   // "bump"로 내보냄
+    counter = counter + by;
+    host_log(counter);
+    return counter;
+}
+```
+
+```bash
+safec add.sc --target=wasm32 -O2 --emit-bin -o add.wasm
+```
+
+```js
+// run.mjs (Node)
+import { readFileSync } from 'node:fs';
+const { instance } = await WebAssembly.instantiate(readFileSync('add.wasm'), {
+    env: { log_int: (v) => console.log('host saw', v) },
+});
+console.log(Object.keys(instance.exports));   // [ 'memory', 'add', 'bump' ]
+console.log(instance.exports.add(2, 3));      // 5
+instance.exports.bump(5);                     // host saw 5
+```
+
+| 속성 | 효과 |
+|---|---|
+| `__attribute__((export_name))` | 함수를 자기 이름으로 내보냄 |
+| `__attribute__((export_name("x")))` | `x`라는 이름으로 내보냄 |
+| `__attribute__((import_module("m")))` | 선언만 된 함수를 `env` 대신 모듈 `m`에서 임포트 |
+| `__attribute__((import_name("n")))` | 자기 이름 대신 `n`이라는 이름으로 임포트 |
+
+속성은 선언 앞이나 뒤, 프로토타입이나 정의 어디에든 붙일 수 있고 함께 쓸 수 있습니다: `__attribute__((import_module("console"), import_name("log"))) void log_i(int v);`는 `console.log`를 임포트합니다. 다른 타깃에서는 무시됩니다.
+
+런타임은 `std/wasm/wasm_rt.sc`입니다. `malloc`/`free`/`calloc`/`realloc`(4MiB 정적 풀 `WASM_RT_POOL_SIZE` 위의 범프 할당자이며 `free`는 회수하지 않음)과 `memcpy`/`memmove`/`memset`/`memcmp`를 제공합니다. `abort()`는 wasm의 네이티브 트랩이라 호스트에는 `RuntimeError: unreachable`로 보이고, `printf`/`fprintf`는 출력을 버리며, `std::panic`도 같은 방식으로 트랩합니다. 그래서 모듈에는 자기 코드가 선언한 것 외의 호스트 임포트가 필요 없습니다.
+
+`safeguard build --target wasm32`는 다른 타깃에는 없는 `std/wasm`을 포함해 wasm용 std 아카이브를 빌드하고, 같은 방식의 라이브러리 모듈로 링크합니다. `std/wasm/dom.h`와 `hydrate.h`는 [풀스택 예제](https://github.com/safec-org/SafeC/tree/main/examples/fullstack_demo)를 위한 DOM 상호 운용과 클라이언트 하이드레이션을 제공합니다.
 
 ## 함수 속성 {#function-attributes}
 
@@ -139,6 +195,11 @@ SafeC는 GCC 스타일의 확장 인라인 어셈블리를 지원합니다.
 ```c
 asm [volatile] ( "template" [: outputs [: inputs [: clobbers]]] );
 ```
+
+제약 조건은 GCC의 문자를 씁니다: `r`, `m`, `i`, `=`/`+`, 그리고 x86에서는
+레지스터 문자 `a`, `b`, `c`, `d`, `S`, `D`(EAX/RAX, EBX, ECX, EDX, ESI,
+EDI). 그래서 `asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));`가 C에서처럼
+동작합니다.
 
 인라인 `asm`은 다른 메모리 안전하지 않은 구문과 마찬가지로 `unsafe {}`
 블록이 필요합니다 -- 단, `naked` 함수 내부에서는 예외입니다(본문 전체가
@@ -262,6 +323,22 @@ void reset(&Dev d) {
     d.ctrl = 0;      // store volatile
     d.ctrl |= 4;     // load volatile + store volatile
     d.shadow = 0;    // 다른 스토어처럼 합쳐지거나 제거될 수 있음
+}
+```
+
+한정자는 그 객체를 가리키는 모든 것에 따라붙습니다:
+
+- volatile 변수, 필드, 원소의 `&x`는 `&volatile T`이고, volatile 배열은 `volatile T*`로 감쇠합니다.
+- `volatile` 매개변수는 함수 안에서 volatile이며, typedef도 한정자를 담을 수 있습니다: `typedef volatile unsigned int reg_t;` 뒤에는 `reg_t x;`와 `reg_t* p;` 모두 volatile입니다.
+- 암묵적으로 한정자를 떨어뜨리는 것은 오류입니다: `volatile T*` → `T*`, volatile 배열 → `T*`, `volatile T**` → `T**`, `&volatile T` → `&T` 또는 `T*`. 정말 그럴 의도라면 명시적 캐스트(원시 포인터는 `unsafe` 안에서)는 여전히 됩니다.
+
+```c
+volatile unsigned int status;
+void poll(volatile unsigned int* p);
+
+void f() {
+    poll(&status);                 // OK: &status는 &volatile unsigned int
+    unsigned int* q = &status;     // 오류: cannot convert '&static volatile unsigned int' to 'unsigned int*'
 }
 ```
 

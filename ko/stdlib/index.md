@@ -111,7 +111,7 @@ int main() {
 | rpc | `rpc/rpc.h` | gRPC에서 영감을 받은 HTTP 기반 RPC (길이 프리픽스 프레이밍, 경로 기반 디스패치) |
 | server_fn | `rpc/server_fn.h` | "한 번 작성하고 어디서든 호출" 방식의 JSON 마셜링 서버 함수 (Dioxus/Leptos 스타일) |
 | reactive | `reactive/signal.h` | `Signal<T>` 세밀한 반응형 상태 (WASM 클라이언트 하이드레이션) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 프리스탠딩 malloc/free 런타임(wasm32 전용 — 호스티드 stdlib 아카이브에는 절대 링크되지 않음) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(범프 `malloc`/`free`, `mem*`, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
 | scx | 해당 없음 (트랜스파일러) | JSX/TSX 스타일 HTML 템플릿 — `.scx` 파일은 `safec`가 보기 전에 일반 SafeC로 트랜스파일됨 |
 
 ### 머신러닝 — [ML](/ko/stdlib/ml) 참고 {#machine-learning-see-ml}

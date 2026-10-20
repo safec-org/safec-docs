@@ -111,7 +111,7 @@ int main() {
 | rpc | `rpc/rpc.h` | gRPC-inspired RPC-over-HTTP (length-prefixed framing, path-based dispatch) |
 | server_fn | `rpc/server_fn.h` | "Write once, call from anywhere" JSON-marshaled server functions (Dioxus/Leptos-style) |
 | reactive | `reactive/signal.h` | `Signal<T>` fine-grained reactive state (WASM client hydration) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is a freestanding malloc/free runtime (wasm32-only — never linked into the hosted stdlib archive) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (bump `malloc`/`free`, `mem*`, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
 | scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
 
 ### Machine Learning — see [ML](/stdlib/ml)

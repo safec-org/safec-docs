@@ -176,7 +176,7 @@ int val = *status_reg;         // 메모리로부터의 읽기가 보장됨
 *status_reg = 1;               // 메모리로의 쓰기가 보장됨
 ```
 
-`volatile`은 구조체 필드, `volatile &T` 참조, 기본 타입 뒤(`int volatile*`)에도 쓸 수 있다. `int* volatile p`는 포인터 변수 자체를 volatile로 만든다.
+`volatile`은 구조체 필드, `volatile &T` 참조, 기본 타입 뒤(`int volatile*`)에도 쓸 수 있다. `int* volatile p`는 포인터 변수 자체를 volatile로 만든다. volatile인 `x`의 `&x`도 한정자를 유지하며, 암묵적으로 한정자를 없애는 변환은 오류다.
 전체 규칙과 volatile 접근 패턴은
 [베어메탈](/ko/reference/baremetal#what-volatile-applies-to)을 참고.
 

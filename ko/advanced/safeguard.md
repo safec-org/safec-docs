@@ -119,7 +119,7 @@ safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
 
 ## 크로스 타깃 {#cross-targets}
 
-`--target <alias|triple>`(`build`, `check`, `test`에서 사용)은 프로젝트와 그 표준 라이브러리를 다른 머신용으로 크로스 컴파일합니다. 베어메탈 별칭(`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `rv32i`, `rv32e`, `rv64i`, `rv64e` — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고)은 freestanding 모드를 함의하며, 임의의 LLVM 트리플도 받아들입니다.
+`--target <alias|triple>`(`build`, `check`, `test`에서 사용)은 프로젝트와 그 표준 라이브러리를 다른 머신용으로 크로스 컴파일합니다. 베어메탈 별칭(`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고)은 freestanding 모드를 함의하며, 임의의 LLVM 트리플도 받아들입니다.
 
 ```bash
 safeguard build --target arm-7em --release
@@ -129,6 +129,7 @@ safeguard test --target rv32e        # builds every test for RV32E, doesn't run 
 - std 아카이브는 타깃별로 `build/deps/<target>/libsafec_std.a`에, 해당 타깃에 적용되는 소스만으로 빌드됩니다(OS 전용 백엔드는 베어메탈에서 건너뜁니다).
 - 오브젝트는 타깃의 clang 플래그(`safec --print-target-clang-flags`)로 컴파일되고, 베어메탈 링크는 `-nostdlib -static`과 함께 `ld.lld`를 사용합니다: 링커 스크립트, 스타트업 코드, 런타임(`memcpy`, `memset`, 필요하다면 `malloc`, compiler-rt 내장 함수)은 `[build] cflags`/`libs`로 공급하세요.
 - freestanding 모드가 호스트 전용으로 경고할 함수를 프로젝트가 직접 정의한다면(예: 런타임 자체의 `malloc`) 그 함수들은 `--provides`로 컴파일러에 전달되어 경고가 나지 않습니다.
+- WebAssembly 타깃은 대신 라이브러리 모듈을 링크합니다: 진입점이 없고, `export_name`이 붙은 함수를 내보내며, 해결되지 않은 extern은 임포트가 되고, std 아카이브에는 `std/wasm`(wasm 런타임)이 포함됩니다. [WebAssembly](/ko/reference/baremetal#wasm)를 참고하세요.
 - `test`는 테스트 바이너리를 빌드만 하고 실행하지 않으며(다른 머신용이므로), `run`은 크로스 타깃을 거부합니다.
 
 ## Package.toml {#package-toml}

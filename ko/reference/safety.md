@@ -313,11 +313,12 @@ void scale(&Buf b, float k) {
 안전한 코드는 이 규칙을 어길 수 없습니다: 포인터를 다른 포인터 타입으로 재해석하려면 `unsafe`가 필요합니다. `unsafe` 안에서 값의 비트 패턴을 다른 타입으로 다뤄야 할 때는 캐스트 대신 바이트를 복사하세요:
 
 ```c
-extern void* memcpy(void* dst, const void* src, unsigned long n);
+#include <std/stddef.h>
+extern void* memcpy(void* dst, const void* src, size_t n);   // unsigned long이 아니라 size_t: wasm32에서는 32비트
 
 unsigned int float_bits(float f) {
     unsigned int bits = 0U;
-    unsafe { memcpy((void*)&bits, (const void*)&f, 4UL); }   // *(unsigned int*)&f 대신
+    unsafe { memcpy((void*)&bits, (const void*)&f, (size_t)4); }   // *(unsigned int*)&f 대신
     return bits;
 }
 ```

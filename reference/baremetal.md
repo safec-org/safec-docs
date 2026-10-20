@@ -20,7 +20,7 @@ In freestanding mode:
 
 ## Bare-Metal Targets {#targets}
 
-`--target=<alias>` selects a no-OS target by name: it picks the LLVM triple, the CPU, the ISA features and the ABI, and implies `--freestanding`. `safec --list-targets` prints the table:
+`--target=<alias>` selects a no-OS target by name (WebAssembly has its own section below, [WebAssembly](#wasm)): it picks the LLVM triple, the CPU, the ISA features and the ABI, and implies `--freestanding`. `safec --list-targets` prints the table:
 
 | Alias | Triple | CPU / ISA | ABI | `size_t` / pointer |
 |---|---|---|---|---|
@@ -38,6 +38,8 @@ In freestanding mode:
 | `rv32e` | `riscv32-unknown-elf` | RV32E (16 registers) | `ilp32e` | 32-bit |
 | `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64-bit |
 | `rv64e` | `riscv64-unknown-elf` | RV64E (16 registers) | `lp64e` | 64-bit |
+| `wasm32` | `wasm32-unknown-unknown` | WebAssembly | — | 32-bit |
+| `wasm64` | `wasm64-unknown-unknown` | WebAssembly with 64-bit memory (memory64) | — | 64-bit |
 
 Any other LLVM triple also works with `--target=<triple>`; refine it with `--target-cpu=<name>`, `--target-features=<+a,-b>` (LLVM `-mattr` syntax) and `--target-abi=<name>`. These are recorded in the module, so the object a later `clang -c` produces has to agree with them: `safec --print-target-clang-flags --target=<alias>` prints the matching clang flags (`--target=…`, `-march`/`-mabi` for RISC-V, `-mcpu`/`-mfloat-abi` for ARM), one per line.
 
@@ -51,6 +53,7 @@ With `safeguard`, `--target` does all of this — see [safeguard](/advanced/safe
 
 What changes per target:
 
+- **Architecture macros.** The compiler predefines the same architecture macros as clang, so `#if` blocks can pick per-ISA code: `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__`, `__riscv` with `__riscv_xlen` (32 or 64), `__wasm__` with `__wasm32__`/`__wasm64__`, and for 32-bit ARM `__arm__`, `__ARM_ARCH` (6, 7, 8), `__ARM_ARCH_PROFILE` (`'A'`, `'R'`, `'M'`), `__ARM_ARCH_<name>__` (`__ARM_ARCH_6M__`, `__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, `__ARM_ARCH_7A__`, …), `__thumb__` and, from ARMv7 (and ARMv6T2), `__thumb2__`. Every bare-metal target also defines `__SAFEC_FREESTANDING__`, and none of them defines an OS macro (`__linux__`, `__APPLE__`, `_WIN32`). See [Preprocessor](/reference/preprocessor#predefined-macros).
 - **Pointer width.** `size_t`, `ptrdiff_t`, `uintptr_t` and `__SIZEOF_POINTER__` follow the target (4 bytes on the 32-bit targets above). SafeC's `long` is always 64-bit, so code that needs a pointer-sized integer should say `size_t`/`uintptr_t`, never `long`.
 - **C struct-return ABI.** Aggregates returned by value are lowered to the target's convention: i386 always returns structs through a hidden pointer; AAPCS32 does so above 4 bytes; RISC-V above 2×XLEN; x86-64 and AArch64 above 16 bytes (AArch64 excepting homogeneous float aggregates); Win64 for any size other than 1, 2, 4 or 8 bytes. Large struct copies are emitted as `memcpy`/`memset` calls, which the runtime must provide.
 - **Runtime helpers.** Targets without hardware multiply/divide or atomics call compiler-rt builtins (`__muldi3`, `__udivdi3`, …) and `__atomic_*` library functions: link `libclang_rt.builtins.a` for the target and provide the atomics (a single-core runtime can implement them with interrupts masked).
@@ -61,7 +64,60 @@ In freestanding mode a call to a hosted-only function (`malloc`, `printf`, …) 
 
 ### Testing on bare metal {#testing}
 
-The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`). All 14 targets currently pass every check.
+The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`); wasm32 and wasm64 images are linked with `wasm-ld` and run under Node (`run_wasm.mjs`). All 16 targets currently pass every check.
+
+## WebAssembly {#wasm}
+
+`--target=wasm32` and `--target=wasm64` build WebAssembly modules for a browser, Node or any other host. Like the bare-metal targets they're freestanding: there is no libc and no WASI. A module is a library the host instantiates, not a program with `main`:
+
+- With `--emit-bin`, safec links through clang with `-nostdlib`, `--no-entry` and `--allow-undefined`.
+- A module exports only the functions marked `export_name` (plus its linear memory).
+- Every extern it calls but doesn't define becomes an import, from module `env` unless `import_module` names another.
+
+```c
+// add.sc
+__attribute__((import_name("log_int"))) void host_log(int v);   // env.log_int
+
+int counter = 0;
+
+__attribute__((export_name)) int add(int a, int b) {               // exported as "add"
+    return a + b;
+}
+
+__attribute__((export_name("bump"))) int bump_counter(int by) {   // exported as "bump"
+    counter = counter + by;
+    host_log(counter);
+    return counter;
+}
+```
+
+```bash
+safec add.sc --target=wasm32 -O2 --emit-bin -o add.wasm
+```
+
+```js
+// run.mjs (Node)
+import { readFileSync } from 'node:fs';
+const { instance } = await WebAssembly.instantiate(readFileSync('add.wasm'), {
+    env: { log_int: (v) => console.log('host saw', v) },
+});
+console.log(Object.keys(instance.exports));   // [ 'memory', 'add', 'bump' ]
+console.log(instance.exports.add(2, 3));      // 5
+instance.exports.bump(5);                     // host saw 5
+```
+
+| Attribute | Effect |
+|---|---|
+| `__attribute__((export_name))` | Export the function under its own name |
+| `__attribute__((export_name("x")))` | Export it as `x` |
+| `__attribute__((import_module("m")))` | Import a declared-only function from module `m` instead of `env` |
+| `__attribute__((import_name("n")))` | Import it under the name `n` instead of its own |
+
+Attributes can go before or after the declaration, on a prototype or a definition, and combine: `__attribute__((import_module("console"), import_name("log"))) void log_i(int v);` imports `console.log`. They are ignored on other targets.
+
+The runtime is `std/wasm/wasm_rt.sc`. It has `malloc`/`free`/`calloc`/`realloc` (a bump allocator over a 4 MiB static pool, `WASM_RT_POOL_SIZE`; `free` doesn't reclaim) and `memcpy`/`memmove`/`memset`/`memcmp`. Its `abort()` is wasm's native trap, so the host sees a `RuntimeError: unreachable`; `printf`/`fprintf` discard their output, and `std::panic` traps the same way. With it, a module needs no host imports beyond the ones its own code declares.
+
+`safeguard build --target wasm32` builds the std archive for wasm with `std/wasm` included, which no other target gets. It links the same kind of library module. `std/wasm/dom.h` and `hydrate.h` add DOM interop and client hydration for the [full-stack example](https://github.com/safec-org/SafeC/tree/main/examples/fullstack_demo).
 
 ## Function Attributes
 
@@ -138,6 +194,10 @@ SafeC supports GCC-style extended inline assembly:
 ```c
 asm [volatile] ( "template" [: outputs [: inputs [: clobbers]]] );
 ```
+
+Constraints use GCC's letters: `r`, `m`, `i`, `=`/`+`, and on x86 the
+register letters `a`, `b`, `c`, `d`, `S`, `D` (EAX/RAX, EBX, ECX, EDX,
+ESI, EDI), so `asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));` works as in C.
 
 Inline `asm` needs an `unsafe {}` block, same as any other memory-unsafe
 construct — except inside a `naked` function, where it's exempt (the whole
@@ -264,6 +324,22 @@ void reset(&Dev d) {
     d.ctrl = 0;      // store volatile
     d.ctrl |= 4;     // load volatile + store volatile
     d.shadow = 0;    // may be merged or removed like any other store
+}
+```
+
+The qualifier follows the object through everything that refers to it:
+
+- `&x` of a volatile variable, field or element is `&volatile T`, and a volatile array decays to `volatile T*`.
+- A `volatile` parameter is volatile inside the function, and a typedef can carry it: after `typedef volatile unsigned int reg_t;`, both `reg_t x;` and `reg_t* p;` are volatile.
+- Dropping it implicitly is an error: `volatile T*` → `T*`, a volatile array → `T*`, `volatile T**` → `T**`, and `&volatile T` → `&T` or `T*`. An explicit cast (inside `unsafe` for raw pointers) still works when that's really meant.
+
+```c
+volatile unsigned int status;
+void poll(volatile unsigned int* p);
+
+void f() {
+    poll(&status);                 // OK: &status is &volatile unsigned int
+    unsigned int* q = &status;     // error: cannot convert '&static volatile unsigned int' to 'unsigned int*'
 }
 ```
 

@@ -163,7 +163,7 @@ int val = *status_reg;         // guaranteed to read from memory
 *status_reg = 1;               // guaranteed to write to memory
 ```
 
-`volatile` also works on struct fields, on `volatile &T` references, and after the base type (`int volatile*`); `int* volatile p` makes the pointer variable itself volatile. See [Bare-Metal](/reference/baremetal#what-volatile-applies-to) for the full rules and access patterns.
+`volatile` also works on struct fields, on `volatile &T` references, and after the base type (`int volatile*`); `int* volatile p` makes the pointer variable itself volatile. `&x` of a volatile `x` keeps the qualifier, and converting it away implicitly is an error. See [Bare-Metal](/reference/baremetal#what-volatile-applies-to) for the full rules and access patterns.
 
 ### `thread_local`
 

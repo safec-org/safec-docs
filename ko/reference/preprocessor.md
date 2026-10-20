@@ -123,6 +123,14 @@ T max(T a, T b) {
 |-------|-------|-------------|
 | `__FILE__` | 문자열 리터럴 | 현재 소스 파일 이름 |
 | `__LINE__` | 정수 리터럴 | 현재 줄 번호 |
+| `__SIZEOF_POINTER__` | `4` 또는 `8` | 타깃의 포인터 너비 |
+| `__SAFEC_FREESTANDING__` | `1` | `--freestanding`, 또는 베어메탈/WebAssembly `--target` 별칭 |
+| `__SAFEC_COMPAT_PREPROCESSOR__` | `1` | `--compat-preprocessor`가 켜져 있음 |
+| `__linux__`, `__APPLE__`, `_WIN32` | `1` | 해당 OS용 호스티드 빌드(베어메탈 타깃에서는 정의되지 않음) |
+| `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__` | `1` | 타깃 아키텍처 |
+| `__riscv`, `__riscv_xlen` | `1`, `32`/`64` | RISC-V 타깃 |
+| `__wasm__`, `__wasm32__`/`__wasm64__` | `1` | WebAssembly 타깃 |
+| `__arm__`, `__ARM_ARCH`, `__ARM_ARCH_PROFILE`, `__ARM_ARCH_<name>__`, `__thumb__`, `__thumb2__` | `1`, `6`/`7`/`8`, `'A'`/`'R'`/`'M'` | 32비트 ARM, clang과 같은 철자(`__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, …) |
 
 C와 달리 SafeC는 재현 가능한 빌드를 지원하기 위해 의도적으로
 `__TIME__`과 `__DATE__`를 생략한다.

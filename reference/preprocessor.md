@@ -112,12 +112,20 @@ Conditional blocks can be nested:
 #endif
 ```
 
-## Predefined Macros
+## Predefined Macros {#predefined-macros}
 
 | Macro | Value | Description |
 |-------|-------|-------------|
 | `__FILE__` | String literal | Current source file name |
 | `__LINE__` | Integer literal | Current line number |
+| `__SIZEOF_POINTER__` | `4` or `8` | Pointer width of the target |
+| `__SAFEC_FREESTANDING__` | `1` | `--freestanding`, or any bare-metal/WebAssembly `--target` alias |
+| `__SAFEC_COMPAT_PREPROCESSOR__` | `1` | `--compat-preprocessor` is on |
+| `__linux__`, `__APPLE__`, `_WIN32` | `1` | Hosted builds for that OS (never on bare-metal targets) |
+| `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__` | `1` | Target architecture |
+| `__riscv`, `__riscv_xlen` | `1`, `32`/`64` | RISC-V targets |
+| `__wasm__`, `__wasm32__`/`__wasm64__` | `1` | WebAssembly targets |
+| `__arm__`, `__ARM_ARCH`, `__ARM_ARCH_PROFILE`, `__ARM_ARCH_<name>__`, `__thumb__`, `__thumb2__` | `1`, `6`/`7`/`8`, `'A'`/`'R'`/`'M'` | 32-bit ARM, spelled as clang does (`__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, …) |
 
 Unlike C, SafeC deliberately omits `__TIME__` and `__DATE__` to support reproducible builds.
 
