@@ -83,7 +83,7 @@ char null = '\0';          // null byte
 String literals are enclosed in double quotes and are implicitly `&static char` references (null-terminated):
 
 ```c
-const char *msg = "hello, world";
+const &char msg = "hello, world";
 ```
 
 String literals can be passed directly to `extern` C functions because `&static` coerces to `char*` without requiring `unsafe`.

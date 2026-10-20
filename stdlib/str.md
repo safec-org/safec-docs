@@ -73,7 +73,7 @@ Append at most `n` bytes of `src` to `dst` and always NUL-terminate.
 ### str_find
 
 ```c
-const char* str_find(const &char haystack, const &char needle);
+const ?&char str_find(const &char haystack, const &char needle);
 ```
 
 Find first occurrence of `needle` in `haystack`. Returns a pointer to the match, or NULL if not found.
@@ -81,7 +81,7 @@ Find first occurrence of `needle` in `haystack`. Returns a pointer to the match,
 ### str_find_char
 
 ```c
-const char* str_find_char(const &char s, int c);
+const ?&char str_find_char(const &char s, int c);
 ```
 
 Find first occurrence of character `c` in `s`. Returns pointer or NULL.
@@ -89,7 +89,7 @@ Find first occurrence of character `c` in `s`. Returns pointer or NULL.
 ### str_rfind_char
 
 ```c
-const char* str_rfind_char(const &char s, int c);
+const ?&char str_rfind_char(const &char s, int c);
 ```
 
 Find last occurrence of character `c` in `s`. Returns pointer or NULL.
@@ -97,7 +97,7 @@ Find last occurrence of character `c` in `s`. Returns pointer or NULL.
 ### str_find_any
 
 ```c
-const char* str_find_any(const &char s, const &char accept);
+const ?&char str_find_any(const &char s, const &char accept);
 ```
 
 Find first character in `s` that is also in `accept`. Returns pointer or NULL.
@@ -125,12 +125,12 @@ Return the length of the initial segment of `s` with no characters from `reject`
 ### str_tok
 
 ```c
-char* str_tok(?&char s, const &char delim, char** saveptr);
+?&char str_tok(?&char s, const &char delim, &?&char saveptr);
 ```
 
 Reentrant tokeniser (wraps `strtok_r` / `strtok_s`).
 
-- **First call:** pass the string as `s`, and the address of a `char*` for `saveptr` (it keeps C's `char**` because it goes straight to `strtok_r`).
+- **First call:** pass the string as `s`, and the address of a `?&char` for `saveptr` (where the tokenizer remembers its position).
 - **Subsequent calls:** pass `null` as `s`.
 - Returns a pointer to the next token, or NULL when exhausted.
 - The input string **is** modified (NUL-terminators are written at delimiter positions).
@@ -140,7 +140,7 @@ Reentrant tokeniser (wraps `strtok_r` / `strtok_s`).
 ### mem_chr
 
 ```c
-void* mem_chr(const void* s, int c, unsigned long n);
+const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ```
 
 Return a pointer to the first occurrence of byte `c` in the `n`-byte block at `s`, or NULL.
@@ -150,7 +150,7 @@ Return a pointer to the first occurrence of byte `c` in the `n`-byte block at `s
 ### str_dup
 
 ```c
-char* str_dup(const &char s);
+?&heap char str_dup(const &char s);
 ```
 
 Return a heap-allocated NUL-terminated copy of `s`. The caller must call `dealloc()` to free it.
@@ -158,7 +158,7 @@ Return a heap-allocated NUL-terminated copy of `s`. The caller must call `deallo
 ### str_ndup
 
 ```c
-char* str_ndup(const &char s, unsigned long n);
+?&heap char str_ndup(const &char s, unsigned long n);
 ```
 
 Return a heap-allocated copy of the first `n` bytes of `s`, NUL-terminated.
@@ -171,7 +171,7 @@ Return a heap-allocated copy of the first `n` bytes of `s`, NUL-terminated.
 #include <std/mem.h>
 
 int main() {
-    const char* greeting = "Hello, SafeC!";
+    const &char greeting = "Hello, SafeC!";
 
     // Length
     unsigned long len = str_len(greeting);
@@ -179,24 +179,26 @@ int main() {
     println_int(len);   // 13
 
     // Search
-    const char* pos = str_find(greeting, "SafeC");
-    if (pos != 0) {
-        print("Found at offset: ");
-        unsafe { println_int(pos - greeting); }  // 7 (pointer difference: unsafe)
+    match (str_find(greeting, "SafeC")) {
+        case some(pos): { println(pos); }       // SafeC!
+        case null:      { println("not found"); }
     }
 
     // Duplication
-    char* copy = str_dup(greeting);
-    println(copy);
+    ?&heap char copy = str_dup(greeting);
+    match (copy) {
+        case some(c): { println(c); }
+        case null:    { }
+    }
     dealloc(copy);
 
     // Tokenisation
     char buf[64];
     str_copy(buf, "one,two,three", 64);
-    char* save;
-    char* tok = str_tok(buf, ",", &save);
-    while (tok != 0) {
-        println(tok);
+    ?&char save = null;
+    ?&char tok = str_tok(buf, ",", &save);
+    while (!tok.is_null()) {
+        match (tok) { case some(t): { println(t); } case null: { } }
         tok = str_tok(null, ",", &save);
     }
 

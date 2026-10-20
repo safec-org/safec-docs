@@ -58,12 +58,12 @@ process(buf, count);               // 포인터를 전달, 복사 없음
 ```c
 #include <stdlib.h>
 
-// 메모리 라이프타임은 명시적입니다
-int x = 10;                          // 스택 — 스코프 종료 시 소멸
-&heap int h = (int*)malloc(4);       // 힙 — 프로그래머가 해제
-arena_reset<SensorPool>();           // arena — 명시적 일괄 해제
+// Memory lifetime is explicit
+int x = 10;                          // stack — dies at scope exit
+&heap int h = new int;               // heap — programmer frees
+arena_reset<SensorPool>();           // arena — explicit bulk free
 
-// 에러 처리는 명시적입니다
+// Error handling is explicit
 int result = parseConfig(path);
 if (result < 0) {
     printf("config error: %d\n", result);

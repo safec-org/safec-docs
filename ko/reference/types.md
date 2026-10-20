@@ -155,20 +155,18 @@ int *raw = s.ptr;      // 내부 포인터
 옵셔널 타입은 존재할 수도, 존재하지 않을 수도 있는 값을 나타냅니다. `{T, i1}` 쌍으로 lowering됩니다.
 
 ```c
-?int find_first(int *arr, int n, int target) {
-    int i = 0;
-    while (i < n) {
-        int v;
-        unsafe { v = arr[i]; }
-        if (v == target) return i;   // 암묵적 T -> ?T 래핑
-        i = i + 1;
+?int find_first([]int arr, int target) {
+    long i = 0L;
+    while (i < arr.len) {
+        if (arr[i] == target) return (int)i;   // implicit T -> ?T wrap
+        i = i + 1L;
     }
-    return null;                     // 빈 케이스
+    return null;                               // the empty case
 }
 
-// try와 함께 사용 (빈 케이스를 호출자로 전파)
-?int wrapper(int *arr, int n, int target) {
-    int val = try find_first(arr, n, target);
+// Usage with try (propagates the empty case to the caller)
+?int wrapper([]int arr, int target) {
+    int val = try find_first(arr, target);
     return val * 2;
 }
 ```
@@ -270,17 +268,26 @@ int result = transform(5);     // add_one(5)를 호출
 참조는 컴파일러가 라이프타임 분석에 사용하는 리전 정보를 가지고 있습니다.
 
 ```c
-&stack int           // non-null 스택 참조
-&heap float          // non-null 힙 참조
-&static Config       // non-null 정적 참조
-&arena<AudioPool> Frame  // non-null 아레나 참조
-&Point               // non-null 참조, 리전 없음 -- 위 어떤 것이든 받아들임
-?&Point              // nullable, 리전 없음
+&stack int           // non-null stack reference
+&heap float          // non-null heap reference
+&static Config       // non-null static reference
+&arena<AudioPool> Frame  // non-null arena reference
+&Point               // non-null reference, no region -- accepts any of the above
+?&Point              // nullable, no region
+&volatile unsigned int   // reference to a volatile object (MMIO registers)
+&&int                // reference to a reference (also &?&, ?&&, ?&?&)
 ```
 
 리전 한정자를 아예 생략하는 것(`&T` / `?&T`)은 선언되거나 추적되는 리전이
 없는 참조를 만듭니다 — 이것이 특정 리전을 고정하는 것보다 적절한 선택이
 되는 경우는 [메모리와 리전](/ko/reference/memory)의 "Outliving References" 절을 참고하십시오.
+
+SafeC 시그니처에서는 참조가 원시 포인터를 대신합니다: `void*`는 타입이 있는
+`&T`(어떤 타입이든 받는 경우 제네릭)가 되고, `T**`는
+[참조에 대한 참조](/ko/reference/memory#references-to-references)가 되며,
+포인터 배열은 배열이나 `Slice<&T>`가 됩니다
+([리전별 배열](/ko/reference/memory#arrays-by-region) 참고). 원시 포인터는
+`extern` C 선언과 `unsafe` 코드에만 남습니다.
 
 자세한 내용은 [메모리와 리전](/ko/reference/memory)을 참고하십시오.
 
@@ -335,7 +342,7 @@ int small = (int)big;      // 명시적 캐스트 필요: 축소됨
 - **구조체는 값 타입입니다**: 대입은 구조체 전체를 복사합니다
 - **참조는 명시적입니다**: 참조를 만들려면 `&`를 사용해야 하고 리전을 한정해야 합니다
 - **숨겨진 이동 시맨틱이 없습니다**: 작성한 그대로 동작합니다
-- **배열은 함수에 전달될 때 포인터로 decay됩니다**, C의 관례를 따릅니다
+- **배열은 함수에 전달될 때 첫 원소에 대한 참조로 decay됩니다** (C로 전달될 때는 포인터로)
 
 ```c
 struct Point { double x; double y; };

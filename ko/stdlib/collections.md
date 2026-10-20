@@ -178,7 +178,7 @@ struct StrMap {
     unsigned long length() const;
     int           is_empty() const;
     void          clear();
-    void          foreach(fn void(const char*, &V) func);
+    void          foreach(fn void(const &char, &V) func);
     void          free();
 };
 
@@ -492,7 +492,7 @@ struct String {
     // Access
     unsigned long  length() const;
     int            is_empty() const;
-    const char*    as_ptr() const;
+    const &char    as_ptr() const;
     int            char_at(unsigned long idx) const;         // -1 if OOB
     void           set_char(unsigned long idx, char c);
 

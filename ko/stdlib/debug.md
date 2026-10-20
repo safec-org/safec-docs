@@ -108,7 +108,7 @@ void coverage_init();  // 모든 지점을 0으로 초기화 (프로그램 시�
 
 ```c
 struct CovSite {
-    const char*   file;
+    const &char   file;
     int           line;
     unsigned long count;
 }
@@ -121,9 +121,9 @@ struct Coverage {
     void          hit(int idx);
     unsigned long get(int idx) const;
     unsigned long covered_count() const;
-    unsigned long coverage_pct() const;  // 정수 0-100
+    unsigned long coverage_pct() const;  // integer 0–100
     void          reset();
-    void          report();              // 지점별 HIT/MISS 출력 (호스티드 전용)
+    void          report();              // print HIT/MISS per site (hosted only)
 }
 ```
 

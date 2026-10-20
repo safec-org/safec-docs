@@ -160,20 +160,18 @@ int *raw = s.ptr;      // underlying pointer
 Optional types represent values that may or may not be present. They lower to a `{T, i1}` pair.
 
 ```c
-?int find_first(int *arr, int n, int target) {
-    int i = 0;
-    while (i < n) {
-        int v;
-        unsafe { v = arr[i]; }
-        if (v == target) return i;   // implicit T -> ?T wrap
-        i = i + 1;
+?int find_first([]int arr, int target) {
+    long i = 0L;
+    while (i < arr.len) {
+        if (arr[i] == target) return (int)i;   // implicit T -> ?T wrap
+        i = i + 1L;
     }
-    return null;                     // the empty case
+    return null;                               // the empty case
 }
 
 // Usage with try (propagates the empty case to the caller)
-?int wrapper(int *arr, int n, int target) {
-    int val = try find_first(arr, n, target);
+?int wrapper([]int arr, int target) {
+    int val = try find_first(arr, target);
     return val * 2;
 }
 ```
@@ -281,12 +279,21 @@ References carry region information that the compiler uses for lifetime analysis
 &arena<AudioPool> Frame  // non-null arena reference
 &Point               // non-null reference, no region -- accepts any of the above
 ?&Point              // nullable, no region
+&volatile unsigned int   // reference to a volatile object (MMIO registers)
+&&int                // reference to a reference (also &?&, ?&&, ?&?&)
 ```
 
 Leaving off the region qualifier entirely (`&T` / `?&T`) gives a
 reference with no declared or tracked region — see [Memory &
 Regions](/reference/memory)'s "Outliving References" section for when
 that's the right choice over pinning a specific region.
+
+References replace raw pointers in SafeC signatures: `void*` becomes a
+typed `&T` (generic where any type is accepted), `T**` becomes a
+[reference to a reference](/reference/memory#references-to-references),
+and an array of pointers becomes an array or `Slice<&T>` (see
+[Arrays by Region](/reference/memory#arrays-by-region)). Raw pointers stay
+for `extern` C declarations and `unsafe` code.
 
 See [Memory & Regions](/reference/memory) for details.
 
@@ -340,7 +347,7 @@ int small = (int)big;      // explicit cast required: narrowing
 - **Structs are value types**: assignment copies the entire struct
 - **References are explicit**: you must use `&` to create a reference and region-qualify it
 - **No hidden move semantics**: what you write is what happens
-- **Arrays decay to pointers** when passed to functions, following C convention
+- **Arrays decay to a reference to their first element** when passed to functions (and to a pointer when passed to C)
 
 ```c
 struct Point { double x; double y; };

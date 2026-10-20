@@ -60,7 +60,7 @@ The programmer decides when memory is allocated, how long it lives, and when it 
 
 // Memory lifetime is explicit
 int x = 10;                          // stack — dies at scope exit
-&heap int h = (int*)malloc(4);       // heap — programmer frees
+&heap int h = new int;               // heap — programmer frees
 arena_reset<SensorPool>();           // arena — explicit bulk free
 
 // Error handling is explicit

@@ -28,7 +28,7 @@ struct Value {
     int as_bool() const;
     long long as_int() const;
     double as_float() const;
-    const char* as_string() const;
+    const &char as_string() const;
 
     // Array/Object element access -- read-only views (the returned
     // reference aliases storage owned by this Value, don't free it
@@ -355,7 +355,7 @@ void pb_write_bytes_field(&String out, int field_num, const &unsigned char data,
 
 // Reader: a zero-copy cursor over an existing buffer.
 struct PbReader {
-    const unsigned char* data;
+    const &unsigned char data;
     unsigned long        len;
     unsigned long        pos;
 };
@@ -373,11 +373,11 @@ int pb_read_bool(&PbReader r, &int out);
 int pb_read_double(&PbReader r, &double out);
 int pb_read_float(&PbReader r, &float out);
 // *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
-int pb_read_length_delimited(&PbReader r, const unsigned char** dataOut, &unsigned long lenOut);
+int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsigned long lenOut);
 int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
 ```
 
-`pb_read_length_delimited` hands back a pointer into the reader's own buffer, which is why it keeps the C-style `const unsigned char**` out-parameter.
+`pb_read_length_delimited` writes a reference into the reader's own buffer through `dataOut` (a reference to a reference) — it aliases the buffer, so copy the bytes if they must outlive it.
 
 ```c
 #include <std/serial/protobuf.h>
@@ -394,7 +394,7 @@ int main() {
     p.x = 0; p.y = 0;
     struct PbReader r;
     // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::pb_reader_new((const unsigned char*)buf.as_ptr(), buf.length()); }
+    unsafe { r = std::pb_reader_new((const &unsigned char)buf.as_ptr(), buf.length()); }
     while (std::pb_reader_has_more(&r)) {
         int field = 0; int wire = 0;
         if (!std::pb_read_tag(&r, &field, &wire)) break;

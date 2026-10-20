@@ -95,7 +95,7 @@ int http_serve_reactor(unsigned short port, HttpHandler handler, int numThreads)
 // A complete "HTTP/1.1 <status> <reason>\r\n...\r\n\r\n<body>" response text.
 struct String http_build_response(int status, const &char content_type,
                                   const ?&unsigned char body, unsigned long body_len);
-const char* http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
+const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
 ```
 
 `ok` is set to 0 on DNS, connect or parse failure; pass `null` if you don't need it.
@@ -282,7 +282,7 @@ struct RpcResult {
     void free();
 };
 
-typedef fn struct RpcResult(const unsigned char* data, unsigned long len) RpcMethodHandler;
+typedef fn struct RpcResult(const &unsigned char data, unsigned long len) RpcMethodHandler;
 
 // Client. Transport failures and handler-reported failures both come back with ok = 0.
 struct RpcResult rpc_call(const &char host, unsigned short port, const &char path,
@@ -293,7 +293,7 @@ void rpc_register(const &char path, RpcMethodHandler handler);
 int  rpc_serve(unsigned short port);
 ```
 
-A handler reports failure by returning `ok = 0` with `error_message` set; `rpc_serve` turns it into an HTTP error. Handlers must match `RpcMethodHandler` exactly, including its `const unsigned char*` parameter.
+A handler reports failure by returning `ok = 0` with `error_message` set; `rpc_serve` turns it into an HTTP error.
 
 ## Server Functions
 
@@ -304,7 +304,7 @@ A handler reports failure by returning `ok = 0` with `error_message` set; `rpc_s
 "Write it once, call it from anywhere" (Dioxus/Leptos/Next.js server actions), as JSON over RPC. You define and register the server-side function; clients call it by name. Arguments and results are [`Value`](/stdlib/serial) trees. All functions share one path (`/fn/call`) and the name travels in the payload.
 
 ```c
-typedef fn struct Value(const struct Value* args) ServerFn;
+typedef fn struct Value(const &Value args) ServerFn;
 
 void server_fn_register(const &char name, ServerFn handler);   // before serving; up to 64
 int  server_fn_serve(unsigned short port);
@@ -315,9 +315,9 @@ struct Value server_fn_call(const &char host, unsigned short port, const &char n
 
 ```c
 // Server
-struct Value add_fn(const struct Value* args) {
-    long long a = args->object_get("a")->as_int();
-    long long b = args->object_get("b")->as_int();
+struct Value add_fn(const &Value args) {
+    long long a = std::expect_ref(args.object_get("a"), "missing a").as_int();
+    long long b = std::expect_ref(args.object_get("b"), "missing b").as_int();
     return std::value_int(a + b);
 }
 std::server_fn_register("add", add_fn);

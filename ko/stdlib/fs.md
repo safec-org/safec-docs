@@ -61,13 +61,13 @@ struct RamDisk { unsigned char bytes[64 * 512]; };
 
 static int ram_read(&RamDisk d, unsigned long lba, &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)buf, (const void*)&d.bytes[lba * 512UL], count * 512UL); }
+    std::safe_memcpy(buf, &d.bytes[lba * 512UL], count * 512UL);
     return 0;
 }
 
 static int ram_write(&RamDisk d, unsigned long lba, const &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    unsafe { std::safe_memcpy((void*)&d.bytes[lba * 512UL], (const void*)buf, count * 512UL); }
+    std::safe_memcpy(&d.bytes[lba * 512UL], buf, count * 512UL);
     return 0;
 }
 
@@ -146,16 +146,17 @@ VFS 계층은 최장 접두사 매칭(longest-prefix matching)을 사용해 경�
 
 ```c
 struct VfsOps {
-    fn int(void* ctx, unsigned long size) mount;
-    fn int(void* ctx) unmount;
-    fn int(void* ctx, const char* path, int flags, &stack VfsNode node_out) open;
-    fn int(void* ctx, const char* path) unlink;
-    fn int(void* ctx, const char* path) mkdir;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      unsigned char* buf, unsigned long len) read;
-    fn unsigned long(void* ctx, unsigned long inode, unsigned long off,
-                      const unsigned char* buf, unsigned long len) write;
-    fn int(void* ctx, unsigned long inode, void* cb, void* user) readdir;
+    fn int(?&void ctx, unsigned long size) mount;
+    fn int(?&void ctx) unmount;
+    fn int(?&void ctx, const &char path, int flags, &stack VfsNode node_out) open;
+    fn int(?&void ctx, const &char path) unlink;
+    fn int(?&void ctx, const &char path) mkdir;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      &unsigned char buf, unsigned long len) read;
+    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
+                      const &unsigned char buf, unsigned long len) write;
+    fn int(?&void ctx, unsigned long inode,
+           fn void(&VfsNode, ?&void) cb, ?&void user) readdir;
 }
 ```
 
@@ -167,7 +168,7 @@ struct VfsNode {
     int           type;      // VFS_TYPE_FILE / VFS_TYPE_DIR
     unsigned long size;
     unsigned long inode;
-    void*         fs_ctx;    // driver-internal: the owning VfsMount
+    ?&void        fs_ctx;    // driver-internal: the owning VfsMount
 
     unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
     unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);

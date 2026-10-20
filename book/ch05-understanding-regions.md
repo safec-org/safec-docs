@@ -94,9 +94,9 @@ doesn't manage the memory for you.
 
 ```c
 void heap_demo() {
-    &heap int p = (int*)malloc(sizeof(int));
+    &heap int p = new int;
     *p = 42;
-    defer free(p);
+    defer std::dealloc(p);
     printf("heap: %d\n", *p);
 }   // free(p) runs here, via defer
 ```

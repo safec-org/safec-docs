@@ -2,10 +2,13 @@
 
 `mem` 모듈은 힙 할당과 메모리 연산을 감싼다. `alloc`/`alloc_zeroed`/
 `dealloc`/`realloc_buf`는 특정한 런타임 얼로케이터 오용 버그들에 대해
-구조적으로 안전하지만(아래 [할당 안전성](#allocation-safety) 참고),
-모든 접근에 대한 일반적인 경계 검증을 수행하지는 않는다 — 반환된
-포인터를 통해 실제로 읽거나 쓰려면, SafeC의 다른 원시 포인터와
-마찬가지로 여전히 `unsafe {}`가 필요하다.
+구조적으로 안전하다(아래 [할당 안전성](#allocation-safety) 참고). 이 함수들은
+`?&heap T` 참조를 돌려주며, `T`는 대입받는 변수에서 정해진다(타입 없는 바이트에는
+`void`). 참조는 인덱싱할 수 없으므로, 여러 원소로 된 블록은
+[`Slice`](/ko/stdlib/collections#slice)로 보며 경계 검사와 함께 읽고 쓴다.
+
+타입이 있는 배열에는 보통 `new T[n]`(힙)과 `new<R> T[n]`(아레나)이 더 간단하다 —
+[메모리와 리전](/ko/reference/memory#arrays-by-region) 참고.
 
 ```c
 #include <std/mem.h>
@@ -16,28 +19,28 @@
 ### alloc {#alloc}
 
 ```c
-void* alloc(unsigned long size);
+generic<T> ?&heap T alloc(unsigned long size);
 ```
 
-초기화되지 않은 `size`바이트의 힙 메모리를 할당한다. 할당된 블록에
-대한 포인터를 반환하며, 실패 시 NULL을 반환한다.
+초기화되지 않은 `size`바이트의 힙 메모리를 할당한다. 블록에 대한
+참조를 반환하며, 실패 시 `null`을 반환한다.
 
 ### alloc_zeroed {#alloc_zeroed}
 
 ```c
-void* alloc_zeroed(unsigned long size);
+generic<T> ?&heap T alloc_zeroed(unsigned long size);
 ```
 
-0으로 초기화된 `size`바이트의 힙 메모리를 할당한다. 할당된 블록에
-대한 포인터를 반환하며, 실패 시 NULL을 반환한다.
+0으로 초기화된 `size`바이트의 힙 메모리를 할당한다. 블록에 대한
+참조를 반환하며, 실패 시 `null`을 반환한다.
 
 ### dealloc {#dealloc}
 
 ```c
-void dealloc(void* ptr);
+generic<T> void dealloc(?&heap T ptr);
 ```
 
-이전에 할당된 블록을 해제한다. NULL을 전달하는 것은 아무 동작도 하지
+이전에 할당된 블록을 해제한다. `null`을 전달하는 것은 아무 동작도 하지
 않는다. 같은 포인터에 대해 이 함수를 두 번 호출하거나, `alloc`/
 `alloc_zeroed`가 반환한 적 없는 포인터에 대해 호출하면 힙을 손상시키는
 대신 진단 메시지와 함께 중단(abort)된다 — [할당 안전성](#allocation-safety)
@@ -46,13 +49,13 @@ void dealloc(void* ptr);
 ### realloc_buf {#realloc_buf}
 
 ```c
-void* realloc_buf(void* ptr, unsigned long new_size);
+generic<T> ?&heap T realloc_buf(?&heap T ptr, unsigned long new_size);
 ```
 
 이전에 할당된 블록의 크기를 `new_size`바이트로 조정한다. 내용은 기존
-크기와 새 크기 중 작은 쪽까지 보존된다. (이동했을 수도 있는) 포인터를
-반환하며, 실패 시 NULL을 반환한다(실패 시 기존 블록은 해제되지 *않는다*).
-`ptr == NULL`이면 `alloc(new_size)`처럼 동작한다.
+크기와 새 크기 중 작은 쪽까지 보존된다. (이동했을 수도 있는) 블록을
+반환하며, 실패 시 `null`을 반환한다(실패 시 기존 블록은 해제되지 *않는다*).
+`ptr`이 `null`이면 `alloc(new_size)`처럼 동작한다.
 
 ### checked_mul_size {#checked_mul_size}
 
@@ -140,7 +143,7 @@ unsigned long checked_add_size(unsigned long a, unsigned long b);
 ### safe_memcpy {#safe_memcpy}
 
 ```c
-void safe_memcpy(void* dst, const void* src, unsigned long n);
+generic<T> void safe_memcpy(&T dst, const &T src, unsigned long n);
 ```
 
 `src`에서 `dst`로 `n`바이트를 복사한다. 원본과 대상 영역은 **겹치면
@@ -149,7 +152,7 @@ void safe_memcpy(void* dst, const void* src, unsigned long n);
 ### safe_memmove {#safe_memmove}
 
 ```c
-void safe_memmove(void* dst, const void* src, unsigned long n);
+generic<T> void safe_memmove(&T dst, const &T src, unsigned long n);
 ```
 
 `src`에서 `dst`로 `n`바이트를 복사한다. 겹치는 영역에도 안전하다.
@@ -157,7 +160,7 @@ void safe_memmove(void* dst, const void* src, unsigned long n);
 ### safe_memset {#safe_memset}
 
 ```c
-void safe_memset(void* ptr, int val, unsigned long n);
+generic<T> void safe_memset(&T ptr, int val, unsigned long n);
 ```
 
 `ptr`부터 `n`바이트를 값 `val`(`unsigned char`로 해석됨)로 설정한다.
@@ -165,7 +168,7 @@ void safe_memset(void* ptr, int val, unsigned long n);
 ### safe_memcmp {#safe_memcmp}
 
 ```c
-int safe_memcmp(const void* a, const void* b, unsigned long n);
+generic<T> int safe_memcmp(const &T a, const &T b, unsigned long n);
 ```
 
 `a`와 `b`의 `n`바이트 메모리를 비교한다. 반환값:
@@ -181,56 +184,56 @@ int safe_memcmp(const void* a, const void* b, unsigned long n);
 unsigned long mem_align_up(unsigned long addr, unsigned long align);   // align is a power of two
 unsigned long mem_align_down(unsigned long addr, unsigned long align);
 int           mem_is_aligned(unsigned long addr, unsigned long align);
-void*         mem_align_ptr(void* ptr, unsigned long align);            // null if it can't be aligned
+generic<T> ?&T mem_align_ptr(&T ptr, unsigned long align);             // null if it can't be aligned
 int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if [addr, addr+size) stays in one 4 KiB page
 
 // locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
-void          mem_prefetch(const void* addr, int write, int locality);
-void          mem_clflush(const void* addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
-void          mem_zero_secure(void* ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
+generic<T> void mem_prefetch(const &T addr, int write, int locality);
+generic<T> void mem_clflush(const &T addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
+generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
 ```
 
-위의 `safe_mem*` 함수들처럼 원시 메모리를 다루므로 주소를 `unsigned long`이나 `void*`로 받습니다.
+주소 산술 헬퍼는 일반 `unsigned long` 주소를 받고, 나머지는 위의 `safe_mem*` 함수들처럼 영역의 첫 바이트에 대한 참조를 받습니다.
 
 ## 예제 {#example}
 
 ```c
 #include <std/mem.h>
+#include <std/collections/slice.h>
 #include <std/io.h>
 
 int main() {
-    // Allocate a buffer for 10 ints
-    int* buf;
-    unsafe { buf = (int*)alloc(10UL * sizeof(int)); }
-    unsafe { safe_memset((void*)buf, 0, 10UL * sizeof(int)); }
+    // A buffer for 10 ints, zeroed
+    ?&heap int maybe = std::alloc(10UL * sizeof(int));
+    match (maybe) {
+        case null:     { return 1; }               // out of memory
+        case some(buf): {
+            std::safe_memset(buf, 0, 10UL * sizeof(int));
+            struct Slice<int> s = std::slice_of(buf, 10UL);   // bounds-checked view
+            s.set(0UL, 42);
+            s.set(1UL, 99);
 
-    unsafe {
-        buf[0] = 42;
-        buf[1] = 99;
+            // Duplicate into a second buffer
+            ?&heap int copy = std::alloc(10UL * sizeof(int));
+            match (copy) {
+                case some(c): {
+                    std::safe_memcpy(c, buf, 10UL * sizeof(int));
+                    std::println_int(*std::slice_of(c, 10UL).at(0UL));   // 42
+                }
+                case null: { }
+            }
+            std::dealloc(copy);
+        }
     }
-
-    // Duplicate into a new buffer
-    int* copy;
-    unsafe { copy = (int*)alloc(10UL * sizeof(int)); }
-    unsafe { safe_memcpy((void*)copy, (const void*)buf, 10UL * sizeof(int)); }
-
-    unsafe { print_int((long long)copy[0]); }  // 42
-    println("");
-
-    unsafe {
-        dealloc((void*)buf);
-        dealloc((void*)copy);
-    }
+    std::dealloc(maybe);
     return 0;
 }
 ```
 
 ::: tip
-`alloc`/`dealloc`/`safe_memcpy`/`safe_memset`은 모두 원시 포인터
-(`void*`/`int*`)를 받거나 반환하며, 원시 포인터를 통해 읽거나 쓰는
-것은 이 모듈에 국한되지 않고 SafeC에서 항상 `unsafe {}` 블록을
-요구한다. `unsafe`가 무엇을 면제해 주고 무엇을 면제해 주지 않는지는
-[안전성 모델](/ko/advanced/safety-model)을 참고한다.
+여기의 모든 함수는 참조를 받고 반환하므로 `unsafe`가 필요 없다. 참조에는
+길이가 없으므로 인덱싱은 `Slice`를 거친다. `unsafe`가 무엇을 면제해 주고
+무엇을 면제해 주지 않는지는 [안전성 모델](/ko/advanced/safety-model)을 참고한다.
 :::
 
 ### 이중 해제는 잡히지, 조용히 넘어가지 않는다 {#double-free-is-caught-not-silent}
@@ -240,11 +243,12 @@ int main() {
 #include <std/io.h>
 
 int main() {
-    void* p;
-    unsafe { p = alloc(64UL); }
-    unsafe { dealloc(p); }
-    println("first dealloc OK");
-    unsafe { dealloc(p); }   // aborts: "dealloc() called twice on the same pointer"
+    ?&heap void p = std::alloc(64UL);
+    std::dealloc(p);
+    std::println("first dealloc OK");
+    // The compiler rejects a second dealloc of p; unsafe opts out of that
+    // check, so the runtime one fires instead.
+    unsafe { std::dealloc(p); }   // aborts: "dealloc() called twice on the same pointer"
     println("never reached");
     return 0;
 }

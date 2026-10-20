@@ -33,7 +33,8 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 
 역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D, `float` — PyTorch의 기본값이자 Metal이 지원하는 유일한 정밀도인 float32) — PyTorch 스타일의
 사용감: `requiresGrad` 텐서에 연산을 호출해 암묵적으로 계산 그래프를
-만들고, 그다음 `tensor_backward()`를 호출한다.
+만들고, 그다음 `tensor_backward()`를 호출한다. fp16/bf16 저장과 혼합 정밀도
+학습은 [반정밀도 텐서](#half-precision-tensors)를 참고한다.
 
 ```c
 &Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
@@ -207,8 +208,8 @@ DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되
 &Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
                     const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
 &Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                       struct Tensor** WukGroups, struct Tensor** WuvGroups,   // numGroups each
-                       unsigned long numGroups, unsigned long headsPerGroup);
+                       struct Slice<&Tensor> WukGroups, struct Slice<&Tensor> WuvGroups,  // one per group
+                       unsigned long headsPerGroup);
 &Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
                                    unsigned long windowSize, unsigned long shift);
 
@@ -219,7 +220,7 @@ struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyD
 void    gated_deltanet_free(&GatedDeltaNet layer);
 ```
 
-`eg_mla_forward`는 그룹별 가중치 테이블을 텐서 포인터 배열로 받는다.
+`eg_mla_forward`는 그룹별 업프로젝션을 텐서 참조의 [`Slice`](/ko/stdlib/collections#slice)로 받는다 — 길이가 그룹 수인, 경계 검사가 있는 배열이다. 고정 크기 스택이나 정적 배열(`&Tensor groups[4]`)로, 개수가 런타임에만 정해지면 힙이나 아레나 할당으로 뒷받침한다.
 
 ## RNN 계열 {#rnn-family}
 
@@ -244,10 +245,10 @@ struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
 void            gru_cell_free(&GRUCell cell);
 
 struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
-// Returns h_t; the new cell state is written to *c_out.
+// Returns h_t; the new cell state is written through c_out.
 &Tensor         lstm_cell_forward(const &LSTMCell cell, const &Tensor x_t,
                                   const &Tensor h_prev, const &Tensor c_prev,
-                                  struct Tensor** c_out);
+                                  &&Tensor c_out);
 void            lstm_cell_free(&LSTMCell cell);
 
 struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
@@ -351,17 +352,18 @@ void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
 // Order-2 solvers call your model again at the midpoint.
-typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) EpsModelFn;
-typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) DataModelFn;
-&Tensor dpm_solver_2_step(EpsModelFn model, void* userData,
+// model(x, sigma, userData) -> predicted noise (eps) or clean sample (x0).
+generic<T>
+&Tensor dpm_solver_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
                           const &Tensor x_cur, const &Tensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-&Tensor dpm_solver_pp_2_step(DataModelFn model, void* userData,
+generic<T>
+&Tensor dpm_solver_pp_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
                              const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
-모델 콜백은 `EpsModelFn`/`DataModelFn`이 선언한 포인터 타입을 그대로 유지하므로, 모델 함수도 그 매개변수 타입으로 작성해야 한다.
+`userData`는 모델 자신의 상태(예: 가중치)이며, 그 타입은 컴파일 타임에 콜백과 대조해 검사된다.
 
 ## 트랜스포머 (DiT / JiT) {#transformer-dit-jit}
 
@@ -389,7 +391,7 @@ struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsig
 void    jit_block_free(&JiTBlock block);
 // Patch embedding + conditioning, then numBlocks blocks.
 &Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                    &JiTBlock blocks, unsigned long numBlocks);
+                    struct Slice<JiTBlock> blocks);
 ```
 
 ## GPU 백엔드 {#gpu-backends}
@@ -495,27 +497,27 @@ int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-호스트 배열은 첫 원소에 대한 참조로 넘기며, 아래의 장치 버퍼는 GPU 자체의 외부 인터페이스인 불투명한 `void*` 핸들입니다.
+호스트 배열은 첫 원소에 대한 참조로 넘기며, 아래의 장치 버퍼는 메모리가 GPU 드라이버에 속하므로 불투명한 `&void` 핸들입니다.
 
 **영구 버퍼**는 가중치를 호출 사이에 장치에 남겨 두어 학습 루프가 다시 업로드하지 않게 합니다:
 
 ```c
-void* <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void  <p>_release_persistent(void* buf);                               // MPS: (void* buf, unsigned long bytes)
+?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
+void   <p>_release_persistent(&void buf);                               // MPS: (&void buf, unsigned long bytes)
 int   <p>_persistent_available();                                      // cuda, spirv, webgpu
-int   <p>_matmul_f32_persistent(void* bufA, void* bufB, &float out,
+int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
                                 unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
-int   cuda_sgd_update_f32(void* devW, void* devGrad, float lr, unsigned long n);    // in place
-int   webgpu_sgd_update_f32(void* bufW, void* bufGrad, float lr, unsigned long n);
+int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
+int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
 ```
 
 **반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환).
 
 ```c
-void* mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
-int   mps_matmul_f16_persistent(void* bufA, void* bufB, &unsigned short out,
+?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
+int    mps_matmul_f16_persistent(&void bufA, &void bufB, &unsigned short out,
                                 unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
-int   cuda_sgd_update_f16(void* devW, void* devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
 int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
@@ -527,9 +529,8 @@ int   mps_relu_f16(const &float a, &float out, unsigned long n);           // al
 void  mps_batch_begin();
 void  mps_batch_end();                      // commit, wait, run finalizers
 int   mps_batch_is_active();
-typedef fn void(void* ctx) MpsFinalizeFn;
-void  mps_batch_register_finalize(MpsFinalizeFn finalizeFn, void* ctx);  // runs after mps_batch_end's wait
-void* mps_batch_last_output_buffer();
+generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  // runs after mps_batch_end's wait
+?&void mps_batch_last_output_buffer();
 
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
@@ -588,7 +589,7 @@ SPIR-V 커널은 바이너리 IR이라 Vulkan 백엔드가 완성되려면 SPIR-
 
 ## fp16 / bf16 {#fp16-bf16}
 
-SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 — 그리고 MPS 백엔드에서는 저장 공간만 절반으로 줄이는 것이 아니라 실제 네이티브 `half`/`bfloat` GPU 연산을 합니다.
+SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 . 그 위에 반정밀도 텐서와 혼합 정밀도 학습(`tensor_half.h`, 아래)이 있고, MPS, CUDA, WebGPU에서는 네이티브 `half`/`bfloat` GPU 연산을 합니다([호스트 배열 API](#host-array-api-mps-cuda-spir-v-webgpu) 참고).
 
 | 검사 | 결과 |
 |---|---|
@@ -612,6 +613,136 @@ void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 ```
 
+
+### 반정밀도 텐서 — `tensor_half.h` {#half-precision-tensors}
+
+```c
+#include <std/ml/tensor_half.h>
+```
+
+두 계층이 있습니다:
+
+- **`HalfTensor`**는 1D/2D 텐서를 fp16이나 bf16으로 저장합니다 — float32 `Tensor` 메모리의 절반입니다. 연산은 피연산자를 float32로 넓혀 계산한 뒤 결과를 저장 형식으로 반올림하며, 이는 GPU 반정밀도 경로와 같은 산술입니다. `half_matmul`은 텐서 코어처럼 각 내적을 float32로 누적하고 한 번만 반올림합니다. 이 계층에는 자동미분이 없습니다.
+- **float32 `Tensor`에 대한 혼합 정밀도, 자동미분 포함.** `tensor_cast`는 순방향에서 값을 fp16/bf16 정밀도로 반올림하고 그래디언트는 그대로 통과시킵니다(straight-through 추정량). 그래서 가중치와 그래디언트는 float32로 유지하면서 그래프를 낮은 정밀도로 계산할 수 있습니다. `LossScaler`는 fp16 학습의 동적 손실 스케일링이며, bf16은 float32와 지수 범위가 같아 필요 없습니다.
+
+```c
+#define TENSOR_FP16 1
+#define TENSOR_BF16 2
+
+struct HalfTensor {
+    &heap unsigned short data;     // fp16 or bf16 bits, row-major
+    unsigned long        shape[2];
+    unsigned long        ndim;     // 1 or 2
+    unsigned long        size;
+    int                  dtype;    // TENSOR_FP16 or TENSOR_BF16
+
+    float at1(unsigned long i) const;                   // widened to float32
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);               // rounded to dtype
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+};
+
+float          half_round(float v, int dtype);          // nearest dtype value, as float32
+unsigned short half_encode(float v, int dtype);
+float          half_decode(unsigned short bits, int dtype);
+
+struct HalfTensor half_tensor_new_1d(unsigned long n, int dtype);           // zero-filled
+struct HalfTensor half_tensor_new_2d(unsigned long rows, unsigned long cols, int dtype);
+struct HalfTensor tensor_to_half(const &Tensor t, int dtype);                // round to nearest even
+&Tensor           half_to_tensor(const &HalfTensor h, int requiresGrad);     // exact
+
+// Shapes and dtypes must match; otherwise the result is empty (size 0).
+struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
+struct HalfTensor half_scale(const &HalfTensor a, float k);
+struct HalfTensor half_relu(const &HalfTensor a);
+struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
+float             half_sum(const &HalfTensor a);                            // float32 accumulate
+
+&Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
+&Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
+
+struct LossScaler {
+    float scale;            // multiply the loss by this before tensor_backward()
+    float growthFactor;     // 2.0
+    float backoffFactor;    // 0.5
+    int   growthInterval;   // 2000 clean steps
+    int   goodSteps;
+};
+struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
+int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
+```
+
+`HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
+
+bf16으로 저장하고 계산하기:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/io.h>
+
+int main() {
+    // Store weights in bf16 (half the memory), compute a matmul in bf16.
+    struct HalfTensor w = std::half_tensor_new_2d(2UL, 2UL, TENSOR_BF16);
+    struct HalfTensor x = std::half_tensor_new_2d(2UL, 1UL, TENSOR_BF16);
+    w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
+    w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
+    x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
+    struct HalfTensor y = std::half_matmul(&w, &x);      // f32 accumulate, bf16 result
+    std::println_float((double)y.at1(0UL));             // -2.5
+    std::println_float((double)y.at1(1UL));             // 7
+
+    // Back to float32 for anything that needs autograd.
+    &Tensor yf = std::half_to_tensor(&y, 0);
+    yf.free();
+    y.free(); x.free(); w.free();
+    return 0;
+}
+```
+
+혼합 정밀도 학습 — fp16 순방향, float32 마스터 가중치, 오버플로 시 스텝 건너뛰기:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/collections/slice.h>
+
+// One mixed-precision SGD step: fp16 forward, float32 master weights,
+// dynamic loss scaling so small fp16 gradients don't flush to zero.
+int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
+    &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
+    &Tensor diff = std::tensor_sub(y, target);
+    &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
+    std::tensor_backward(std::tensor_scale(loss, scaler.scale));
+
+    int finite = std::loss_scaler_unscale(scaler, w);
+    if (finite) {
+        struct Slice<float> g = std::slice_of(w.grad, w.size);
+        for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
+            w.set1(i, w.at1(i) - lr * *g.at(i));
+        }
+    }
+    std::loss_scaler_update(scaler, finite);
+    std::tensor_zero_grad(w);
+    return finite;
+}
+
+int main() {
+    float wv[2] = { 0.1f, 0.2f };
+    float xv[2] = { 1.0f, 2.0f };
+    float tv[1] = { 1.0f };
+    &Tensor w = std::tensor_from_2d(&wv[0], 2UL, 1UL, 1);
+    &Tensor x = std::tensor_from_2d(&xv[0], 1UL, 2UL, 0);
+    &Tensor t = std::tensor_from_2d(&tv[0], 1UL, 1UL, 0);
+    struct LossScaler scaler = std::loss_scaler_new();
+    int ok = 1;
+    for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
+    float pred = w.at1(0UL) + w.at1(1UL) * (float)2.0;
+    return (ok && pred > (float)0.95 && pred < (float)1.05) ? 0 : 1;
+}
+```
 
 ## 장치 선택 {#device-selection}
 
@@ -638,7 +769,7 @@ enum Device {
 #include <std/ml/transformer_dispatch.h>
 &Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
 &Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                       &JiTBlock blocks, unsigned long numBlocks, enum Device device);
+                       struct Slice<JiTBlock> blocks, enum Device device);
 ```
 
 이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `tensor_sigmoid`/`tensor_relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.

@@ -35,10 +35,10 @@ double             str_to_float(const &char s, ?&int ok);
 int str_is_int(const &char s);     // 1 if s is a valid decimal integer
 int str_is_float(const &char s);   // 1 if s is a valid floating-point number
 
-// Number -> heap string. Free the result with dealloc().
-char* int_to_str(long long v);
-char* uint_to_str(unsigned long long v);
-char* float_to_str(double v, int decimals);
+// Number -> heap string (null on OOM). Free the result with std::dealloc().
+?&heap char int_to_str(long long v);
+?&heap char uint_to_str(unsigned long long v);
+?&heap char float_to_str(double v, int decimals);
 
 // Numeric conversions
 int       ll_to_int(long long v, &int out);   // 1 and *out = v if it fits in int, else 0
@@ -94,7 +94,7 @@ Locale-aware, like C's `<ctype.h>`. `c` must be in `0..255` or `-1` (EOF). Each 
 ```c
 int         errno_get();                 // current thread-local errno
 void        errno_set(int code);
-const char* errno_str(int code);         // static description (strerror)
+const &char errno_str(int code);         // static description (strerror)
 void        errno_print(const &char prefix); // "prefix: <description>" to stderr
 ```
 
@@ -117,10 +117,10 @@ int fenv_raise(int excepts);
 int fenv_get_round();            // FE_* rounding mode
 int fenv_set_round(int mode);    // 0 on success
 
-// Whole environment; env is a 32-byte buffer.
-int fenv_save(void* env);
-int fenv_restore(const void* env);
-int fenv_save_clear(void* env);  // save, then clear all flags
+// Whole environment, saved into / restored from a 32-byte buffer.
+int fenv_save(&unsigned char env);
+int fenv_restore(const &unsigned char env);
+int fenv_save_clear(&unsigned char env);  // save, then clear all flags
 ```
 
 | Rounding modes | Exception flags |
@@ -192,8 +192,8 @@ unsigned long heap_capacity();                               // bytes; 0 when ho
 
 ```c
 // name: "" = system default, "C", "en_US.UTF-8", ... Returns the new locale name, or null.
-const char* locale_set(int category, const &char name);
-const char* locale_get(int category);
+const ?&char locale_set(int category, const &char name);
+const ?&char locale_get(int category);
 ```
 
 Categories: `LC_ALL()`, `LC_COLLATE()`, `LC_CTYPE()`, `LC_MONETARY()`, `LC_NUMERIC()`, `LC_TIME()`.
@@ -214,14 +214,14 @@ Categories: `LC_ALL()`, `LC_COLLATE()`, `LC_CTYPE()`, `LC_MONETARY()`, `LC_NUMER
 #define LOG_LEVEL_DEBUG  4
 // LOG_LEVEL defaults to LOG_LEVEL_INFO; set it with -DLOG_LEVEL=<n>.
 
-typedef fn void(int level, const char* tag, const char* msg,
-                const char* file, int line) LogBackend;
+typedef fn void(int level, const &char tag, const &char msg,
+                const &char file, int line) LogBackend;
 
 void log_set_backend(LogBackend backend);
 void log_write(int level, const &char tag, const &char msg, const &char file, int line);
 ```
 
-`log_set_backend` routes every message to your function (a UART, a ring buffer, a file). Callback types keep the exact parameter types the header declares, so write your backend with `const char*` parameters to match `LogBackend`.
+`log_set_backend` routes every message to your function (a UART, a ring buffer, a file).
 
 The `LOG_E`/`LOG_W`/`LOG_I`/`LOG_D(tag, msg)` macros fill in `__FILE__`/`__LINE__` and compile to nothing below `LOG_LEVEL`, so `LOG_LEVEL=0` costs nothing. They are function-like macros, so they exist only in [compat preprocessor mode](/reference/preprocessor); in safe mode call `log_write` directly.
 
@@ -234,7 +234,7 @@ The `LOG_E`/`LOG_W`/`LOG_I`/`LOG_D(tag, msg)` macros fill in `__FILE__`/`__LINE_
 ```
 
 ```c
-typedef fn void(const char* msg, const char* file, int line) PanicHandler;
+typedef fn void(const &char msg, const &char file, int line) PanicHandler;
 
 void panic_set_handler(PanicHandler handler);   // null restores the default
 void panic_at(const &char msg, const &char file, int line);  // never returns
@@ -301,7 +301,7 @@ int main() {
 ```
 
 ```c
-void* signal_handle(int sig, void* handler);   // handler is fn void(int); returns previous, (void*)-1 on error
+?&void signal_handle(int sig, fn void(int) handler);   // previous handler (opaque); SIG_ERR on error
 void  signal_default(int sig);
 void  signal_ignore(int sig);
 int   signal_raise(int sig);                   // to this process
@@ -311,7 +311,7 @@ void  signal_pause();                          // block until a signal arrives
 
 Signal numbers (POSIX values): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL` and `SIG_STOP` can't be caught.
 
-`signal_handle` takes the handler as `void*` because it goes straight to the C library.
+`signal_handle` returns the previous handler as an opaque `?&void`, since it may be one of the C library's `SIG_DFL`/`SIG_IGN` markers rather than a SafeC function.
 
 ---
 
@@ -359,8 +359,8 @@ The language also has overflow operators built in; see [Overflow Operators](/ref
 void        sys_exit(int code);
 void        sys_abort();
 int         sys_system(const &char cmd);
-int         sys_atexit(void* func);             // fn void(), passed to the C library
-const char* sys_getenv(const &char name);       // null if unset
+int         sys_atexit(fn void() func);
+const ?&char sys_getenv(const &char name);      // null if unset
 
 int         sys_rand();                         // 0 .. RAND_MAX
 void        sys_srand(unsigned int seed);
@@ -373,10 +373,10 @@ long long   sys_atoll(const &char s);
 double      sys_atof(const &char s);
 
 // base 0 auto-detects a 0x / 0 prefix. If end is non-null it receives the first unparsed character.
-long long          sys_strtoll(const &char s, char** end, int base);
-unsigned long long sys_strtoull(const &char s, char** end, int base);
-double             sys_strtod(const &char s, char** end);
-float              sys_strtof(const &char s, char** end);
+long long          sys_strtoll(const &char s, ?&&const char end, int base);
+unsigned long long sys_strtoull(const &char s, ?&&const char end, int base);
+double             sys_strtod(const &char s, ?&&const char end);
+float              sys_strtof(const &char s, ?&&const char end);
 
 // Typed sort/search over n elements starting at first; cmp returns <0 / 0 / >0.
 generic<T> void sys_qsort(&T first, unsigned long n, fn int(const &T, const &T) cmp);
@@ -388,7 +388,7 @@ long long   sys_time_now_ns();
 long long   sys_monotonic_ns();
 ```
 
-`sys_strto*` keep C's `char**` end pointer because it is passed straight to the C library; pass `null` when you don't need it. For parsing with a success flag, prefer [`convert.h`](#convert-string-number).
+`end` is an optional out-parameter: pass the address of a `const &char` to learn where parsing stopped, or `null`. For parsing with a success flag, prefer [`convert.h`](#convert-string-number).
 
 ```c
 #include <std/sys.h>
@@ -472,7 +472,7 @@ Cache-coherent buffer ownership and a driver-agnostic DMA channel. Freestanding-
 #define DMA_ALIGN  64   // typical burst alignment (one cache line)
 
 struct DmaBuffer {
-    void*         virt;   // CPU address
+    &unsigned char virt;  // CPU view of the buffer
     unsigned long phys;   // device address (0 = identity-mapped)
     unsigned long size;
     int           owner;  // 0 = CPU, 1 = device
@@ -483,7 +483,7 @@ struct DmaBuffer {
     unsigned long phys_at(unsigned long offset) const;
 };
 
-struct DmaBuffer dma_buf_wrap(void* virt, unsigned long phys, unsigned long size);
+struct DmaBuffer dma_buf_wrap(&unsigned char virt, unsigned long phys, unsigned long size);
 
 // One driver owns a channel, so its callback context is typed.
 generic<T> struct DmaChannel {
@@ -515,7 +515,7 @@ struct DmaSgList {
 };
 ```
 
-`virt` is a `void*` because it is a hardware address, the same as [MMIO](/stdlib/interrupt) bases.
+`virt` refers to the first byte of the buffer, which can live in any region (a static DMA pool, the heap, an arena).
 
 ---
 

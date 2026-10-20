@@ -44,7 +44,7 @@ GPU 경로는 없습니다. 매 프레임 `gui_present()`가 픽셀 버퍼를 �
 
 ```c
 struct GuiWindow {
-    void*                platform;    // backend handle; null on failure
+    ?&void               platform;    // backend handle; null on failure
     &heap unsigned char  pixels;      // width*height*4 bytes, RGBA8888, top-left origin, row-major
     int                  width;
     int                  height;
@@ -90,9 +90,7 @@ void gui_destroy_window(&GuiWindow win);
 
 int main() {
     struct GuiWindow win = std::gui_create_window("Hello", 320, 200);
-    int ok = 0;
-    unsafe { ok = win.platform != (void*)0; }
-    if (!ok) { return 1; }
+    if (win.platform.is_null()) { return 1; }
 
     struct GuiEvent ev;
     while (!win.shouldClose) {
@@ -289,9 +287,9 @@ generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T use
 ### 커스텀 위젯 {#custom-widgets}
 
 ```c
-typedef fn void(struct GuiWindow*, struct Widget*) WidgetDrawFn;          // draw inside widget->x/y/w/h
-typedef fn void(struct Widget*, int, int, int, int) WidgetLayoutFn;       // set widget->x/y/w/h, lay out children
-typedef fn int(struct Widget*, struct GuiEvent*) WidgetCustomEventFn;     // 1 = handled, stop dispatch
+typedef fn void(&GuiWindow, &Widget) WidgetDrawFn;               // draw inside widget.x/y/w/h
+typedef fn void(&Widget, int, int, int, int) WidgetLayoutFn;      // set widget.x/y/w/h, lay out children
+typedef fn int(&Widget, &GuiEvent) WidgetCustomEventFn;           // 1 = handled, stop dispatch
 
 generic<T>
 &Widget widget_custom(WidgetDrawFn draw, WidgetLayoutFn layout,
@@ -322,9 +320,7 @@ static void on_click(&Widget w, ?&Counter ctx) {
 
 int main() {
     struct GuiWindow win = std::gui_create_window("Counter", 320, 160);
-    int ok = 0;
-    unsafe { ok = win.platform != (void*)0; }
-    if (!ok) { return 1; }
+    if (win.platform.is_null()) { return 1; }
 
     &Widget root  = std::widget_set_spacing(std::widget_set_padding(std::widget_vstack(), 12), 8);
     &Widget label = std::widget_label("Not clicked");
@@ -360,7 +356,7 @@ int main() {
 
 ```c
 struct GuiFbConfig {
-    void* base;           // linear framebuffer address
+    &volatile unsigned char base;  // linear framebuffer memory
     unsigned long pitch;  // bytes per scanline (may include padding)
     int width;
     int height;

@@ -199,10 +199,14 @@ SafeC는 C 표준 헤더를 네이티브로 포함할 수 있습니다. 컴파�
 #include <string.h>
 
 int main() {
-    char* msg;
-    unsafe { msg = (char*)malloc(64); }   // void* -> char*는 포인터를 재해석하므로 unsafe
-    strcpy(msg, "Hello from C headers!");
-    printf("%s\n", msg);
+    ?&char msg = malloc(64);               // raw void* -> ?&char: implicit
+    match (msg) {
+        case some(m): {
+            strcpy(m, "Hello from C headers!");
+            printf("%s\n", m);
+        }
+        case null: { }
+    }
     free(msg);
     return 0;
 }

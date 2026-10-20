@@ -92,7 +92,7 @@ int main() {
 struct SlabAllocator {
     unsigned long obj_size;
     &heap void    alloc();                    // byte level; null if full
-    void          dealloc(void* ptr);
+    void          dealloc(&heap void ptr);   // a block alloc() returned
     unsigned long available() const;          // free slots
     void          destroy();
 };
@@ -132,7 +132,7 @@ int main() {
 struct PoolAllocator {
     unsigned long cap;
     &heap void    alloc(unsigned long size);  // byte level; null if no block fits
-    void          dealloc(void* ptr);
+    void          dealloc(&heap void ptr);   // a block alloc() returned
     unsigned long available() const;         // total free bytes
     void          destroy();
 };

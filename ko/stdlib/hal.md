@@ -9,10 +9,20 @@
 ```c
 #include <std/hal/gpio.h>
 
-void blink(void* gpio_base, int pin) {
+void blink(&volatile unsigned int gpio_base, int pin) {
     struct GpioPin led = std::gpio_init(gpio_base, pin, GPIO_OUTPUT);
     led.write(1);
     led.toggle();
+}
+```
+
+주변장치 기준 주소는 `&volatile unsigned int` 참조이므로 모든 레지스터 접근이
+volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `unsafe` 안에서 한 번
+만드십시오 — 컴파일러는 그 주소가 유효한지 알 수 없습니다:
+
+```c
+&volatile unsigned int GPIOA_BASE() {
+    unsafe { return (&volatile unsigned int)0x40020000UL; }
 }
 ```
 
@@ -51,7 +61,7 @@ void blink(void* gpio_base, int pin) {
 #define SCB_BASE      0xE000ED00UL
 
 struct Nvic {                      // global instance: nvic (nvic_init())
-    void* base;
+    &volatile unsigned int base;
     void  enable(unsigned int irq);
     void  disable(unsigned int irq);
     int   is_pending(unsigned int irq) const;
@@ -61,7 +71,7 @@ struct Nvic {                      // global instance: nvic (nvic_init())
 };
 
 struct SysTick {                   // global instance: systick (systick_init())
-    void* base;
+    &volatile unsigned int base;
     void  start(unsigned int reload, int use_core_clock);
     void  stop();
     unsigned int read() const;
@@ -69,7 +79,7 @@ struct SysTick {                   // global instance: systick (systick_init())
 };
 
 struct Scb {                       // global instance: scb (scb_init())
-    void* base;
+    &volatile unsigned int base;
     void  system_reset();
     void  enable_fault(unsigned int fault_mask);   // SCB_FAULT_* bits
     void  disable_fault(unsigned int fault_mask);

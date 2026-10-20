@@ -188,7 +188,7 @@ void process_file(const &char path) {
     FILE *f = fopen(path, "r");
     defer fclose(f);
 
-    char *buf = (char*)malloc(4096);
+    ?&char buf = malloc(4096);             // C's void* -> ?&char
     defer free(buf);
 
     // ... use f and buf ...

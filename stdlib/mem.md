@@ -1,6 +1,8 @@
 # mem -- Memory
 
-The `mem` module wraps heap allocation and memory operations. `alloc`/`alloc_zeroed`/`dealloc`/`realloc_buf` are safe by construction against a specific set of runtime allocator-misuse bugs (see [Allocation Safety](#allocation-safety) below) — but they don't perform general bounds validation on every access; `unsafe {}` is still required to actually read/write through the returned pointer, same as any raw pointer in SafeC.
+The `mem` module wraps heap allocation and memory operations. `alloc`/`alloc_zeroed`/`dealloc`/`realloc_buf` are safe by construction against a specific set of runtime allocator-misuse bugs (see [Allocation Safety](#allocation-safety) below). They hand out `?&heap T` references; `T` comes from the variable you assign to (use `void` for untyped bytes). A reference can't be indexed, so view a multi-element block through a [`Slice`](/stdlib/collections#slice) to read and write it with bounds checks.
+
+For typed arrays, `new T[n]` (heap) and `new<R> T[n]` (arena) are usually simpler — see [Memory & Regions](/reference/memory#arrays-by-region).
 
 ```c
 #include <std/mem.h>
@@ -11,34 +13,34 @@ The `mem` module wraps heap allocation and memory operations. `alloc`/`alloc_zer
 ### alloc
 
 ```c
-void* alloc(unsigned long size);
+generic<T> ?&heap T alloc(unsigned long size);
 ```
 
-Allocate `size` bytes of uninitialized heap memory. Returns a pointer to the allocated block, or NULL on failure.
+Allocate `size` bytes of uninitialized heap memory. Returns a reference to the block, or `null` on failure.
 
 ### alloc_zeroed
 
 ```c
-void* alloc_zeroed(unsigned long size);
+generic<T> ?&heap T alloc_zeroed(unsigned long size);
 ```
 
-Allocate `size` bytes of zero-initialized heap memory. Returns a pointer to the allocated block, or NULL on failure.
+Allocate `size` bytes of zero-initialized heap memory. Returns a reference to the block, or `null` on failure.
 
 ### dealloc
 
 ```c
-void dealloc(void* ptr);
+generic<T> void dealloc(?&heap T ptr);
 ```
 
-Free a previously allocated block. Passing NULL is a no-op. Calling this twice on the same pointer, or on a pointer `alloc`/`alloc_zeroed` never returned, aborts with a diagnostic instead of corrupting the heap — see [Allocation Safety](#allocation-safety).
+Free a previously allocated block. Passing `null` is a no-op. Calling this twice on the same pointer, or on a pointer `alloc`/`alloc_zeroed` never returned, aborts with a diagnostic instead of corrupting the heap — see [Allocation Safety](#allocation-safety).
 
 ### realloc_buf
 
 ```c
-void* realloc_buf(void* ptr, unsigned long new_size);
+generic<T> ?&heap T realloc_buf(?&heap T ptr, unsigned long new_size);
 ```
 
-Resize a previously allocated block to `new_size` bytes. The contents are preserved up to the minimum of the old and new sizes. Returns the (possibly moved) pointer, or NULL on failure (the old block is *not* freed on failure). `ptr == NULL` behaves like `alloc(new_size)`.
+Resize a previously allocated block to `new_size` bytes. The contents are preserved up to the minimum of the old and new sizes. Returns the (possibly moved) block, or `null` on failure (the old block is *not* freed on failure). A `null` `ptr` behaves like `alloc(new_size)`.
 
 ### checked_mul_size
 
@@ -89,7 +91,7 @@ Each block still carries the 16-byte header, which matters most for very small o
 ### safe_memcpy
 
 ```c
-void safe_memcpy(void* dst, const void* src, unsigned long n);
+generic<T> void safe_memcpy(&T dst, const &T src, unsigned long n);
 ```
 
 Copy `n` bytes from `src` to `dst`. The source and destination regions **must not overlap**. Use `safe_memmove` for overlapping regions.
@@ -97,7 +99,7 @@ Copy `n` bytes from `src` to `dst`. The source and destination regions **must no
 ### safe_memmove
 
 ```c
-void safe_memmove(void* dst, const void* src, unsigned long n);
+generic<T> void safe_memmove(&T dst, const &T src, unsigned long n);
 ```
 
 Copy `n` bytes from `src` to `dst`. Safe for overlapping regions.
@@ -105,7 +107,7 @@ Copy `n` bytes from `src` to `dst`. Safe for overlapping regions.
 ### safe_memset
 
 ```c
-void safe_memset(void* ptr, int val, unsigned long n);
+generic<T> void safe_memset(&T ptr, int val, unsigned long n);
 ```
 
 Set `n` bytes starting at `ptr` to the value `val` (interpreted as `unsigned char`).
@@ -113,7 +115,7 @@ Set `n` bytes starting at `ptr` to the value `val` (interpreted as `unsigned cha
 ### safe_memcmp
 
 ```c
-int safe_memcmp(const void* a, const void* b, unsigned long n);
+generic<T> int safe_memcmp(const &T a, const &T b, unsigned long n);
 ```
 
 Compare `n` bytes of memory at `a` and `b`. Returns:
@@ -129,52 +131,54 @@ Compare `n` bytes of memory at `a` and `b`. Returns:
 unsigned long mem_align_up(unsigned long addr, unsigned long align);   // align is a power of two
 unsigned long mem_align_down(unsigned long addr, unsigned long align);
 int           mem_is_aligned(unsigned long addr, unsigned long align);
-void*         mem_align_ptr(void* ptr, unsigned long align);            // null if it can't be aligned
+generic<T> ?&T mem_align_ptr(&T ptr, unsigned long align);             // null if it can't be aligned
 int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if [addr, addr+size) stays in one 4 KiB page
 
 // locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
-void          mem_prefetch(const void* addr, int write, int locality);
-void          mem_clflush(const void* addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
-void          mem_zero_secure(void* ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
+generic<T> void mem_prefetch(const &T addr, int write, int locality);
+generic<T> void mem_clflush(const &T addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
+generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
 ```
 
-These take addresses as `unsigned long` or `void*` because they work on raw memory, like the `safe_mem*` functions above.
+The address arithmetic helpers take plain `unsigned long` addresses; the rest take a reference to the first byte of the region, like the `safe_mem*` functions above.
 
 ## Example
 
 ```c
 #include <std/mem.h>
+#include <std/collections/slice.h>
 #include <std/io.h>
 
 int main() {
-    // Allocate a buffer for 10 ints
-    int* buf;
-    unsafe { buf = (int*)alloc(10UL * sizeof(int)); }
-    unsafe { safe_memset((void*)buf, 0, 10UL * sizeof(int)); }
+    // A buffer for 10 ints, zeroed
+    ?&heap int maybe = std::alloc(10UL * sizeof(int));
+    match (maybe) {
+        case null:     { return 1; }               // out of memory
+        case some(buf): {
+            std::safe_memset(buf, 0, 10UL * sizeof(int));
+            struct Slice<int> s = std::slice_of(buf, 10UL);   // bounds-checked view
+            s.set(0UL, 42);
+            s.set(1UL, 99);
 
-    unsafe {
-        buf[0] = 42;
-        buf[1] = 99;
+            // Duplicate into a second buffer
+            ?&heap int copy = std::alloc(10UL * sizeof(int));
+            match (copy) {
+                case some(c): {
+                    std::safe_memcpy(c, buf, 10UL * sizeof(int));
+                    std::println_int(*std::slice_of(c, 10UL).at(0UL));   // 42
+                }
+                case null: { }
+            }
+            std::dealloc(copy);
+        }
     }
-
-    // Duplicate into a new buffer
-    int* copy;
-    unsafe { copy = (int*)alloc(10UL * sizeof(int)); }
-    unsafe { safe_memcpy((void*)copy, (const void*)buf, 10UL * sizeof(int)); }
-
-    unsafe { print_int((long long)copy[0]); }  // 42
-    println("");
-
-    unsafe {
-        dealloc((void*)buf);
-        dealloc((void*)copy);
-    }
+    std::dealloc(maybe);
     return 0;
 }
 ```
 
 ::: tip
-`alloc`/`dealloc`/`safe_memcpy`/`safe_memset` all take/return raw pointers (`void*`/`int*`), and reading or writing through a raw pointer always requires an `unsafe {}` block in SafeC — that's not specific to this module. See [Safety Model](/advanced/safety-model) for what `unsafe` does and doesn't opt out of.
+Every function here takes and returns references, so none of this needs `unsafe`. Indexing goes through a `Slice` because references carry no length; see [Safety Model](/advanced/safety-model) for what `unsafe` does and doesn't opt out of.
 :::
 
 ### Double-free is caught, not silent
@@ -184,11 +188,12 @@ int main() {
 #include <std/io.h>
 
 int main() {
-    void* p;
-    unsafe { p = alloc(64UL); }
-    unsafe { dealloc(p); }
-    println("first dealloc OK");
-    unsafe { dealloc(p); }   // aborts: "dealloc() called twice on the same pointer"
+    ?&heap void p = std::alloc(64UL);
+    std::dealloc(p);
+    std::println("first dealloc OK");
+    // The compiler rejects a second dealloc of p; unsafe opts out of that
+    // check, so the runtime one fires instead.
+    unsafe { std::dealloc(p); }   // aborts: "dealloc() called twice on the same pointer"
     println("never reached");
     return 0;
 }

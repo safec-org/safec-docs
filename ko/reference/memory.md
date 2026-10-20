@@ -71,9 +71,9 @@ static int counter = 0;
 
 ```c
 void example() {
-    &heap int p = (int*)malloc(sizeof(int));
+    &heap int p = new int;
     *p = 42;
-    free(p);
+    std::dealloc(p);
 }
 ```
 
@@ -81,8 +81,8 @@ void example() {
 
 ```c
 void process() {
-    &heap char buf = (char*)malloc(4096UL);
-    defer free(buf);
+    &heap char buf = new char[4096];
+    defer std::dealloc(buf);
 
     // ... buf 사용 ...
 }   // buf는 여기서 defer를 통해 해제됨
@@ -186,7 +186,7 @@ region AudioPool {
 &arena<AudioPool> Sample s = new<AudioPool> Sample;
 ```
 
-`new<R> T` 표현식은 아레나로부터 범프 포인터(bump-pointer) 할당을 수행합니다. 오프셋 증가일 뿐이므로 빠르며, 용량이 남아있는 한 절대 실패하지 않습니다.
+`new<R> T` 표현식은 아레나로부터 범프 포인터(bump-pointer) 할당을 수행합니다. 오프셋 증가와 용량 검사뿐이므로 빠릅니다. 리전의 남은 용량에 맞지 않는 할당은 경계를 벗어난 인덱스와 마찬가지로 프로그램을 중단시킵니다 — 아레나 끝을 넘어선 메모리를 절대 내주지 않습니다.
 
 ### 아레나 리셋 {#resetting-an-arena}
 
@@ -304,7 +304,85 @@ LLVM 레벨에서 각 아레나는 전역 구조체 `{ptr, i64 used, i64 cap}`�
 - `used` -- 현재 범프 오프셋
 - `cap` -- 총 용량(바이트)
 
-`new<R> T`는 `used`를 `sizeof(T)`만큼 증가시키고 `ptr + old_used`를 반환합니다. `arena_reset<R>()`은 `used`를 다시 0으로 설정합니다.
+`new<R> T`(또는 `new<R> T[n]`)는 `sizeof(T)`(곱하기 `n`)가 `cap - used`에 들어가는지 검사해 들어가지 않으면 중단하고, 들어가면 `used`를 증가시키고 `ptr + old_used`를 반환합니다. `arena_reset<R>()`은 `used`를 다시 0으로 설정합니다.
+
+## 리전별 배열 {#arrays-by-region}
+
+배열의 크기를 언제 정할 수 있는지는 배열이 어디에 사느냐에 달려 있습니다:
+
+| 리전 | 선언 | 크기 |
+|--------|-------------|------|
+| 스택 | `int buf[8];` | 컴파일 타임 상수 (런타임 크기는 `unsafe` 안에서만 허용) |
+| 정적 | `static int table[16];` | 컴파일 타임 상수 |
+| 힙 | `&heap int h = new int[n];` | 임의의 런타임 `n`; `std::dealloc(h)`로 해제 |
+| 아레나 | `&arena<R> int a = new<R> int[n];` | 임의의 런타임 `n`이지만 `R`의 남은 용량에 들어가야 함 — 그렇지 않으면 프로그램이 중단됨 |
+
+`new`는 첫 원소에 대한 참조를 반환합니다. 참조에는 길이가 없고 인덱싱할 수 없으므로, 배열은 경계 검사가 있는 [`Slice<T>`](/ko/stdlib/collections#slice)(`std::slice_of(first, n)`)나 `[]T` 슬라이스로 넘기고 순회하십시오. 참조의 배열도 마찬가지입니다 — 스택에서는 `&T items[N]`, 함수 경계를 넘을 때는 `Slice<&T>` — 이것이 C의 `T**` "포인터 배열"을 대신합니다:
+
+```c
+#include <std/collections/slice.h>
+struct Sample { int v; };
+region Frame { capacity: 4096 }
+
+static int g_table[16];                      // static: size fixed at compile time
+
+void fill(struct Slice<int> s, int v) {
+    for (unsigned long i = 0UL; i < s.length(); i = i + 1UL) s.set(i, v);
+}
+
+int arrays(unsigned long n) {
+    int local[8];                            // stack: size fixed at compile time
+    // int bad[n];                           // error: 'n' is not a compile-time constant
+    &heap int h = new int[n];                // heap: runtime size
+    &arena<Frame> int a = new<Frame> int[n]; // arena: runtime size, within Frame's 4096 bytes
+
+    fill(std::slice_of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
+    fill(std::slice_of(h, n), 2);
+    fill(std::slice_of(a, n), 3);
+    int t = local[7] + *std::slice_of(h, n).at(n - 1UL) + *std::slice_of(a, n).at(0UL) + g_table[0];
+
+    std::dealloc(h);
+    arena_reset<Frame>();
+    return t;                                // 1 + 2 + 3 + 0
+}
+
+// Arrays of references follow the same rules.
+int count_live(struct Slice<&Sample> items) { return (int)items.length(); }
+
+int main() {
+    struct Sample a; a.v = 1;
+    struct Sample b; b.v = 2;
+    &Sample fixed[2] = { &a, &b };           // stack array of references
+    int c = count_live(std::slice_of(&fixed[0], 2UL));
+    return arrays(4UL) == 6 && c == 2 ? 0 : 1;
+}
+```
+
+## 참조에 대한 참조 {#references-to-references}
+
+참조는 다른 참조를 가리킬 수 있습니다 — C의 `T**`를 대신합니다. 각 단계가 무엇을 가질 수 있는지에 따라 형태를 고르십시오:
+
+| 타입 | 바깥 | 안쪽 | 대표적인 용도 |
+|------|-------|-------|-------------|
+| `&&T` | 항상 있음 | 항상 있음 | 항상 참조를 받는 출력 매개변수 |
+| `&?&T` | 항상 있음 | null일 수 있음 | 결과가 "없음"일 수 있는 출력 매개변수 (토크나이저 위치, 조회) |
+| `?&&T` | 선택적 | 항상 있음 | 선택적 출력 매개변수 (`strtol`의 `end`) |
+| `?&?&T` | 선택적 | null일 수 있음 | 결과가 "없음"일 수 있는 선택적 출력 매개변수 |
+
+```c
+static int g_value = 7;
+
+void always(&&int out)      { *out = &g_value; }   // writes a non-null reference
+void maybe(&?&int out)      { *out = null; }       // may write null
+void optional(?&&int out) {
+    match (out) {
+        case some(o): { *o = &g_value; }
+        case null:    { }                          // caller didn't ask
+    }
+}
+```
+
+`&&T`와 `& &T`는 같은 의미입니다. 참조의 배열은 참조에 대한 참조가 아닙니다 — 위처럼 배열이나 `Slice<&T>`로 감싸십시오.
 
 ## 리전 규칙 {#region-rules}
 

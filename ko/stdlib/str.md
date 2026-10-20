@@ -81,7 +81,7 @@ void str_ncat(&char dst, const &char src, unsigned long n);
 ### str_find {#str_find}
 
 ```c
-const char* str_find(const &char haystack, const &char needle);
+const ?&char str_find(const &char haystack, const &char needle);
 ```
 
 `haystack`에서 `needle`이 처음 나타나는 위치를 찾는다. 일치하는
@@ -90,7 +90,7 @@ const char* str_find(const &char haystack, const &char needle);
 ### str_find_char {#str_find_char}
 
 ```c
-const char* str_find_char(const &char s, int c);
+const ?&char str_find_char(const &char s, int c);
 ```
 
 `s`에서 문자 `c`가 처음 나타나는 위치를 찾는다. 포인터 또는 NULL을
@@ -99,7 +99,7 @@ const char* str_find_char(const &char s, int c);
 ### str_rfind_char {#str_rfind_char}
 
 ```c
-const char* str_rfind_char(const &char s, int c);
+const ?&char str_rfind_char(const &char s, int c);
 ```
 
 `s`에서 문자 `c`가 마지막으로 나타나는 위치를 찾는다. 포인터 또는
@@ -108,7 +108,7 @@ NULL을 반환한다.
 ### str_find_any {#str_find_any}
 
 ```c
-const char* str_find_any(const &char s, const &char accept);
+const ?&char str_find_any(const &char s, const &char accept);
 ```
 
 `s`에서 `accept`에도 속하는 첫 번째 문자를 찾는다. 포인터 또는 NULL을
@@ -139,15 +139,15 @@ unsigned long str_cspan(const &char s, const &char reject);
 ### str_tok {#str_tok}
 
 ```c
-char* str_tok(?&char s, const &char delim, char** saveptr);
+?&char str_tok(?&char s, const &char delim, &?&char saveptr);
 ```
 
 재진입 가능한 토크나이저(`strtok_r`/`strtok_s`를 감쌈).
 
-- **첫 호출:** `s`에 문자열을 전달하고, `saveptr`에는 `char*` 변수의
-  주소를 전달한다(`strtok_r`로 그대로 넘어가므로 C의 `char**`를 유지한다).
+- **첫 호출:** `s`에 문자열을 전달하고, `saveptr`에는 `?&char` 변수의
+  주소를 전달한다(토크나이저가 위치를 기억하는 곳).
 - **이후 호출:** `s`에 `null`을 전달한다.
-- 다음 토큰에 대한 포인터를 반환하거나, 모두 소진되면 NULL을 반환한다.
+- 다음 토큰에 대한 참조를 반환하거나, 모두 소진되면 `null`을 반환한다.
 - 입력 문자열은 실제로 수정된다(구분자 위치에 NUL 종료 문자가 기록됨).
 
 ## 메모리 검색 {#memory-search}
@@ -155,7 +155,7 @@ char* str_tok(?&char s, const &char delim, char** saveptr);
 ### mem_chr {#mem_chr}
 
 ```c
-void* mem_chr(const void* s, int c, unsigned long n);
+const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ```
 
 `s`가 가리키는 `n`바이트 블록 안에서 바이트 `c`가 처음 나타나는
@@ -166,7 +166,7 @@ void* mem_chr(const void* s, int c, unsigned long n);
 ### str_dup {#str_dup}
 
 ```c
-char* str_dup(const &char s);
+?&heap char str_dup(const &char s);
 ```
 
 `s`의 힙에 할당된 NUL로 끝나는 복사본을 반환한다. 호출자는 이를
@@ -175,7 +175,7 @@ char* str_dup(const &char s);
 ### str_ndup {#str_ndup}
 
 ```c
-char* str_ndup(const &char s, unsigned long n);
+?&heap char str_ndup(const &char s, unsigned long n);
 ```
 
 `s`의 처음 `n`바이트에 대한 힙에 할당된 복사본을 NUL로 종료하여
@@ -189,32 +189,34 @@ char* str_ndup(const &char s, unsigned long n);
 #include <std/mem.h>
 
 int main() {
-    const char* greeting = "Hello, SafeC!";
+    const &char greeting = "Hello, SafeC!";
 
-    // 길이
+    // Length
     unsigned long len = str_len(greeting);
     print("Length: ");
     println_int(len);   // 13
 
-    // 검색
-    const char* pos = str_find(greeting, "SafeC");
-    if (pos != 0) {
-        print("Found at offset: ");
-        unsafe { println_int(pos - greeting); }  // 7 (포인터 차이: unsafe)
+    // Search
+    match (str_find(greeting, "SafeC")) {
+        case some(pos): { println(pos); }       // SafeC!
+        case null:      { println("not found"); }
     }
 
-    // 복제
-    char* copy = str_dup(greeting);
-    println(copy);
+    // Duplication
+    ?&heap char copy = str_dup(greeting);
+    match (copy) {
+        case some(c): { println(c); }
+        case null:    { }
+    }
     dealloc(copy);
 
-    // 토큰화
+    // Tokenisation
     char buf[64];
     str_copy(buf, "one,two,three", 64);
-    char* save;
-    char* tok = str_tok(buf, ",", &save);
-    while (tok != 0) {
-        println(tok);
+    ?&char save = null;
+    ?&char tok = str_tok(buf, ",", &save);
+    while (!tok.is_null()) {
+        match (tok) { case some(t): { println(t); } case null: { } }
         tok = str_tok(null, ",", &save);
     }
 

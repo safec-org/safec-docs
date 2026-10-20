@@ -75,7 +75,7 @@ int main() {
 #include <std/dsp/dsp.h>
 ```
 
-Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed*` arrays with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
+Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed` arrays (passed as `&Fixed` to the first element) with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
 
 ```c
 Fixed dsp_dot(&stack Fixed a, &stack Fixed b, unsigned long n);           // sum of a[i]*b[i]
@@ -256,9 +256,9 @@ IIR ("feedback"):     y[n] = sum b[k]*x[n-k] - sum_{k=1}^{N-1} a[k]*y[n-k]   (a[
 
 ```c
 struct FirFilter {
-    const double* coeffs;   // b[0..numTaps-1], caller-owned
+    const &double coeffs;   // b[0..numTaps-1], caller-owned
     unsigned long numTaps;
-    double*       history;  // caller-provided ring buffer, numTaps elements
+    &double       history;  // caller-provided ring buffer, numTaps elements
     unsigned long pos;
 
     double process(double x);
@@ -268,9 +268,9 @@ struct FirFilter fir_init(const &double coeffs, unsigned long numTaps, &double h
 void fir_process_block(&FirFilter f, const &double in, &double out, unsigned long n);
 
 struct IirFilter {           // general-order, direct form I
-    const double* b; unsigned long numB;   // feedforward
-    const double* a; unsigned long numA;   // feedback, a[0] assumed 1
-    double* xHistory; double* yHistory;
+    const &double b; unsigned long numB;   // feedforward
+    const &double a; unsigned long numA;   // feedback, a[0] assumed 1
+    &double xHistory; &double yHistory;
     unsigned long xPos; unsigned long yPos;
 
     double process(double x);
@@ -282,7 +282,7 @@ struct IirFilter iir_init(const &double b, unsigned long numB,
 void iir_process_block(&IirFilter f, const &double in, &double out, unsigned long n);
 ```
 
-`struct FFirFilter`/`ffir_init`/`ffir_process_block` and `struct FIirFilter`/`fiir_init`/`fiir_process_block` are the Q8.24 counterparts, same shape with `Fixed*` in place of `double*`.
+`struct FFirFilter`/`ffir_init`/`ffir_process_block` and `struct FIirFilter`/`fiir_init`/`fiir_process_block` are the Q8.24 counterparts, same shape with `&Fixed` in place of `&double`.
 
 ### Example — 3-tap moving average
 
@@ -498,12 +498,12 @@ double ztransform_response_phase(const &double b, const &double a, unsigned long
 
 ```c
 struct CombFF {
-    double* history; unsigned long delay; unsigned long pos; double gain;
+    &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
 };
 struct CombFB {
-    double* history; unsigned long delay; unsigned long pos; double gain;
+    &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
 };
@@ -515,7 +515,7 @@ struct CombFB comb_fb_init(&double history, unsigned long delay, double gain);
 
 ```c
 struct KarplusStrong {
-    double* buffer;         // ring buffer; also the delay line and the pitch period
+    &double buffer;         // ring buffer; also the delay line and the pitch period
     unsigned long length; unsigned long pos;
     double damping;         // 0..1, closer to 1 = slower decay (typical 0.99-0.999)
 

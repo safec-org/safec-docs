@@ -230,23 +230,24 @@ static double circle_area(&Circle c) { return 3.14159265 * c.radius * c.radius; 
 static double square_area(&Square s) { return s.side * s.side; }
 
 struct Shape {
-    void* obj;    // erased; only ever written by make_shape
-    void* area;   // fn double(&T), same T as obj
+    ?&void obj;                 // erased; only ever written by make_shape
+    fn double(&void) area;      // really fn double(&T), same T as obj
     double eval_area();
 };
 
 generic<T>
 struct Shape make_shape(&T obj, fn double(&T) area) {
     struct Shape sh;
-    unsafe { sh.obj = (void*)obj; sh.area = (void*)area; }
+    unsafe { sh.obj = (?&void)obj; sh.area = (fn double(&void))area; }   // the one erasure, here only
     return sh;
 }
 
 double Shape::eval_area() {
-    unsafe {
-        fn double(void*) f = (fn double(void*))self.area;   // the one cast, here only
-        return f(self.obj);
+    match (self.obj) {
+        case some(o): return self.area(o);
+        case null:    return 0.0;
     }
+    return 0.0;
 }
 
 static struct Circle g_c;

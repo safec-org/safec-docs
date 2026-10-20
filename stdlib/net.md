@@ -509,7 +509,7 @@ int main() {
     struct PacketBuf pkt;
     unsigned long offset = std::udp_frame(&pkt, iface.mac, dst_mac,
                                           src_ip, dst_ip, 1234, 5678, 5);
-    const char* payload = "hello";
+    const &char payload = "hello";
     unsigned long i = 0UL;
     while (i < 5UL) {
         match (pkt.at(offset + i)) {

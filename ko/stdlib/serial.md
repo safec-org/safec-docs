@@ -21,33 +21,33 @@
 #define VAL_OBJECT 6
 
 struct Value {
-    int kind;   // 위의 VAL_* 상수 중 하나
+    int kind;   // one of the VAL_* constants above
 
     int kind_of() const;
     int is_null() const;
     int as_bool() const;
     long long as_int() const;
     double as_float() const;
-    const char* as_string() const;
+    const &char as_string() const;
 
-    // Array/Object 요소 접근 -- 읽기 전용 뷰 (반환되는 참조는 이 Value가
-    // 소유한 저장소를 가리키므로 별도로 해제하지 마세요). 'array_at'은
-    // 'idx'가 범위 내에 있다고 신뢰합니다 (array_len() 참고); 'object_get'은
-    // 유일하게 널이 될 수 있는 조회입니다 -- 'key'에 해당하는 항목이 없는
-    // 것은 실제로 예상되는 결과이지, 호출자의 실수가 아닙니다.
+    // Array/Object element access -- read-only views (the returned
+    // reference aliases storage owned by this Value, don't free it
+    // separately). 'array_at' trusts 'idx' is in range (see array_len());
+    // 'object_get' is the one nullable lookup -- no entry for 'key' is a
+    // real, expected outcome, not a caller error.
     unsigned long   array_len() const;
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
-    ?&Value         object_get(const &char key) const;   // 키가 없으면 empty(null)
+    ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
 }
 
 struct Value value_null();
 struct Value value_bool(int v);
 struct Value value_int(long long v);
 struct Value value_float(double v);
-struct Value value_string(const &char s);   // s를 복사함
-struct Value value_array();                 // 비어 있음; value_array_push로 확장
-struct Value value_object();                // 비어 있음; value_object_set으로 확장
+struct Value value_string(const &char s);   // copies s
+struct Value value_array();                 // empty; grow with value_array_push
+struct Value value_object();                // empty; grow with value_object_set
 
 void value_array_push(&Value arr, struct Value v);
 void value_object_set(&Value obj, const &char key, struct Value v);
@@ -354,7 +354,7 @@ void pb_write_bytes_field(&String out, int field_num, const &unsigned char data,
 
 // Reader: a zero-copy cursor over an existing buffer.
 struct PbReader {
-    const unsigned char* data;
+    const &unsigned char data;
     unsigned long        len;
     unsigned long        pos;
 };
@@ -372,11 +372,11 @@ int pb_read_bool(&PbReader r, &int out);
 int pb_read_double(&PbReader r, &double out);
 int pb_read_float(&PbReader r, &float out);
 // *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
-int pb_read_length_delimited(&PbReader r, const unsigned char** dataOut, &unsigned long lenOut);
+int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsigned long lenOut);
 int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
 ```
 
-`pb_read_length_delimited`는 리더 자신의 버퍼 안을 가리키는 포인터를 돌려주므로 C 스타일의 `const unsigned char**` 출력 매개변수를 유지합니다.
+`pb_read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사하세요.
 
 ```c
 #include <std/serial/protobuf.h>
@@ -393,7 +393,7 @@ int main() {
     p.x = 0; p.y = 0;
     struct PbReader r;
     // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::pb_reader_new((const unsigned char*)buf.as_ptr(), buf.length()); }
+    unsafe { r = std::pb_reader_new((const &unsigned char)buf.as_ptr(), buf.length()); }
     while (std::pb_reader_has_more(&r)) {
         int field = 0; int wire = 0;
         if (!std::pb_read_tag(&r, &field, &wire)) break;

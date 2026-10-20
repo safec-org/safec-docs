@@ -36,7 +36,8 @@ a reference of any region) converts to these implicitly, with no
 CPU tensors (1D/2D, `float` — float32, like PyTorch's default and the
 only precision Metal supports) with reverse-mode autograd — PyTorch-style
 ergonomics: build a computation graph implicitly by calling ops on
-`requiresGrad` tensors, then call `tensor_backward()`.
+`requiresGrad` tensors, then call `tensor_backward()`. For fp16/bf16 storage
+and mixed-precision training, see [Half-precision tensors](#half-precision-tensors).
 
 ```c
 &Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
@@ -211,8 +212,8 @@ DeltaNet.
 &Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
                     const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
 &Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                       struct Tensor** WukGroups, struct Tensor** WuvGroups,   // numGroups each
-                       unsigned long numGroups, unsigned long headsPerGroup);
+                       struct Slice<&Tensor> WukGroups, struct Slice<&Tensor> WuvGroups,  // one per group
+                       unsigned long headsPerGroup);
 &Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
                                    unsigned long windowSize, unsigned long shift);
 
@@ -223,7 +224,7 @@ struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyD
 void    gated_deltanet_free(&GatedDeltaNet layer);
 ```
 
-`eg_mla_forward` takes its per-group weight tables as arrays of tensor pointers.
+`eg_mla_forward` takes the per-group up-projections as [`Slice`](/stdlib/collections#slice)s of tensor references — bounds-checked arrays whose length is the group count. Back them with a fixed-size stack or static array (`&Tensor groups[4]`) or, for a count known only at run time, a heap or arena allocation.
 
 ## RNN family
 
@@ -249,10 +250,10 @@ struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
 void            gru_cell_free(&GRUCell cell);
 
 struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
-// Returns h_t; the new cell state is written to *c_out.
+// Returns h_t; the new cell state is written through c_out.
 &Tensor         lstm_cell_forward(const &LSTMCell cell, const &Tensor x_t,
                                   const &Tensor h_prev, const &Tensor c_prev,
-                                  struct Tensor** c_out);
+                                  &&Tensor c_out);
 void            lstm_cell_free(&LSTMCell cell);
 
 struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
@@ -357,17 +358,18 @@ void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
 // Order-2 solvers call your model again at the midpoint.
-typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) EpsModelFn;
-typedef fn struct Tensor*(struct Tensor* x, float sigma, void* userData) DataModelFn;
-&Tensor dpm_solver_2_step(EpsModelFn model, void* userData,
+// model(x, sigma, userData) -> predicted noise (eps) or clean sample (x0).
+generic<T>
+&Tensor dpm_solver_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
                           const &Tensor x_cur, const &Tensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-&Tensor dpm_solver_pp_2_step(DataModelFn model, void* userData,
+generic<T>
+&Tensor dpm_solver_pp_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
                              const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
-The model callbacks keep the exact pointer types `EpsModelFn`/`DataModelFn` declare, so write your model function with those parameter types.
+`userData` is your model's own state (its weights, say); its type is checked against the callback at compile time.
 
 ## Transformer (DiT / JiT)
 
@@ -396,7 +398,7 @@ struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsig
 void    jit_block_free(&JiTBlock block);
 // Patch embedding + conditioning, then numBlocks blocks.
 &Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                    &JiTBlock blocks, unsigned long numBlocks);
+                    struct Slice<JiTBlock> blocks);
 ```
 
 ## GPU backends
@@ -506,27 +508,27 @@ int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-Host arrays are passed as references to their first element; device buffers below are opaque `void*` handles, the GPU's own foreign interface.
+Host arrays are passed as references to their first element; device buffers below are opaque `&void` handles, since their memory belongs to the GPU driver.
 
 **Persistent buffers** keep weights on the device across calls, so a training loop doesn't re-upload them:
 
 ```c
-void* <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void  <p>_release_persistent(void* buf);                               // MPS: (void* buf, unsigned long bytes)
+?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
+void   <p>_release_persistent(&void buf);                               // MPS: (&void buf, unsigned long bytes)
 int   <p>_persistent_available();                                      // cuda, spirv, webgpu
-int   <p>_matmul_f32_persistent(void* bufA, void* bufB, &float out,
+int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
                                 unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
-int   cuda_sgd_update_f32(void* devW, void* devGrad, float lr, unsigned long n);    // in place
-int   webgpu_sgd_update_f32(void* bufW, void* bufGrad, float lr, unsigned long n);
+int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
+int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
 ```
 
 **Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below).
 
 ```c
-void* mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
-int   mps_matmul_f16_persistent(void* bufA, void* bufB, &unsigned short out,
+?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
+int    mps_matmul_f16_persistent(&void bufA, &void bufB, &unsigned short out,
                                 unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
-int   cuda_sgd_update_f16(void* devW, void* devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
 int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
@@ -538,9 +540,8 @@ int   mps_relu_f16(const &float a, &float out, unsigned long n);           // al
 void  mps_batch_begin();
 void  mps_batch_end();                      // commit, wait, run finalizers
 int   mps_batch_is_active();
-typedef fn void(void* ctx) MpsFinalizeFn;
-void  mps_batch_register_finalize(MpsFinalizeFn finalizeFn, void* ctx);  // runs after mps_batch_end's wait
-void* mps_batch_last_output_buffer();
+generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  // runs after mps_batch_end's wait
+?&void mps_batch_last_output_buffer();
 
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
@@ -599,7 +600,7 @@ SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (gls
 
 ## fp16 / bf16 {#fp16-bf16}
 
-No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float` — and real native `half`/`bfloat` GPU compute on the MPS backend, not just halved storage.
+No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), and native `half`/`bfloat` GPU compute on MPS, CUDA and WebGPU (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)).
 
 | Check | Result |
 |---|---|
@@ -621,6 +622,136 @@ void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+```
+
+### Half-precision tensors — `tensor_half.h` {#half-precision-tensors}
+
+```c
+#include <std/ml/tensor_half.h>
+```
+
+Two layers:
+
+- **`HalfTensor`** stores a 1D/2D tensor in fp16 or bf16 — half the memory of a float32 `Tensor`. Its ops widen operands to float32, compute, and round the result back to the storage format, the same arithmetic a GPU half path performs; `half_matmul` accumulates each dot product in float32 and rounds once, like tensor cores. No autograd on this layer.
+- **Mixed precision on float32 `Tensor`s, with autograd.** `tensor_cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
+
+```c
+#define TENSOR_FP16 1
+#define TENSOR_BF16 2
+
+struct HalfTensor {
+    &heap unsigned short data;     // fp16 or bf16 bits, row-major
+    unsigned long        shape[2];
+    unsigned long        ndim;     // 1 or 2
+    unsigned long        size;
+    int                  dtype;    // TENSOR_FP16 or TENSOR_BF16
+
+    float at1(unsigned long i) const;                   // widened to float32
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);               // rounded to dtype
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+};
+
+float          half_round(float v, int dtype);          // nearest dtype value, as float32
+unsigned short half_encode(float v, int dtype);
+float          half_decode(unsigned short bits, int dtype);
+
+struct HalfTensor half_tensor_new_1d(unsigned long n, int dtype);           // zero-filled
+struct HalfTensor half_tensor_new_2d(unsigned long rows, unsigned long cols, int dtype);
+struct HalfTensor tensor_to_half(const &Tensor t, int dtype);                // round to nearest even
+&Tensor           half_to_tensor(const &HalfTensor h, int requiresGrad);     // exact
+
+// Shapes and dtypes must match; otherwise the result is empty (size 0).
+struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
+struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
+struct HalfTensor half_scale(const &HalfTensor a, float k);
+struct HalfTensor half_relu(const &HalfTensor a);
+struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
+float             half_sum(const &HalfTensor a);                            // float32 accumulate
+
+&Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
+&Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
+
+struct LossScaler {
+    float scale;            // multiply the loss by this before tensor_backward()
+    float growthFactor;     // 2.0
+    float backoffFactor;    // 0.5
+    int   growthInterval;   // 2000 clean steps
+    int   goodSteps;
+};
+struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
+int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
+```
+
+A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
+
+Storage and arithmetic in bf16:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/io.h>
+
+int main() {
+    // Store weights in bf16 (half the memory), compute a matmul in bf16.
+    struct HalfTensor w = std::half_tensor_new_2d(2UL, 2UL, TENSOR_BF16);
+    struct HalfTensor x = std::half_tensor_new_2d(2UL, 1UL, TENSOR_BF16);
+    w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
+    w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
+    x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
+    struct HalfTensor y = std::half_matmul(&w, &x);      // f32 accumulate, bf16 result
+    std::println_float((double)y.at1(0UL));             // -2.5
+    std::println_float((double)y.at1(1UL));             // 7
+
+    // Back to float32 for anything that needs autograd.
+    &Tensor yf = std::half_to_tensor(&y, 0);
+    yf.free();
+    y.free(); x.free(); w.free();
+    return 0;
+}
+```
+
+Mixed-precision training — fp16 forward, float32 master weights, skipped steps on overflow:
+
+```c
+#include <std/ml/tensor_half.h>
+#include <std/collections/slice.h>
+
+// One mixed-precision SGD step: fp16 forward, float32 master weights,
+// dynamic loss scaling so small fp16 gradients don't flush to zero.
+int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
+    &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
+    &Tensor diff = std::tensor_sub(y, target);
+    &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
+    std::tensor_backward(std::tensor_scale(loss, scaler.scale));
+
+    int finite = std::loss_scaler_unscale(scaler, w);
+    if (finite) {
+        struct Slice<float> g = std::slice_of(w.grad, w.size);
+        for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
+            w.set1(i, w.at1(i) - lr * *g.at(i));
+        }
+    }
+    std::loss_scaler_update(scaler, finite);
+    std::tensor_zero_grad(w);
+    return finite;
+}
+
+int main() {
+    float wv[2] = { 0.1f, 0.2f };
+    float xv[2] = { 1.0f, 2.0f };
+    float tv[1] = { 1.0f };
+    &Tensor w = std::tensor_from_2d(&wv[0], 2UL, 1UL, 1);
+    &Tensor x = std::tensor_from_2d(&xv[0], 1UL, 2UL, 0);
+    &Tensor t = std::tensor_from_2d(&tv[0], 1UL, 1UL, 0);
+    struct LossScaler scaler = std::loss_scaler_new();
+    int ok = 1;
+    for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
+    float pred = w.at1(0UL) + w.at1(1UL) * (float)2.0;
+    return (ok && pred > (float)0.95 && pred < (float)1.05) ? 0 : 1;
+}
 ```
 
 
@@ -649,7 +780,7 @@ enum Device {
 #include <std/ml/transformer_dispatch.h>
 &Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
 &Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                       &JiTBlock blocks, unsigned long numBlocks, enum Device device);
+                       struct Slice<JiTBlock> blocks, enum Device device);
 ```
 
 Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `tensor_sigmoid`/`tensor_relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.

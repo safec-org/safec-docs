@@ -98,7 +98,7 @@ int http_serve_reactor(unsigned short port, HttpHandler handler, int numThreads)
 // A complete "HTTP/1.1 <status> <reason>\r\n...\r\n\r\n<body>" response text.
 struct String http_build_response(int status, const &char content_type,
                                   const ?&unsigned char body, unsigned long body_len);
-const char* http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
+const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
 ```
 
 `ok`는 DNS, 연결, 파싱 실패 시 0이 됩니다. 필요 없으면 `null`을 넘기세요.
@@ -285,7 +285,7 @@ struct RpcResult {
     void free();
 };
 
-typedef fn struct RpcResult(const unsigned char* data, unsigned long len) RpcMethodHandler;
+typedef fn struct RpcResult(const &unsigned char data, unsigned long len) RpcMethodHandler;
 
 // Client. Transport failures and handler-reported failures both come back with ok = 0.
 struct RpcResult rpc_call(const &char host, unsigned short port, const &char path,
@@ -296,7 +296,7 @@ void rpc_register(const &char path, RpcMethodHandler handler);
 int  rpc_serve(unsigned short port);
 ```
 
-핸들러는 `ok = 0`과 `error_message`를 반환해 실패를 알리며, `rpc_serve`는 이를 HTTP 오류로 바꿉니다. 핸들러는 `const unsigned char*` 매개변수까지 `RpcMethodHandler`와 정확히 일치해야 합니다.
+핸들러는 `ok = 0`과 `error_message`를 반환해 실패를 알리며, `rpc_serve`는 이를 HTTP 오류로 바꿉니다.
 
 ## 서버 함수 {#server-functions}
 
@@ -307,7 +307,7 @@ int  rpc_serve(unsigned short port);
 "한 번 작성하고 어디서든 호출" 패턴(Dioxus/Leptos/Next.js 서버 액션)을 RPC 위의 JSON으로 제공합니다. 서버 측 함수를 정의해 등록하면 클라이언트가 이름으로 호출합니다. 인자와 결과는 [`Value`](/ko/stdlib/serial) 트리입니다. 모든 함수는 하나의 경로(`/fn/call`)를 공유하고 이름은 페이로드에 담깁니다.
 
 ```c
-typedef fn struct Value(const struct Value* args) ServerFn;
+typedef fn struct Value(const &Value args) ServerFn;
 
 void server_fn_register(const &char name, ServerFn handler);   // before serving; up to 64
 int  server_fn_serve(unsigned short port);
@@ -318,9 +318,9 @@ struct Value server_fn_call(const &char host, unsigned short port, const &char n
 
 ```c
 // Server
-struct Value add_fn(const struct Value* args) {
-    long long a = args->object_get("a")->as_int();
-    long long b = args->object_get("b")->as_int();
+struct Value add_fn(const &Value args) {
+    long long a = std::expect_ref(args.object_get("a"), "missing a").as_int();
+    long long b = std::expect_ref(args.object_get("b"), "missing b").as_int();
     return std::value_int(a + b);
 }
 std::server_fn_register("add", add_fn);

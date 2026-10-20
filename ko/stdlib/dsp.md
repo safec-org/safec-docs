@@ -75,7 +75,7 @@ int main() {
 #include <std/dsp/dsp.h>
 ```
 
-`std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed*` 배열 위에서 동작합니다.
+`std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed` 배열(첫 원소에 대한 `&Fixed`로 전달) 위에서 동작합니다.
 
 ```c
 Fixed dsp_dot(&stack Fixed a, &stack Fixed b, unsigned long n);           // a[i]*b[i]의 합
@@ -260,21 +260,21 @@ IIR ("피드백"):      y[n] = sum b[k]*x[n-k] - sum_{k=1}^{N-1} a[k]*y[n-k]   (
 
 ```c
 struct FirFilter {
-    const double* coeffs;   // b[0..numTaps-1], 호출자가 소유
+    const &double coeffs;   // b[0..numTaps-1], caller-owned
     unsigned long numTaps;
-    double*       history;  // 호출자가 제공하는 링 버퍼, numTaps개 원소
+    &double       history;  // caller-provided ring buffer, numTaps elements
     unsigned long pos;
 
     double process(double x);
-    void   reset();          // 이력을 0으로 초기화
+    void   reset();          // zeros the history
 };
 struct FirFilter fir_init(const &double coeffs, unsigned long numTaps, &double history);
 void fir_process_block(&FirFilter f, const &double in, &double out, unsigned long n);
 
-struct IirFilter {           // 임의 차수, direct form I
-    const double* b; unsigned long numB;   // 피드포워드
-    const double* a; unsigned long numA;   // 피드백, a[0]은 1로 가정
-    double* xHistory; double* yHistory;
+struct IirFilter {           // general-order, direct form I
+    const &double b; unsigned long numB;   // feedforward
+    const &double a; unsigned long numA;   // feedback, a[0] assumed 1
+    &double xHistory; &double yHistory;
     unsigned long xPos; unsigned long yPos;
 
     double process(double x);
@@ -286,7 +286,7 @@ struct IirFilter iir_init(const &double b, unsigned long numB,
 void iir_process_block(&IirFilter f, const &double in, &double out, unsigned long n);
 ```
 
-`struct FFirFilter`/`ffir_init`/`ffir_process_block`과 `struct FIirFilter`/`fiir_init`/`fiir_process_block`은 `double*` 대신 `Fixed*`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다.
+`struct FFirFilter`/`ffir_init`/`ffir_process_block`과 `struct FIirFilter`/`fiir_init`/`fiir_process_block`은 `&double` 대신 `&Fixed`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다.
 
 ### 예제 — 3탭 이동 평균 {#example-3-tap-moving-average}
 
@@ -502,12 +502,12 @@ double ztransform_response_phase(const &double b, const &double a, unsigned long
 
 ```c
 struct CombFF {
-    double* history; unsigned long delay; unsigned long pos; double gain;
+    &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
 };
 struct CombFB {
-    double* history; unsigned long delay; unsigned long pos; double gain;
+    &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
 };
@@ -519,12 +519,12 @@ struct CombFB comb_fb_init(&double history, unsigned long delay, double gain);
 
 ```c
 struct KarplusStrong {
-    double* buffer;         // 링 버퍼; 딜레이 라인이자 피치 주기 역할도 함
+    &double buffer;         // ring buffer; also the delay line and the pitch period
     unsigned long length; unsigned long pos;
-    double damping;         // 0..1, 1에 가까울수록 감쇠가 느림 (보통 0.99-0.999)
+    double damping;         // 0..1, closer to 1 = slower decay (typical 0.99-0.999)
 
-    double process();       // 입력 없음 -- 스스로 지속되는 발현음
-    void   reset(const &double excitation, unsigned long n);  // 새 발현음으로 시딩
+    double process();       // no input — self-sustaining pluck
+    void   reset(const &double excitation, unsigned long n);  // seed with a new pluck
 };
 struct KarplusStrong ks_init(&double buffer, unsigned long length, double damping);
 ```

@@ -195,11 +195,11 @@ void process_file(const &char path) {
     FILE *f = fopen(path, "r");
     defer fclose(f);
 
-    char *buf = (char*)malloc(4096);
+    ?&char buf = malloc(4096);             // C's void* -> ?&char
     defer free(buf);
 
-    // ... f와 buf 사용 ...
-}   // free(buf)가 먼저 실행되고, 그 다음 fclose(f)가 실행됨
+    // ... use f and buf ...
+}   // free(buf) runs first, then fclose(f)
 ```
 
 지연된 문장은 스코프가 정상 흐름, `return`, 또는 조기 종료 중 어떤 방식으로 종료되든 관계없이 실행됩니다.

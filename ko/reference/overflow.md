@@ -159,7 +159,7 @@ if (overflowed) {
 #include <mem.h>
 
 unsigned long n = std::checked_mul_size(count, sizeof(int));
-int* buf = (int*)std::alloc(n);
+?&heap int buf = std::alloc(n);
 ```
 
 ## 다른 언어와의 비교 {#comparison-with-other-languages}

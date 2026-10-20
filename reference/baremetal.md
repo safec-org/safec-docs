@@ -163,7 +163,7 @@ Place functions or variables in specific linker sections:
 
 ```c
 section(".isr_vector")
-void* vector_table[256] = {
+fn void() vector_table[256] = {
     _start,
     nmi_handler,
     hardfault_handler,
@@ -176,15 +176,14 @@ void hot_path() {
 }
 ```
 
-A bare function name, `&functionName`, and `(void*)functionName` are all
-equivalent — a function's code address is neither freed nor moved for the
-life of the program, so none of the three needs `unsafe {}`, even at file
-scope where an `unsafe {}` *block* couldn't appear anyway:
+A function's code address is neither freed nor moved for the life of the
+program, so storing one needs no `unsafe {}`, even at file scope where an
+`unsafe {}` *block* couldn't appear anyway. Give the slot a function type
+(`fn void()`) rather than an untyped pointer, so only functions of the right
+shape can go in it:
 
 ```c
-void* p1 = _start;          // bare name
-void* p2 = &_start;         // '&' is a no-op on a function designator
-void* p3 = (void*)_start;   // explicit cast also needs no unsafe{}
+fn void() reset_vector = _start;      // a bare function name is its address
 ```
 
 ## Inline Assembly
@@ -526,7 +525,7 @@ void vga_putchar(int x, int y, char c, uint8_t color) {
 }
 
 void kernel_main() {
-    const char *msg = "Hello from SafeC!";
+    const &char msg = "Hello from SafeC!";
     unsafe {
         for (int i = 0; msg[i] != 0; i = i + 1) {
             vga_putchar(i, 0, msg[i], 0x0F);

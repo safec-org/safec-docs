@@ -199,10 +199,14 @@ SafeC can natively include C standard headers. The compiler parses C header decl
 #include <string.h>
 
 int main() {
-    char* msg;
-    unsafe { msg = (char*)malloc(64); }   // void* -> char* reinterprets the pointer: unsafe
-    strcpy(msg, "Hello from C headers!");
-    printf("%s\n", msg);
+    ?&char msg = malloc(64);               // raw void* -> ?&char: implicit
+    match (msg) {
+        case some(m): {
+            strcpy(m, "Hello from C headers!");
+            printf("%s\n", m);
+        }
+        case null: { }
+    }
     free(msg);
     return 0;
 }

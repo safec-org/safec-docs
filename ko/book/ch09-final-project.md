@@ -83,7 +83,7 @@ int Store::remove(const &char key) {
     return 0;
 }
 
-static void free_value(const char* key, &String v) { v.free(); }
+static void free_value(const &char key, &String v) { v.free(); }
 
 void Store::free() {
     self.entries.foreach(free_value);   // the values are ours to free

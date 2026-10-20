@@ -95,11 +95,11 @@ int main() {
 
 ```c
 void heap_demo() {
-    &heap int p = (int*)malloc(sizeof(int));
+    &heap int p = new int;
     *p = 42;
-    defer free(p);
+    defer std::dealloc(p);
     printf("heap: %d\n", *p);
-}   // free(p)가 defer를 통해 여기서 실행됨
+}   // free(p) runs here, via defer
 ```
 
 `defer`([8장](/ko/book/ch08-error-handling)에서 제대로 소개합니다)는

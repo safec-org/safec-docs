@@ -208,7 +208,7 @@ int x = 10;
 int y = 20;
 int max = (x > y) ? x : y;       // max is 20
 
-const char *label = (count == 1) ? "item" : "items";
+const &char label = (count == 1) ? "item" : "items";
 ```
 
 The ternary operator has very low precedence — use parentheses around complex conditions for clarity.

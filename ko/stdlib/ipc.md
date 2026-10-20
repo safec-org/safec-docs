@@ -65,21 +65,18 @@ int  pipe_close_write(&Pipe p);
 
 int main() {
     struct Pipe p;
-    if (pipe_create(&p) != 0) { println("pipe_create failed"); return 1; }
+    if (std::pipe_create(&p) != 0) { std::println("pipe_create failed"); return 1; }
 
-    const char* msg = "hello";
-    unsafe { std::pipe_write(&p, (const &unsigned char)msg, 5UL); }
+    unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
+    std::pipe_write(&p, &msg[0], 5UL);
 
-    char buf[6];
-    unsafe { buf[5] = (char)0; }
-    long long n;
-    unsafe { n = std::pipe_read(&p, (&unsigned char)&buf[0], 5UL); }
-    print("read "); print_int(n); print(" bytes: ");
-    unsafe { println(&buf[0]); }   // hello
+    unsigned char buf[5];
+    long long n = std::pipe_read(&p, &buf[0], 5UL);
+    std::print("read "); std::print_int(n); std::println(" bytes");   // read 5 bytes
 
-    pipe_close_read(&p);
-    pipe_close_write(&p);
-    return 0;
+    std::pipe_close_read(&p);
+    std::pipe_close_write(&p);
+    return (n == 5LL && buf[4] == 'o') ? 0 : 1;
 }
 ```
 
@@ -155,31 +152,34 @@ extern int write(int fd, const void* buf, unsigned long count);
 extern long long read(int fd, void* buf, unsigned long count);
 extern int close(int fd);
 
-int main() {
-    const char* path = "/tmp/example.sock";
-    uds_unlink(path);
+// Typed wrappers over C's untyped buffers: references in, raw pointers out.
+long long send_text(int fd, const &char text, unsigned long n) { return (long long)write(fd, text, n); }
+long long recv_text(int fd, &char out, unsigned long n)         { return read(fd, out, n); }
 
-    int listenFd = uds_listen_nb(path);
-    int clientFd = uds_connect_nb(path);
+int main() {
+    const &char path = "/tmp/example.sock";
+    std::uds_unlink(path);
+
+    int listenFd = std::uds_listen_nb(path);
+    int clientFd = std::uds_connect_nb(path);
 
     // Non-blocking accept: retry until the pending connection shows up.
     // A real program would await_fd(listenFd, SCHED_READ) via
     // TaskScheduler/Reactor instead of busy-polling like this.
     int serverFd = -1;
     while (serverFd < 0) {
-        serverFd = uds_accept_nb(listenFd);
+        serverFd = std::uds_accept_nb(listenFd);
     }
 
-    const char* msg = "hi from client";
-    unsafe { write(clientFd, (const void*)msg, 14UL); }
+    send_text(clientFd, "hi from client", 14UL);
 
     char buf[15];
-    unsafe { buf[14] = (char)0; }
-    unsafe { read(serverFd, (void*)&buf[0], 14UL); }
-    unsafe { println(&buf[0]); }   // hi from client
+    buf[14] = (char)0;
+    recv_text(serverFd, &buf[0], 14UL);
+    std::println(&buf[0]);   // hi from client
 
-    unsafe { close(clientFd); close(serverFd); close(listenFd); }
-    uds_unlink(path);
+    close(clientFd); close(serverFd); close(listenFd);
+    std::uds_unlink(path);
     return 0;
 }
 ```

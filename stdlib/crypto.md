@@ -65,7 +65,7 @@ int main() {
     unsigned char key[16];
     unsigned char iv[16];
     unsigned char buf[32];
-    const char* text = "Hello, SafeC! AES CBC test data.";   // 32 bytes
+    const &char text = "Hello, SafeC! AES CBC test data.";   // 32 bytes
     unsafe {
         int i = 0;
         while (i < 16) { key[i] = (unsigned char)(i * 17); iv[i] = 0; i = i + 1; }
@@ -298,7 +298,7 @@ struct SecureAllocator {
     struct SlabAllocator slab;
 
     &heap void    alloc();               // one slot; null when full
-    void          dealloc(void* ptr);    // zeroes the slot, then frees it
+    void          dealloc(&heap void ptr);    // zeroes the slot, then frees it
     unsigned long available() const;
     void          destroy();             // zeroes everything, frees the backing buffer
 };
@@ -496,7 +496,7 @@ int main() {
     struct TlsSession session = std::tls_session_init();
     // ... after the handshake: session.install_keys(wk, wi, rk, ri);
 
-    const char* msg = "GET / HTTP/1.1\r\n";
+    const &char msg = "GET / HTTP/1.1\r\n";
     unsigned char record[256];
     unsigned long n = 0UL;
     unsafe { n = session.encode_record(TLS_APPLICATION_DATA, (const &unsigned char)msg, 16UL,

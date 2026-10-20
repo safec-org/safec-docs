@@ -9,7 +9,7 @@ drivers in [`std::hal`](/stdlib/hal). All freestanding-safe.
 #include <std/interrupt/mmio.h>
 #include <std/interrupt/bitfield.h>
 
-void configure_uart(void* uart_base) {
+void configure_uart(&volatile unsigned int uart_base) {
     struct MmioReg ctrl = std::mmio_reg(uart_base);
     unsigned int baud_field = ctrl.read_field(0, 15);
     ctrl.write_field(0, 15, baud_field | 1u);
@@ -19,6 +19,10 @@ void configure_uart(void* uart_base) {
 ```
 
 ## MMIO (`interrupt/mmio.h`)
+
+Register addresses are `&volatile` references (`&volatile unsigned int` for
+32-bit registers), created from a fixed address inside `unsafe` once — see
+[HAL](/stdlib/hal) for the pattern.
 
 Two equivalent APIs over the same operations: a `MmioReg` struct
 (`mmio_reg(addr)` to construct, then methods) for grouping several

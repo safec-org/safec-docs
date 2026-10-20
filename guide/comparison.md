@@ -133,11 +133,11 @@ struct Buffer {
 
 // No implicit constructor — you initialize fields explicitly
 struct Buffer b;
-unsafe { b.data = (?&heap char)std::alloc(1024UL); }
+b.data = std::alloc(1024UL);           // T = char, from the field's type
 b.size = 1024UL;
 
 // No implicit destructor — you free explicitly
-defer { unsafe { std::dealloc((void*)b.data); } }
+defer { std::dealloc(b.data); }
 ```
 
 ### No exceptions

@@ -117,7 +117,7 @@ int   file_close(&File f);                             // returns 0 on success
 ```c
 unsigned long file_read(&File f, &unsigned char buf, unsigned long n);  // returns bytes read
 int           file_getc(&File f);                               // returns char or -1
-char*         file_gets(&char buf, int n, &File f);             // returns buf or NULL
+?&char       file_gets(&char buf, int n, &File f);             // buf, or null at EOF/error
 ```
 
 ### 쓰기 {#write}

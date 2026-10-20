@@ -108,7 +108,7 @@ void coverage_init();  // zero all sites (call at program start)
 
 ```c
 struct CovSite {
-    const char*   file;
+    const &char   file;
     int           line;
     unsigned long count;
 }
