@@ -1,5 +1,13 @@
 import { defineConfig } from 'vitepress'
 
+// Source files linked from the benchmark pages (public/benchmarks/...) have
+// extensions VitePress doesn't know (.sc, .h, .c, .go, ...), so it took the
+// links for pages and appended '.html' -- every one of them 404'd. These are
+// extra extensions to treat as plain files: read from process.env while
+// building the HTML and from import.meta.env by the client router.
+const EXTRA_FILE_EXTENSIONS = 'sc,scx,h,c,cpp,hpp,cc,go,py,rs,zig,toml,lock,sh,metal,cu,hip,cl,wgsl,mod,sum'
+process.env.VITE_EXTRA_EXTENSIONS = EXTRA_FILE_EXTENSIONS
+
 const enNav = [
   {
     text: 'Guide',
@@ -462,6 +470,9 @@ const koSidebar = {
 
 export default defineConfig({
   base: '/safec-docs/',
+  vite: {
+    define: { 'import.meta.env.VITE_EXTRA_EXTENSIONS': JSON.stringify(EXTRA_FILE_EXTENSIONS) }
+  },
   // Everything under public/benchmarks/ is a real static file (confirmed
   // present via `ls` repeatedly) — VitePress's dead-link checker
   // intermittently flags an inconsistent, varying subset of them anyway,
