@@ -318,13 +318,15 @@ def bench_ml(runs):
     except Exception:
         devices = []
     for shape, script in [("small", "ml/pytorch/train.py"), ("big", "ml_big/pytorch/train.py")]:
-        for dev in devices:
+        # fp16/bf16 rows on CUDA (PyTorch-ROCm reports itself as "cuda" too)
+        for dev, dt in [(d, "fp32") for d in devices] + [("cuda", t) for t in ("fp16", "bf16") if "cuda" in devices]:
+            key = f"{shape}/pytorch_{dev}" + ("" if dt == "fp32" else f"_{dt}")
             try:
-                parsed = [parse_ml(sh([MLPY, os.path.join(HERE, script), dev])) for _ in range(runs)]
-                res[f"{shape}/pytorch_{dev}"] = {k: min(p[k] for p in parsed) if "ms" in k else parsed[0][k] for k in parsed[0]}
+                parsed = [parse_ml(sh([MLPY, os.path.join(HERE, script), dev, dt])) for _ in range(runs)]
+                res[key] = {k: min(p[k] for p in parsed) if "ms" in k else parsed[0][k] for k in parsed[0]}
             except Exception as e:
-                res[f"{shape}/pytorch_{dev}"] = {"error": str(e).splitlines()[0][:200]}
-            print(f"  ml {shape}/pytorch_{dev} {res[f'{shape}/pytorch_{dev}']}", flush=True)
+                res[key] = {"error": str(e).splitlines()[0][:200]}
+            print(f"  ml {key} {res[key]}", flush=True)
     for shape, script in [("small", "ml/tensorflow/train.py"), ("big", "ml_big/tensorflow/train.py")]:
         try:
             env = dict(os.environ, TF_CPP_MIN_LOG_LEVEL="3", CUDA_VISIBLE_DEVICES="")
