@@ -20,8 +20,9 @@
 - **MI100의 합성곱과 FFT** ([자세히](#mi100-conv-fft)): MIOpen으로 SafeC는 64채널 3×3 합성곱 하나를 0.027 ms에 실행하고(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.222 ms입니다(0.314 ms). 배치 16–32에서는 2% 이내입니다. 장치 상주 hipFFT 변환은 PyTorch를 거칠 때보다 1.3–1.7배 빠릅니다.
 - **CPU 합성곱과 FFT** ([자세히](#mi100-conv-fft)): Winograd 3×3 합성곱과 이미지별 아레나로 U-Net이 CPU에서 1.35 ms에 실행됩니다(PyTorch 2.68 ms). 2²⁰점 FFT는 0.89 ms입니다(16스레드 FFTW 1.63 ms). 2D, 배치, 실수 변환에서는 FFTW가 1.1–1.6배 빠릅니다.
 - **DSP** ([자세히](#dsp-cpu)): 측정한 모든 작업에서 double과 float 모두 `std/dsp`가 SciPy, KFR, Q, madronalib, dasp보다 빠릅니다. 2²⁰ 샘플의 biquad는 0.48 ms(Q 1.69 ms, float), 127탭 스트리밍 FIR은 3.0 ms(SciPy 19.5 ms), 44.1→48 kHz 리샘플링은 3.7 ms(SciPy 9.1 ms)입니다.
-- **H200에서의 어텐션** ([자세히](#h200-attention)): cuDNN을 거치는 fp16/bf16 flash 어텐션은 PyTorch와 같고(3% 이내, 최대 690 TFLOPS), 텐서 코어(3xTF32)의 fp32 flash 어텐션은 head dim 64에서 같고 128에서 0.7배입니다. head dim 64의 linear 어텐션은 PyTorch보다 최대 1.6배 빠르고 flash-linear-attention과 같으며, head dim 128에서는 0.45–0.78배입니다.
+- **H200에서의 어텐션** ([자세히](#h200-attention)): cuDNN을 거치는 fp16/bf16 flash 어텐션은 PyTorch와 같고(3% 이내, 최대 690 TFLOPS), 텐서 코어(3xTF32)의 fp32 flash 어텐션은 head dim 64에서 PyTorch보다 1.34배 빠르고 128에서 0.97–1.05배입니다. linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠르며, head dim 128 fp32 non-causal에서만 PyTorch의 TF32 einsum과 같습니다(정확한 fp32로 계산하면서).
 - **MI100에서의 어텐션** ([자세히](#mi100-attention)): 행렬 코어의 fp32 flash 어텐션이 18–26 TFLOPS로 돕니다. 마스크가 없으면 PyTorch-ROCm보다 1.8–4배, causal 마스크가 있으면 4–10배 빠릅니다. 선형 어텐션은 2–5.4배 빠릅니다.
+- **M1 Pro에서의 어텐션** ([자세히](#m1pro-attention)): Metal의 fp32 flash 어텐션은 MLX보다 1.04–1.22배, PyTorch `mps` 장치보다 1.16–1.43배 빠르고, fp16/bf16은 이들의 0.80–0.97배입니다. linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.1–4.4배 빠릅니다.
 - **H200에서의 합성곱과 FFT** ([자세히](#h200-conv-fft)): cuDNN을 쓰는 SafeC는 모든 합성곱 행에서 PyTorch-CUDA보다 빠릅니다. 이미지 한 장의 64채널 3×3 합성곱은 0.018 ms(PyTorch 0.023 ms, fp32), 32장 배치는 0.084 ms(0.098 ms, TF32), 배치 16의 U-Net은 0.45 ms(0.56 ms, TF32)입니다. 호스트 배열의 2²⁰점 FFT는 PCIe 복사 두 번을 포함해 1.25 ms입니다(2.05 ms). GPU에 상주하는 데이터의 cuFFT 변환은 PyTorch를 거친 것과 같은 시간이 걸립니다.
 - **컬렉션** ([자세히](#collections-stdcollections-throughput-1000000-elements)): `vec_sort`는 `qsort`보다 1.9배, 풀을 쓰는 리스트는 노드마다 `malloc`하는 리스트보다 2.2배 빠르고, `HashMap`은 순수 C의 1.1배 이내, `Vec` push는 1.5배 느립니다.
 - **할당자** ([자세히](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): 블록이 재사용되면 `std::alloc`이 `malloc`보다 1.8배 빠르고, 슬랩 덕분에 블록 100만 개가 동시에 살아 있을 때도 1.1배 빠릅니다.
@@ -243,6 +244,37 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 
 ::: details 소스
 [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_cpu_blas.sc](/benchmarks/ml_big/safec/train_cpu_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml_big/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml_big/tensorflow/train.py) · [MLX train.py](/benchmarks/ml_big/mlx/train.py)
+:::
+
+## 머신러닝, 실전 LLM 추론 — 처음부터 만든 Gemma 4 E2B, PyTorch·MLX와 비교 {#machine-learning-real-llm-inference-gemma-4-e2b-from-scratch}
+
+이 페이지 다른 곳에서 소형 MLP/트랜스포머를 손수 만드는 데 쓰인 `std::ml`의 Tensor/attention/RoPE/RMSNorm 기본 요소들이, 정말로 특이한 아키텍처를 가진 실제 최신 35계층 LLM 앞에서도 버텨낼까를 확인하는 규모 테스트입니다 — Per-Layer Embeddings, 레이어 간 KV 공유, 이중 RoPE 설정(표준 + 상위 주파수를 0으로 채우는 proportional 방식), 비표준 RMSNorm 변형, 로짓 소프트캡핑까지. 실제 10.25GB `google/gemma-4-E2B` 체크포인트를 로드해서, SafeC 쪽 경로에는 외부 추론 엔진(llama.cpp도, ONNX Runtime도, vLLM도) 없이 전부 처음부터 구현했습니다. `std::ml` 자체에 포함된 게 아니라 독립된 프로젝트입니다: `benchmarks/gemma4/`에 [safeguard](/advanced/safeguard) 구조로(`Package.toml` + `src/` + `tests/`) 구성했습니다.
+
+각 메커니즘은 손으로 계산한 기준값과 대조해 개별적으로 검증한 뒤 전체 모델에 연결했고(프로젝트 자체의 설계 노트에 유도 과정이 있습니다), 그다음 파이프라인 전체를 실제 정답과 대조했습니다: 진짜 `google/gemma-4-E2B` 가중치를 Python `transformers`로 돌린 것과, 같은 프롬프트, 같은 토크나이저로 비교했습니다.
+
+| 프롬프트 | 기준 top-5 토큰 id (`transformers`) | SafeC top-5 토큰 id | 일치 여부 |
+|---|---|---|---|
+| "Hello, world!" | [236888, 108, 1, 107, 1717] | [236888, 108, 1, 107, 1717] | **정확히 일치, 순서까지 동일** |
+| "The quick brown fox jumps over the lazy dog." | [107, 1, 31770, 108, 669] | [107, 1, 31770, 108, 669] | **정확히 일치, 순서까지 동일** |
+| "SafeC" | [39316, 12977, 1869, 67, 55879] | [39316, 12977, 1869, 67, 55879] | **정확히 일치, 순서까지 동일** |
+
+`main.sc`의 서버는 완전한 bf16 모델을 구동합니다 — 저장뿐 아니라 가중치와 활성값 모두, 코드베이스에는 이제 F32 모델이 아예 남아있지 않습니다(아래 참고). 순전한 행렬곱 형태의 연산뿐 아니라 순방향 경로의 모든 연산이 bf16 비트를 직접 읽고 씁니다(각 스칼라를 사용하는 지점에서 `bf16_to_f32`/`f32_to_bf16`), float 누산은 수치적으로 반드시 필요한 곳에서만 사용됩니다(RMSNorm의 제곱합, softmax의 max/exp/sum, RoPE의 cos/sin 테이블 조회) — 중간 결과를 통째로 F32 `Tensor`로 만드는 일은 어디에도 없습니다. 이 bf16 네이티브 재작성판은 위 세 프롬프트 모두에서 `transformers` 기준값과 top-5 id가 **정확히** 일치합니다 — 이전 bf16 버전(가중치만 bf16, 대부분의 연산은 F32로 확장해서 처리)이 "Hello, world!" 프롬프트의 신뢰도 낮은 꼬리 토큰 하나를 놓쳐 4/5만 일치했던 것에서 개선된 결과입니다. 인과관계를 확정할 만큼 추적하지는 않았지만, 중간 F32 왕복이 줄어들면 경계선상의 로짓 동점에서 누적 반올림 오차가 줄어든다는 설명과는 앞뒤가 맞습니다.
+
+**단일 요청 지연시간** — 실제로 하나의 채팅 세션(시퀀스 하나, 토큰 하나씩 디코딩)이 체감하는 지표입니다. 아래쪽의 배치 처리량 수치는 "동시에 몇 개의 요청을 처리할 수 있는가"라는 다른 질문에 답하는 것이지, 단일 세션 지연시간과는 다릅니다. 같은 실제 체크포인트, 같은 프롬프트(`"The capital of France is"`), 같은 그리디 디코딩, 같은 머신에서 측정했습니다. 모든 프레임워크·경로가 동일하게 올바른 이어쓰기를 만들어냅니다(`" Paris.\n\nThe capital of France is Paris. ..."`, 그 뒤로는 예측 가능하게 반복 — 반복 페널티 없는 순수 그리디 디코딩의 특성):
+
+| 프레임워크 / 경로 | 디바이스 | 로드 | ms/토큰 |
+|---|---|---|---|
+| MLX | Apple Silicon GPU | 3.2초 | 48ms |
+| PyTorch | MPS | 7.5초 | 85ms |
+| PyTorch | CPU | 0.5초 | 285ms |
+| SafeC, 일반 그리디 디코딩 | MPS, BF16 | 6.5초 | 180ms |
+| **SafeC, 일반 + 추측(prompt-lookup) 디코딩** | MPS, BF16 | 6.5초 | **127ms (원래 297ms 기준 대비 약 2.34배)** |
+| SafeC | CPU, Accelerate BLAS, BF16 | 6.5초 | 14.1초 |
+
+297ms→180ms로 줄어든 일반 디코딩 성능은 독립적으로 측정한 세 가지 개선을 함께 적용한 결과입니다: `M==1`인 디코딩 단계 행렬곱 전용 GEMV 커널, 완전히 GPU에 체이닝된 FFN 블록, 그리고 레이어 전체를 GPU에 체이닝한 작업(RMSNorm/잔차 덧셈/GELU를 GPU 상주 커널로 옮겨 토큰당 GPU 왕복 횟수를 약 150-180회에서 약 70-84회로 줄임 — 같은 세션에서 체이닝을 켜고 끄며 번갈아 측정한 결과 평균 약 1.32배 향상을 확인). 이 세 번째 개선은 MLX와 PyTorch의 `mps` 백엔드도 Neural Engine을 전혀 사용하지 않는다는 사실을 직접 확인한 뒤(`mlx.core.default_device()`가 `Device(gpu, 0)`을 보고함), `mlx_lm`의 실제 디코딩 루프를 읽고 나서 착수했습니다 — MLX는 한 디코딩 스텝 전체(임베딩부터 모든 레이어, RMSNorm, RoPE, 어텐션, FFN, 최종 정규화, lm head, softmax, 샘플링까지)를 하나의 지연 계산 그래프로 만들어 `mx.eval()` 호출 한 번으로 실행합니다. 별도로 시도한 CoreML/ANE 프로토타입은 Neural Engine이 실제로 관여한 경우에도 이 프로젝트가 직접 작성한 GPU 커널보다 느리게 측정되어 채택하지 않았습니다. 각 기법의 전후 비교와 상세 내용은 [DESIGN_NOTES.md](/benchmarks/gemma4/DESIGN_NOTES.md)의 "A dedicated GEMV kernel for the M==1 decode step", "Chaining the FFN", "Whole-layer GPU chaining" 절을 참고하세요. 위 세 가지가 모두 활성화된 상태에서 측정한 추측 디코딩 자체의 배율은 1.42배(127ms/180ms)입니다. 결합된 수치(약 2.34배)는 개별 배율을 곱하는 대신 원래 기준선(297ms) 대비로 보고합니다 — 여러 기법이 겹치는 호출당 오버헤드를 함께 상쇄하기 때문입니다.
+
+::: details 소스
+[gemma4_bf16.h](/benchmarks/gemma4/src/gemma4_bf16.h) · [gemma4_bf16.sc](/benchmarks/gemma4/src/gemma4_bf16.sc) · [gemma4_rope.h](/benchmarks/gemma4/src/gemma4_rope.h) · [gemma4_rope.sc](/benchmarks/gemma4/src/gemma4_rope.sc) · [gemma4_attention.h](/benchmarks/gemma4/src/gemma4_attention.h) · [gemma4_attention.sc](/benchmarks/gemma4/src/gemma4_attention.sc) · [gemma4_ple.h](/benchmarks/gemma4/src/gemma4_ple.h) · [gemma4_ple.sc](/benchmarks/gemma4/src/gemma4_ple.sc) · [gemma4_ffn.h](/benchmarks/gemma4/src/gemma4_ffn.h) · [gemma4_ffn.sc](/benchmarks/gemma4/src/gemma4_ffn.sc) · [gemma4_model_bf16.h](/benchmarks/gemma4/src/gemma4_model_bf16.h) · [gemma4_model_bf16.sc](/benchmarks/gemma4/src/gemma4_model_bf16.sc) · [gemma4_generate.h](/benchmarks/gemma4/src/gemma4_generate.h) · [gemma4_generate.sc](/benchmarks/gemma4/src/gemma4_generate.sc) · [gemma4_tokenizer.h](/benchmarks/gemma4/src/gemma4_tokenizer.h) · [gemma4_tokenizer.sc](/benchmarks/gemma4/src/gemma4_tokenizer.sc) · [gemma4_http_server.h](/benchmarks/gemma4/src/gemma4_http_server.h) · [gemma4_http_server.sc](/benchmarks/gemma4/src/gemma4_http_server.sc) · [safetensors.h](/benchmarks/gemma4/src/safetensors.h) · [safetensors.sc](/benchmarks/gemma4/src/safetensors.sc) · [main.sc](/benchmarks/gemma4/src/main.sc) · [PyTorch bench_pytorch.py](/benchmarks/gemma4/tests/bench_pytorch.py) · [MLX bench_mlx.py](/benchmarks/gemma4/tests/bench_mlx.py) · [bench_safec.sc](/benchmarks/gemma4/tests/bench_safec.sc) · [test_gemma4_bf16_batch.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_batch.sc) · [test_gemma4_bf16_batch_real.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_batch_real.sc) · [test_gemma4_bf16_speculative.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_speculative.sc) · [test_gemma4_bf16_speculative_real.sc](/benchmarks/gemma4/tests/test_gemma4_bf16_speculative_real.sc) · [test_mps_linear_gemv.sc](/benchmarks/gemma4/tests/test_mps_linear_gemv.sc) · [bench_mps_roundtrip.sc](/benchmarks/gemma4/tests/bench_mps_roundtrip.sc) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal)
 :::
 
 ## 메모리 할당 — `std::alloc`/`dealloc`은 raw `malloc`/`free`보다 느린가? {#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree}
@@ -545,53 +577,52 @@ Flash 어텐션, 호출당 ms (TFLOPS):
 
 | 데이터 | head dim | 토큰 | causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | PyTorch / SafeC |
 |---|---|---|---|---|---|---|
-| fp16 | 64 | 1024 | 아니오 | **0.043 (396)** | 0.044 (394) | 1.00 |
-| fp16 | 64 | 1024 | 예 | 0.036 (238) | **0.035 (243)** | 0.98 |
-| fp16 | 64 | 4096 | 아니오 | 0.574 (479) | 0.574 (479) | 1.00 |
-| fp16 | 64 | 4096 | 예 | 0.338 (407) | **0.332 (414)** | 0.98 |
-| fp16 | 128 | 1024 | 아니오 | 0.060 (572) | **0.060 (574)** | 1.00 |
-| fp16 | 128 | 1024 | 예 | **0.049 (352)** | 0.049 (348) | 1.01 |
-| fp16 | 128 | 4096 | 아니오 | 0.831 (662) | **0.820 (670)** | 0.99 |
-| fp16 | 128 | 4096 | 예 | **0.480 (573)** | 0.481 (571) | 1.00 |
-| bf16 | 64 | 1024 | 아니오 | **0.043 (398)** | 0.043 (397) | 1.00 |
-| bf16 | 64 | 1024 | 예 | 0.036 (239) | **0.035 (246)** | 0.97 |
-| bf16 | 64 | 4096 | 아니오 | **0.572 (480)** | 0.573 (480) | 1.00 |
-| bf16 | 64 | 4096 | 예 | 0.337 (407) | **0.331 (416)** | 0.98 |
-| bf16 | 128 | 1024 | 아니오 | **0.059 (585)** | 0.059 (583) | 1.00 |
-| bf16 | 128 | 1024 | 예 | **0.049 (353)** | 0.050 (346) | 1.02 |
-| bf16 | 128 | 4096 | 아니오 | 0.797 (690) | **0.786 (699)** | 0.99 |
-| bf16 | 128 | 4096 | 예 | 0.466 (589) | **0.463 (593)** | 0.99 |
-| fp32 | 64 | 1024 | 아니오 | **0.503 (34)** | 0.520 (33) | 1.03 |
-| fp32 | 64 | 1024 | 예 | 0.358 (24) | **0.351 (24)** | 0.98 |
-| fp32 | 64 | 4096 | 아니오 | **7.29 (38)** | 7.78 (35) | 1.07 |
-| fp32 | 64 | 4096 | 예 | 4.48 (31) | **4.18 (33)** | 0.93 |
-| fp32 | 128 | 1024 | 아니오 | 1.05 (33) | **0.788 (44)** | 0.75 |
-| fp32 | 128 | 1024 | 예 | 0.712 (24) | **0.485 (35)** | 0.68 |
-| fp32 | 128 | 4096 | 아니오 | 15.8 (35) | **11.9 (46)** | 0.75 |
-| fp32 | 128 | 4096 | 예 | 9.02 (30) | **6.18 (44)** | 0.69 |
-| bf16 (GQA 32 / 8 헤드) | 128 | 4096 | 예 | 0.892 (616) | **0.884 (622)** | 0.99 |
+| fp16 | 64 | 1024 | no | **0.043 (398)** | 0.044 (393) | 1.01 |
+| fp16 | 64 | 1024 | yes | 0.036 (239) | **0.035 (244)** | 0.98 |
+| fp16 | 64 | 4096 | no | **0.572 (481)** | 0.575 (478) | 1.01 |
+| fp16 | 64 | 4096 | yes | 0.336 (407) | **0.332 (414)** | 0.99 |
+| fp16 | 128 | 1024 | no | 0.060 (571) | **0.060 (574)** | 1.00 |
+| fp16 | 128 | 1024 | yes | **0.049 (352)** | 0.050 (345) | 1.02 |
+| fp16 | 128 | 4096 | no | 0.831 (661) | **0.822 (669)** | 0.99 |
+| fp16 | 128 | 4096 | yes | 0.480 (572) | **0.478 (575)** | 1.00 |
+| bf16 | 64 | 1024 | no | **0.043 (400)** | 0.043 (396) | 1.01 |
+| bf16 | 64 | 1024 | yes | 0.036 (239) | **0.035 (245)** | 0.97 |
+| bf16 | 64 | 4096 | no | **0.569 (483)** | 0.573 (479) | 1.01 |
+| bf16 | 64 | 4096 | yes | 0.336 (409) | **0.331 (414)** | 0.98 |
+| bf16 | 128 | 1024 | no | **0.059 (586)** | 0.059 (585) | 1.00 |
+| bf16 | 128 | 1024 | yes | **0.048 (354)** | 0.049 (347) | 1.02 |
+| bf16 | 128 | 4096 | no | 0.798 (688) | **0.786 (699)** | 0.98 |
+| bf16 | 128 | 4096 | yes | 0.466 (589) | **0.463 (591)** | 0.99 |
+| fp32 | 64 | 1024 | no | **0.387 (44)** | 0.519 (33) | 1.34 |
+| fp32 | 64 | 1024 | yes | **0.263 (33)** | 0.353 (24) | 1.34 |
+| fp32 | 64 | 4096 | no | **5.81 (47)** | 7.78 (35) | 1.34 |
+| fp32 | 64 | 4096 | yes | **3.11 (44)** | 4.18 (33) | 1.34 |
+| fp32 | 128 | 1024 | no | **0.748 (46)** | 0.788 (44) | 1.05 |
+| fp32 | 128 | 1024 | yes | 0.502 (34) | **0.485 (35)** | 0.97 |
+| fp32 | 128 | 4096 | no | **11.3 (49)** | 11.9 (46) | 1.05 |
+| fp32 | 128 | 4096 | yes | **6.07 (45)** | 6.19 (44) | 1.02 |
+| bf16 (GQA 32 / 8 heads) | 128 | 4096 | yes | 0.893 (615) | **0.884 (622)** | 0.99 |
 
 Linear 어텐션 (phi(x) = elu(x) + 1), 호출당 ms:
 
 | 데이터 | head dim | 토큰 | causal | SafeC | PyTorch (기본값: fp32는 TF32) | PyTorch, IEEE fp32 | fla (Triton) |
 |---|---|---|---|---|---|---|---|
-| fp32 | 64 | 4096 | 아니오 | 0.359 | **0.351** | 0.501 | — |
-| fp32 | 64 | 4096 | 예 | **0.669** | 0.880 | 1.00 | 0.817 |
-| fp32 | 64 | 16384 | 아니오 | **1.29** | 1.41 | 1.97 | — |
-| fp32 | 64 | 16384 | 예 | **2.50** | 3.32 | 3.74 | 3.08 |
-| fp32 | 128 | 4096 | 아니오 | 1.40 | **0.629** | 0.935 | — |
-| fp32 | 128 | 4096 | 예 | 2.60 | 1.69 | 2.04 | **1.59** |
-| bf16 | 64 | 4096 | 아니오 | **0.340** | 0.503 | — | — |
-| bf16 | 64 | 4096 | 예 | **0.644** | 1.03 | — | 0.644 |
-| bf16 | 64 | 16384 | 아니오 | **1.23** | 1.97 | — | — |
-| bf16 | 64 | 16384 | 예 | 2.43 | 3.89 | — | **2.38** |
-| bf16 | 128 | 4096 | 아니오 | 1.39 | **0.921** | — | — |
-| bf16 | 128 | 4096 | 예 | 2.57 | 1.98 | — | **1.15** |
+| fp32 | 64 | 4096 | no | **0.231** | 0.350 | 0.500 | — |
+| fp32 | 64 | 4096 | yes | **0.385** | 0.879 | 0.998 | 0.815 |
+| fp32 | 64 | 16384 | no | **0.868** | 1.41 | 1.97 | — |
+| fp32 | 64 | 16384 | yes | **1.44** | 3.32 | 3.74 | 3.08 |
+| fp32 | 128 | 4096 | no | 0.633 | **0.629** | 0.934 | — |
+| fp32 | 128 | 4096 | yes | **1.03** | 1.69 | 2.04 | 1.59 |
+| bf16 | 64 | 4096 | no | **0.228** | 0.504 | — | — |
+| bf16 | 64 | 4096 | yes | **0.392** | 1.03 | — | 0.643 |
+| bf16 | 64 | 16384 | no | **0.853** | 1.98 | — | — |
+| bf16 | 64 | 16384 | yes | **1.48** | 3.89 | — | 2.38 |
+| bf16 | 128 | 4096 | no | **0.619** | 0.921 | — | — |
+| bf16 | 128 | 4096 | yes | **1.01** | 1.98 | — | 1.15 |
 
 - **fp16/bf16 flash 어텐션**은 여기서 PyTorch가 쓰는 것과 같은 cuDNN fused attention 엔진으로 가므로, 모든 행에서 3% 안에서 같습니다(최대 690 TFLOPS). SafeC는 cuDNN 그래프를 직접 만들고(dlopen, 링크 의존성 없음), cuDNN이 없으면 자체 FlashAttention-2 커널(mma.sync)로 돌립니다. grouped-query 어텐션도 PyTorch와 같은 속도입니다.
-- **fp32 flash 어텐션**은 SafeC의 FlashAttention-2 커널을 텐서 코어에서 3xTF32(곱마다 TF32 두 조각의 hi·hi + hi·lo + lo·hi)로 돌립니다. CUTLASS와 같은 방법이며 오차는 ~2e-7입니다. head dim 64에서는 PyTorch와 7% 안이고 causal 마스크가 없으면 더 빠릅니다. head dim 128에서는 PyTorch의 0.68–0.75입니다: SafeC는 SM당 블록 두 개가 들어가도록 32키 타일을 쓰고, CUTLASS는 64×128 타일을 레지스터에 둡니다.
-- **Linear 어텐션, head dim 64**: SafeC의 청크 병렬 커널(청크별 상태, 청크에 걸친 prefix, 모든 청크의 출력을 한 번에)은 벡터화한 PyTorch보다 bf16에서 1.5–1.6배, fp32 causal에서 1.3배 빠르고, fp32 non-causal은 PyTorch의 TF32 einsum과 비슷합니다(0.98–1.09). fla와는 bf16에서 같고 fp32에서 1.2배 빠릅니다. SafeC는 정확한 fp32로 계산합니다: NVIDIA NGC 컨테이너의 PyTorch fp32 einsum은 기본으로 TF32를 쓰고(`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`), fla의 fp32 출력은 정확한 결과와 ~1e-3 차이가 나서 내부에서 TF32 내적을 쓰는 것으로 보입니다. IEEE fp32 PyTorch보다는 1.4–1.5배 빠릅니다.
-- **Linear 어텐션, head dim 128**은 SafeC의 약점입니다: PyTorch와 fla의 0.45–0.78. 청크 커널이 CUDA 코어에서 돌며, 텐서 코어 버전(m16n8k16 / 3xTF32)도 시도했지만 아직 빨라지지 않았으므로 시간은 다른 곳(패스 사이의 상태 트래픽)에 쓰입니다.
+- **fp32 flash 어텐션**은 SafeC의 FlashAttention-2 커널을 텐서 코어에서 3xTF32(곱마다 TF32 두 조각의 hi·hi + hi·lo + lo·hi)로 돌립니다. CUTLASS와 같은 방법이며 오차는 ~2e-7입니다. head dim 64에서 PyTorch보다 1.34배 빠르고 head dim 128에서 0.97–1.05배입니다. 피연산자는 정수 덧셈과 마스크로 TF32로 반올림합니다: `cvt.rna.tf32.f32`도 같은 비트를 내지만 sm_90에서는 긴 명령어 시퀀스로 에뮬레이션되어, 이를 쓰던 커널은 정수 연산에 묶여 있었습니다(이전에는 head dim 128에서 0.68–0.75배). 이제 head dim 128에서는 공유 메모리 트래픽이 한계이며, K, V나 Q를 공유 메모리에서 미리 TF32 두 조각으로 나누거나 Q를 레지스터에 두는 방법은 더 느렸습니다.
+- **Linear 어텐션**은 키를 64행 청크로 나눕니다. 헤드별 패스가 청크 일부를 D×D 상태 phi(K)ᵀV를 레지스터에 둔 채 순서대로 훑고(causal이면 각 청크 앞의 상태를 저장), 작은 패스가 그 부분합을 더한 뒤, 모든 출력 청크가 자기 상태와(causal이면) 청크 안의 마스크된 phi(Q)phi(K)ᵀV로 병렬로 계산됩니다. 모두 CUDA 코어에서 정확한 fp32로 돕니다(오차 ~1e-7). 벡터화한 PyTorch보다 1.5–2.6배, fla보다 1.1–2.1배 빠르며, 예외는 head dim 128 fp32 non-causal 한 행으로, PyTorch의 TF32 einsum과 같고(0.99배) IEEE fp32 PyTorch보다 1.5배 빠릅니다. NVIDIA NGC 컨테이너의 PyTorch fp32 einsum은 기본으로 TF32를 쓰고(`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`), fla의 fp32 출력은 정확한 결과와 ~1e-3 차이가 나서 내부에서 TF32 내적을 쓰는 것으로 보입니다. 이전 버전(청크별 상태, 그 전부에 대한 별도 prefix 패스, 열 조각으로 나눈 출력)은 head dim 128에서 PyTorch의 0.45–0.78배였습니다: 출력 커널이 열 조각마다 phi(Q)phi(K)ᵀ를 다시 계산했고 공유 메모리 로드당 곱셈-덧셈이 두 번뿐이었으며, prefix 패스가 모든 청크의 D×D 상태를 한 번 더 읽고 썼습니다. 이제 정확한 fp32 행렬곱은 이 크기에서 cuBLAS의 정확한 fp32 SGEMM과 비슷한 속도(~35 TFLOPS)로 돕니다.
 - `tests/stdlib/cuda/cuda_attention_check.sc`가 모든 경로(cuDNN, 자체 flash 커널 두 가지, CUDA 코어 대체 경로, 청크/순차 linear 어텐션, 두 인자 형태, sliding window, GQA, 그래프 재생)를 배정밀도 기준값 및 attention.h의 CPU 함수와 비교합니다: 97개 검사.
 
 ::: details 소스
@@ -652,6 +683,66 @@ Linear 어텐션 (phi(x) = elu(x) + 1), 호출당 ms:
 [train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv_cuda.sc](/benchmarks/conv/safec/conv_cuda.sc) · [PyTorch conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft_cuda.sc](/benchmarks/fft/safec/fft_cuda.sc) · [PyTorch fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_cudnn.h](/benchmarks/stdlib/gpu_cudnn.h) · [gpu_cudnn.sc](/benchmarks/stdlib/gpu_cudnn.sc) · [fft_cuda.h](/benchmarks/stdlib/fft_cuda.h) · [fft_cuda.sc](/benchmarks/stdlib/fft_cuda.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [PyTorch 큰 모델 train.py](/benchmarks/ml_big/pytorch/train.py) · 기본 벤치마크 소스는 위의 각 절에 있습니다.
 :::
 
+
+## Apple M1 Pro에서의 어텐션 {#m1pro-attention}
+
+[`gpu_mps.h`](/ko/stdlib/ml#mps-flash-linear-attention)의 flash 어텐션과 linear 어텐션을 Apple M1 Pro(macOS 26.6)에서 PyTorch 2.13의 `mps` 장치, MLX 0.32와 비교합니다. 형태는 [H200 측정](#h200-attention)과 같습니다: 배치 4, 헤드 16, [batch, heads, tokens, head dim] 배치, 데이터는 GPU에 있습니다. flash 어텐션은 PyTorch의 `scaled_dot_product_attention`, MLX의 fused `mx.fast.scaled_dot_product_attention`과 비교하고, linear 어텐션(φ(x) = elu(x) + 1)은 둘 다 fused 커널이 없으므로 같은 벡터화 구현(non-causal은 einsum 두 번, causal은 64행 청크와 누적 상태 합)과 비교합니다. 각 수치는 동기화 두 번 사이에 쌓은 5–40번 호출의 평균이며 3회 중 최고값입니다. TFLOPS는 4·B·H·S²·D(causal이면 절반)로 셉니다.
+
+Flash 어텐션, 호출당 ms (TFLOPS):
+
+| 데이터 | head dim | 토큰 | causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | MLX ms (TFLOPS) | PyTorch / SafeC | MLX / SafeC |
+|---|---|---|---|---|---|---|---|---|
+| fp16 | 64 | 1024 | 아니오 | 5.46 (3.09) | 4.78 (3.59) | **4.53 (3.75)** | 0.87 | 0.83 |
+| fp16 | 64 | 1024 | 예 | 2.98 (2.86) | 2.65 (3.23) | **2.58 (3.32)** | 0.89 | 0.87 |
+| fp16 | 64 | 4096 | 아니오 | 87.3 (3.15) | 74.8 (3.66) | **71.2 (3.86)** | 0.86 | 0.82 |
+| fp16 | 64 | 4096 | 예 | 44.2 (3.04) | **39 (3.50)** | 39.8 (3.44) | 0.88 | 0.90 |
+| fp16 | 128 | 1024 | 아니오 | 10.7 (3.04) | **9.11 (3.74)** | 9.17 (3.75) | 0.85 | 0.86 |
+| fp16 | 128 | 1024 | 예 | 5.72 (2.90) | 5.54 (3.09) | **4.91 (3.50)** | 0.97 | 0.86 |
+| fp16 | 128 | 4096 | 아니오 | 169 (3.19) | **143 (3.79)** | 146 (3.76) | 0.85 | 0.87 |
+| fp16 | 128 | 4096 | 예 | 86.7 (3.15) | 81.6 (3.34) | **74.7 (3.67)** | 0.94 | 0.86 |
+| bf16 | 64 | 1024 | 아니오 | 5.98 (2.86) | 5.52 (3.08) | **5.09 (3.33)** | 0.92 | 0.85 |
+| bf16 | 64 | 1024 | 예 | 3.19 (2.58) | 3.06 (2.79) | **2.73 (3.14)** | 0.96 | 0.86 |
+| bf16 | 64 | 4096 | 아니오 | 93 (2.79) | 86.1 (3.16) | **80.6 (3.41)** | 0.93 | 0.87 |
+| bf16 | 64 | 4096 | 예 | 47.7 (2.84) | 44.8 (3.05) | **41.8 (3.22)** | 0.94 | 0.88 |
+| bf16 | 128 | 1024 | 아니오 | 14.9 (2.31) | 13 (2.63) | **11.9 (2.70)** | 0.87 | 0.80 |
+| bf16 | 128 | 1024 | 예 | 7.61 (2.26) | 7.09 (2.42) | **6.27 (2.52)** | 0.93 | 0.82 |
+| bf16 | 128 | 4096 | 아니오 | 232 (2.36) | 202 (2.72) | **199 (2.67)** | 0.87 | 0.86 |
+| bf16 | 128 | 4096 | 예 | 113 (2.26) | 104 (2.63) | **97 (2.71)** | 0.92 | 0.86 |
+| fp32 | 64 | 1024 | 아니오 | **5.78 (2.96)** | 6.78 (2.52) | 6.07 (2.70) | 1.17 | 1.05 |
+| fp32 | 64 | 1024 | 예 | **3.13 (2.74)** | 3.71 (2.31) | 3.41 (2.48) | 1.19 | 1.09 |
+| fp32 | 64 | 4096 | 아니오 | **90.6 (3.02)** | 105 (2.61) | 94.5 (2.91) | 1.16 | 1.04 |
+| fp32 | 64 | 4096 | 예 | **46.6 (2.95)** | 55.2 (2.49) | 49.8 (2.76) | 1.19 | 1.07 |
+| fp32 | 128 | 1024 | 아니오 | **14.7 (2.33)** | 19.7 (1.74) | 16.1 (2.13) | 1.34 | 1.09 |
+| fp32 | 128 | 1024 | 예 | **7.51 (2.27)** | 10.8 (1.59) | 8.86 (1.89) | 1.43 | 1.18 |
+| fp32 | 128 | 4096 | 아니오 | **233 (2.36)** | 312 (1.75) | 258 (2.13) | 1.34 | 1.11 |
+| fp32 | 128 | 4096 | 예 | **113 (2.43)** | 160 (1.69) | 137 (2.00) | 1.42 | 1.22 |
+| bf16 (GQA 32 / 8 헤드) | 128 | 4096 | 예 | 226 (2.43) | 206 (2.64) | **200 (2.69)** | 0.91 | 0.89 |
+
+Linear 어텐션(φ(x) = elu(x) + 1), 호출당 ms:
+
+| 데이터 | head dim | 토큰 | causal | SafeC | PyTorch | MLX | PyTorch / SafeC | MLX / SafeC |
+|---|---|---|---|---|---|---|---|---|
+| fp32 | 64 | 4096 | 아니오 | **3.24** | 10.3 | 10.6 | 3.2 | 3.3 |
+| fp32 | 64 | 4096 | 예 | **6.92** | 27.5 | 19.5 | 4.0 | 2.8 |
+| fp32 | 64 | 16384 | 아니오 | **12.2** | 39.5 | 39.9 | 3.2 | 3.3 |
+| fp32 | 64 | 16384 | 예 | **27.6** | 110 | 74.2 | 4.0 | 2.7 |
+| fp32 | 128 | 4096 | 아니오 | **10.1** | 21.5 | 21.7 | 2.1 | 2.1 |
+| fp32 | 128 | 4096 | 예 | **21.6** | 57.1 | 41.1 | 2.6 | 1.9 |
+| bf16 | 64 | 4096 | 아니오 | **3.07** | 12.3 | 12.2 | 4.0 | 4.0 |
+| bf16 | 64 | 4096 | 예 | **6.5** | 28.9 | 21.6 | 4.4 | 3.3 |
+| bf16 | 64 | 16384 | 아니오 | **11.7** | 47.2 | 47.4 | 4.1 | 4.1 |
+| bf16 | 64 | 16384 | 예 | **26.2** | 114 | 82.9 | 4.4 | 3.2 |
+| bf16 | 128 | 4096 | 아니오 | **9.8** | 24.4 | 25.2 | 2.5 | 2.6 |
+| bf16 | 128 | 4096 | 예 | **20.8** | 58.9 | 45.9 | 2.8 | 2.2 |
+
+- **fp32 flash 어텐션**은 모든 행에서 셋 중 가장 빠릅니다: MLX의 1.04–1.22배, PyTorch의 1.16–1.43배입니다. SafeC의 FlashAttention-2 커널은 QKᵀ와 PV를 GPU의 8×8 simdgroup 행렬 유닛에서 계산하고, 소프트맥스는 프래그먼트 위에서 온라인으로 처리하며, 전부 fp32로 계산합니다.
+- **fp16/bf16 flash 어텐션**은 MLX의 0.80–0.90배, PyTorch의 0.85–0.97배입니다(2.3–3.2 TFLOPS). M1 계열에는 bf16 행렬 유닛이 없어 SafeC는 bf16 타일을 올릴 때 fp32로 바꾸고, fp16은 half 정밀도로 곱합니다. 더 높은 simdgroup 타일, simdgroup 8개짜리 threadgroup, head dim 128의 32키 타일은 모두 더 느렸습니다.
+- **Linear 어텐션**은 두 벡터화 구현보다 2.1–4.4배 빠릅니다. head dim 64와 128에서는 행렬 유닛에서 청크 병렬로 돕니다: 구간별 상태 φ(K)ᵀV, 64행 청크에 걸친 prefix, 그다음 모든 청크의 출력을 한 번에 계산하며, 전부 fp32입니다.
+- `tests/stdlib/mps/run.sh`는 모든 경로를 배정밀도 참조와 attention.h의 CPU 함수와 비교합니다: 95개 검사.
+
+::: details 소스
+[attn_mps.sc](/benchmarks/attention/safec/attn_mps.sc) · [PyTorch attn.py](/benchmarks/attention/pytorch/attn.py) · [MLX attn.py](/benchmarks/attention/mlx/attn.py) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal)
+:::
 
 ## 다른 플랫폼의 이전 측정 {#earlier-runs}
 

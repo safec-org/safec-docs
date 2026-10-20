@@ -747,7 +747,7 @@ stream (so they order with the other ops and can be recorded into a
 `CudaGraph`). Forward only.
 
 - **Flash attention**, `softmax(Q Kᵀ · scale) V` without the score matrix. fp16/bf16 go to cuDNN's fused attention engine when `libcudnn.so.9` can be loaded with `dlopen` — SafeC builds the same graph cudnn-frontend's `sdpa()` does, one cached plan per shape — and otherwise to this library's FlashAttention-2 kernel on tensor cores (`mma.sync`, sm_80+, head dim ≤ 128). fp32 runs that kernel in 3xTF32 (fp32-level error, ~2e-7). Head dim 256 and older GPUs use a CUDA-core kernel with the same algorithm. `cuda_attention_use_cudnn(0)` forces the own kernels.
-- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): per-64-key-chunk states φ(K)ᵀV, a prefix over chunks (causal) or their total (non-causal), then every chunk's outputs at once. Exact fp32 arithmetic for every data type.
+- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): up to head dim 128, a per-head pass walks the 64-key chunks with the state φ(K)ᵀV in registers (storing it before each chunk when causal), then every chunk's outputs run at once. Exact fp32 arithmetic for every data type.
 - **Shapes**: the `cuda_flash_attention` / `cuda_linear_attention` / `_f32` forms take the same arguments as [ROCm's](#rocm-attention) `rocm_flash_attention` / `rocm_linear_attention` (fp32, `[heads][seq][dim]`). The `_ex` and `cuda_half_` forms take a `CudaAttnShape`: batch, grouped-query K/V (`kvHeads` dividing `heads`), and a sliding window. Head dims 32, 64, 96, 128, 256.
 - **Masking**: query i sits at position `kvLen - seqLen + i` (the last `seqLen` keys are the queries' own tokens, any before them a cache, as in [`mps_flash_attn_bf16`](#mps-attention)). `causal` hides later keys; `window` (flash only) also hides keys `window` or more positions back.
 - Each (kernel, dtype, head dim) variant is compiled by NVRTC on its first call, and cuDNN plans and the linear-attention workspace are made then too, so make one call per shape before capturing a graph.
@@ -759,7 +759,7 @@ stream (so they order with the other ops and can be recorded into a
 | Host arrays | `cuda_flash_attention_f32`, `cuda_linear_attention_f32` (upload, compute, read back) |
 | Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
 
-On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 matches it at head dim 64, and linear attention at head dim 64 is up to 1.6× faster than PyTorch and level with flash-linear-attention. Head dim 128 trails in fp32 flash (0.7×) and linear attention (0.45–0.78×). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
+On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
 
 ### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
 
@@ -873,14 +873,42 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 
 The `_ab` suffix means both inputs are already GPU buffers. See `std/ml/gpu_mps.h` for each one's argument order.
 
+### Attention on MPS {#mps-flash-linear-attention}
+
+```c
+#include <std/ml/gpu_mps.h>   // Apple GPUs; link -framework Metal -framework Foundation
+```
+
+The same batched multi-head [`flash_attention_forward` and
+`linear_attention_forward`](#attention) as [CUDA's](#cuda-attention), on
+Metal buffers (`mps_upload_persistent`, `mps_upload_f16/bf16_persistent`,
+`mps_alloc_persistent`). Forward only; all math in fp32.
+
+- **Flash attention**, `softmax(Q Kᵀ · scale) V` without the score matrix: FlashAttention-2 on the GPU's 8×8 simdgroup matrix units for head dims up to 256 (Q block in registers, K/V tiles in threadgroup memory, online softmax on the fragments), a simdgroup-reduction kernel at 512. fp16 multiplies in half precision; bf16 is converted to fp32 as tiles are staged, since the M1 family has no bf16 matrix units.
+- **Linear attention**, φ(x) = elu(x) + 1, in O(n d²). Head dims 64 and 128 run chunk-parallel on the matrix units — per-segment states φ(K)ᵀV, a prefix over 64-row chunks (causal) or their total (non-causal), then every chunk's outputs at once, with the states in a scratch buffer the library keeps. Other head dims, a KV-cache offset with `causal`, and the recurrent form below walk the sequence per head.
+- **Shapes**: `mps_flash_attention` / `mps_linear_attention` / `_f32` take the same arguments as `rocm_` and `cuda_`'s (fp32, `[heads][seq][dim]`); the `_ex` forms take an `MpsAttnShape` (batch, grouped-query K/V, sliding window) and a dtype (`0` = fp32, `MPS_FP16`, `MPS_BF16`). Head dims 32, 64, 96, 128, 256, 512.
+- **Masking**: as on CUDA — query i sits at position `kvLen - seqLen + i`; `causal` hides later keys; `window` (flash only) also hides keys `window` or more positions back. `scale` ≤ 0 means 1/√headDim.
+- **Batching**: inside `mps_batch_begin()`/`mps_batch_end()` the calls are encoded into the batch's one command buffer; outside one, each call runs and waits.
+
+| Group | Functions |
+|---|---|
+| Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
+| Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
+| Host arrays | `mps_flash_attention_f32`, `mps_linear_attention_f32` (upload, compute, read back) |
+| Buffers | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+
+On an M1 Pro, fp32 flash attention is 1.04–1.22× faster than MLX's fused attention and 1.16–1.43× faster than PyTorch's `mps` device, fp16/bf16 reach 0.80–0.97× of them (2.3–3.2 TFLOPS), and linear attention is 2.1–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#m1pro-attention).
+
+`tests/stdlib/mps/run.sh` builds `mps_attention_check`, which compares every path (both flash kernels, the chunked and sequential linear kernels, all three data types, GQA, KV-cache offsets, sliding windows, the host-array forms) with a double-precision reference and attention.h's CPU functions: 95 checks.
+
 ### MPS attention and transformer ops {#mps-attention}
 
-bf16 building blocks for running a transformer layer on an Apple GPU. Tensors are raw bf16 bits (`unsigned short`, convert with `float16.h`), row-major, with heads side by side in each row: Q and outputs are `[rows, numHeads*headDim]`, K/V `[rows, numKvHeads*headDim]`. `numHeads` must be a multiple of `numKvHeads` (grouped-query attention), and `headDim` must be 64, 128, 256 or 512. Like every MPS entry point, each returns 0 when it can't run (no device, unsupported shape) so the caller can fall back to the CPU.
+bf16 building blocks for running a transformer layer on an Apple GPU. Tensors are raw bf16 bits (`unsigned short`, convert with `float16.h`), row-major, with heads side by side in each row — the layout a layer's projections produce: Q and outputs are `[rows, numHeads*headDim]`, K/V `[rows, numKvHeads*headDim]`. `numHeads` must be a multiple of `numKvHeads` (grouped-query attention). The flash and linear functions run on the [same kernels](#mps-flash-linear-attention) as `mps_flash_attention_ex` (head dims 32–512); the decode kernel takes 64, 128, 256 or 512. Like every MPS entry point, each returns 0 when it can't run (no device, unsupported shape) so the caller can fall back to the CPU.
 
 | Function | Computes |
 |---|---|
 | `mps_attn_batch_bf16` | One new query token per sequence against that sequence's KV cache, for a whole batch and every head in one dispatch — the decode step. No KV-length limit; keys outside a sliding window are skipped. |
-| `mps_flash_attn_bf16` | GPU counterpart of `flash_attention_forward` for any number of query rows (prefill): K/V tiles are staged in threadgroup memory and shared by 16 query rows, softmax is online, and the score matrix is never materialized. Causal and sliding-window masking. |
+| `mps_flash_attn_bf16` | GPU counterpart of `flash_attention_forward` for any number of query rows (prefill), on the FlashAttention-2 kernel above. Causal and sliding-window masking. |
 | `mps_linear_attn_bf16` | GPU counterpart of `linear_attention_forward` (`phi(x) = elu(x)+1`), non-causal or causal. |
 | `mps_linear_attn_bf16_chained` | Causal linear attention with the recurrent state kept on the GPU and advanced in place — prefill once, then one token per decode step at a cost independent of sequence length. |
 
@@ -940,7 +968,7 @@ match (mps_linear_attn_state_new(numHeads, headDim)) {
 }
 ```
 
-On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, head dim 256) takes about 0.3–0.5 ms, a 1024-token causal flash-attention prefill (8 heads, head dim 256) about 9 ms, and 1024 tokens of causal linear attention (8 heads, head dim 128) about 3.5 ms.
+On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, head dim 256) takes about 0.3–0.5 ms and a 1024-token causal flash-attention prefill (8 heads, head dim 256) about 7 ms.
 
 ### Tensor wrappers
 

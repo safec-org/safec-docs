@@ -240,6 +240,13 @@ int mps_matmul_f32_persistent(&void bufA, &void bufB, &float out,
 ?&void mps_upload_persistent(const &float data, unsigned long bytes);
 void  mps_release_persistent(&void buf, unsigned long bytes);
 
+// An uninitialized persistent buffer of 'bytes' (e.g. an attention output),
+// released the same way. NULL without a Metal device.
+?&void mps_alloc_persistent(unsigned long bytes);
+// Copies 'bytes' of a persistent buffer into 'dst' -- valid once every
+// batch writing it has ended (buffers are CPU/GPU shared memory). 1 = done.
+int    mps_read_persistent(&void buf, &void dst, unsigned long bytes);
+
 // out[i] = bufA[i] - b[i] -- same chaining shape as mps_matmul_f32_chained/
 // mps_relu_f32_chained above, used by tensor_sub_gpu for the loss
 // computation's diff = pred - target (pred, e.g. a matmul's output, is
@@ -284,6 +291,11 @@ int mps_scale_f32_chained(&void buf, float k, &float out, unsigned long n);
 // intermediateSize elements, same throwaway-CPU-scratch-until-batch-end
 // contract as every other *_chained function here.
 int mps_gated_gelu_f32_chained(&void bufRaw, &float out, unsigned long rows, unsigned long intermediateSize);
+
+// bf16 counterpart of mps_gated_gelu_f32_chained above -- 'bufRaw'/'out'
+// are raw bf16 bits, same fused GeGLU step. Lets a whole bf16
+// matmul -> gated-GELU -> matmul FFN run as one GPU round trip.
+int mps_gated_gelu_bf16_chained(&void bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
 
 // ── Backward chained variants ─────────────────────────────────────────────────
 // Same idea as mps_matmul_f32_chained/mps_relu_f32_chained above, for the
@@ -440,6 +452,22 @@ int mps_sub_bf16_chained(&void bufA, const &unsigned short bBf, &unsigned short 
 int mps_scale_f16_chained(&void buf, float k, &unsigned short out, unsigned long n);
 int mps_scale_bf16_chained(&void buf, float k, &unsigned short out, unsigned long n);
 
+// out[i] = bufA[i] + bufB[i] with BOTH operands device buffers (pending
+// or persistent) -- unlike mps_sub_bf16_chained above, whose second
+// operand is a CPU array. For residual connections between chained ops.
+int mps_add_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);
+
+// out[i] = gelu(bufA[i]) * bufB[i] -- mps_gated_gelu_bf16_chained with the
+// gate and up operands in two separate device buffers.
+int mps_gelu_mul_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);
+
+// Row-wise RMSNorm: out[row,c] = x[row,c] * weight[c] /
+// sqrt(mean(x[row,:]^2) + eps). 'bufX' is a pending or persistent device
+// buffer of [rows, cols] bf16; 'weightBuf' is the [cols] weight, typically
+// uploaded once via mps_upload_persistent and cached by the caller.
+int mps_rmsnorm_bf16_chained(&void bufX, &void weightBuf, &unsigned short out,
+                              unsigned long rows, unsigned long cols, float eps);
+
 // dB[K,N] = A^T[K,M] . dC[M,N], A stored [M,K] -- both operands already
 // device buffers, same shape as mps_matmul_atb_f32_chained_ab.
 int mps_matmul_atb_f16_chained_ab(&void bufA, &void bufDC, &unsigned short out,
@@ -461,5 +489,167 @@ int mps_relu_backward_bf16_chained_ab(&void bufA, &void bufSelfGrad, &unsigned s
 // same shape as mps_sgd_update_f32_chained, weights never leave the GPU.
 int mps_sgd_update_f16_chained(&void bufW, &void bufGrad, float lr, unsigned long n);
 int mps_sgd_update_bf16_chained(&void bufW, &void bufGrad, float lr, unsigned long n);
+
+// ── Batched multi-head attention (bf16) ─────────────────────────────────────
+// Scaled-dot-product attention for one new query token per sequence (a
+// decode step) against each sequence's own K/V history, across the whole
+// batch and every head in one dispatch: grouped-query heads, optional
+// sliding window, softmax, weighted sum over V. No 1/sqrt(headDim) factor
+// is applied -- fold any scaling into q. See gpu_mps_kernels.metal's
+// attn_batch_bf16_kernel for the kernel design.
+//
+//   q:         [batchSize, numHeads*headDim] raw bf16 bits.
+//   kAll/vAll: [batchSize, maxKvLen, numKvHeads*headDim] raw bf16 bits --
+//              each sequence's full K/V history including the
+//              just-appended token, gathered contiguously by the caller.
+//   cacheLens: [batchSize] -- each sequence's valid KV length
+//              (<= maxKvLen); rows past it are never read.
+//   out:       [batchSize, numHeads*headDim] raw bf16 bits (pre-o_proj).
+//
+// One-shot dispatch (own commit+wait+readback). Returns 1 on success, 0 if
+// no Metal device is available, pipeline compilation fails, headDim isn't
+// 64, 128, 256 or 512, or numHeads isn't a multiple of numKvHeads -- callers
+// fall back to a CPU path, same contract as every other mps_*_bf16 entry
+// point in this file. There is no KV-length limit.
+int mps_attn_batch_bf16(const &unsigned short q, const &unsigned short kAll, const &unsigned short vAll,
+                          const &unsigned int cacheLens, &unsigned short out,
+                          unsigned long batchSize, unsigned long numHeads, unsigned long numKvHeads,
+                          unsigned long headDim, unsigned long maxKvLen,
+                          int isSliding, unsigned long slidingWindow);
+
+// Chained variant of mps_attn_batch_bf16: 'bufQ'/'bufK'/'bufV'/
+// 'bufCacheLens' are device buffers (e.g. from mps_upload_persistent) and
+// this MUST run inside an open batch (mps_batch_begin()). The output stays
+// a pending GPU buffer (mps_batch_last_output_buffer()) so it can feed a
+// following op -- e.g. o_proj via mps_matmul_abt_bf16_persistent -- in the
+// same commit+wait. 'out' is throwaway CPU scratch, same contract as every
+// other chained op. Same failure conditions as the one-shot variant, plus
+// returning 0 outside a batch.
+int mps_attn_batch_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufCacheLens,
+                                  &unsigned short out,
+                                  unsigned long batchSize, unsigned long numHeads, unsigned long numKvHeads,
+                                  unsigned long headDim, unsigned long maxKvLen,
+                                  int isSliding, unsigned long slidingWindow);
+
+// ── Flash and linear attention ──────────────────────────────────────────────
+// Batched multi-head versions of attention.h's flash_attention_forward and
+// linear_attention_forward on the GPU, in fp32, fp16 or bf16 (all math in
+// fp32). Two calling forms share the same kernels:
+//  - mps_flash_attention / mps_linear_attention (and the host-array _f32
+//    versions) take the same arguments as gpu_rocm.h's and
+//    gpu_cuda_attention.h's rocm_/cuda_ ops, so code moves between AMD,
+//    NVIDIA and Apple GPUs unchanged: fp32 device buffers (from
+//    mps_upload_persistent), q and out [heads][seqLen][headDim], k and v
+//    [heads][kvLen][headDim] (fold a batch into heads).
+//  - The _ex versions take an MpsAttnShape (a batch, grouped-query K/V
+//    with kvHeads dividing heads -- query head h reads kv head
+//    h / (heads / kvHeads) -- and a sliding window) and a dtype: 0 = fp32,
+//    MPS_FP16, MPS_BF16 (raw 16-bit values, as from
+//    mps_upload_f16/bf16_persistent). Q and out are then
+//    [batch][heads][seqLen][headDim], K and V [batch][kvHeads][kvLen][headDim].
+// All buffers are row-major and contiguous.
+//
+// Flash attention: softmax(q k^T * scale) v without forming the score matrix
+// -- FlashAttention-2 on the GPU's simdgroup matrix units for head dims up
+// to 256, a simdgroup-reduction kernel for 512. 'scale' <= 0 means
+// 1/sqrt(headDim). Linear attention: phi(x) = elu(x)+1,
+// out_i = phi(q_i) S / phi(q_i) z with S = sum_j phi(k_j) v_j^T and
+// z = sum_j phi(k_j) -- no scale, since the division cancels it.
+//
+// Masking: query i sits at position pos = i + (kvLen - seqLen) -- the last
+// seqLen keys are the queries' own tokens, any before them a KV cache.
+// causal hides keys j > pos (needs kvLen >= seqLen); a window w > 0 (flash
+// only) also hides keys j <= pos - w, i.e. the query sees its last w
+// positions. A query with no visible key gets zeros.
+//
+// Head dims: 32, 64, 96, 128, 256 or 512 (mps_attention_head_dim_ok). The
+// device-buffer forms encode onto the open batch (results valid after
+// mps_batch_end()) or, outside one, run and wait. 1 = done/encoded, 0 = bad
+// shape or no Metal device -- callers fall back to a CPU path.
+#define MPS_FP16 1   // same values as gpu_cuda.h's CUDA_FP16 / CUDA_BF16
+#define MPS_BF16 2
+
+struct MpsAttnShape {
+    unsigned long batch;
+    unsigned long heads;      // query heads
+    unsigned long kvHeads;    // key/value heads; divides heads
+    unsigned long seqLen;     // query length
+    unsigned long kvLen;      // key/value length
+    unsigned long headDim;    // 32, 64, 96, 128, 256 or 512
+    unsigned long window;     // flash attention sliding window; 0 = none
+};
+
+int mps_attention_head_dim_ok(unsigned long headDim);
+
+int mps_flash_attention(&void q, &void k, &void v, &void out, unsigned long heads, unsigned long seqLen,
+                        unsigned long kvLen, unsigned long headDim, float scale, int causal);
+int mps_flash_attention_ex(&void q, &void k, &void v, &void out, struct MpsAttnShape s, int dtype,
+                           float scale, int causal);
+int mps_linear_attention(&void q, &void k, &void v, &void out, unsigned long heads, unsigned long seqLen,
+                         unsigned long kvLen, unsigned long headDim, int causal);
+int mps_linear_attention_ex(&void q, &void k, &void v, &void out, struct MpsAttnShape s, int dtype, int causal);
+
+// The two fp32 ops on host arrays (upload, compute, read back), with the
+// rocm_*_f32 arguments. Batch-aware like mps_sub_f32.
+int mps_flash_attention_f32(const &float q, const &float k, const &float v, &float out,
+                            unsigned long heads, unsigned long seqLen, unsigned long kvLen,
+                            unsigned long headDim, float scale, int causal);
+int mps_linear_attention_f32(const &float q, const &float k, const &float v, &float out,
+                             unsigned long heads, unsigned long seqLen, unsigned long kvLen,
+                             unsigned long headDim, int causal);
+
+// ── Token-major bf16 attention ──────────────────────────────────────────────
+// The same flash and linear attention on one sequence laid out the way a
+// transformer's projections produce it -- q/out [seqLen, numHeads*headDim],
+// k/v [kvLen, numKvHeads*headDim], raw bf16 bits -- plus a recurrent linear
+// attention whose state stays on the GPU. Use mps_attn_batch_bf16 above for
+// one-query-per-sequence decode steps across a batch.
+//
+// mps_flash_attn_bf16: 'scale' as above (pass 1.0 for models that pre-scale
+// q); isSliding/slidingWindow as the window w. Batch-aware like
+// mps_sub_f32: inside an open batch the result lands in 'out' at
+// mps_batch_end(); otherwise on return. Returns 0 on the conditions above.
+int mps_flash_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                          &unsigned short out,
+                          unsigned long seqLen, unsigned long kvLen,
+                          unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                          float scale, int causal, int isSliding, unsigned long slidingWindow);
+
+// Chained variant: 'bufQ'/'bufK'/'bufV' are device buffers (pending or
+// persistent), must run inside an open batch, and leaves its output as
+// mps_batch_last_output_buffer() -- 'out' is throwaway scratch, same
+// contract as every other chained op.
+int mps_flash_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &unsigned short out,
+                                  unsigned long seqLen, unsigned long kvLen,
+                                  unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                                  float scale, int causal, int isSliding, unsigned long slidingWindow);
+
+// Linear attention on token-major bf16, non-causal or causal (causal needs
+// kvLen == seqLen here). Batch-aware like mps_flash_attn_bf16.
+int mps_linear_attn_bf16(const &unsigned short q, const &unsigned short k, const &unsigned short v,
+                           &unsigned short out,
+                           unsigned long seqLen, unsigned long kvLen,
+                           unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim,
+                           int causal);
+
+// Recurrent (causal) linear attention with the state kept on the GPU:
+// 'bufState' holds S and z for every head, starts from the sequence so
+// far and is advanced in place by these 'seqLen' tokens (k/v as
+// [seqLen, ...]). Feed a prompt in one call, then each decode step with
+// seqLen 1 -- O(headDim^2) per token, independent of how long the
+// sequence already is. Must run inside an open batch; output as for
+// mps_flash_attn_bf16_chained. Calls on the same state must stay in
+// order, which a single batch (or batches ended in sequence) guarantees.
+int mps_linear_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufState, &unsigned short out,
+                                   unsigned long seqLen,
+                                   unsigned long numHeads, unsigned long numKvHeads, unsigned long headDim);
+
+// Size of a linear-attention state: numHeads * (headDim^2 + headDim)
+// floats (per head, S^T as [headDim][headDim] then z).
+unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim);
+
+// A zeroed state for a new sequence (NULL without a Metal device). Release
+// with mps_release_persistent(buf, mps_linear_attn_state_bytes(...)).
+?&void mps_linear_attn_state_new(unsigned long numHeads, unsigned long headDim);
 
 } // namespace std
