@@ -21,6 +21,7 @@ Release-build wall-clock time (lower is better; fastest in bold). SafeC's binary
 - **CPU convolution and FFT** ([details](#mi100-conv-fft)): with Winograd 3×3 convolutions and per-image arenas the U-Net runs in 1.35 ms on the CPU vs PyTorch's 2.68 ms. A 2²⁰-point FFT takes 0.89 ms vs 16-thread FFTW's 1.63 ms; FFTW is 1.1–1.6× faster on the 2D, batched and real transforms.
 - **DSP** ([details](#dsp-cpu)): `std/dsp` is the fastest of SafeC, SciPy, KFR, Q, madronalib and dasp on every workload measured, in double and in float. A biquad over 2²⁰ samples takes 0.48 ms vs Q's 1.69 ms (float), a 127-tap streaming FIR 3.0 ms vs SciPy's 19.5 ms, and resampling 44.1→48 kHz 3.7 ms vs SciPy's 9.1 ms.
 - **Attention on the H200** ([details](#h200-attention)): fp16/bf16 flash attention through cuDNN matches PyTorch (within 3%, up to 690 TFLOPS); fp32 flash attention on tensor cores (3xTF32) is 1.34× faster than PyTorch at head dim 64 and 0.97–1.05× at 128. Linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention, level with PyTorch's TF32 einsums only at head dim 128 fp32 non-causal (while computing in exact fp32).
+- **Attention on the M1 Pro** ([details](#m1pro-attention)): fp32 flash attention on Metal is 1.04–1.22× faster than MLX and 1.16–1.43× faster than PyTorch's `mps` device; fp16/bf16 reach 0.80–0.97× of them. Linear attention is 2.1–4.4× faster than vectorized PyTorch and MLX.
 - **Convolution and FFT on the H200** ([details](#h200-conv-fft)): with cuDNN, SafeC is faster than PyTorch-CUDA in every convolution row. A one-image 64-channel 3×3 convolution takes 0.018 ms vs 0.023 ms (fp32), a batch of 32 takes 0.084 ms vs 0.098 ms (TF32), and the U-Net at batch 16 takes 0.45 ms vs 0.56 ms (TF32). A 2²⁰-point FFT of a host array, including both PCIe copies, takes 1.25 ms vs 2.05 ms. Device-resident cuFFT transforms take the same time as through PyTorch.
 - **Collections** ([details](#collections-stdcollections-throughput-1000000-elements)): `vec_sort` is 1.9× faster than `qsort` and the pooled list 2.2× faster than a `malloc`-per-node one; `HashMap` is within 1.1× of plain C and `Vec` push 1.5× slower.
 - **Allocator** ([details](#memory-allocation-is-stdallocdealloc-slower-than-raw-mallocfree)): `std::alloc` is 1.8× faster than `malloc` when blocks are reused, and with its slabs 1.1× faster with a million blocks live at once.
@@ -660,6 +661,66 @@ Collections (1,000,000 elements, ms): `Vec` push 3.33 vs C 1.95, `vec_sort` **76
 [train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [gpu_cuda.h](/benchmarks/stdlib/gpu_cuda.h) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv_cuda.sc](/benchmarks/conv/safec/conv_cuda.sc) · [PyTorch conv.py](/benchmarks/conv/pytorch/conv.py) · [fft_cpu.sc](/benchmarks/fft/safec/fft_cpu.sc) · [fft_cuda.sc](/benchmarks/fft/safec/fft_cuda.sc) · [PyTorch fft.py](/benchmarks/fft/pytorch/fft.py) · [gpu_cudnn.h](/benchmarks/stdlib/gpu_cudnn.h) · [gpu_cudnn.sc](/benchmarks/stdlib/gpu_cudnn.sc) · [fft_cuda.h](/benchmarks/stdlib/fft_cuda.h) · [fft_cuda.sc](/benchmarks/stdlib/fft_cuda.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [PyTorch big train.py](/benchmarks/ml_big/pytorch/train.py) · the classic benchmarks' sources are linked in their sections above.
 :::
 
+
+## Attention on the Apple M1 Pro {#m1pro-attention}
+
+Flash and linear attention from [`gpu_mps.h`](/stdlib/ml#mps-flash-linear-attention) against PyTorch 2.13's `mps` device and MLX 0.32 on an Apple M1 Pro (macOS 26.6), with the same shapes as [the H200 run](#h200-attention): batch 4, 16 heads, [batch, heads, tokens, head dim], data on the GPU. Flash attention compares with PyTorch's `scaled_dot_product_attention` and MLX's fused `mx.fast.scaled_dot_product_attention`; linear attention (φ(x) = elu(x) + 1) with the same vectorized implementation in both (two einsums non-causal; 64-row chunks with a cumulative state sum causal), as neither ships a fused kernel. Each number is the mean of 5–40 calls queued between two synchronizations, best of 3 runs. TFLOPS count 4·B·H·S²·D (halved when causal).
+
+Flash attention, ms per call (TFLOPS):
+
+| Data | Head dim | Tokens | Causal | SafeC ms (TFLOPS) | PyTorch ms (TFLOPS) | MLX ms (TFLOPS) | PyTorch / SafeC | MLX / SafeC |
+|---|---|---|---|---|---|---|---|---|
+| fp16 | 64 | 1024 | no | 5.46 (3.09) | 4.78 (3.59) | **4.53 (3.75)** | 0.87 | 0.83 |
+| fp16 | 64 | 1024 | yes | 2.98 (2.86) | 2.65 (3.23) | **2.58 (3.32)** | 0.89 | 0.87 |
+| fp16 | 64 | 4096 | no | 87.3 (3.15) | 74.8 (3.66) | **71.2 (3.86)** | 0.86 | 0.82 |
+| fp16 | 64 | 4096 | yes | 44.2 (3.04) | **39 (3.50)** | 39.8 (3.44) | 0.88 | 0.90 |
+| fp16 | 128 | 1024 | no | 10.7 (3.04) | **9.11 (3.74)** | 9.17 (3.75) | 0.85 | 0.86 |
+| fp16 | 128 | 1024 | yes | 5.72 (2.90) | 5.54 (3.09) | **4.91 (3.50)** | 0.97 | 0.86 |
+| fp16 | 128 | 4096 | no | 169 (3.19) | **143 (3.79)** | 146 (3.76) | 0.85 | 0.87 |
+| fp16 | 128 | 4096 | yes | 86.7 (3.15) | 81.6 (3.34) | **74.7 (3.67)** | 0.94 | 0.86 |
+| bf16 | 64 | 1024 | no | 5.98 (2.86) | 5.52 (3.08) | **5.09 (3.33)** | 0.92 | 0.85 |
+| bf16 | 64 | 1024 | yes | 3.19 (2.58) | 3.06 (2.79) | **2.73 (3.14)** | 0.96 | 0.86 |
+| bf16 | 64 | 4096 | no | 93 (2.79) | 86.1 (3.16) | **80.6 (3.41)** | 0.93 | 0.87 |
+| bf16 | 64 | 4096 | yes | 47.7 (2.84) | 44.8 (3.05) | **41.8 (3.22)** | 0.94 | 0.88 |
+| bf16 | 128 | 1024 | no | 14.9 (2.31) | 13 (2.63) | **11.9 (2.70)** | 0.87 | 0.80 |
+| bf16 | 128 | 1024 | yes | 7.61 (2.26) | 7.09 (2.42) | **6.27 (2.52)** | 0.93 | 0.82 |
+| bf16 | 128 | 4096 | no | 232 (2.36) | 202 (2.72) | **199 (2.67)** | 0.87 | 0.86 |
+| bf16 | 128 | 4096 | yes | 113 (2.26) | 104 (2.63) | **97 (2.71)** | 0.92 | 0.86 |
+| fp32 | 64 | 1024 | no | **5.78 (2.96)** | 6.78 (2.52) | 6.07 (2.70) | 1.17 | 1.05 |
+| fp32 | 64 | 1024 | yes | **3.13 (2.74)** | 3.71 (2.31) | 3.41 (2.48) | 1.19 | 1.09 |
+| fp32 | 64 | 4096 | no | **90.6 (3.02)** | 105 (2.61) | 94.5 (2.91) | 1.16 | 1.04 |
+| fp32 | 64 | 4096 | yes | **46.6 (2.95)** | 55.2 (2.49) | 49.8 (2.76) | 1.19 | 1.07 |
+| fp32 | 128 | 1024 | no | **14.7 (2.33)** | 19.7 (1.74) | 16.1 (2.13) | 1.34 | 1.09 |
+| fp32 | 128 | 1024 | yes | **7.51 (2.27)** | 10.8 (1.59) | 8.86 (1.89) | 1.43 | 1.18 |
+| fp32 | 128 | 4096 | no | **233 (2.36)** | 312 (1.75) | 258 (2.13) | 1.34 | 1.11 |
+| fp32 | 128 | 4096 | yes | **113 (2.43)** | 160 (1.69) | 137 (2.00) | 1.42 | 1.22 |
+| bf16 (GQA 32 / 8 heads) | 128 | 4096 | yes | 226 (2.43) | 206 (2.64) | **200 (2.69)** | 0.91 | 0.89 |
+
+Linear attention (φ(x) = elu(x) + 1), ms per call:
+
+| Data | Head dim | Tokens | Causal | SafeC | PyTorch | MLX | PyTorch / SafeC | MLX / SafeC |
+|---|---|---|---|---|---|---|---|---|
+| fp32 | 64 | 4096 | no | **3.24** | 10.3 | 10.6 | 3.2 | 3.3 |
+| fp32 | 64 | 4096 | yes | **6.92** | 27.5 | 19.5 | 4.0 | 2.8 |
+| fp32 | 64 | 16384 | no | **12.2** | 39.5 | 39.9 | 3.2 | 3.3 |
+| fp32 | 64 | 16384 | yes | **27.6** | 110 | 74.2 | 4.0 | 2.7 |
+| fp32 | 128 | 4096 | no | **10.1** | 21.5 | 21.7 | 2.1 | 2.1 |
+| fp32 | 128 | 4096 | yes | **21.6** | 57.1 | 41.1 | 2.6 | 1.9 |
+| bf16 | 64 | 4096 | no | **3.07** | 12.3 | 12.2 | 4.0 | 4.0 |
+| bf16 | 64 | 4096 | yes | **6.5** | 28.9 | 21.6 | 4.4 | 3.3 |
+| bf16 | 64 | 16384 | no | **11.7** | 47.2 | 47.4 | 4.1 | 4.1 |
+| bf16 | 64 | 16384 | yes | **26.2** | 114 | 82.9 | 4.4 | 3.2 |
+| bf16 | 128 | 4096 | no | **9.8** | 24.4 | 25.2 | 2.5 | 2.6 |
+| bf16 | 128 | 4096 | yes | **20.8** | 58.9 | 45.9 | 2.8 | 2.2 |
+
+- **fp32 flash attention** is the fastest of the three everywhere: 1.04–1.22× MLX and 1.16–1.43× PyTorch. SafeC's FlashAttention-2 kernel runs QKᵀ and PV on the GPU's 8×8 simdgroup matrix units with an online softmax on the fragments, in fp32 throughout.
+- **fp16/bf16 flash attention** reaches 0.80–0.90× MLX and 0.85–0.97× PyTorch (2.3–3.2 TFLOPS). The M1 family has no bf16 matrix units, so SafeC converts bf16 tiles to fp32 as it stages them; fp16 multiplies in half precision. Taller simdgroup tiles, 8-simdgroup threadgroups and 32-key tiles at head dim 128 all measured slower.
+- **Linear attention** is 2.1–4.4× faster than both vectorized versions. At head dims 64 and 128 it runs chunk-parallel on the matrix units: per-segment states φ(K)ᵀV, a prefix over 64-row chunks, then every chunk's outputs at once, all in fp32.
+- `tests/stdlib/mps/run.sh` checks every path against a double-precision reference and attention.h's CPU functions: 95 checks.
+
+::: details Sources
+[attn_mps.sc](/benchmarks/attention/safec/attn_mps.sc) · [PyTorch attn.py](/benchmarks/attention/pytorch/attn.py) · [MLX attn.py](/benchmarks/attention/mlx/attn.py) · [gpu_mps.h](/benchmarks/stdlib/gpu_mps.h) · [gpu_mps.sc](/benchmarks/stdlib/gpu_mps.sc) · [gpu_mps_kernels.metal](/benchmarks/stdlib/gpu_mps_kernels.metal)
+:::
 
 ## Earlier runs on other platforms {#earlier-runs}
 
