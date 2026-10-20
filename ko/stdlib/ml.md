@@ -123,7 +123,7 @@ while (s < steps) {
 tensor_arena_free(&step);
 ```
 
-매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
+매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 아레나가 활성인 동안 만든 [`FeatureMap`](#cnn)도 `unet_forward` 안의 모든 중간 결과까지 포함해 아레나에서 할당하며, `feature_map_free`는 그것들을 reset에 맡깁니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
 
 ### 자동미분 연산과 옵티마이저 — `tensor_nn.h` {#autograd-ops-and-optimizer-tensor-nn-h}
 

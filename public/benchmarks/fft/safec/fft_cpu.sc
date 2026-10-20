@@ -7,7 +7,8 @@
 //   fft2d   one 1024 x 1024 complex 2D transform
 //   batch   1024 complex transforms of length 4096 (fft_batch; the GPU
 //           rows run these in fp32)
-//   rfft    1024 real transforms of length 4096 (fft_real_batch)
+//   rfft    1024 real transforms of length 4096 (fft_real_half_batch: the
+//           n/2 + 1 bins per row, as FFTW, KFR and PyTorch return them)
 // Prints the mean time per call, after one warm-up call of each (which
 // starts the thread pool and builds the twiddle table; ../pytorch/fft.py
 // warms up too).
@@ -99,11 +100,11 @@ int main() {
         unsigned long i = 0UL;
         while (i < rows * len) { re[i] = drand48() * 2.0 - 1.0; i = i + 1UL; }
     }
-    unsafe { std::fft_real_batch((const double*)re, b, len, rows); }
+    unsafe { std::fft_real_half_batch((const double*)re, b, len, rows); }
     t0 = now_ms();
     it = 0;
     while (it < iters) {
-        unsafe { std::fft_real_batch((const double*)re, b, len, rows); }
+        unsafe { std::fft_real_half_batch((const double*)re, b, len, rows); }
         it = it + 1;
     }
     ms = (now_ms() - t0) / (double)iters;
@@ -144,11 +145,11 @@ int main() {
         unsigned long i = 0UL;
         while (i < rows * len) { ref[i] = (float)(drand48() * 2.0 - 1.0); i = i + 1UL; }
     }
-    unsafe { std::fft_real_batch_f32((const float*)ref, bf, len, rows); }
+    unsafe { std::fft_real_half_batch_f32((const float*)ref, bf, len, rows); }
     t0 = now_ms();
     it = 0;
     while (it < iters) {
-        unsafe { std::fft_real_batch_f32((const float*)ref, bf, len, rows); }
+        unsafe { std::fft_real_half_batch_f32((const float*)ref, bf, len, rows); }
         it = it + 1;
     }
     ms = (now_ms() - t0) / (double)iters;

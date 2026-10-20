@@ -38,6 +38,9 @@ Recognized: `always_inline`, `pure`, `packed`, `aligned(N)` (bare
 |---|---|
 | `weak` | On a definition, a weak definition another one may override. On an `extern` declaration, a reference that is null when nothing defines the symbol, so code can use an optional library only when the program links it (`if ((void*)f != (void*)0) f(...)`). |
 | `target("avx2,fma")` | This one function may use these ISA features on top of the build's own, for kernels chosen at run time by CPU support (see [CPU SIMD levels](/stdlib/simd#cpu-levels)). Feature names are LLVM's (`avx`, `avx2`, `fma`, `avx512f`, `sve`, `mve.fp`, ...). |
+| `noinline`, `cold` | Keep this function out of line, and mark it rarely run. Containers use them on their growth paths (`Vec::push`'s reallocation, `HashMap`'s rehash), so the inlined fast path keeps its state in registers. |
+
+Function attributes go before the declaration or after its parameter list, also after a const method's `const` (`int T::get() const __attribute__((noinline)) { ... }`). Generic functions keep them in every instantiation.
 
 `always_inline` really forces inlining, so a kernel body written once can be
 compiled at several ISA levels by small `target(...)` wrappers that call it:
