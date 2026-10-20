@@ -50,9 +50,20 @@ Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/`tensor_matmul`/
 real finite-difference check on a matmul→relu→sum chain.
 
 `tensor_matmul` and its backward pass run on [`sgemm`](/stdlib/simd#gemm):
-packed SIMD kernels, split across the [thread pool](/stdlib/sync#parallel)
-for larger products. The backward pass accumulates straight into the
-existing gradients. Set `SAFEC_NUM_THREADS` to limit the thread count.
+packed SIMD kernels at the CPU's best [SIMD level](/stdlib/simd#cpu-levels)
+(AVX-512 down to SSE2, SVE or Neon), split across the
+[thread pool](/stdlib/sync#parallel) for larger products. With a CPU
+vendor BLAS linked — AOCL-BLAS on AMD, oneMKL on Intel, Accelerate on
+Apple, which safeguard's [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output)
+does by default when it finds one — the vendor's kernels do the
+multiplying. The backward pass accumulates straight into the existing
+gradients. Set `SAFEC_NUM_THREADS` to limit the thread count.
+
+Elementwise ops (`tensor_add`/`sub`/`mul`/`scale`/`fill`, ReLU and every
+backward accumulation) are vectorized loops that split across the pool from
+65,536 elements. The transcendental activations — sigmoid, tanh, GELU,
+SiLU, ELU, GLU, SwiGLU — and softmax use [`vmath.h`](/stdlib/simd#vmath)'s
+vectorized `exp`/`tanh`/sigmoid, so they no longer call libm per element.
 
 ```c
 struct Tensor {
@@ -90,6 +101,31 @@ void tensor_zero_grad(&Tensor t);
 int  tensor_is_grad_enabled();
 void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
 ```
+
+### Tensor arenas {#tensor-arena}
+
+Every op allocates its output, so a training loop does a `malloc` (and, for fresh memory, page faults) per op per step. On a small MLP that cost more than the arithmetic. A `TensorArena` is a chunked bump allocator, 64-byte aligned, for one step's temporaries. Between `tensor_arena_begin` and `tensor_arena_end`, every tensor created on that thread comes from the arena: its data, shape and gradient. `tensor_arena_reset` drops them all at once and keeps the memory, already faulted in, for the next step.
+
+```c
+struct TensorArena tensor_arena_new(unsigned long chunkBytes);   // 0 = 16 MiB chunks
+void tensor_arena_begin(&TensorArena a);   // this thread's new tensors come from a
+void tensor_arena_end();                   // back to the heap
+void tensor_arena_reset(&TensorArena a);   // drop every tensor in it, keep the memory
+void tensor_arena_free(&TensorArena a);
+unsigned long tensor_arena_used(const &TensorArena a);   // bytes since the last reset
+
+struct TensorArena step = tensor_arena_new(0UL);
+while (s < steps) {
+    tensor_arena_begin(&step);
+    // ... forward, tensor_backward, optimizer update ...
+    tensor_arena_end();
+    tensor_arena_reset(&step);   // this step's tensors are gone
+    s = s + 1;
+}
+tensor_arena_free(&step);
+```
+
+Tensors created outside the arena, such as parameters, stay on the heap, and so do their gradients, so they survive resets. Each tensor records its `owner`. `Tensor::free()` on an arena tensor does nothing, and a tensor must not be used after its arena is reset.
 
 ### Autograd ops and optimizer — `tensor_nn.h`
 
@@ -282,6 +318,15 @@ neighbor 2x spatial upsample), `concat_channels` (channel-axis
 concatenation) — all over a channels-first `FeatureMap` (not `Tensor`,
 which tops out at 2D). Verified via hand-computed 3×3-kernel and
 pooling-window checks.
+
+3×3, stride-1 layers (with at least 8 input and output channels) use
+Winograd F(2×2, 3×3) (Lavin & Gray, arXiv:1509.09308). Each 2×2 block of
+outputs comes from a 4×4 input tile with 16 multiplies per channel pair
+instead of 36. The transformed tiles and filters turn the work into 16
+GEMMs over channels. The input transform, the GEMMs and the output transform
+each run on the thread pool, with the input and output transforms working
+on eight tiles per vector. Results match the direct sum to about 1e-6
+relative. Other layers use im2col:
 
 `conv2d_forward` is im2col + [`sgemm`](/stdlib/simd#gemm). Each block of
 output pixels gathers its receptive fields into a per-thread column buffer
@@ -477,7 +522,7 @@ the backend picks the one with the most compute units.
 | Elementwise | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
-| fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result) and `rocm_half_gemm_f32` (fp32 result); `rocm_half_sgd(w, g, lr)` |
+| fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
 | Host arrays | `rocm_add_f32` … `rocm_matmul_f32_blas` — upload, compute, read back in one call |
@@ -502,7 +547,17 @@ std::rocm_sgd(W1, dW1, lr);
 Record such a sequence once between `rocm_capture_begin()` and
 `rocm_capture_end()` and replay it with `rocm_graph_launch()` to launch the
 whole step at once; this pays off when the host doesn't wait on the GPU
-every step. `tensor_rocm.h` wraps the host-array ops as autograd `Tensor`
+every step.
+
+GEMMs (fp32 and 16-bit) go through rocBLAS `gemm_ex`. The default solution
+rocBLAS picks for a shape can be several times slower than its best: on an
+MI100, 3.5× for a 128×256×1024 fp16 product and 2–3× for small bf16 ones.
+So the first call for each (types, transposes, size) times every solution
+rocBLAS offers on that call's buffers, like MIOpen's Find, and caches the
+fastest. That takes about 0.1 s per shape. Run each shape once before
+`rocm_capture_begin()`, since an untuned shape inside a capture uses the
+default solution. Because the choice comes from timing, two runs can pick
+different solutions and differ in the last bits. `tensor_rocm.h` wraps the host-array ops as autograd `Tensor`
 functions (`tensor_add_rocm`, `tensor_matmul_rocm_blas`, …) with a CPU
 fallback.
 

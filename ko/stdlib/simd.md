@@ -83,13 +83,41 @@ float dot4(const &float a, const &float b) {
 }
 ```
 
+## CPU SIMD 수준 — `cpu.h` {#cpu-levels}
+
+```c
+#include <std/simd/cpu.h>
+```
+
+std의 핵심 커널 — [`sgemm`](#gemm), [`vmath.h`](#vmath), FFT 버터플라이, `dsp_dot_f64` — 은 여러 버전으로 빌드되며, CPU가 지원하는 가장 좋은 것을 이 순서로 씁니다:
+
+| 계열 | 순서 | 선택 시점 |
+|---|---|---|
+| x86-64 | AVX-512 (F+BW+DQ+VL) > AVX2 + FMA > AVX > SSE4.1 > SSE2 | 실행 시점(`cpuid` + `xgetbv`), 한 번 |
+| AArch64 | SVE > Neon | Linux에서는 실행 시점(`getauxval`), 그 밖에는 Neon |
+| Cortex-M | Helium (MVE) > DSP 확장 | 컴파일 시점, 타깃으로: Helium은 `arm-81m`, DSP는 `arm-7em` / `arm-8m` |
+| WebAssembly | SIMD128 | 컴파일 시점 |
+
+그래서 이식 가능한 베이스라인으로 빌드한 x86-64 바이너리 하나가 CPU에 AVX-512가 있으면 그것을 쓰고, SSE2만 있는 머신에서도 그대로 돕니다. 빌드가 이미 보장하는 수준(예: `__AVX2__` 등을 정의하는 `--target-cpu=native`, [ISA 매크로](/ko/reference/simd#isa-macros-and-target-cpu) 참고)이 하한입니다. 각 버전은 같은 소스를 [`__attribute__((target(...)))`](/ko/reference/c-superset#__attribute__)로 컴파일한 것입니다.
+
+```c
+#define SIMD_SSE2 1   // ... SIMD_SSE41 2, SIMD_AVX 3, SIMD_AVX2 4, SIMD_AVX512 5,
+                      // SIMD_NEON 10, SIMD_SVE 11, SIMD_DSP 20, SIMD_HELIUM 21, SIMD_WASM128 30
+int simd_level();                     // 한 번 감지한 뒤 캐시
+const char* simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
+```
+
+`SAFEC_SIMD=sse2|sse4.1|avx|avx2|avx512|neon|sve`는 수준의 상한을 정해, 더 느린 경로를 시험하거나 비교할 수 있게 합니다.
+
 ## 행렬 곱셈 — `gemm.h` {#gemm}
 
 ```c
 #include <std/simd/gemm.h>
 ```
 
-CPU용 단정밀도 GEMM으로, `vec<float, 8>` 위에 작성되어 하나의 소스가 x86-64에서는 SSE/AVX, AArch64에서는 NEON, WebAssembly에서는 SIMD128, 그 밖에서는 스칼라 코드가 됩니다. A와 B를 연속된 스트립으로 패킹한 뒤 4 × 16 레지스터 타일 커널로 곱합니다. 곱셈-덧셈이 약 백만 회 이상인 곱은 C를 타일로 나누어 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다.
+CPU용 단정밀도 GEMM입니다. A와 B를 연속 스트립으로 패킹한 뒤 레지스터 타일 커널로 곱합니다: `vec<float, 8>`의 4 × 16(같은 본문을 SSE2, AVX, AVX2 + FMA로 빌드) 또는 AVX-512용 `vec<float, 16>`의 8 × 16. 곱셈-덧셈이 약 백만 회 이상인 곱은 C를 타일로 나누어 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행합니다.
+
+프로그램이 CPU 벤더 BLAS를 링크하면 그 커널이 계산합니다: AMD에서는 **AOCL-BLAS**, Intel에서는 **oneMKL**, Apple에서는 **Accelerate**. safeguard의 [`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)가 알맞은 것을 링크하며, 직접 링크할 때는 `-lblis-mt -lgomp`, oneMKL의 `mkl_intel_lp64 mkl_gnu_thread mkl_core -lgomp`, 또는 `-framework Accelerate`를 씁니다. `sgemm`은 `cblas_sgemm`을 약한 참조로 찾으므로 선택은 링크 시점에 정해집니다. Accelerate를 제외하면 std는 라이브러리를 단일 스레드로 돌리고 C를 자기 풀에 타일로 나누어, 타일마다 라이브러리를 한 번 호출합니다. 라이브러리의 OpenMP 워커는 호출 사이에 바쁜 대기를 하는데, 풀과 같은 코어를 두고 경쟁하면 U-Net 순전파가 6배 느려졌습니다. 이 설정은 프로그램이 직접 라이브러리를 호출할 때도 단일 스레드로 적용됩니다.
 
 ```c
 #define SGEMM_NO_TRANS 0
@@ -102,23 +130,37 @@ void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lo
            const &float b, unsigned long ldb,
            float beta, &float c, unsigned long ldc);
 
-// 같은 연산을 항상 호출한 스레드에서만 (풀 없음): 이미 병렬이거나
-// 다른 스레드를 기다리면 안 되는 코드용.
+// 같은 연산을 항상 호출한 스레드에서만 (풀 없음; 링크된 벤더 라이브러리는
+// 단일 스레드로): 이미 병렬인 코드용.
 void sgemm_serial(/* 같은 매개변수 */);
+
+int sgemm_vendor();            // 벤더 BLAS를 쓰고 있으면 1
+const char* sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
-`tensor_matmul`(순전파와 역전파)과 `conv2d_forward`가 이것을 기반으로 합니다.
+`tensor_matmul`(순전파와 역전파), `conv2d_forward`, `half_matmul`이 이것을 기반으로 합니다.
 
-Ryzen 7 7800X3D(8코어 / 16스레드)에서 정사각 행렬의 처리량:
+Ryzen 7 7800X3D(Zen 4, 8코어 / 16스레드)에서 N × N × N, 베이스라인 x86-64 빌드 하나로 잰 처리량:
 
-| 빌드 | N = 256 | N = 512 | N = 1024 |
+| 커널 | 1스레드, N = 1024 | 16스레드, N = 512 | 16스레드, N = 1024 |
 |---|---|---|---|
-| 기본 타깃 (x86-64 베이스라인, SSE2), 1스레드 | 25 GFLOP/s | 25 GFLOP/s | 25 GFLOP/s |
-| 기본 타깃, 16스레드 | 161 GFLOP/s | 201 GFLOP/s | 226 GFLOP/s |
-| `-march=native` (AVX-512 + FMA), 1스레드 | 109 GFLOP/s | 106 GFLOP/s | 100 GFLOP/s |
-| `-march=native`, 16스레드 | 336 GFLOP/s | 503 GFLOP/s | 614 GFLOP/s |
+| 내장, SSE2 (`SAFEC_SIMD=sse2`) | 35 GFLOP/s | 252 GFLOP/s | 239 GFLOP/s |
+| 내장, AVX | 86 GFLOP/s | 575 GFLOP/s | 614 GFLOP/s |
+| 내장, AVX2 + FMA | 100 GFLOP/s | 575 GFLOP/s | 614 GFLOP/s |
+| 내장, AVX-512 (이 CPU에서 선택됨) | 105 GFLOP/s | 671 GFLOP/s | 716 GFLOP/s |
+| AOCL-BLAS 5.3, std 풀의 타일 | 134 GFLOP/s | 1007 GFLOP/s | 1074 GFLOP/s |
+| oneMKL 2026.2, std 풀의 타일 | 130 GFLOP/s | 671 GFLOP/s | 716 GFLOP/s |
 
-기본 타깃은 이식 가능한 베이스라인입니다. 호스트의 전체 벡터 폭을 쓰려면 생성된 IR을 std까지 포함해 `clang -march=native`(또는 특정 `-march=`)로 컴파일하세요.
+## 벡터 수학 — `vmath.h` {#vmath}
+
+```c
+#include <std/simd/vmath.h>
+void vm_exp_f32(const &float x, &float y, unsigned long n);
+void vm_tanh_f32(const &float x, &float y, unsigned long n);
+void vm_sigmoid_f32(const &float x, &float y, unsigned long n);
+```
+
+`y[i] = f(x[i])`를 분기 없는 다항식 코드(Cephes 방식 구간 축소)로 계산하며, CPU의 [SIMD 수준](#cpu-levels)으로 벡터화되고 32,768개 원소부터 스레드 풀에 나뉩니다. 측정 오차는 exp 1 ulp 미만, tanh 1.3 ulp, sigmoid 2 ulp이며 비정규 결과도 포함합니다. NaN은 전파되고 오버플로는 무한대가 됩니다. 7800X3D에서 원소당 약 0.2 ns입니다. `x`와 `y`는 같은 배열이어도 됩니다. std의 활성화(sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU)와 softmax가 이것을 씁니다.
 
 ## ISA별 편의 헤더 {#per-isa-convenience-headers}
 

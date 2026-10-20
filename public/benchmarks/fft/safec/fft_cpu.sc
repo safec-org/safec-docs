@@ -1,5 +1,6 @@
-// FFT on the CPU with std/dsp/fft.h and imaging.h (radix-2, double
-// precision, on std/sync/parallel.h's thread pool). Same transforms as
+// FFT on the CPU with std/dsp/fft.h and imaging.h (radix-2/4, on
+// std/sync/parallel.h's thread pool), in double precision and then in
+// float (the _f32 functions, rows tagged c64 / f32). Same transforms as
 // fft_cuda.sc and
 // ../pytorch/fft.py:
 //   fft1d   one complex transform of length 2^20
@@ -24,6 +25,21 @@ extern void srand48(long seed);
 #include <std/time.h>
 
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
+
+static &heap Complex32 random_complex32(unsigned long n) {
+    ?&heap Complex32 q = std::alloc(n * sizeof(struct Complex32));
+    match (q) {
+        case some(p): {
+            unsafe {
+                unsigned long i = 0UL;
+                while (i < n) { p[i].re = (float)(drand48() * 2.0 - 1.0); p[i].im = (float)(drand48() * 2.0 - 1.0); i = i + 1UL; }
+            }
+            return p;
+        }
+        case null: { std::panic_at("random_complex32: out of memory", "fft_cpu.sc", 0); }
+    }
+    std::panic_at("random_complex32: unreachable", "fft_cpu.sc", 0);
+}
 
 static &heap Complex random_complex(unsigned long n) {
     ?&heap Complex q = std::alloc(n * sizeof(struct Complex));
@@ -94,5 +110,50 @@ int main() {
     unsafe { printf("[rfft 1024x4096 r2c cpu] ms_per_call=%.3f\n", ms); }
     std::dealloc(reh);
     std::dealloc(b);
+    // ── single precision ──
+    &heap Complex32 xf = random_complex32(n);
+    std::fft_f32(xf, n);
+    t0 = now_ms();
+    it = 0;
+    while (it < iters) { std::fft_f32(xf, n); it = it + 1; }
+    ms = (now_ms() - t0) / (double)iters;
+    unsafe { printf("[fft1d n=1048576 c64 cpu] ms_per_call=%.3f\n", ms); }
+    unsafe { std::dealloc(xf); }
+
+    &heap Complex32 imgf = random_complex32(side * side);
+    std::fft2d_f32(imgf, side, side);
+    t0 = now_ms();
+    it = 0;
+    while (it < iters) { std::fft2d_f32(imgf, side, side); it = it + 1; }
+    ms = (now_ms() - t0) / (double)iters;
+    unsafe { printf("[fft2d 1024x1024 c64 cpu] ms_per_call=%.3f\n", ms); }
+    unsafe { std::dealloc(imgf); }
+
+    &heap Complex32 bf = random_complex32(rows * len);
+    std::fft_batch_f32(bf, len, rows, 0);
+    t0 = now_ms();
+    it = 0;
+    while (it < iters) { std::fft_batch_f32(bf, len, rows, 0); it = it + 1; }
+    ms = (now_ms() - t0) / (double)iters;
+    unsafe { printf("[batch 1024x4096 c2c f32 cpu] ms_per_call=%.3f\n", ms); }
+
+    ?&heap float refh = std::alloc(rows * len * sizeof(float));
+    float* ref;
+    unsafe {
+        ref = (float*)refh;
+        unsigned long i = 0UL;
+        while (i < rows * len) { ref[i] = (float)(drand48() * 2.0 - 1.0); i = i + 1UL; }
+    }
+    unsafe { std::fft_real_batch_f32((const float*)ref, bf, len, rows); }
+    t0 = now_ms();
+    it = 0;
+    while (it < iters) {
+        unsafe { std::fft_real_batch_f32((const float*)ref, bf, len, rows); }
+        it = it + 1;
+    }
+    ms = (now_ms() - t0) / (double)iters;
+    unsafe { printf("[rfft 1024x4096 r2c f32 cpu] ms_per_call=%.3f\n", ms); }
+    std::dealloc(refh);
+    std::dealloc(bf);
     return 0;
 }

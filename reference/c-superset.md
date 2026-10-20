@@ -8,7 +8,7 @@ than rejecting outright. This page covers the C constructs SafeC accepts
 verbatim, beyond the core language described in [Types](/reference/types),
 [Functions](/reference/functions), and [Memory & Regions](/reference/memory).
 
-## `__attribute__((...))`
+## `__attribute__((...))` {#__attribute__}
 
 GCC/Clang attribute syntax is accepted in every position real C code uses
 it — prefix, suffix, on a struct tag, or trailing a struct body — and
@@ -32,7 +32,20 @@ int g_aligned_val __attribute__((aligned(16))) = 7;
 Recognized: `always_inline`, `pure`, `packed`, `aligned(N)` (bare
 `aligned` defaults to the target's max useful alignment), `section("name")`
 (same effect as SafeC's native `section(...)` — see
-[Bare-Metal](/reference/baremetal)).
+[Bare-Metal](/reference/baremetal)), plus:
+
+| Attribute | Effect |
+|---|---|
+| `weak` | On a definition, a weak definition another one may override. On an `extern` declaration, a reference that is null when nothing defines the symbol, so code can use an optional library only when the program links it (`if ((void*)f != (void*)0) f(...)`). |
+| `target("avx2,fma")` | This one function may use these ISA features on top of the build's own, for kernels chosen at run time by CPU support (see [CPU SIMD levels](/stdlib/simd#cpu-levels)). Feature names are LLVM's (`avx`, `avx2`, `fma`, `avx512f`, `sve`, `mve.fp`, ...). |
+
+`always_inline` really forces inlining, so a kernel body written once can be
+compiled at several ISA levels by small `target(...)` wrappers that call it:
+
+```c
+static float body(const float* x, unsigned long n) __attribute__((always_inline)) { ... }
+static float body_avx2(const float* x, unsigned long n) __attribute__((target("avx2,fma"))) { return body(x, n); }
+```
 
 ## C-Style Function Pointers
 

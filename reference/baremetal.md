@@ -34,6 +34,7 @@ In freestanding mode:
 | `arm-7m` | `thumbv7m-none-eabi` | Cortex-M3 (ARMv7-M) | AAPCS, soft-float | 32-bit |
 | `arm-7em` | `thumbv7em-none-eabi` | Cortex-M4/M7 (ARMv7E-M, DSP) | AAPCS, soft-float | 32-bit |
 | `arm-8m` | `thumbv8m.main-none-eabi` | Cortex-M33 (ARMv8-M Mainline) | AAPCS, soft-float | 32-bit |
+| `arm-81m` | `thumbv8.1m.main-none-eabi` | Cortex-M55/M85 (ARMv8.1-M, Helium) | AAPCS, soft-float calls | 32-bit |
 | `rv32i` | `riscv32-unknown-elf` | RV32I | `ilp32` | 32-bit |
 | `rv32e` | `riscv32-unknown-elf` | RV32E (16 registers) | `ilp32e` | 32-bit |
 | `rv64i` | `riscv64-unknown-elf` | RV64I | `lp64` | 64-bit |

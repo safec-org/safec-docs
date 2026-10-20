@@ -83,13 +83,41 @@ float dot4(const &float a, const &float b) {
 }
 ```
 
+## CPU SIMD levels — `cpu.h` {#cpu-levels}
+
+```c
+#include <std/simd/cpu.h>
+```
+
+std's hot kernels — [`sgemm`](#gemm), [`vmath.h`](#vmath), the FFT butterflies and `dsp_dot_f64` — are built in several versions and use the best one the CPU supports, in this order:
+
+| Family | Order | Chosen |
+|---|---|---|
+| x86-64 | AVX-512 (F+BW+DQ+VL) > AVX2 + FMA > AVX > SSE4.1 > SSE2 | at run time (`cpuid` + `xgetbv`), once |
+| AArch64 | SVE > Neon | at run time on Linux (`getauxval`), else Neon |
+| Cortex-M | Helium (MVE) > DSP extension | at compile time, by target: `arm-81m` for Helium, `arm-7em` / `arm-8m` for DSP |
+| WebAssembly | SIMD128 | at compile time |
+
+So one x86-64 binary built for the portable baseline uses AVX-512 where the CPU has it and still runs on an SSE2-only machine. Whatever the build already guarantees (for instance `--target-cpu=native`, which defines `__AVX2__` etc.; see [ISA macros](/reference/simd#isa-macros-and-target-cpu)) is the floor. Each version is the same source compiled with [`__attribute__((target(...)))`](/reference/c-superset#__attribute__).
+
+```c
+#define SIMD_SSE2 1   // ... SIMD_SSE41 2, SIMD_AVX 3, SIMD_AVX2 4, SIMD_AVX512 5,
+                      // SIMD_NEON 10, SIMD_SVE 11, SIMD_DSP 20, SIMD_HELIUM 21, SIMD_WASM128 30
+int simd_level();                     // detected once, then cached
+const char* simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
+```
+
+`SAFEC_SIMD=sse2|sse4.1|avx|avx2|avx512|neon|sve` caps the level, to test or compare the slower paths.
+
 ## Matrix multiply — `gemm.h` {#gemm}
 
 ```c
 #include <std/simd/gemm.h>
 ```
 
-Single-precision GEMM for the CPU, written on `vec<float, 8>`, so one source uses SSE/AVX on x86-64, NEON on AArch64, SIMD128 on WebAssembly, and scalar code elsewhere. A and B are packed into contiguous strips and multiplied by a 4 × 16 register-tile kernel; C is cut into tiles that run on the [thread pool](/stdlib/sync#parallel) once a product has about a million multiply-adds.
+Single-precision GEMM for the CPU. A and B are packed into contiguous strips and multiplied by a register-tile kernel: 4 × 16 on `vec<float, 8>` (SSE2, AVX, AVX2 + FMA builds of one body) or 8 × 16 on `vec<float, 16>` for AVX-512. C is cut into tiles that run on the [thread pool](/stdlib/sync#parallel) once a product has about a million multiply-adds.
+
+When the program links a CPU vendor BLAS, its kernels do the work: **AOCL-BLAS** on AMD, **oneMKL** on Intel, **Accelerate** on Apple. safeguard's [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output) links the right one; by hand, link `-lblis-mt -lgomp`, oneMKL's `mkl_intel_lp64 mkl_gnu_thread mkl_core -lgomp`, or `-framework Accelerate`. `sgemm` reaches `cblas_sgemm` through a weak reference, so the choice is made at link time. Except with Accelerate, std runs the library on one thread and splits C across its own pool, one library call per tile. The libraries' OpenMP workers busy-wait between calls, and on the same cores as the pool that made a U-Net forward pass six times slower. This setting also makes the library single-threaded for the program's own direct calls into it.
 
 ```c
 #define SGEMM_NO_TRANS 0
@@ -102,23 +130,37 @@ void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lo
            const &float b, unsigned long ldb,
            float beta, &float c, unsigned long ldc);
 
-// Same, always on the calling thread (no pool): for code that is already
-// parallel or must not block on other threads.
+// Same, always on the calling thread (no pool; a vendor library, if linked,
+// runs single-threaded): for code that is already parallel.
 void sgemm_serial(/* same parameters */);
+
+int sgemm_vendor();            // 1 if a vendor BLAS is in use
+const char* sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
-`tensor_matmul` (forward and backward) and `conv2d_forward` are built on it.
+`tensor_matmul` (forward and backward), `conv2d_forward` and `half_matmul` are built on it.
 
-Throughput on a Ryzen 7 7800X3D (8 cores / 16 threads), square matrices:
+Throughput on a Ryzen 7 7800X3D (Zen 4, 8 cores / 16 threads), N × N × N, from one baseline x86-64 build:
 
-| Build | N = 256 | N = 512 | N = 1024 |
+| Kernel | 1 thread, N = 1024 | 16 threads, N = 512 | 16 threads, N = 1024 |
 |---|---|---|---|
-| default target (x86-64 baseline, SSE2), 1 thread | 25 GFLOP/s | 25 GFLOP/s | 25 GFLOP/s |
-| default target, 16 threads | 161 GFLOP/s | 201 GFLOP/s | 226 GFLOP/s |
-| `-march=native` (AVX-512 + FMA), 1 thread | 109 GFLOP/s | 106 GFLOP/s | 100 GFLOP/s |
-| `-march=native`, 16 threads | 336 GFLOP/s | 503 GFLOP/s | 614 GFLOP/s |
+| built-in, SSE2 (`SAFEC_SIMD=sse2`) | 35 GFLOP/s | 252 GFLOP/s | 239 GFLOP/s |
+| built-in, AVX | 86 GFLOP/s | 575 GFLOP/s | 614 GFLOP/s |
+| built-in, AVX2 + FMA | 100 GFLOP/s | 575 GFLOP/s | 614 GFLOP/s |
+| built-in, AVX-512 (picked on this CPU) | 105 GFLOP/s | 671 GFLOP/s | 716 GFLOP/s |
+| AOCL-BLAS 5.3, tiles on std's pool | 134 GFLOP/s | 1007 GFLOP/s | 1074 GFLOP/s |
+| oneMKL 2026.2, tiles on std's pool | 130 GFLOP/s | 671 GFLOP/s | 716 GFLOP/s |
 
-The default target is the portable baseline. Building with the host's full vector width means compiling the generated IR, std included, with `clang -march=native` (or a specific `-march=`).
+## Vector math — `vmath.h` {#vmath}
+
+```c
+#include <std/simd/vmath.h>
+void vm_exp_f32(const &float x, &float y, unsigned long n);
+void vm_tanh_f32(const &float x, &float y, unsigned long n);
+void vm_sigmoid_f32(const &float x, &float y, unsigned long n);
+```
+
+`y[i] = f(x[i])` as branch-free polynomial code (Cephes-style range reduction), vectorized at the CPU's [SIMD level](#cpu-levels) and split across the thread pool from 32,768 elements. Measured error is under 1 ulp for exp, 1.3 ulp for tanh and 2 ulp for sigmoid, subnormal results included. NaN propagates and overflow gives infinity. About 0.2 ns per element on the 7800X3D. `x` and `y` may be the same array. std's activations (sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU) and softmax use it.
 
 ## Per-ISA Convenience Headers
 

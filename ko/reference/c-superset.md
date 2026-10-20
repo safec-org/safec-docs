@@ -32,7 +32,19 @@ int g_aligned_val __attribute__((aligned(16))) = 7;
 인식되는 어트리뷰트: `always_inline`, `pure`, `packed`, `aligned(N)`
 (단순 `aligned`는 타깃의 최대 유효 정렬값을 기본값으로 사용),
 `section("name")` (SafeC 네이티브 `section(...)`과 동일한 효과 —
-[베어메탈](/ko/reference/baremetal) 참고).
+[베어메탈](/ko/reference/baremetal) 참고), 그리고:
+
+| 어트리뷰트 | 효과 |
+|---|---|
+| `weak` | 정의에 붙이면 다른 정의가 덮어쓸 수 있는 약한 정의가 된다. `extern` 선언에 붙이면 그 심볼을 정의한 곳이 없을 때 null이 되는 참조가 되므로, 프로그램이 선택적 라이브러리를 링크했을 때만 그것을 쓸 수 있다(`if ((void*)f != (void*)0) f(...)`). |
+| `target("avx2,fma")` | 이 함수 하나만 빌드 자체의 ISA 기능에 더해 이 기능들을 쓸 수 있다. CPU 지원에 따라 실행 시점에 고르는 커널용이다([CPU SIMD 수준](/ko/stdlib/simd#cpu-levels) 참고). 기능 이름은 LLVM의 것이다(`avx`, `avx2`, `fma`, `avx512f`, `sve`, `mve.fp`, ...). |
+
+`always_inline`은 실제로 인라인을 강제하므로, 한 번 작성한 커널 본문을 그것을 호출하는 작은 `target(...)` 래퍼들로 여러 ISA 수준에 맞게 컴파일할 수 있다:
+
+```c
+static float body(const float* x, unsigned long n) __attribute__((always_inline)) { ... }
+static float body_avx2(const float* x, unsigned long n) __attribute__((target("avx2,fma"))) { return body(x, n); }
+```
 
 ## C 스타일 함수 포인터 {#c-style-function-pointers}
 

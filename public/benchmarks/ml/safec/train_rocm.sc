@@ -4,9 +4,15 @@
 // kernels. Same model, data and loop as ../pytorch/train.py: the loss is
 // read back every step and Y[0][0] every inference pass, like .item().
 //
-// Each shape runs twice: plain (every op launched individually) and graph
-// (one training step / one forward pass recorded into a RocmGraph and
-// replayed with a single launch).
+// Each shape runs in four modes:
+//   plain  every op launched individually
+//   graph  one training step / one forward pass recorded into a RocmGraph
+//          and replayed with a single launch
+//   fp16 / bf16  the graph step with every tensor (data, weights,
+//          activations, gradients) in 16-bit storage (RocmHalfBuf): rocBLAS
+//          GEMMs with fp32 accumulation, elementwise math in fp32 rounded
+//          once per stored value; the loss stays fp32. ../pytorch/train.py's
+//          fp16/bf16 rows cast the same model and data with .to(dtype).
 //
 // Build: safec train_rocm.sc -I <SafeC> -O2 -o train_rocm.ll
 //        clang -O2 train_rocm.ll libsafec_std.a -L/opt/rocm/lib \
@@ -15,6 +21,7 @@ extern int printf(const char* fmt, ...);
 extern double drand48();
 extern void srand48(long seed);
 #include <std/ml/gpu_rocm.h>
+#include <std/ml/float16.h>
 #include <std/collections/vec.h>
 #include <std/time.h>
 
@@ -136,6 +143,108 @@ static void run(const char* label, unsigned long B, unsigned long I, unsigned lo
     mlp_free(&m);
 }
 
+// ── 16-bit storage ───────────────────────────────────────────────────────────
+
+struct HalfMlp {
+    unsigned long B; unsigned long I; unsigned long H; unsigned long O;
+    struct RocmHalfBuf X; struct RocmHalfBuf T; struct RocmHalfBuf W1; struct RocmHalfBuf W2;
+    struct RocmHalfBuf Hh; struct RocmHalfBuf Y; struct RocmHalfBuf dY;
+    struct RocmHalfBuf dW2; struct RocmHalfBuf dH; struct RocmHalfBuf dZ1; struct RocmHalfBuf dW1;
+    struct RocmBuf loss;
+};
+
+static struct HalfMlp half_new(unsigned long B, unsigned long I, unsigned long H, unsigned long O, int dt) {
+    struct HalfMlp m;
+    m.B = B; m.I = I; m.H = H; m.O = O;
+    unsafe { srand48(42L); }
+    struct Vec<float> x = random_vec(B * I, 1.0);
+    struct Vec<float> t = random_vec(B * O, 1.0);
+    struct Vec<float> w1 = random_vec(I * H, 0.1);
+    struct Vec<float> w2 = random_vec(H * O, 0.1);
+    m.X = std::rocm_half_upload(x.at(0UL), B * I, dt);
+    m.T = std::rocm_half_upload(t.at(0UL), B * O, dt);
+    m.W1 = std::rocm_half_upload(w1.at(0UL), I * H, dt);
+    m.W2 = std::rocm_half_upload(w2.at(0UL), H * O, dt);
+    x.free(); t.free(); w1.free(); w2.free();
+    m.Hh = std::rocm_half_alloc(B * H, dt);  m.Y = std::rocm_half_alloc(B * O, dt);
+    m.dY = std::rocm_half_alloc(B * O, dt);  m.dW2 = std::rocm_half_alloc(H * O, dt);
+    m.dH = std::rocm_half_alloc(B * H, dt);  m.dZ1 = std::rocm_half_alloc(B * H, dt);
+    m.dW1 = std::rocm_half_alloc(I * H, dt);
+    m.loss = std::rocm_alloc(1UL);
+    return m;
+}
+
+static void half_free(&HalfMlp m) {
+    std::rocm_half_free(&m.X); std::rocm_half_free(&m.T); std::rocm_half_free(&m.W1); std::rocm_half_free(&m.W2);
+    std::rocm_half_free(&m.Hh); std::rocm_half_free(&m.Y); std::rocm_half_free(&m.dY);
+    std::rocm_half_free(&m.dW2); std::rocm_half_free(&m.dH); std::rocm_half_free(&m.dZ1);
+    std::rocm_half_free(&m.dW1); std::rocm_free(&m.loss);
+}
+
+static void half_forward(&HalfMlp m) {
+    std::rocm_half_gemm_relu(m.X, 0, m.W1, 0, m.Hh, m.B, m.H, m.I);   // H = relu(X W1)
+    std::rocm_half_gemm(m.Hh, 0, m.W2, 0, m.Y, m.B, m.O, m.H);        // Y = H W2
+}
+
+static void half_step(&HalfMlp m, float lr) {
+    half_forward(m);
+    std::rocm_half_mse_grad(m.Y, m.T, m.dY, m.loss);
+    std::rocm_half_gemm(m.Hh, 1, m.dY, 0, m.dW2, m.H, m.O, m.B);
+    std::rocm_half_gemm(m.dY, 0, m.W2, 1, m.dH, m.B, m.H, m.O);
+    std::rocm_half_relu_grad(m.Hh, m.dH, m.dZ1);   // relu(z) > 0 exactly where z > 0
+    std::rocm_half_gemm(m.X, 1, m.dZ1, 0, m.dW1, m.I, m.H, m.B);
+    std::rocm_half_sgd2(m.W2, m.dW2, m.W1, m.dW1, lr);
+}
+
+static void run_half(const char* label, unsigned long B, unsigned long I, unsigned long H, unsigned long O,
+                     unsigned long steps, unsigned long passes, int dt) {
+    struct HalfMlp m = half_new(B, I, H, O, dt);
+    float lr = (float)0.001;
+    float lossHost[1];
+    unsigned short yBits[1];
+    // One step with lr = 0 before capture (w - 0 * g rounds back to w):
+    // the first call of each GEMM shape picks its rocBLAS solution, which
+    // can't happen while recording.
+    half_step(&m, (float)0.0);
+    std::rocm_sync();
+    std::rocm_capture_begin();
+    half_step(&m, lr);
+    struct RocmGraph stepGraph = std::rocm_capture_end();
+    std::rocm_capture_begin();
+    half_forward(&m);
+    struct RocmGraph fwdGraph = std::rocm_capture_end();
+    std::rocm_sync();
+
+    double t0 = now_ms();
+    unsigned long s = 0UL;
+    while (s < steps) {
+        std::rocm_graph_launch(stepGraph);
+        unsafe { std::rocm_read(m.loss, &lossHost[0], 1UL); }
+        s = s + 1UL;
+    }
+    double t1 = now_ms();
+    double checksum = 0.0;
+    unsigned long p = 0UL;
+    while (p < passes) {
+        std::rocm_graph_launch(fwdGraph);
+        unsafe {
+            std::rocm_half_read(m.Y, &yBits[0], 1UL);
+            float y0 = dt == ROCM_BF16 ? std::bf16_to_f32(yBits[0]) : std::fp16_to_f32(yBits[0]);
+            checksum = checksum + (double)y0;
+        }
+        p = p + 1UL;
+    }
+    double t2 = now_ms();
+    unsafe {
+        printf("[%s %s] train_ms=%.3f last_loss=%.6f throughput_samples_per_sec=%.2f inference_ms_per_%lu=%.3f checksum=%.6f\n",
+               label, dt == ROCM_BF16 ? "bf16" : "fp16", t1 - t0, (double)lossHost[0],
+               (double)(steps * B) / ((t1 - t0) / 1000.0), passes, t2 - t1, checksum);
+    }
+    std::rocm_graph_free(&stepGraph);
+    std::rocm_graph_free(&fwdGraph);
+    half_free(&m);
+}
+
 int main() {
     if (!std::rocm_available()) { unsafe { printf("no ROCm GPU -- skipping\n"); } return 0; }
     unsafe { printf("device: %s\n", std::rocm_device_name()); }
@@ -144,11 +253,21 @@ int main() {
     run("warmup", 64UL, 128UL, 256UL, 64UL, 200UL, 200UL, 0);
     run("warmup", 128UL, 512UL, 1024UL, 256UL, 200UL, 200UL, 0);
     run("warmup", 64UL, 128UL, 256UL, 64UL, 200UL, 200UL, 1);
+    run_half("warmup", 64UL, 128UL, 256UL, 64UL, 200UL, 200UL, ROCM_FP16);
+    run_half("warmup", 128UL, 512UL, 1024UL, 256UL, 200UL, 200UL, ROCM_FP16);
+    run_half("warmup", 64UL, 128UL, 256UL, 64UL, 200UL, 200UL, ROCM_BF16);
+    run_half("warmup", 128UL, 512UL, 1024UL, 256UL, 200UL, 200UL, ROCM_BF16);
     int g = 0;
     while (g < 2) {
         run("small 128-256-64", 64UL, 128UL, 256UL, 64UL, 100UL, 1000UL, g);
         run("big 512-1024-256", 128UL, 512UL, 1024UL, 256UL, 50UL, 200UL, g);
         g = g + 1;
+    }
+    int dt = ROCM_FP16;
+    while (dt <= ROCM_BF16) {
+        run_half("small 128-256-64", 64UL, 128UL, 256UL, 64UL, 100UL, 1000UL, dt);
+        run_half("big 512-1024-256", 128UL, 512UL, 1024UL, 256UL, 50UL, 200UL, dt);
+        dt = dt + 1;
     }
     return 0;
 }

@@ -48,10 +48,15 @@ int main() {
     i = 0UL;
     while (i < HIDDEN * OUT_DIM) { unsafe { float* d = (float*)W2->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
 
+    // Each step's temporaries live in a TensorArena that is reset after the
+    // step, so ops reuse memory that is already mapped instead of a fresh
+    // malloc each (PyTorch's caching allocator does the same).
+    struct TensorArena stepArena = std::tensor_arena_new(0UL);
     double t0 = now_ms();
     int step = 0;
     double lastLoss = 0.0;
     while (step < STEPS) {
+        std::tensor_arena_begin(&stepArena);
         std::tensor_zero_grad(W1);
         std::tensor_zero_grad(W2);
 
@@ -66,6 +71,8 @@ int main() {
         sgd_update(W2);
 
         unsafe { lastLoss = (double)loss->data[0]; }
+        std::tensor_arena_end();
+        std::tensor_arena_reset(&stepArena);
         step = step + 1;
     }
     double t1 = now_ms();
@@ -78,9 +85,12 @@ int main() {
     int inf = 0;
     double checksum = 0.0;
     while (inf < 1000) {
+        std::tensor_arena_begin(&stepArena);
         &Tensor H2 = std::tensor_relu(std::tensor_matmul(X, W1));
         &Tensor Y2 = std::tensor_matmul(H2, W2);
         unsafe { checksum = checksum + (double)Y2->data[0]; }
+        std::tensor_arena_end();
+        std::tensor_arena_reset(&stepArena);
         inf = inf + 1;
     }
     double t3 = now_ms();

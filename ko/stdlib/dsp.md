@@ -8,6 +8,79 @@
 
 의미 있는 고정소수점 형태를 갖는 모든 변환/필터는 **두 가지** 구현을 제공합니다 — `double` 정밀도 경로와, 이에 대응하는 Q8.24(`Fixed`) 경로(함수/타입 이름에 `f` 접두어가 붙습니다, 예: `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — 하나의 일관된 설계를 따릅니다: 한 번만 계산하면 되는 계수(FFT 트위들 팩터, 필터 계수)는 항상 `std/math.h`의 실제 초월함수를 사용해 `double` 정밀도로 유도된 다음 한 번에 `Fixed`로 양자화되고, 실제 샘플 단위 신호 처리 루프는 전부 Q8.24 산술로 실행됩니다. 이는 표준적인 관행입니다 — 하드웨어 FFT 가속기조차도 트위들 테이블을 오프라인에서 부동소수점으로 미리 계산합니다. 몇몇 더 새롭고 특수한 변환(STFT, CQT, CWT, 최소 위상, 이미징)은 `double` 전용입니다: 가우시안 윈도우 웨이블릿 커널이나 준동형 켑스트럼에는 자연스러운 고정소수점 형태가 없습니다 — 고정소수점 `sin()`이 없는 것과 마찬가지입니다.
 
+신호 처리 경로는 단정밀도(`float`)로도 제공됩니다. 아래 [단정밀도](#single-precision-float)를 참고하세요.
+
+---
+
+## 단정밀도 (`float`) {#single-precision-float}
+
+FFT, 필터, 컨볼루션, 윈도우, STFT, 리샘플링, DCT/DFT, 이미징은 `float` 데이터도 받습니다. 함수 이름에는 `_f32`, 타입 이름에는 `32`가 붙습니다(`Complex32`, `FirFilter32`, `Biquad32`). 각 함수의 동작 규약은 `double` 버전과 같습니다. float는 메모리 트래픽이 절반이고, 벡터 레지스터 하나에 두 배의 값이 들어갑니다. 유효 숫자는 약 16자리 대신 약 7자리(상대 오차 약 1e-6)입니다.
+
+- **두 정밀도에 하나의 구현.** FFT, 컨볼루션, 리샘플링, 2D 코드는 내부 코어 헤더(`fft_core.h`, `conv_core.h`, `resample_core.h`, `imaging_core.h`)에 한 번만 작성되어 있습니다. 각 코어는 `fft.sc`와 `fft_f32.sc` 등에서 정밀도마다 한 번씩, 두 번 컴파일됩니다. 따라서 float FFT도 radix-4 패스, 16점 코드렛, 캐시 블로킹, 스레드, ISA별 빌드를 그대로 갖습니다. oneMKL이 링크되면 DFTI의 단정밀도 변환을 사용합니다.
+- **정밀도가 필요한 곳은 double.** 트위들 팩터와 윈도우 값은 `double`로 계산한 뒤 float로 한 번 반올림합니다. 필터 계수는 `double`로 설계하고(`biquad_lowpass` 등) `biquad_to_f32`로 변환합니다. O(n²)인 `dct2_f32`/`dft_f32`와 `resample_sinc_f32`의 sinc 커널은 `double`로 합산하므로, 입력과 출력만 float입니다.
+- **실시간.** `fft_serial_f32`/`ifft_serial_f32`는 double 버전과 마찬가지로 메모리 할당이나 잠금을 하지 않습니다. 4096점까지는 컴파일 타임 float 트위들 테이블을 읽고, 그보다 긴 길이는 `fft_prepare_f32(maxN)`을 먼저 호출하세요. `fft_prepare`는 double 테이블만 채웁니다.
+
+```c
+// complex_dsp.h
+struct Complex32 { float re; float im; /* + - * / neg abs arg conj, as Complex */ };
+Complex32 complex32_new(float re, float im);
+Complex32 complex32_from_polar(float magnitude, float theta);
+Complex32 complex_to_f32(Complex c);      // round each part to float
+Complex   complex_from_f32(Complex32 c);
+
+// fft.h
+int fft_f32(&Complex32 data, unsigned long n);
+int ifft_f32(&Complex32 data, unsigned long n);
+int fft_serial_f32(&Complex32 data, unsigned long n);
+int ifft_serial_f32(&Complex32 data, unsigned long n);
+int fft_prepare_f32(unsigned long n);
+int fft_real_f32(const &float in, &Complex32 out, unsigned long n);
+int fft_batch_f32(&Complex32 data, unsigned long n, unsigned long batch, int inverse);
+int fft_real_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);
+
+// dsp.h
+float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
+
+// filter.h, biquad.h, comb.h
+struct FirFilter32 fir_init_f32(const &float coeffs, unsigned long numTaps, &float history);
+void fir_process_block_f32(&FirFilter32 f, const &float in, &float out, unsigned long n);
+struct IirFilter32 iir_init_f32(const &float b, unsigned long numB, const &float a, unsigned long numA,
+                                &float xHistory, &float yHistory);
+void iir_process_block_f32(&IirFilter32 f, const &float in, &float out, unsigned long n);
+struct Biquad32 biquad_new_f32(float b0, float b1, float b2, float a1, float a2);
+struct Biquad32 biquad_to_f32(struct Biquad bq);   // a double design, rounded once
+void biquad_process_block_f32(&Biquad32 bq, const &float in, &float out, unsigned long n);
+struct CombFF32 comb_ff_init_f32(&float history, unsigned long delay, float gain);
+struct CombFB32 comb_fb_init_f32(&float history, unsigned long delay, float gain);
+struct KarplusStrong32 ks_init_f32(&float buffer, unsigned long length, float damping);
+
+// convolution.h, window.h, stft.h, resample.h
+void conv_direct_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
+void conv_fft_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
+void window_hann_f32(&float w, unsigned long n);       // also _rectangular_, _hamming_, _blackman_f32
+void window_apply_f32(&float x, const &float w, unsigned long n);
+void stft_forward_f32(const &float signal, unsigned long signalLen, unsigned long frameSize,
+                      unsigned long hopSize, int windowType, &Complex32 out);
+void stft_inverse_f32(const &Complex32 frames, unsigned long numFrames, unsigned long frameSize,
+                      unsigned long hopSize, int windowType, &float outSignal);
+void resample_sinc_f32(const &float in, unsigned long inLen, &float out, unsigned long outLen,
+                       unsigned long kernelHalfWidth);   // also resample_nearest_f32, resample_linear_f32
+
+// dct.h, dft.h, imaging.h
+void dct2_f32(const &float in, &float out, unsigned long n);
+void idct3_f32(const &float in, &float out, unsigned long n);
+void dft_f32(const &Complex32 in, &Complex32 out, unsigned long n);   // also dft_real_f32, idft_f32
+void conv2d_f32(const &float img, unsigned long h, unsigned long w,
+                const &float kernel, unsigned long kh, unsigned long kw, &float out);
+void fft2d_f32(&Complex32 img, unsigned long h, unsigned long w);    // and ifft2d_f32
+```
+
+분석 전용 모듈(CQT, CWT, 최소 위상, z-변환 설계)은 `double`만 지원합니다.
+
+::: warning float에서의 고차 IIR
+`IirFilter32`는 직접형 필터라서, 차수가 높을수록 계수의 float 반올림 오차가 커집니다. 2차보다 가파른 필터는 `Biquad32` 섹션을 직렬로 연결하세요.
+:::
+
 ---
 
 ## fixed — Q8.24 고정소수점 산술 {#fixed-q824-fixed-point-arithmetic}
@@ -92,6 +165,12 @@ Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqr
 // conv_direct가 커널을 뒤집어 연속적인 접근 패턴으로 만든 뒤 내부적으로
 // 사용한다; 직접 사용하는 것도 가능하다.
 double dsp_dot_f64(const &double a, const &double b, unsigned long n);
+
+// q < nOut에 대해 out[q] = dot(a, x[q .. q+n)): 여러 출력에 대한 FIR/상관.
+// 한 번에 출력 32개(float는 64개), 탭마다 값을 네 개의 누산 벡터에
+// 브로드캐스트: 수평 합이 없고, 곱셈-덧셈마다 로드가 하나입니다.
+void dsp_sliding_dot_f64(const &double a, const &double x, &double out, unsigned long nOut, unsigned long n);
+void dsp_sliding_dot_f32(const &float a, const &float x, &float out, unsigned long nOut, unsigned long n);
 ```
 
 ::: tip
@@ -151,7 +230,7 @@ Complex  fcomplex_to_float(FComplex c);
 #include <std/dsp/dft.h>
 ```
 
-직접 합산 방식 DFT입니다: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. 2의 거듭제곱뿐 아니라 **임의의** N에 대해 동작합니다 — 임의 길이의 변환에는 이것을 사용하고, `fft.h` 자체의 정확성 검증이 대조하는 독립적인 기준으로도 사용됩니다.
+직접 합산 방식 DFT입니다: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. 2의 거듭제곱뿐 아니라 **임의의** N에 대해 동작합니다 — 임의 길이의 변환에는 이것을 사용하고, `fft.h` 자체의 정확성 검증이 대조하는 독립적인 기준으로도 사용됩니다. 회전 인자는 항마다 `cos`/`sin`을 부르지 않고 n개의 정확한 단위근 테이블에서 k·n mod N 인덱스로 읽으며, 256점부터 출력 빈을 스레드 풀에 나눕니다.
 
 ```c
 void dft(const &Complex in, &Complex out, unsigned long n);       // 순변환, 복소수 -> 복소수
@@ -174,12 +253,16 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 실행 방식:
 
 - **트위들 테이블.** 트위들 계수는 모든 스레드가 공유하는 테이블 하나에서 옵니다. 어떤 길이가 처음 필요할 때 만들어져 유지되며, 커지기만 하므로 읽는 쪽은 락을 잡지 않습니다.
-- **블로킹과 SIMD.** 2048점까지의 단계는 블록 단위로 실행되어, 블록 하나가 그 단계들 내내 L1/L2에 머뭅니다. 버터플라이는 `f64x2`를 씁니다.
+- **합쳐진 패스.** 생성된 16점 코드렛이 처음 네 단계를 레지스터 안에서 실행합니다. 나머지 단계는 radix-8 패스(데이터를 한 번 훑을 때마다 세 단계, W8 상수는 코드에 접어 넣음. SPIRAL/FFTE의 radix-8/16 분해와 같은 방식)로 합치고, 남는 단계는 radix-4나 radix-2로 처리합니다. 4096점 변환은 radix-2 11번 대신 코드렛과 패스 3번입니다. 4096점까지는 한 블록으로 실행하고, 더 긴 변환은 2048점까지의 단계를 블록 단위로 실행해 블록 하나가 그 단계들 내내 L1/L2에 머뭅니다.
+- **SIMD 폭.** 레지스터에 들어가는 경우 버터플라이는 벡터 하나에 복소수 네 개씩 처리합니다(AVX2의 float, AVX-512의 두 정밀도). 그 밖에는 두 개씩입니다(AVX2의 double, SSE2, Neon).
+- **비트 역순.** 4096점까지는 비트 역순 교환을 컴파일 타임 인덱스 쌍 목록에서 가져오므로, 원소마다 인덱스를 계산하거나 예측하기 어려운 분기가 없습니다. 그보다 크면 점진적으로 계산하며 스레드에 나눕니다.
 - **스레드.** 32768점 이상의 변환은 [스레드 풀](/ko/stdlib/sync#parallel)에 나뉘어 실행됩니다. `fft_batch`와 `fft_real_batch`는 여러 변환을 풀에 분산합니다.
 - **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다.
+- **SIMD 수준.** 버터플라이는 [CPU SIMD 수준](/ko/stdlib/simd#cpu-levels)별로 빌드됩니다. AVX2에서는 복소 곱셈에 FMA가 더해지고, AVX-512에서는 폭이 두 배가 됩니다.
+- **벤더 FFT.** oneMKL이 링크되어 있으면([`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)의 Intel 선택), 65,536점 미만의 `fft`/`ifft`/`fft_real`, `fft_batch`/`fft_real_batch`의 모든 행, `fft2d`를 그 DFTI 변환이 실행합니다. 이 페이지의 7800X3D에서 `fft2d`와 배치 변환이 절반으로 줄어듭니다. `fft_vendor()`로 확인할 수 있습니다. FFTW 기반 라이브러리는 AOCL-FFTW를 포함해 GPL이므로 쓰지 않습니다.
 
 ::: tip 실시간 사용
-오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 쓰세요. 이들은 메모리 할당, 락, 스레드 풀 사용을 전혀 하지 않습니다. 테이블이 준비되면 32768점 미만의 `fft`/`ifft`도 마찬가지입니다.
+오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 쓰세요. 이들은 메모리 할당, 락, 스레드 풀 사용, 벤더 라이브러리 호출을 전혀 하지 않습니다. oneMKL이 링크되어 있으면 `fft`/`ifft`는 실시간 코드용이 아닙니다: 길이마다 첫 호출이 DFTI 디스크립터를 만듭니다.
 :::
 
 NVIDIA GPU에서는 [`fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)가 같은 변환과 2D 변환을 cuFFT로 실행하며, 길이 제한이 없습니다. AMD GPU에서는 [`fft_rocm.h`](/ko/stdlib/ml#rocm-miopen-hipfft)가 같은 일을 hipFFT로 합니다.
@@ -195,6 +278,8 @@ int fft_real(const &double in, &Complex out, unsigned long n); // 실수 -> n점
 // 연속으로 저장된 'batch'개 변환 (행 r은 data[r*n]), 스레드 사용
 int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
 int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
+// 같은 작업을 제자리에서: 행 r의 앞쪽 n/2칸에 실수 n개가 들어 있음
+int fft_real_batch_inplace(&Complex data, unsigned long n, unsigned long batch);
 int ffft(&FComplex data, unsigned long n);                    // Q8.24 순변환
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 역변환
 ```
@@ -229,20 +314,22 @@ int main() {
 `y[n] = sum_k x[k]*h[n-k]`, 출력 길이는 `len_x + len_h - 1`입니다. 결과는 같지만 비용 트레이드오프가 다른 두 가지 구현이 있습니다:
 
 ```c
-// O(len_x * len_h), 할당 없음 -- 짧은 커널에 가장 적합.
+// O(len_x * len_h) -- 짧은 커널에 가장 적합. 출력 하나가 SIMD 내적 하나이며,
+// 긴 입력은 스레드 풀에 나뉩니다.
 void conv_direct(const &double x, unsigned long len_x,
                   const &double h, unsigned long len_h, &double out);
 void fconv_direct(const &Fixed x, unsigned long len_x,
                    const &Fixed h, unsigned long len_h, &Fixed out);
 
-// fft.h를 통한 O(n log n) (제로 패딩 FFT, 원소별 곱셈, 역 FFT)
-// -- 직접 컨볼루션의 O(len_x*len_h) 비용이 부담이 되는 긴 입력/커널에 가장 적합.
-// double 정밀도 전용.
+// fft.h를 통한 O(n log n) -- 직접 컨볼루션의 O(len_x*len_h) 비용이 부담이
+// 되는 긴 입력/커널에 가장 적합. double 정밀도 전용. 커널이 신호의 1/16
+// 이하면 overlap-add(커널의 약 8배 블록을 fft_batch로), 그 밖에는 x와 h를
+// 복소 FFT 하나에 함께 담아 변환합니다.
 void conv_fft(const &double x, unsigned long len_x,
               const &double h, unsigned long len_h, &double out);
 ```
 
-세 함수 모두 `out`은 `len_x + len_h - 1` 샘플을 담을 공간이 있어야 합니다. `conv_direct`의 내부 루프는 SIMD로 가속됩니다: 커널을 미리 한 번 뒤집어서 누산이 `dsp_dot_f64`에 대한 연속 구간 호출이 되도록 합니다.
+세 함수 모두 `out`은 `len_x + len_h - 1` 샘플을 담을 공간이 있어야 합니다. `conv_direct`는 커널을 한 번 뒤집어, 창이 `x` 안에 완전히 들어가는 출력들을 `dsp_sliding_dot_f64` 한 번으로 계산합니다. 이 함수는 출력 32개(float는 64개)를 한꺼번에, 탭마다 값을 네 개의 누산 벡터에 브로드캐스트해 계산하므로 수평 합이 없습니다. 가장자리 출력은 `dsp_dot_f64`를 씁니다.
 
 ---
 
@@ -270,7 +357,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 #include <std/dsp/filter.h>
 ```
 
-한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다. 메모리 할당이나 스레드를 전혀 쓰지 않습니다. `FirFilter::process`는 링 버퍼를 탭마다 나머지 연산을 하지 않고 두 개의 연속 구간으로, 네 개의 부분합으로 순회합니다.
+한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다. 메모리 할당이나 스레드를 전혀 쓰지 않습니다. `FirFilter::process`는 링 버퍼를 탭마다 나머지 연산을 하지 않고 두 개의 연속 구간으로, 네 개의 부분합으로 순회합니다. `fir_process_block`(256탭까지)은 이력과 새 샘플 최대 512개를 스택의 창으로 복사하고 그 위에서 `dsp_sliding_dot_f64`를 실행합니다. 출력마다 내적을 하나씩 하는 대신 벡터 하나에 여러 출력을 계산합니다.
 
 ```
 FIR ("피드포워드"): y[n] = sum_{k=0}^{M-1} b[k]*x[n-k]
@@ -352,6 +439,13 @@ struct Biquad {
     void   reset();
 };
 struct Biquad biquad_new(double b0, double b1, double b2, double a1, double a2);
+// 블록 단위 process(), 상태는 레지스터에 유지; in == out 허용, 실시간 안전.
+// 분산 룩어헤드(scattered look-ahead, Parhi & Messerschmitt)를 쓴 직접형 I:
+// y[i] = q[i] + (a1^2 - 2 a2) y[i-2] - a2^2 y[i-4] (q는 입력만으로 계산)이므로
+// 짝수와 홀수 출력이 서로 독립인 두 사슬이 되고, 2레인 벡터 하나로 함께
+// 계산합니다. 추가되는 극점은 필터 자신의 극점을 뒤집은 것(반지름이 같음)이라
+// 안정성이 유지됩니다. process()와는 반올림 차이만 납니다.
+void biquad_process_block(&Biquad bq, const &double in, &double out, unsigned long n);
 
 // Robert Bristow-Johnson의 "Audio EQ Cookbook" 공식. fs = 샘플레이트,
 // f0 = 컷오프/중심 주파수, q = Q 계수 (높을수록 더 좁고 공진이 강함).
@@ -410,7 +504,7 @@ int main() {
 #include <std/dsp/dct.h>
 ```
 
-`dct2`는 JPEG/MPEG에서 말하는 "그 DCT"입니다 — 실수 입력, 실수 출력, 에너지를 압축합니다. `idct3`는 그 정확한 역변환입니다. `dft.h`처럼 직접 O(n²) 합산 방식입니다.
+`dct2`는 JPEG/MPEG에서 말하는 "그 DCT"입니다 — 실수 입력, 실수 출력, 에너지를 압축합니다. `idct3`는 그 정확한 역변환입니다. `dft.h`처럼 직접 O(n²) 합산 방식입니다: 코사인은 4n개짜리 테이블에서 읽고, 512점부터 출력을 스레드 풀에 나눕니다.
 
 ```c
 void dct2(const &double in, &double out, unsigned long n);    // X[k] = sum x[n]*cos(pi/N*(n+0.5)*k)
@@ -427,7 +521,7 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 역변�
 #include <std/dsp/stft.h>
 ```
 
-`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. 프레임들은 `fft_batch`로 함께 변환되므로 호스트에서는 스레드 풀에서 실행됩니다. 스트리밍에서는 프레임을 하나씩 윈도우 처리하고 `fft_serial`을 쓰세요. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
+`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. 프레임들은 `fft_real_batch_inplace`로 제자리에서 실수 변환으로 함께 변환되며(복소 변환의 절반 작업), 호스트에서는 스레드 풀에서 실행됩니다. 스트리밍에서는 프레임을 하나씩 윈도우 처리하고 `fft_serial`을 쓰세요. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
 
 ```c
 #define STFT_WIN_RECTANGULAR 0
@@ -475,7 +569,11 @@ void resample_linear(const &double in, unsigned long inLen, &double out, unsigne
 // 윈도우가 적용된 sinc(대역 제한): 가장 품질이 높은 옵션. 다운샘플링할
 // 때는 커널의 컷오프가 새로운(더 낮은) 나이퀴스트 레이트에 맞춰 자동으로
 // 스케일되므로, 앤티에일리어싱 필터 역할도 겸합니다. kernelHalfWidth의
-// 기본값으로는 8-16이 적당합니다.
+// 기본값으로는 8-16이 적당합니다. 탭마다의 가중치는 각의 차 공식으로
+// 계산하고, 탭 각도 테이블은 호출마다 한 번 만듭니다. 그래서 탭끼리
+// 독립이 되어 벡터 하나에 네 개씩 실행되며, 출력마다의 각도 네 개는 출력에서
+// 출력으로 회전으로 넘기고 64개마다 정확히 다시 계산합니다. 출력은 스레드
+// 풀에서 실행됩니다.
 void resample_sinc(const &double in, unsigned long inLen, &double out, unsigned long outLen,
                     unsigned long kernelHalfWidth);
 
@@ -596,7 +694,7 @@ void minimum_phase(const &double x, unsigned long n, unsigned long fftLen, &doub
 #include <std/dsp/cqt.h>
 ```
 
-DFT/FFT의 균일한 주파수 간격과 달리, CQT는 모든 빈(bin)에서 일정한 비율 `fk/bandwidth`("Q")를 유지하는 로그 간격 중심 주파수 `fk = fmin * 2^(k/binsPerOctave)`를 사용합니다 — 음악적 음정과 인간의 청각이 대략 주파수에 대해 로그적이라는 사실과 맞아떨어지며, 이것이 크로마그램과 음정 검출에서 (단순 DFT가 아니라) CQT가 표준적으로 선택되는 이유입니다. 직접 상관(direct-correlation) 형태입니다(Brown 1991): 각 빈 고유 길이의 Hann 윈도우가 적용된 복소 지수 커널이 신호의 시작 부분과 직접 상관되며 — FFT도, 커널 행렬의 사전 계산도 없이 — 호출당 O(numBins * 평균 커널 길이)입니다.
+DFT/FFT의 균일한 주파수 간격과 달리, CQT는 모든 빈(bin)에서 일정한 비율 `fk/bandwidth`("Q")를 유지하는 로그 간격 중심 주파수 `fk = fmin * 2^(k/binsPerOctave)`를 사용합니다 — 음악적 음정과 인간의 청각이 대략 주파수에 대해 로그적이라는 사실과 맞아떨어지며, 이것이 크로마그램과 음정 검출에서 (단순 DFT가 아니라) CQT가 표준적으로 선택되는 이유입니다. 직접 상관(direct-correlation) 형태입니다(Brown 1991): 각 빈 고유 길이의 Hann 윈도우가 적용된 복소 지수 커널이 신호의 시작 부분과 직접 상관되며 — FFT도, 커널 행렬의 사전 계산도 없이 — 호출당 O(numBins * 평균 커널 길이)입니다. 윈도우와 지수는 복소 회전으로 진행하고 64샘플마다 정확히 다시 계산하며, 빈은 스레드 풀에서 실행됩니다.
 
 ```c
 // signal은 최소한 가장 낮은(가장 긴 커널을 갖는) 빈에 필요한 만큼의
@@ -617,7 +715,7 @@ void cqt_forward(const &double signal, unsigned long signalLen, double fs,
 #include <std/dsp/cwt.h>
 ```
 
-CQT가 로그 간격 주파수 *빈*을 선택하는 반면, CWT는 (호출자가 선택하는, 보통 로그 간격인) *스케일* 집합을 직접 선택하고 스케일/이동된 Morlet 웨이블릿을 모든 샘플 위치에서 신호와 상관시켜, 프레임당 값 하나가 아니라 완전한 시간-스케일 "스칼로그램"을 만들어냅니다. 스케일 `s`는 대략 `f = w0*fs / (2*pi*s)` Hz의 중심 주파수에 대응합니다. 직접 상관 방식이며, 커널 지지(support)는 가우시안 포락선의 표준편차 ±4배로 잘립니다.
+CQT가 로그 간격 주파수 *빈*을 선택하는 반면, CWT는 (호출자가 선택하는, 보통 로그 간격인) *스케일* 집합을 직접 선택하고 스케일/이동된 Morlet 웨이블릿을 모든 샘플 위치에서 신호와 상관시켜, 프레임당 값 하나가 아니라 완전한 시간-스케일 "스칼로그램"을 만들어냅니다. 스케일 `s`는 대략 `f = w0*fs / (2*pi*s)` Hz의 중심 주파수에 대응합니다. 직접 상관 방식이며, 커널 지지(support)는 가우시안 포락선의 표준편차 ±4배로 잘립니다. 스케일마다 웨이블릿을 한 번 계산하고, 각 출력은 그것과의 SIMD 내적 두 번이며, (스케일, 위치) 행은 스레드 풀에서 실행됩니다.
 
 ```c
 // scales: numScales개 항목 (각각 0보다 커야 함). w0: Morlet 중심 주파수
@@ -636,7 +734,7 @@ void cwt_morlet(const &double signal, unsigned long signalLen,
 #include <std/dsp/imaging.h>
 ```
 
-위의 1D 빌딩 블록들에 대응하는 2D 버전입니다: `conv2d`는 제로 패딩된("same" 크기) 2D 컨볼루션이고; `fft2d`/`ifft2d`는 `fft.h`의 1D 변환을 모든 행에, 그다음 모든 열에 적용합니다(2D DFT는 분리 가능(separable)하므로 정확합니다). 행은 `fft_batch`로 처리하고, 열은 8개씩 연속 버퍼로 모아 변환하며 열 묶음들은 스레드 풀에서 실행됩니다; 커널 생성 함수들은 거의 모든 이미지 파이프라인에 필요한 두 가지 컨볼루션 커널을 다룹니다.
+위의 1D 빌딩 블록들에 대응하는 2D 버전입니다: `conv2d`는 제로 패딩된("same" 크기) 2D 컨볼루션으로, 커널 탭마다 행 단위 SIMD 곱셈-덧셈으로 계산하고 행은 스레드 풀에서 실행합니다; `fft2d`/`ifft2d`는 `fft.h`의 1D 변환을 모든 행에, 그다음 모든 열에 적용합니다(2D DFT는 분리 가능(separable)하므로 정확합니다). 행은 `fft_batch`로 처리하고, 열은 8개씩 연속 버퍼로 모아 변환하며 열 묶음들은 스레드 풀에서 실행됩니다; 커널 생성 함수들은 거의 모든 이미지 파이프라인에 필요한 두 가지 컨볼루션 커널을 다룹니다.
 
 ```c
 // img: h*w개, 행 우선; kernel: kh*kw개, 행 우선 (kh/kw는 홀수여야 함);
