@@ -17,8 +17,8 @@ statistics calibrated from a real trained model), EDM's own VE-flavored
 samplers, positional encoding, and patchify.
 :::
 
-Every function below takes/returns `Tensor` (and the other structs here)
-by a region-less reference (`&Tensor`/`const &Tensor` — see [Memory &
+Every function below takes/returns `FloatTensor` (and the other structs here)
+by a region-less reference (`&FloatTensor`/`const &FloatTensor` — see [Memory &
 Regions](/reference/memory)'s "Outliving References" section): nothing
 in this library cares whether the caller's tensor is heap/stack/static/
 arena-backed, so no function pins one specific region. A raw pointer (or
@@ -29,7 +29,7 @@ Stateful types (models, layers, optimizers, data loaders, agents, device
 nets and buffers) are used through [methods](/reference/functions#struct-methods):
 `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
 Constructors are [static methods](/reference/functions#static-methods):
-`Mlp::new(...)`, `Tensor::new_2d(...)`, `Dataset::moons(...)`,
+`Mlp::new(...)`, `FloatTensor::new_2d(...)`, `Dataset::moons(...)`,
 `RocmNet::from_mlp(&net, 128UL)`, `TrainConfig::default()`. An operation on
 one tensor is a method of that tensor — `x.relu()`, `logits.log_softmax()`,
 `loss.backward()`, `t.fill(0.0f)` — const unless it changes the tensor in
@@ -49,20 +49,37 @@ passed to `rocm_trainer_fit` as values (`rocm_net_ce_step`) stay functions.
 #include <std/ml/tensor.h>
 ```
 
-CPU tensors (1D/2D, `float` — float32, like PyTorch's default and the
-only precision Metal supports) with reverse-mode autograd — PyTorch-style
+CPU tensors (1D/2D) with reverse-mode autograd — PyTorch-style
 ergonomics: build a computation graph implicitly by calling ops on
-`requiresGrad` tensors, then call `Tensor::backward()`. For fp16/bf16 storage
-and mixed-precision training, see [Half-precision tensors](#half-precision-tensors).
+`requiresGrad` tensors, then call `FloatTensor::backward()`.
+
+A tensor is a `DenseTensor<E>`: values stored as `E`, computed in float32,
+gradients always float32. Three element types are provided:
+
+| Type | `E` | Storage |
+|---|---|---|
+| `FloatTensor` | `float` | float32 (like PyTorch's default, and the only precision Metal supports) |
+| `HalfTensor` | `F16` | IEEE fp16 |
+| `BF16Tensor` | `BF16` | bfloat16 |
+
+The core ops below (`tensor_add`/`sub`/`mul`/`matmul`, `scale`, `sum`),
+their autograd and the backward pass work on all three. A `FloatTensor`
+op runs the float32 kernel on the tensor itself; a 16-bit one loads its
+operands to float32, runs the same kernel and rounds its result once. The
+backward pass is the float32 one either way, and a graph may mix element
+types (`to_float()` / `from_float()` are graph nodes). The other ops in
+this library (activations, losses, layers) take a `FloatTensor`. See
+[Half-precision tensors](#half-precision-tensors) for conversions, batch
+helpers and mixed-precision training.
 
 ```c
-&Tensor x = Tensor::from_1d(values, 3UL, /*requiresGrad=*/1);
-&Tensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
+&FloatTensor x = FloatTensor::from_1d(values, 3UL, /*requiresGrad=*/1);
+&FloatTensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
 y.backward();                               // x.grad now holds 2x
 ```
 
-Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`Tensor::scale`/`tensor_matmul`/
-`Tensor::relu`/`Tensor::sum`. Verified against hand-computed gradients and a
+Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`FloatTensor::scale`/`tensor_matmul`/
+`FloatTensor::relu`/`FloatTensor::sum`. Verified against hand-computed gradients and a
 real finite-difference check on a matmul→relu→sum chain.
 
 `tensor_matmul` and its backward pass run on [`sgemm`](/stdlib/simd#gemm):
@@ -82,38 +99,62 @@ SiLU, ELU, GLU, SwiGLU — and softmax use [`vmath.h`](/stdlib/simd#vmath)'s
 vectorized `exp`/`tanh`/sigmoid, so they no longer call libm per element.
 
 ```c
-struct Tensor {
-    &heap float         data;          // flat row-major, length == size
+generic<E>
+struct DenseTensor {
+    &heap E             data;          // flat row-major, length == size
     &heap unsigned long shape;
     unsigned long       ndim;          // 1 or 2
     unsigned long       size;
     int                 requiresGrad;
-    &heap float         grad;          // allocated only when requiresGrad
+    &heap float         grad;          // float32; allocated only when requiresGrad
     // ... autograd bookkeeping (gradFn, parents, visited)
 
+    float at1(unsigned long i) const;                      // as float32
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);                  // rounded to E
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+    // ... and the methods below
+};
+
+typedef struct DenseTensor<float>       FloatTensor;
+typedef struct DenseTensor<struct F16>  HalfTensor;
+typedef struct DenseTensor<struct BF16> BF16Tensor;
+
+// What generic ML code asks of a tensor; all three satisfy it.
+trait Tensor {
     float at1(unsigned long i) const;
     float at2(unsigned long r, unsigned long c) const;
     void  set1(unsigned long i, float v);
     void  set2(unsigned long r, unsigned long c, float v);
+    void  fill(float v);
+    void  backward();
+    void  zero_grad();
     void  free();
-};
+}
 
-static &Tensor Tensor::new_1d(unsigned long n, int requiresGrad);
-static &Tensor Tensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
-static &Tensor Tensor::from_1d(const &float values, unsigned long n, int requiresGrad);
-static &Tensor Tensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
-&Tensor Tensor::zeros_like() const;
-void    Tensor::fill(float v);   // in place
+// Shown for FloatTensor; HalfTensor:: and BF16Tensor:: are the same.
+static &FloatTensor FloatTensor::new_1d(unsigned long n, int requiresGrad);
+static &FloatTensor FloatTensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
+static &FloatTensor FloatTensor::from_1d(const &float values, unsigned long n, int requiresGrad);
+static &FloatTensor FloatTensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+&FloatTensor FloatTensor::zeros_like() const;
+void    FloatTensor::fill(float v);   // in place
 
-&Tensor tensor_add(const &Tensor a, const &Tensor b);
-&Tensor tensor_sub(const &Tensor a, const &Tensor b);
-&Tensor tensor_mul(const &Tensor a, const &Tensor b);   // elementwise
-&Tensor Tensor::scale(float k) const;
-&Tensor tensor_matmul(const &Tensor a, const &Tensor b);
-&Tensor Tensor::sum() const;
+// Generic over the element type: both operands are the same DenseTensor<E>.
+generic<E> &DenseTensor<E> tensor_add(const &DenseTensor<E> a, const &DenseTensor<E> b);
+generic<E> &DenseTensor<E> tensor_sub(const &DenseTensor<E> a, const &DenseTensor<E> b);
+generic<E> &DenseTensor<E> tensor_mul(const &DenseTensor<E> a, const &DenseTensor<E> b);   // elementwise
+generic<E> &DenseTensor<E> tensor_matmul(const &DenseTensor<E> a, const &DenseTensor<E> b);
+&FloatTensor FloatTensor::scale(float k) const;
+&FloatTensor FloatTensor::sum() const;
 
-void Tensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
-void Tensor::zero_grad();
+// Between element types, as graph nodes (gradients pass through unchanged).
+&FloatTensor FloatTensor::to_float() const;                       // a FloatTensor: itself
+static &HalfTensor HalfTensor::from_float(const &FloatTensor x);  // rounded
+
+void FloatTensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
+void FloatTensor::zero_grad();
 
 // Gradient recording: the program's autograd state. Disabled (inference),
 // composed ops record no graph (leaf flags unchanged).
@@ -145,7 +186,7 @@ unsigned long TensorArena::used() const;   // bytes since the last reset
 struct TensorArena step = TensorArena::new(0UL);
 while (s < steps) {
     step.begin();
-    // ... forward, Tensor::backward, optimizer update ...
+    // ... forward, FloatTensor::backward, optimizer update ...
     tensor_arena_end();
     step.reset();   // this step's tensors are gone
     s = s + 1;
@@ -153,7 +194,7 @@ while (s < steps) {
 step.free();
 ```
 
-Tensors created outside the arena, such as parameters, stay on the heap, and so do their gradients, so they survive resets. [`FeatureMap`](#cnn)s created while an arena is active come from it too, every intermediate inside `UNet::forward` included; `FeatureMap::free` leaves those to the reset. Each tensor records its `owner`. `Tensor::free()` on an arena tensor does nothing, and a tensor must not be used after its arena is reset.
+Tensors created outside the arena, such as parameters, stay on the heap, and so do their gradients, so they survive resets. [`FeatureMap`](#cnn)s created while an arena is active come from it too, every intermediate inside `UNet::forward` included; `FeatureMap::free` leaves those to the reset. Each tensor records its `owner`. `FloatTensor::free()` on an arena tensor does nothing, and a tensor must not be used after its arena is reset.
 
 ### Autograd ops and optimizer — `tensor_nn.h`
 
@@ -164,17 +205,17 @@ Tensors created outside the arena, such as parameters, stay on the heap, and so 
 Activations with backward passes (the ones every GPU backend uses), 1D pooling, and Adam.
 
 ```c
-&Tensor Tensor::relu() const;
-&Tensor Tensor::sigmoid() const;
-&Tensor Tensor::tanh() const;
-&Tensor Tensor::softmax() const;
-&Tensor Tensor::elu(float alpha) const;
-&Tensor Tensor::gelu() const;
-&Tensor Tensor::silu() const;
-&Tensor Tensor::glu() const;      // split last axis into [a1, a2]: a1 * sigmoid(a2)
-&Tensor Tensor::swiglu() const;   // silu(a1) * a2 — output has half the columns
-&Tensor Tensor::maxpool1d(unsigned long kernel, unsigned long stride) const;
-&Tensor Tensor::avgpool1d(unsigned long kernel, unsigned long stride) const;
+&FloatTensor FloatTensor::relu() const;
+&FloatTensor FloatTensor::sigmoid() const;
+&FloatTensor FloatTensor::tanh() const;
+&FloatTensor FloatTensor::softmax() const;
+&FloatTensor FloatTensor::elu(float alpha) const;
+&FloatTensor FloatTensor::gelu() const;
+&FloatTensor FloatTensor::silu() const;
+&FloatTensor FloatTensor::glu() const;      // split last axis into [a1, a2]: a1 * sigmoid(a2)
+&FloatTensor FloatTensor::swiglu() const;   // silu(a1) * a2 — output has half the columns
+&FloatTensor FloatTensor::maxpool1d(unsigned long kernel, unsigned long stride) const;
+&FloatTensor FloatTensor::avgpool1d(unsigned long kernel, unsigned long stride) const;
 
 struct AdamState {
     &heap float m; &heap float v;
@@ -184,7 +225,7 @@ struct AdamState {
 };
 static struct AdamState AdamState::new(unsigned long size, float lr, float beta1, float beta2, float eps);
 static struct AdamState AdamState::new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
-void AdamState::step(&Tensor param);                               // uses param.grad
+void AdamState::step(&FloatTensor param);                               // uses param.grad
 void AdamState::free();
 ```
 
@@ -196,19 +237,19 @@ void AdamState::free();
 
 Forward-only elementwise activations (no autograd — for inference layers;
 the autograd versions are in `tensor_nn.h` above);
-`Tensor::layernorm_rows` (row-wise mean-0/var-1 normalization, no affine —
+`FloatTensor::layernorm_rows` (row-wise mean-0/var-1 normalization, no affine —
 apply your own scale/shift for AdaLN-style conditioning, see DiT below);
 `tensor_residual_add` (a named `tensor_add` alias for residual/skip-
 connection call sites).
 
 ```c
-&Tensor Tensor::relu_fwd() const;
-&Tensor Tensor::sigmoid_fwd() const;
-&Tensor Tensor::tanh_fwd() const;
-&Tensor Tensor::silu_fwd() const;
-&Tensor Tensor::gelu_fwd() const;
-&Tensor Tensor::layernorm_rows(float eps) const;
-&Tensor tensor_residual_add(const &Tensor x, const &Tensor sublayerOut);
+&FloatTensor FloatTensor::relu_fwd() const;
+&FloatTensor FloatTensor::sigmoid_fwd() const;
+&FloatTensor FloatTensor::tanh_fwd() const;
+&FloatTensor FloatTensor::silu_fwd() const;
+&FloatTensor FloatTensor::gelu_fwd() const;
+&FloatTensor FloatTensor::layernorm_rows(float eps) const;
+&FloatTensor tensor_residual_add(const &FloatTensor x, const &FloatTensor sublayerOut);
 ```
 
 ## Attention
@@ -234,18 +275,18 @@ concatenates results). Also in this file:
   `kvLen`.
 
 ```c
-&Tensor Tensor::softmax_rows() const;
-&Tensor Tensor::transpose() const;
-&Tensor Tensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
-void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
+&FloatTensor FloatTensor::softmax_rows() const;
+&FloatTensor FloatTensor::transpose() const;
+&FloatTensor FloatTensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
+void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);
 
-&Tensor attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
-&Tensor mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long numHeads);
-&Tensor gated_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, const &Tensor gateLogits);
-&Tensor gated_mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
-                          unsigned long numHeads, const &Tensor gateLogits);
-&Tensor linear_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
-&Tensor flash_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long kvBlockSize);
+&FloatTensor attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
+&FloatTensor mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long numHeads);
+&FloatTensor gated_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, const &FloatTensor gateLogits);
+&FloatTensor gated_mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                          unsigned long numHeads, const &FloatTensor gateLogits);
+&FloatTensor linear_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
+&FloatTensor flash_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long kvBlockSize);
 ```
 
 Forward-only (inference-focused, no backward pass) throughout. Verified
@@ -262,7 +303,7 @@ like the ops above. It is a [`Module`](#modules).
 
 ```c
 static struct MultiHeadAttention MultiHeadAttention::new(unsigned long dModel, unsigned long numHeads, &Rng rng);
-&Tensor MultiHeadAttention::forward(const &Tensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
+&FloatTensor MultiHeadAttention::forward(const &FloatTensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
 void    MultiHeadAttention::free();
 ```
 
@@ -292,20 +333,20 @@ reconstruction, and a hand-computed 2-step state trace for Gated
 DeltaNet.
 
 ```c
-struct Mla { &Tensor Wq; &Tensor Wdkv; &Tensor Wuk; &Tensor Wuv; unsigned long numHeads; };
+struct Mla { &FloatTensor Wq; &FloatTensor Wdkv; &FloatTensor Wuk; &FloatTensor Wuv; unsigned long numHeads; };
 static struct Mla Mla::new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
-&Tensor Mla::forward(const &Tensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
+&FloatTensor Mla::forward(const &FloatTensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
 
-struct EgMla { &Tensor Wq; &Tensor Wdkv; struct Vec<&Tensor> Wuk; struct Vec<&Tensor> Wuv;  // one per group
+struct EgMla { &FloatTensor Wq; &FloatTensor Wdkv; struct Vec<&FloatTensor> Wuk; struct Vec<&FloatTensor> Wuv;  // one per group
                unsigned long headsPerGroup; };
 static struct EgMla EgMla::new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups, unsigned long headsPerGroup, &Rng rng);
-&Tensor EgMla::forward(const &Tensor X) const;
-&Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+&FloatTensor EgMla::forward(const &FloatTensor X) const;
+&FloatTensor windowed_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
                                    unsigned long windowSize, unsigned long shift);
 
-struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
+struct GatedDeltaNet { &FloatTensor Walpha; &FloatTensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
 static struct GatedDeltaNet GatedDeltaNet::new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
-&Tensor GatedDeltaNet::forward(const &Tensor X, const &Tensor Q, const &Tensor K, const &Tensor V) const;
+&FloatTensor GatedDeltaNet::forward(const &FloatTensor X, const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V) const;
 void    GatedDeltaNet::free();
 ```
 
@@ -327,21 +368,21 @@ pass.
 
 ```c
 static struct RNNCell  RNNCell::new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         RNNCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+&FloatTensor         RNNCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev) const;
 void            RNNCell::free();
 
 static struct GRUCell  GRUCell::new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         GRUCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+&FloatTensor         GRUCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev) const;
 void            GRUCell::free();
 
 static struct LSTMCell LSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
 // Returns h_t; the new cell state is written through c_out.
-&Tensor         LSTMCell::forward(const &Tensor x_t, const &Tensor h_prev, const &Tensor c_prev, &&Tensor c_out) const;
+&FloatTensor         LSTMCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev, const &FloatTensor c_prev, &&FloatTensor c_out) const;
 void            LSTMCell::free();
 
-struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
+struct XLSTMState { &FloatTensor h; &FloatTensor c; &FloatTensor n; &FloatTensor m; };   // hidden, cell, normalizer, stabilizer
 static struct XLSTMCell  XLSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
-struct XLSTMState XLSTMCell::forward(const &Tensor x_t, const &XLSTMState prev) const;
+struct XLSTMState XLSTMCell::forward(const &FloatTensor x_t, const &XLSTMState prev) const;
 void              XLSTMCell::free();
 void              XLSTMState::free();
 ```
@@ -394,36 +435,36 @@ weights copied into HF transformers' `MambaMixer`, the outputs match to
 
 ```c
 // Selective scan alone: x, delta [T, D]; A [D, N]; B, C [T, N]; Dskip [D] -> y [T, D]
-&Tensor ssm_selective_scan(const &Tensor x, const &Tensor delta, const &Tensor A,
-                           const &Tensor B, const &Tensor C, const &Tensor Dskip);
+&FloatTensor ssm_selective_scan(const &FloatTensor x, const &FloatTensor delta, const &FloatTensor A,
+                           const &FloatTensor B, const &FloatTensor C, const &FloatTensor Dskip);
 
 struct Mamba {
-    &Tensor inProj;   // [dModel, 2 * dInner]
-    &Tensor convW;    // [dInner, dConv]
-    &Tensor convB;    // [dInner]
-    &Tensor xProj;    // [dInner, dtRank + 2 * dState]
-    &Tensor dtProj;   // [dtRank, dInner]
-    &Tensor dtBias;   // [dInner]
-    &Tensor Alog;     // [dInner, dState]; A = -exp(Alog)
-    &Tensor Dskip;    // [dInner]
-    &Tensor outProj;  // [dInner, dModel]
+    &FloatTensor inProj;   // [dModel, 2 * dInner]
+    &FloatTensor convW;    // [dInner, dConv]
+    &FloatTensor convB;    // [dInner]
+    &FloatTensor xProj;    // [dInner, dtRank + 2 * dState]
+    &FloatTensor dtProj;   // [dtRank, dInner]
+    &FloatTensor dtBias;   // [dInner]
+    &FloatTensor Alog;     // [dInner, dState]; A = -exp(Alog)
+    &FloatTensor Dskip;    // [dInner]
+    &FloatTensor outProj;  // [dInner, dModel]
     unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
 };
 static struct Mamba Mamba::new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
-&Tensor      Mamba::forward(const &Tensor X) const;   // [T, dModel] -> [T, dModel]
+&FloatTensor      Mamba::forward(const &FloatTensor X) const;   // [T, dModel] -> [T, dModel]
 void         Mamba::free();
 
-struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
+struct MambaState { &FloatTensor conv; &FloatTensor h; };   // [dInner, dConv-1], [dInner, dState]
 static struct MambaState MambaState::new(const &Mamba layer);
-&Tensor           Mamba::step(&MambaState state, const &Tensor x) const;   // [1, dModel]
+&FloatTensor           Mamba::step(&MambaState state, const &FloatTensor x) const;   // [1, dModel]
 void              MambaState::reset();
 void              MambaState::free();
 
 struct Mamba m = Mamba::new(768UL, 16UL, 4UL, 2UL);
-&Tensor y = m.forward(prompt);   // prefill
+&FloatTensor y = m.forward(prompt);   // prefill
 struct MambaState st = MambaState::new(&m);
 // ... or decode token by token with a fixed-size state
-&Tensor yt = m.step(&st, token);
+&FloatTensor yt = m.step(&st, token);
 ```
 
 ## CNN
@@ -438,7 +479,7 @@ These layers run forward only. To train convolutional networks, use
 `Conv2D` (stride + zero-padding, no dilation/grouped conv),
 `FeatureMap::maxpool2d`/`FeatureMap::avgpool2d`, `FeatureMap::upsample2x_nearest` (nearest-
 neighbor 2x spatial upsample), `concat_channels` (channel-axis
-concatenation) — all over a channels-first `FeatureMap` (not `Tensor`,
+concatenation) — all over a channels-first `FeatureMap` (not `FloatTensor`,
 which tops out at 2D). Verified via hand-computed 3×3-kernel and
 pooling-window checks.
 
@@ -570,25 +611,25 @@ void edm_karras_sigmas(unsigned long numSteps, float sigmaMin, float sigmaMax, f
 void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd,
                           &float outBeta, &float outAlphaBar);    // numSteps values each
 
-&Tensor ddpm_sampler_step(const &Tensor x_t, const &Tensor epsPred,
-                          float beta_t, float alphaBar_t, const &Tensor noise);
-&Tensor ddim_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+&FloatTensor ddpm_sampler_step(const &FloatTensor x_t, const &FloatTensor epsPred,
+                          float beta_t, float alphaBar_t, const &FloatTensor noise);
+&FloatTensor ddim_sampler_step(const &FloatTensor x_t, const &FloatTensor epsPred,
                           float alphaBar_t, float alphaBar_prev);
-&Tensor dpm_solver_1_step(const &Tensor x_cur, const &Tensor epsPred,
+&FloatTensor dpm_solver_1_step(const &FloatTensor x_cur, const &FloatTensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-&Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
+&FloatTensor dpm_solver_pp_1_step(const &FloatTensor x_cur, const &FloatTensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
 // Order-2 solvers call your model again at the midpoint: any struct with
 // a predict method returning the predicted noise (eps) or clean sample (x0).
 trait DenoiseModel {
-    &Tensor predict(const &Tensor x, float sigma);
+    &FloatTensor predict(const &FloatTensor x, float sigma);
 }
 generic<M: DenoiseModel>
-&Tensor dpm_solver_2_step(&M model, const &Tensor x_cur, const &Tensor epsPred,
+&FloatTensor dpm_solver_2_step(&M model, const &FloatTensor x_cur, const &FloatTensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 generic<M: DenoiseModel>
-&Tensor dpm_solver_pp_2_step(&M model, const &Tensor x_cur, const &Tensor x0Pred,
+&FloatTensor dpm_solver_pp_2_step(&M model, const &FloatTensor x_cur, const &FloatTensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
@@ -612,16 +653,16 @@ The model is your own struct, holding its weights; the solver calls its `predict
 
 ```c
 static struct DiTBlock DiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long dModelCond, unsigned long numHeads);
-&Tensor DiTBlock::forward(const &Tensor x, const &Tensor c) const;   // c = conditioning
+&FloatTensor DiTBlock::forward(const &FloatTensor x, const &FloatTensor c) const;   // c = conditioning
 void    DiTBlock::free();
 
 static struct JiTBlock JiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
-&Tensor JiTBlock::forward(const &Tensor x) const;
+&FloatTensor JiTBlock::forward(const &FloatTensor x) const;
 void    JiTBlock::free();
 // The model: patch embedding + conditioning, then the blocks.
-struct JiT { &Tensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
+struct JiT { &FloatTensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
 static struct JiT JiT::new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden, unsigned long numHeads, unsigned long depth);
-&Tensor JiT::forward(const &Tensor patches, const &Tensor cond) const;   // cond: [1, dModel]
+&FloatTensor JiT::forward(const &FloatTensor patches, const &FloatTensor cond) const;   // cond: [1, dModel]
 void    JiT::free();
 ```
 
@@ -641,14 +682,14 @@ indices stored as floats.
   bounded-integer draws. Every initialization, shuffle and sample in these
   modules goes through one, so runs are reproducible.
 - **Differentiable ops**, in addition to `tensor.h` / `tensor_nn.h`:
-  - Arithmetic: `tensor_add_bias` (row broadcast) and `Tensor::add_scalar`.
-  - Elementwise: `Tensor::exp`, `Tensor::log`, `Tensor::abs`,
-    `Tensor::leaky_relu`, `Tensor::clamp` and `tensor_minimum`.
-  - Reductions and reshaping: `Tensor::mean`, `Tensor::sum_rows`
+  - Arithmetic: `tensor_add_bias` (row broadcast) and `FloatTensor::add_scalar`.
+  - Elementwise: `FloatTensor::exp`, `FloatTensor::log`, `FloatTensor::abs`,
+    `FloatTensor::leaky_relu`, `FloatTensor::clamp` and `tensor_minimum`.
+  - Reductions and reshaping: `FloatTensor::mean`, `FloatTensor::sum_rows`
     (`[m,n] → [m,1]`), `tensor_concat_cols` and `tensor_gather_rows`
     (embedding or codebook lookup, with gradients scatter-added back).
-  - `Tensor::log_softmax`.
-  - `Tensor::detach`, which stops gradients.
+  - `FloatTensor::log_softmax`.
+  - `FloatTensor::detach`, which stops gradients.
 - **Losses**, each returning one value averaged over elements:
   - `tensor_mse_loss`.
   - `tensor_huber_loss`.
@@ -691,10 +732,10 @@ step's tensors come from a `TensorArena` that is reset after the step.
 Parameters and optimizer state always stay on the heap.
 
 ```c
-static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
-static &Tensor clf_logits(&Mlp m, const &Tensor x) { return m.forward(x); }
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
 
 struct Rng rng = Rng::new(1UL);
 struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
@@ -790,18 +831,18 @@ generic<M: Module>
 struct Avg2 {
     M a;
     M b;
-    &Tensor forward(const &Tensor x);
-    void collect_params(&Vec<&Tensor> out) const;
-    void collect_state(&Vec<&Tensor> out) const;
+    &FloatTensor forward(const &FloatTensor x);
+    void collect_params(&Vec<&FloatTensor> out) const;
+    void collect_state(&Vec<&FloatTensor> out) const;
 };
 generic<M: Module>
-&Tensor Avg2::forward(const &Tensor x) {
+&FloatTensor Avg2::forward(const &FloatTensor x) {
     return tensor_add(self.a.forward(x), self.b.forward(x)).scale((float)0.5);
 }
 generic<M: Module>
-void Avg2::collect_params(&Vec<&Tensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
+void Avg2::collect_params(&Vec<&FloatTensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
 generic<M: Module>
-void Avg2::collect_state(&Vec<&Tensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
+void Avg2::collect_state(&Vec<&FloatTensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
 
 struct Avg2<struct Mlp> pair;   // ... pair.a, pair.b = mlp_new(...)
 module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
@@ -820,7 +861,7 @@ and trains the `Avg2` pair above.
 ```
 
 Trainable normalization layers, with autograd, over `[batch, dim]` rows.
-`activations.h`'s `Tensor::layernorm_rows` is the forward-only version.
+`activations.h`'s `FloatTensor::layernorm_rows` is the forward-only version.
 
 - **`LayerNorm`** (Ba et al. 2016) computes `y = LN(x) · gamma + beta`, with
   learned `gamma` (initialized to 1) and `beta` (initialized to 0).
@@ -831,14 +872,14 @@ Trainable normalization layers, with autograd, over `[batch, dim]` rows.
   so a fresh AdaLN is a plain LayerNorm. With `gated`, `AdaLNOut.gate`
   also starts at 0, so a residual branch `x + gate · f(y)` starts as the
   identity.
-- **Building blocks**: `Tensor::layer_norm`, `tensor_mul_row` (multiply by
-  a vector on every row), and `attention.h`'s `Tensor::slice_cols`, which is
+- **Building blocks**: `FloatTensor::layer_norm`, `tensor_mul_row` (multiply by
+  a vector on every row), and `attention.h`'s `FloatTensor::slice_cols`, which is
   now differentiable.
 
 ```c
 struct AdaLN ad = AdaLN::new(dim, condDim, 1);   // gated
 struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
-&Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
+&FloatTensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
 model_add_params(&ad, &opt);
 ```
 
@@ -876,8 +917,8 @@ Double quantization also stores the scales in 8 bits, with one float per
 
 `QLoraMlp::attach` copies the base, so the original `Mlp` can be freed. Each
 forward pass dequantizes the weights to float32, and gradients flow
-through the frozen 4-bit base to the adapters. `Nf4Tensor::quantize` /
-`Nf4Tensor::dequantize` are also usable on their own.
+through the frozen 4-bit base to the adapters. `Nf4FloatTensor::quantize` /
+`Nf4FloatTensor::dequantize` are also usable on their own.
 
 ```c
 struct LoraConfig cfg = LoraConfig::default(8UL);    // rank 8, alpha 8
@@ -908,7 +949,7 @@ label-swapped task that the frozen base gets wrong (accuracy below 70%):
 ```
 
 `cnn.h` runs convolutions forward on `FeatureMap`s. `convnet.h` makes them
-differentiable on `Tensor`s, so they train with `Tensor::backward`, the
+differentiable on `FloatTensor`s, so they train with `FloatTensor::backward`, the
 optimizers and `trainer_fit` like `Mlp` does. Images are rows, as in every
 other model here: a batch is a `[batch, C*H*W]` tensor, and each row holds
 one image in CHW order. A 2D tensor doesn't carry the image geometry, so
@@ -938,7 +979,7 @@ Pooling takes a `Pool2dSpec`, built with `pool2d_spec(kernel, stride,
 padding)`: a separate window, stride and padding per axis, `ceilMode`,
 and, for avg pooling, `countIncludePad`.
 
-- `Tensor::maxpool2d_ex` / `Tensor::avgpool2d_ex` clip their windows to the
+- `FloatTensor::maxpool2d_ex` / `FloatTensor::avgpool2d_ex` clip their windows to the
   plane. Max pooling therefore ignores the padding, as PyTorch's
   `MaxPool2d` does, and sends each window's gradient to its first largest
   input.
@@ -947,8 +988,8 @@ and, for avg pooling, `countIncludePad`.
   Without it, avg pooling divides by the positions inside the plane.
 - `ceilMode` rounds the output side up. As in PyTorch, the last window
   must still start inside the input or its left padding.
-- `Tensor::maxpool2d` / `Tensor::avgpool2d` take a square window.
-  `Tensor::global_avgpool2d` / `Tensor::global_maxpool2d` reduce each
+- `FloatTensor::maxpool2d` / `FloatTensor::avgpool2d` take a square window.
+  `FloatTensor::global_avgpool2d` / `FloatTensor::global_maxpool2d` reduce each
   channel to one value, `[batch, C*H*W] → [batch, C]`.
 
 `conv_out_side_ex`, `conv_transpose_out_side_ex` and `pool_out_side`
@@ -977,8 +1018,8 @@ any size, up or down, as PyTorch's `interpolate(size=...)`:
 
 With `alignCorners`, the corner pixels' centres map onto each other.
 Without it, pixel areas line up. Edges are clamped, and gradients scatter
-back with the same weights. `Tensor::upsample_nearest` is a fast path for
-an integer factor. `Tensor::upsample_bilinear` resizes by an integer
+back with the same weights. `FloatTensor::upsample_nearest` is a fast path for
+an integer factor. `FloatTensor::upsample_bilinear` resizes by an integer
 factor without aligning corners.
 
 ### Normalization and dropout
@@ -998,11 +1039,11 @@ factor without aligning corners.
   a weight by its largest singular value. It estimates that value by power
   iteration from a vector `u` kept between calls. The gradient treats the
   power-iteration vectors as constants, as PyTorch does.
-- **Dropout**: `Tensor::dropout` zeroes each value with probability p and
+- **Dropout**: `FloatTensor::dropout` zeroes each value with probability p and
   scales the rest by 1/(1 − p) in training, and passes x unchanged in
-  inference. `Tensor::dropout2d` drops whole channel planes.
+  inference. `FloatTensor::dropout2d` drops whole channel planes.
 
-**Conditioning.** `Tensor::label_planes` turns class indices into one
+**Conditioning.** `FloatTensor::label_planes` turns class indices into one
 constant plane per class: 1 in the plane of the row's label and 0
 elsewhere. `tensor_append_label_channels` adds those planes after an
 image's channels. This is how the conditional `ConvVae` and `Dcgan` pass
@@ -1066,7 +1107,7 @@ Other operations on a `ConvNet`:
   in `nn.h` use the same format.
 
 ```c
-static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+static &FloatTensor cnn_loss(&ConvNet m, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
 
@@ -1162,7 +1203,7 @@ struct Vae v = Vae::new(100UL, &cfg);
 struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.002);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &shapes, &tc);   // the VAE's own loss (Vae::loss)
-&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 100] in (0, 1)
+&FloatTensor samples = v.sample(64UL, (?&FloatTensor)labels);   // [64, 100] in (0, 1)
 ```
 
 The tests check each variant's reconstruction against its untrained error.
@@ -1212,7 +1253,7 @@ struct ConvVae v = ConvVae::new(enc, dec, &cfg);
 struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &mnist, &tc);
-&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 784] in (0, 1)
+&FloatTensor samples = v.sample(64UL, (?&FloatTensor)labels);   // [64, 784] in (0, 1)
 ```
 
 The tests run on 8×8 shapes, with batch norm in both nets:
@@ -1264,7 +1305,7 @@ struct GanConfig cfg = GanConfig::default(4UL);   // latent 4
 cfg.loss = GAN_HINGE;
 struct Gan g = Gan::new(2UL, &cfg);
 g.train(&data, 80UL, 64UL);
-&Tensor fake = g.sample(1000UL, null);   // heap tensor, caller frees
+&FloatTensor fake = g.sample(1000UL, null);   // heap tensor, caller frees
 ```
 
 In the tests, every objective learns a 2D Gaussian, with the mean within
@@ -1307,7 +1348,7 @@ disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // one score
 struct GanConfig cfg = GanConfig::default(16UL);
 struct Dcgan g = Dcgan::new(gen, disc, &cfg);
 g.train(&images, 20UL, 64UL);
-&Tensor fake = g.sample(64UL, null);   // [64, 256], heap tensor, caller frees
+&FloatTensor fake = g.sample(64UL, null);   // [64, 256], heap tensor, caller frees
 ```
 
 The tests train on 8×8 shapes. A DCGAN must move its samples' mean
@@ -1438,7 +1479,7 @@ and picks the concrete type at compile time:
 ```c
 #include <std/ml/train.h>
 
-static &Tensor logits(&Mlp m, const &Tensor x) { return m.forward(x); }
+static &FloatTensor logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
 
 struct Rng rng = Rng::new(1UL);
 struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
@@ -1596,7 +1637,7 @@ rocBLAS offers on that call's buffers, like MIOpen's Find, and caches the
 fastest. That takes about 0.1 s per shape. Run each shape once before
 `rocm_capture_begin()`, since an untuned shape inside a capture uses the
 default solution. Because the choice comes from timing, two runs can pick
-different solutions and differ in the last bits. `tensor_rocm.h` wraps the host-array ops as autograd `Tensor`
+different solutions and differ in the last bits. `tensor_rocm.h` wraps the host-array ops as autograd `FloatTensor`
 functions (`tensor_add_rocm`, `tensor_matmul_rocm_blas`, …) with a CPU
 fallback.
 
@@ -2131,7 +2172,7 @@ On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, hea
 
 ### Tensor wrappers
 
-Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU backward. Each falls back to the CPU when its device is unavailable.
+Autograd `FloatTensor` ops that run their forward pass on a backend and reuse the CPU backward. Each falls back to the CPU when its device is unavailable.
 
 | Header | Functions | Device |
 |--------|-----------|--------|
@@ -2149,7 +2190,7 @@ Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU
 ```c
 void tensor_gpu_batch_begin();
 void tensor_gpu_batch_end();
-void Tensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
+void FloatTensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
 void tensor_gpu_release_all_persistent();
 ```
 
@@ -2249,98 +2290,75 @@ hardware paths.
 
 Two layers:
 
-- **`HalfTensor`** stores a 1D/2D tensor in fp16 or bf16 — half the memory of a float32 `Tensor`. Its ops widen operands to float32, compute, and round the result back to the storage format, the same arithmetic a GPU half path performs; `half_matmul` accumulates each dot product in float32 and rounds once, like tensor cores. No autograd on this layer.
-- **Mixed precision on float32 `Tensor`s, with autograd.** `Tensor::cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
+- **`HalfTensor` (fp16) and `BF16Tensor` (bf16)** — [`DenseTensor`](#tensor) stored in 16 bits, half the memory of a `FloatTensor`. Their ops and autograd are the core tensor ops: operands load to float32, the float32 kernel runs, the result rounds once (`tensor_matmul` accumulates each dot product in float32, like tensor cores), and gradients are float32. This header adds conversions between element types, the batch helpers mixed-precision training uses, and `gemv` for decoding with 16-bit weights.
+- **Mixed precision on float32 tensors.** `FloatTensor::cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
 
 ```c
 #define TENSOR_FP16 1
 #define TENSOR_BF16 2
 
-struct HalfTensor {
-    &heap unsigned short data;     // fp16 or bf16 bits, row-major
-    unsigned long        shape[2];
-    unsigned long        ndim;     // 1 or 2
-    unsigned long        size;
-    int                  dtype;    // TENSOR_FP16 or TENSOR_BF16
-
-    float at1(unsigned long i) const;                   // widened to float32
-    float at2(unsigned long r, unsigned long c) const;
-    void  set1(unsigned long i, float v);               // rounded to dtype
-    void  set2(unsigned long r, unsigned long c, float v);
-    void  free();
-};
-
 float          half_round(float v, int dtype);          // nearest dtype value, as float32
 unsigned short half_encode(float v, int dtype);
 float          half_decode(unsigned short bits, int dtype);
 
-static struct HalfTensor HalfTensor::new_1d(unsigned long n, int dtype);           // zero-filled
-static struct HalfTensor HalfTensor::new_2d(unsigned long rows, unsigned long cols, int dtype);
-struct HalfTensor Tensor::to_half(int dtype) const;                // round to nearest even
-&Tensor           HalfTensor::to_tensor(int requiresGrad) const;     // exact
-
-// Shapes and dtypes must match; otherwise the result is empty (size 0).
-struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
-struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
-struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
-struct HalfTensor HalfTensor::scale(float k) const;
-struct HalfTensor HalfTensor::relu() const;
-struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
-float             HalfTensor::sum() const;                            // float32 accumulate
-int               HalfTensor::gemv(const &float x, &float y) const; // y = w x, float32 x / y
-int               HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // m vectors: x [m][k], y [m][n]
+// dst = src rounded to dst's element type (any pair, incl. fp16 <-> bf16);
+// sizes must match (0 otherwise). Not a graph node -- see to_float / from_float.
+generic<S, D> int tensor_convert_into(const &DenseTensor<S> src, &DenseTensor<D> dst);
 
 // Mixed-precision batches: fp32 masters <-> 16-bit copies, 16-bit gradients back
-int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // into an existing copy
-int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
-int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
-struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
-int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
-int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
-void half_tensors_free(&Vec<struct HalfTensor> hs);
-int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = all finite
+generic<S, D> void tensors_convert(const &Vec<&DenseTensor<S>> src, &Vec<&DenseTensor<D>> out);  // appends copies
+generic<S, D> int  tensors_convert_into(const &Vec<&DenseTensor<S>> src, &Vec<&DenseTensor<D>> dst);
+generic<E>    void tensors_free(&Vec<&DenseTensor<E>> ts);
+generic<E>    int  half_grads_accumulate(const &Vec<&DenseTensor<E>> grads, &Vec<&FloatTensor> params,
+                                         float invScale);  // 1 = all finite
 
-&Tensor Tensor::cast(int dtype) const;                            // straight-through gradient
-&Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
+int HalfTensor::gemv(const &float x, &float y) const;     // y = w x, float32 x / y
+int HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // m vectors: x [m][k], y [m][n]
+int BF16Tensor::gemv(const &float x, &float y) const;
+int BF16Tensor::gemv_batch(const &float x, unsigned long m, &float y) const;
+
+&FloatTensor FloatTensor::cast(int dtype) const;                            // straight-through gradient
+&FloatTensor tensor_matmul_lowp(const &FloatTensor a, const &FloatTensor b, int dtype);    // cast(cast(a) @ cast(b))
 
 struct LossScaler {
-    float scale;            // multiply the loss by this before Tensor::backward()
+    float scale;            // multiply the loss by this before FloatTensor::backward()
     float growthFactor;     // 2.0
     float backoffFactor;    // 0.5
     int   growthInterval;   // 2000 clean steps
     int   goodSteps;
 };
 static struct LossScaler LossScaler::new();                  // scale 65536 (PyTorch GradScaler's defaults)
-int  LossScaler::unscale(&Tensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
-int  LossScaler::unscale_all(&Vec<&Tensor> params);   // every tensor in a list
+int  LossScaler::unscale(&FloatTensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
+int  LossScaler::unscale_all(&Vec<&FloatTensor> params);   // every tensor in a list
 void LossScaler::update(int allFinite);               // grow after clean steps, back off after overflow
 ```
 
-A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
+A `HalfTensor`'s or `BF16Tensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
 
-`HalfTensor::gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#ml-llm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `HalfTensor::gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `HalfTensor::gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#ml-llm) CPU path on the M1 Pro takes 136 ms per token.
+`gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#ml-llm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#ml-llm) CPU path on the M1 Pro takes 136 ms per token.
 
-Storage and arithmetic in bf16:
+Storage and arithmetic in bf16, with autograd:
 
 ```c
 #include <std/ml/tensor_half.h>
+#include <std/collections/slice.h>
 #include <std/io.h>
 
 int main() {
     // Store weights in bf16 (half the memory), compute a matmul in bf16.
-    struct HalfTensor w = HalfTensor::new_2d(2UL, 2UL, TENSOR_BF16);
-    struct HalfTensor x = HalfTensor::new_2d(2UL, 1UL, TENSOR_BF16);
+    &BF16Tensor w = BF16Tensor::new_2d(2UL, 2UL, 1);
+    &BF16Tensor x = BF16Tensor::new_2d(2UL, 1UL, 0);
     w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
     w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
     x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
-    struct HalfTensor y = std::half_matmul(&w, &x);      // f32 accumulate, bf16 result
-    std::println_float((double)y.at1(0UL));             // -2.5
-    std::println_float((double)y.at1(1UL));             // 7
+    &BF16Tensor y = tensor_matmul(w, x);      // f32 accumulate, bf16 result
+    std::println_float((double)y.at1(0UL));   // -2.5
+    std::println_float((double)y.at1(1UL));   // 7
 
-    // Back to float32 for anything that needs autograd.
-    &Tensor yf = y.to_tensor(0);
-    yf.free();
-    y.free(); x.free(); w.free();
+    y.sum().backward();                       // w.grad: float32
+    struct Slice<float> g = std::slice_of(w.grad, w.size);
+    std::println_float((double)*g.at(1UL));   // 4 (= x[1])
+    x.free(); w.free();
     return 0;
 }
 ```
@@ -2353,10 +2371,10 @@ Mixed-precision training — fp16 forward, float32 master weights, skipped steps
 
 // One mixed-precision SGD step: fp16 forward, float32 master weights,
 // dynamic loss scaling so small fp16 gradients don't flush to zero.
-int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
-    &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
-    &Tensor diff = std::tensor_sub(y, target);
-    &Tensor loss = std::tensor_mul(diff, diff).sum();
+int train_step(&FloatTensor w, const &FloatTensor x, const &FloatTensor target, &LossScaler scaler, float lr) {
+    &FloatTensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
+    &FloatTensor diff = std::tensor_sub(y, target);
+    &FloatTensor loss = std::tensor_mul(diff, diff).sum();
     loss.scale(scaler.scale).backward();
 
     int finite = scaler.unscale(w);
@@ -2375,9 +2393,9 @@ int main() {
     float wv[2] = { 0.1f, 0.2f };
     float xv[2] = { 1.0f, 2.0f };
     float tv[1] = { 1.0f };
-    &Tensor w = Tensor::from_2d(&wv[0], 2UL, 1UL, 1);
-    &Tensor x = Tensor::from_2d(&xv[0], 1UL, 2UL, 0);
-    &Tensor t = Tensor::from_2d(&tv[0], 1UL, 1UL, 0);
+    &FloatTensor w = FloatTensor::from_2d(&wv[0], 2UL, 1UL, 1);
+    &FloatTensor x = FloatTensor::from_2d(&xv[0], 1UL, 2UL, 0);
+    &FloatTensor t = FloatTensor::from_2d(&tv[0], 1UL, 1UL, 0);
     struct LossScaler scaler = LossScaler::new();
     int ok = 1;
     for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
@@ -2451,15 +2469,15 @@ enum Device {
     DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
     DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
 };
-&Tensor tensor_matmul_on(const &Tensor a, const &Tensor b, enum Device device);
-&Tensor Tensor::relu_on(enum Device device) const;
+&FloatTensor tensor_matmul_on(const &FloatTensor a, const &FloatTensor b, enum Device device);
+&FloatTensor FloatTensor::relu_on(enum Device device) const;
 
 #include <std/ml/transformer_dispatch.h>
-&Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
-&Tensor jit_forward_on(const &JiT model, const &Tensor patches, const &Tensor cond, enum Device device);
+&FloatTensor jit_block_forward_on(const &JiTBlock block, const &FloatTensor x, enum Device device);
+&FloatTensor jit_forward_on(const &JiT model, const &FloatTensor patches, const &FloatTensor cond, enum Device device);
 ```
 
-Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `Tensor::sigmoid`/`Tensor::relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
+Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `FloatTensor::sigmoid`/`FloatTensor::relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
 
 `jit_block_forward_on(block, x, device)` threads device selection through a real layer (JiTBlock's Q/K/V/output projections + FFN) — verified bit-identical to the reference across CPU/CPU+BLAS/MPS:
 

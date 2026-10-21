@@ -138,7 +138,7 @@ int sgemm_vendor();            // 벤더 BLAS를 쓰고 있으면 1
 const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
-`tensor_matmul`(순전파와 역전파), `Conv2D::forward`, `half_matmul`이 이것을 기반으로 합니다.
+`tensor_matmul`(모든 원소 타입의 순전파와 역전파)과 `Conv2D::forward`가 이것을 기반으로 합니다.
 
 Ryzen 7 7800X3D(Zen 4, 8코어 / 16스레드)에서 N × N × N, 베이스라인 x86-64 빌드 하나로 잰 처리량:
 

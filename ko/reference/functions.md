@@ -169,14 +169,14 @@ const 메서드는 `const T*` self 포인터를 받고, 비const 메서드는 `T
 struct Tensor { ... };
 
 // tensor_nn.h — tensor.h를 건드리지 않고 Tensor에 연산을 더합니다
-&Tensor Tensor::relu() const;
-&Tensor Tensor::softmax() const;
+&FloatTensor FloatTensor::relu() const;
+&FloatTensor FloatTensor::softmax() const;
 
 // tensor_nn.sc
-&Tensor Tensor::relu() const { ... }
+&FloatTensor FloatTensor::relu() const { ... }
 ```
 
-이렇게 하면 각 모듈의 메서드가 그 모듈과 함께 있습니다. 표준 라이브러리의 `Tensor`는 활성화 함수를 `tensor_nn.h`에서, 풀링을 `convnet.h`에서, GPU 변형을 백엔드 헤더에서 얻습니다. 정적 메서드는 구조체 본문 안에서 선언해야 합니다(본문 밖 선언 앞의 `static`은 C의 내부 링크를 뜻합니다).
+이렇게 하면 각 모듈의 메서드가 그 모듈과 함께 있습니다. 표준 라이브러리의 `FloatTensor`는 활성화 함수를 `tensor_nn.h`에서, 풀링을 `convnet.h`에서, GPU 변형을 백엔드 헤더에서 얻습니다. 정적 메서드는 구조체 본문 안에서 선언해야 합니다(본문 밖 선언 앞의 `static`은 C의 내부 링크를 뜻합니다).
 
 ### 정적 메서드 {#static-methods}
 

@@ -16,8 +16,8 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 설계), EDM 고유의 VE 방식 샘플러, 위치 인코딩, 패치화.
 :::
 
-아래의 모든 함수는 `Tensor`(및 여기 나오는 다른 구조체들)를 리전 없는
-참조(`&Tensor`/`const &Tensor` — [메모리와 리전](/ko/reference/memory)의
+아래의 모든 함수는 `FloatTensor`(및 여기 나오는 다른 구조체들)를 리전 없는
+참조(`&FloatTensor`/`const &FloatTensor` — [메모리와 리전](/ko/reference/memory)의
 "참조가 살아남는 경우" 절 참고)로 받고 반환합니다: 이 라이브러리 안의
 어떤 것도 호출자의 텐서가 힙/스택/정적/아레나 중 무엇에 기반하는지
 신경 쓰지 않으므로, 특정 리전에 고정되는 함수는 없습니다. 원시 포인터(또는
@@ -27,7 +27,7 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 디바이스 신경망과 버퍼)은 [메서드](/ko/reference/functions#struct-methods)로
 씁니다: `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
 생성자는 [정적 메서드](/ko/reference/functions#static-methods)입니다:
-`Mlp::new(...)`, `Tensor::new_2d(...)`, `Dataset::moons(...)`,
+`Mlp::new(...)`, `FloatTensor::new_2d(...)`, `Dataset::moons(...)`,
 `RocmNet::from_mlp(&net, 128UL)`, `TrainConfig::default()`. 텐서 하나에 대한
 연산은 그 텐서의 메서드입니다 — `x.relu()`, `logits.log_softmax()`,
 `loss.backward()`, `t.fill(0.0f)`. 텐서를 제자리에서 바꾸지 않는 한 const
@@ -47,19 +47,36 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 #include <std/ml/tensor.h>
 ```
 
-역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D, `float` — PyTorch의 기본값이자 Metal이 지원하는 유일한 정밀도인 float32) — PyTorch 스타일의
-사용감: `requiresGrad` 텐서에 연산을 호출해 암묵적으로 계산 그래프를
-만들고, 그다음 `Tensor::backward()`를 호출합니다. fp16/bf16 저장과 혼합 정밀도
-학습은 [반정밀도 텐서](#half-precision-tensors)를 참고합니다.
+역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D) — PyTorch 스타일의 사용감:
+`requiresGrad` 텐서에 연산을 호출해 암묵적으로 계산 그래프를 만들고, 그다음
+`FloatTensor::backward()`를 호출합니다.
+
+텐서는 `DenseTensor<E>`입니다: 값은 `E`로 저장하고, 계산은 float32로 하며,
+그래디언트는 항상 float32입니다. 원소 타입은 세 가지가 제공됩니다:
+
+| 타입 | `E` | 저장 형식 |
+|---|---|---|
+| `FloatTensor` | `float` | float32(PyTorch의 기본값이자 Metal이 지원하는 유일한 정밀도) |
+| `HalfTensor` | `F16` | IEEE fp16 |
+| `BF16Tensor` | `BF16` | bfloat16 |
+
+아래의 핵심 연산(`tensor_add`/`sub`/`mul`/`matmul`, `scale`, `sum`)과 그
+자동미분, 역전파는 세 타입 모두에서 동작합니다. `FloatTensor` 연산은 텐서
+자체에 float32 커널을 실행하고, 16비트 연산은 피연산자를 float32로 읽어 같은
+커널을 실행한 뒤 결과를 한 번 반올림합니다. 역전파는 어느 쪽이든 float32
+역전파이며, 한 그래프에 원소 타입이 섞여도 됩니다(`to_float()` /
+`from_float()`가 그래프 노드입니다). 이 라이브러리의 나머지 연산(활성화,
+손실, 레이어)은 `FloatTensor`를 받습니다. 변환, 일괄 헬퍼, 혼합 정밀도 학습은
+[반정밀도 텐서](#half-precision-tensors)를 참고합니다.
 
 ```c
-&Tensor x = Tensor::from_1d(values, 3UL, /*requiresGrad=*/1);
-&Tensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
+&FloatTensor x = FloatTensor::from_1d(values, 3UL, /*requiresGrad=*/1);
+&FloatTensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
 y.backward();                               // 이제 x.grad는 2x를 담고 있다
 ```
 
-연산: `tensor_add`/`tensor_sub`/`tensor_mul`/`Tensor::scale`/
-`tensor_matmul`/`Tensor::relu`/`Tensor::sum`. 손으로 계산한 그래디언트와,
+연산: `tensor_add`/`tensor_sub`/`tensor_mul`/`FloatTensor::scale`/
+`tensor_matmul`/`FloatTensor::relu`/`FloatTensor::sum`. 손으로 계산한 그래디언트와,
 matmul→relu→sum 체인에 대한 실제 유한 차분(finite-difference) 검사를
 통해 검증되었습니다.
 
@@ -80,38 +97,62 @@ Accelerate이며, safeguard의 [`[build] blas`](/ko/advanced/safeguard#linking-e
 원소마다 libm을 호출하지 않습니다.
 
 ```c
-struct Tensor {
-    &heap float         data;          // flat row-major, length == size
+generic<E>
+struct DenseTensor {
+    &heap E             data;          // flat row-major, length == size
     &heap unsigned long shape;
     unsigned long       ndim;          // 1 or 2
     unsigned long       size;
     int                 requiresGrad;
-    &heap float         grad;          // allocated only when requiresGrad
+    &heap float         grad;          // float32; allocated only when requiresGrad
     // ... autograd bookkeeping (gradFn, parents, visited)
 
+    float at1(unsigned long i) const;                      // as float32
+    float at2(unsigned long r, unsigned long c) const;
+    void  set1(unsigned long i, float v);                  // rounded to E
+    void  set2(unsigned long r, unsigned long c, float v);
+    void  free();
+    // ... and the methods below
+};
+
+typedef struct DenseTensor<float>       FloatTensor;
+typedef struct DenseTensor<struct F16>  HalfTensor;
+typedef struct DenseTensor<struct BF16> BF16Tensor;
+
+// What generic ML code asks of a tensor; all three satisfy it.
+trait Tensor {
     float at1(unsigned long i) const;
     float at2(unsigned long r, unsigned long c) const;
     void  set1(unsigned long i, float v);
     void  set2(unsigned long r, unsigned long c, float v);
+    void  fill(float v);
+    void  backward();
+    void  zero_grad();
     void  free();
-};
+}
 
-static &Tensor Tensor::new_1d(unsigned long n, int requiresGrad);
-static &Tensor Tensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
-static &Tensor Tensor::from_1d(const &float values, unsigned long n, int requiresGrad);
-static &Tensor Tensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
-&Tensor Tensor::zeros_like() const;
-void    Tensor::fill(float v);   // in place
+// Shown for FloatTensor; HalfTensor:: and BF16Tensor:: are the same.
+static &FloatTensor FloatTensor::new_1d(unsigned long n, int requiresGrad);
+static &FloatTensor FloatTensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
+static &FloatTensor FloatTensor::from_1d(const &float values, unsigned long n, int requiresGrad);
+static &FloatTensor FloatTensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+&FloatTensor FloatTensor::zeros_like() const;
+void    FloatTensor::fill(float v);   // in place
 
-&Tensor tensor_add(const &Tensor a, const &Tensor b);
-&Tensor tensor_sub(const &Tensor a, const &Tensor b);
-&Tensor tensor_mul(const &Tensor a, const &Tensor b);   // elementwise
-&Tensor Tensor::scale(float k) const;
-&Tensor tensor_matmul(const &Tensor a, const &Tensor b);
-&Tensor Tensor::sum() const;
+// Generic over the element type: both operands are the same DenseTensor<E>.
+generic<E> &DenseTensor<E> tensor_add(const &DenseTensor<E> a, const &DenseTensor<E> b);
+generic<E> &DenseTensor<E> tensor_sub(const &DenseTensor<E> a, const &DenseTensor<E> b);
+generic<E> &DenseTensor<E> tensor_mul(const &DenseTensor<E> a, const &DenseTensor<E> b);   // elementwise
+generic<E> &DenseTensor<E> tensor_matmul(const &DenseTensor<E> a, const &DenseTensor<E> b);
+&FloatTensor FloatTensor::scale(float k) const;
+&FloatTensor FloatTensor::sum() const;
 
-void Tensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
-void Tensor::zero_grad();
+// Between element types, as graph nodes (gradients pass through unchanged).
+&FloatTensor FloatTensor::to_float() const;                       // a FloatTensor: itself
+static &HalfTensor HalfTensor::from_float(const &FloatTensor x);  // rounded
+
+void FloatTensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
+void FloatTensor::zero_grad();
 
 // Gradient recording: the program's autograd state. Disabled (inference),
 // composed ops record no graph (leaf flags unchanged).
@@ -143,7 +184,7 @@ unsigned long TensorArena::used() const;   // 마지막 reset 이후 할당한 �
 struct TensorArena step = TensorArena::new(0UL);
 while (s < steps) {
     step.begin();
-    // ... 순전파, Tensor::backward, 옵티마이저 갱신 ...
+    // ... 순전파, FloatTensor::backward, 옵티마이저 갱신 ...
     tensor_arena_end();
     step.reset();   // 이 단계의 텐서는 사라짐
     s = s + 1;
@@ -151,7 +192,7 @@ while (s < steps) {
 step.free();
 ```
 
-매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 아레나가 활성인 동안 만든 [`FeatureMap`](#cnn)도 `UNet::forward` 안의 모든 중간 결과까지 포함해 아레나에서 할당하며, `FeatureMap::free`는 그것들을 reset에 맡깁니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
+매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 아레나가 활성인 동안 만든 [`FeatureMap`](#cnn)도 `UNet::forward` 안의 모든 중간 결과까지 포함해 아레나에서 할당하며, `FeatureMap::free`는 그것들을 reset에 맡깁니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `FloatTensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
 
 ### 자동미분 연산과 옵티마이저 — `tensor_nn.h` {#autograd-ops-and-optimizer-tensor-nn-h}
 
@@ -162,17 +203,17 @@ step.free();
 역방향 패스를 갖춘 활성화 함수(모든 GPU 백엔드가 쓰는 것), 1D 풀링, Adam입니다.
 
 ```c
-&Tensor Tensor::relu() const;
-&Tensor Tensor::sigmoid() const;
-&Tensor Tensor::tanh() const;
-&Tensor Tensor::softmax() const;
-&Tensor Tensor::elu(float alpha) const;
-&Tensor Tensor::gelu() const;
-&Tensor Tensor::silu() const;
-&Tensor Tensor::glu() const;      // split last axis into [a1, a2]: a1 * sigmoid(a2)
-&Tensor Tensor::swiglu() const;   // silu(a1) * a2 — output has half the columns
-&Tensor Tensor::maxpool1d(unsigned long kernel, unsigned long stride) const;
-&Tensor Tensor::avgpool1d(unsigned long kernel, unsigned long stride) const;
+&FloatTensor FloatTensor::relu() const;
+&FloatTensor FloatTensor::sigmoid() const;
+&FloatTensor FloatTensor::tanh() const;
+&FloatTensor FloatTensor::softmax() const;
+&FloatTensor FloatTensor::elu(float alpha) const;
+&FloatTensor FloatTensor::gelu() const;
+&FloatTensor FloatTensor::silu() const;
+&FloatTensor FloatTensor::glu() const;      // split last axis into [a1, a2]: a1 * sigmoid(a2)
+&FloatTensor FloatTensor::swiglu() const;   // silu(a1) * a2 — output has half the columns
+&FloatTensor FloatTensor::maxpool1d(unsigned long kernel, unsigned long stride) const;
+&FloatTensor FloatTensor::avgpool1d(unsigned long kernel, unsigned long stride) const;
 
 struct AdamState {
     &heap float m; &heap float v;
@@ -182,7 +223,7 @@ struct AdamState {
 };
 static struct AdamState AdamState::new(unsigned long size, float lr, float beta1, float beta2, float eps);
 static struct AdamState AdamState::new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
-void AdamState::step(&Tensor param);                               // uses param.grad
+void AdamState::step(&FloatTensor param);                               // uses param.grad
 void AdamState::free();
 ```
 
@@ -193,19 +234,19 @@ void AdamState::free();
 ```
 
 순방향 전용 원소 단위 활성화 함수(자동미분 없음 — 추론 레이어용이며,
-자동미분 버전은 위의 `tensor_nn.h`에 있습니다); `Tensor::layernorm_rows`(행 단위 평균 0/분산 1 정규화,
+자동미분 버전은 위의 `tensor_nn.h`에 있습니다); `FloatTensor::layernorm_rows`(행 단위 평균 0/분산 1 정규화,
 어파인 변환 없음 — AdaLN 방식 컨디셔닝에는 직접 스케일/시프트를 적용할
 것, 아래 DiT 참고); `tensor_residual_add`(residual/skip 연결 호출부를
 위한, `tensor_add`에 이름을 붙인 별칭).
 
 ```c
-&Tensor Tensor::relu_fwd() const;
-&Tensor Tensor::sigmoid_fwd() const;
-&Tensor Tensor::tanh_fwd() const;
-&Tensor Tensor::silu_fwd() const;
-&Tensor Tensor::gelu_fwd() const;
-&Tensor Tensor::layernorm_rows(float eps) const;
-&Tensor tensor_residual_add(const &Tensor x, const &Tensor sublayerOut);
+&FloatTensor FloatTensor::relu_fwd() const;
+&FloatTensor FloatTensor::sigmoid_fwd() const;
+&FloatTensor FloatTensor::tanh_fwd() const;
+&FloatTensor FloatTensor::silu_fwd() const;
+&FloatTensor FloatTensor::gelu_fwd() const;
+&FloatTensor FloatTensor::layernorm_rows(float eps) const;
+&FloatTensor tensor_residual_add(const &FloatTensor x, const &FloatTensor sublayerOut);
 ```
 
 ## 어텐션 {#attention}
@@ -231,18 +272,18 @@ void AdamState::free();
   일치함이 검증되었습니다.
 
 ```c
-&Tensor Tensor::softmax_rows() const;
-&Tensor Tensor::transpose() const;
-&Tensor Tensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
-void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
+&FloatTensor FloatTensor::softmax_rows() const;
+&FloatTensor FloatTensor::transpose() const;
+&FloatTensor FloatTensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
+void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);
 
-&Tensor attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
-&Tensor mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long numHeads);
-&Tensor gated_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, const &Tensor gateLogits);
-&Tensor gated_mha_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
-                          unsigned long numHeads, const &Tensor gateLogits);
-&Tensor linear_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
-&Tensor flash_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V, unsigned long kvBlockSize);
+&FloatTensor attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
+&FloatTensor mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long numHeads);
+&FloatTensor gated_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, const &FloatTensor gateLogits);
+&FloatTensor gated_mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                          unsigned long numHeads, const &FloatTensor gateLogits);
+&FloatTensor linear_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
+&FloatTensor flash_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long kvBlockSize);
 ```
 
 전체적으로 순방향 전용입니다(추론 중심, 역방향 패스 없음). 손으로 계산한
@@ -260,7 +301,7 @@ flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼
 
 ```c
 static struct MultiHeadAttention MultiHeadAttention::new(unsigned long dModel, unsigned long numHeads, &Rng rng);
-&Tensor MultiHeadAttention::forward(const &Tensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
+&FloatTensor MultiHeadAttention::forward(const &FloatTensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
 void    MultiHeadAttention::free();
 ```
 
@@ -289,20 +330,20 @@ void    MultiHeadAttention::free();
 DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되었습니다.
 
 ```c
-struct Mla { &Tensor Wq; &Tensor Wdkv; &Tensor Wuk; &Tensor Wuv; unsigned long numHeads; };
+struct Mla { &FloatTensor Wq; &FloatTensor Wdkv; &FloatTensor Wuk; &FloatTensor Wuv; unsigned long numHeads; };
 static struct Mla Mla::new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
-&Tensor Mla::forward(const &Tensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
+&FloatTensor Mla::forward(const &FloatTensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
 
-struct EgMla { &Tensor Wq; &Tensor Wdkv; struct Vec<&Tensor> Wuk; struct Vec<&Tensor> Wuv;  // 그룹마다 하나
+struct EgMla { &FloatTensor Wq; &FloatTensor Wdkv; struct Vec<&FloatTensor> Wuk; struct Vec<&FloatTensor> Wuv;  // 그룹마다 하나
                unsigned long headsPerGroup; };
 static struct EgMla EgMla::new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups, unsigned long headsPerGroup, &Rng rng);
-&Tensor EgMla::forward(const &Tensor X) const;
-&Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
+&FloatTensor EgMla::forward(const &FloatTensor X) const;
+&FloatTensor windowed_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
                                    unsigned long windowSize, unsigned long shift);
 
-struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
+struct GatedDeltaNet { &FloatTensor Walpha; &FloatTensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
 static struct GatedDeltaNet GatedDeltaNet::new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
-&Tensor GatedDeltaNet::forward(const &Tensor X, const &Tensor Q, const &Tensor K, const &Tensor V) const;
+&FloatTensor GatedDeltaNet::forward(const &FloatTensor X, const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V) const;
 void    GatedDeltaNet::free();
 ```
 
@@ -323,21 +364,21 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 
 ```c
 static struct RNNCell  RNNCell::new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         RNNCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+&FloatTensor         RNNCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev) const;
 void            RNNCell::free();
 
 static struct GRUCell  GRUCell::new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         GRUCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+&FloatTensor         GRUCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev) const;
 void            GRUCell::free();
 
 static struct LSTMCell LSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
 // Returns h_t; the new cell state is written through c_out.
-&Tensor         LSTMCell::forward(const &Tensor x_t, const &Tensor h_prev, const &Tensor c_prev, &&Tensor c_out) const;
+&FloatTensor         LSTMCell::forward(const &FloatTensor x_t, const &FloatTensor h_prev, const &FloatTensor c_prev, &&FloatTensor c_out) const;
 void            LSTMCell::free();
 
-struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
+struct XLSTMState { &FloatTensor h; &FloatTensor c; &FloatTensor n; &FloatTensor m; };   // hidden, cell, normalizer, stabilizer
 static struct XLSTMCell  XLSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
-struct XLSTMState XLSTMCell::forward(const &Tensor x_t, const &XLSTMState prev) const;
+struct XLSTMState XLSTMCell::forward(const &FloatTensor x_t, const &XLSTMState prev) const;
 void              XLSTMCell::free();
 void              XLSTMState::free();
 ```
@@ -388,36 +429,36 @@ HF transformers의 `MambaMixer`에 복사했을 때 출력이 약 0.05 크기에
 
 ```c
 // Selective scan alone: x, delta [T, D]; A [D, N]; B, C [T, N]; Dskip [D] -> y [T, D]
-&Tensor ssm_selective_scan(const &Tensor x, const &Tensor delta, const &Tensor A,
-                           const &Tensor B, const &Tensor C, const &Tensor Dskip);
+&FloatTensor ssm_selective_scan(const &FloatTensor x, const &FloatTensor delta, const &FloatTensor A,
+                           const &FloatTensor B, const &FloatTensor C, const &FloatTensor Dskip);
 
 struct Mamba {
-    &Tensor inProj;   // [dModel, 2 * dInner]
-    &Tensor convW;    // [dInner, dConv]
-    &Tensor convB;    // [dInner]
-    &Tensor xProj;    // [dInner, dtRank + 2 * dState]
-    &Tensor dtProj;   // [dtRank, dInner]
-    &Tensor dtBias;   // [dInner]
-    &Tensor Alog;     // [dInner, dState]; A = -exp(Alog)
-    &Tensor Dskip;    // [dInner]
-    &Tensor outProj;  // [dInner, dModel]
+    &FloatTensor inProj;   // [dModel, 2 * dInner]
+    &FloatTensor convW;    // [dInner, dConv]
+    &FloatTensor convB;    // [dInner]
+    &FloatTensor xProj;    // [dInner, dtRank + 2 * dState]
+    &FloatTensor dtProj;   // [dtRank, dInner]
+    &FloatTensor dtBias;   // [dInner]
+    &FloatTensor Alog;     // [dInner, dState]; A = -exp(Alog)
+    &FloatTensor Dskip;    // [dInner]
+    &FloatTensor outProj;  // [dInner, dModel]
     unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
 };
 static struct Mamba Mamba::new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
-&Tensor      Mamba::forward(const &Tensor X) const;   // [T, dModel] -> [T, dModel]
+&FloatTensor      Mamba::forward(const &FloatTensor X) const;   // [T, dModel] -> [T, dModel]
 void         Mamba::free();
 
-struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
+struct MambaState { &FloatTensor conv; &FloatTensor h; };   // [dInner, dConv-1], [dInner, dState]
 static struct MambaState MambaState::new(const &Mamba layer);
-&Tensor           Mamba::step(&MambaState state, const &Tensor x) const;   // [1, dModel]
+&FloatTensor           Mamba::step(&MambaState state, const &FloatTensor x) const;   // [1, dModel]
 void              MambaState::reset();
 void              MambaState::free();
 
 struct Mamba m = Mamba::new(768UL, 16UL, 4UL, 2UL);
-&Tensor y = m.forward(prompt);   // prefill
+&FloatTensor y = m.forward(prompt);   // prefill
 struct MambaState st = MambaState::new(&m);
 // ... 또는 고정 크기 상태로 토큰 하나씩 디코딩
-&Tensor yt = m.step(&st, token);
+&FloatTensor yt = m.step(&st, token);
 ```
 
 ## CNN {#cnn}
@@ -432,7 +473,7 @@ struct MambaState st = MambaState::new(&m);
 `Conv2D`(스트라이드 + 제로 패딩, 팽창/그룹 컨볼루션 없음),
 `FeatureMap::maxpool2d`/`FeatureMap::avgpool2d`, `FeatureMap::upsample2x_nearest`(최근접
 이웃 방식의 2배 공간 업샘플링), `concat_channels`(채널 축 연결) — 모두
-(2D까지만 지원하는 `Tensor`가 아니라) 채널 우선 `FeatureMap`에 대해
+(2D까지만 지원하는 `FloatTensor`가 아니라) 채널 우선 `FeatureMap`에 대해
 동작합니다. 손으로 계산한 3×3 커널 검사와 풀링 윈도우 검사를 통해
 검증되었습니다.
 
@@ -559,25 +600,25 @@ void edm_karras_sigmas(unsigned long numSteps, float sigmaMin, float sigmaMax, f
 void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd,
                           &float outBeta, &float outAlphaBar);    // numSteps values each
 
-&Tensor ddpm_sampler_step(const &Tensor x_t, const &Tensor epsPred,
-                          float beta_t, float alphaBar_t, const &Tensor noise);
-&Tensor ddim_sampler_step(const &Tensor x_t, const &Tensor epsPred,
+&FloatTensor ddpm_sampler_step(const &FloatTensor x_t, const &FloatTensor epsPred,
+                          float beta_t, float alphaBar_t, const &FloatTensor noise);
+&FloatTensor ddim_sampler_step(const &FloatTensor x_t, const &FloatTensor epsPred,
                           float alphaBar_t, float alphaBar_prev);
-&Tensor dpm_solver_1_step(const &Tensor x_cur, const &Tensor epsPred,
+&FloatTensor dpm_solver_1_step(const &FloatTensor x_cur, const &FloatTensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-&Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
+&FloatTensor dpm_solver_pp_1_step(const &FloatTensor x_cur, const &FloatTensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
 // 2차 솔버는 중점에서 모델을 다시 호출합니다: 예측한 노이즈(eps)나
 // 깨끗한 샘플(x0)을 반환하는 predict 메서드를 가진 구조체면 됩니다.
 trait DenoiseModel {
-    &Tensor predict(const &Tensor x, float sigma);
+    &FloatTensor predict(const &FloatTensor x, float sigma);
 }
 generic<M: DenoiseModel>
-&Tensor dpm_solver_2_step(&M model, const &Tensor x_cur, const &Tensor epsPred,
+&FloatTensor dpm_solver_2_step(&M model, const &FloatTensor x_cur, const &FloatTensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 generic<M: DenoiseModel>
-&Tensor dpm_solver_pp_2_step(&M model, const &Tensor x_cur, const &Tensor x0Pred,
+&FloatTensor dpm_solver_pp_2_step(&M model, const &FloatTensor x_cur, const &FloatTensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
@@ -600,16 +641,16 @@ generic<M: DenoiseModel>
 
 ```c
 static struct DiTBlock DiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long dModelCond, unsigned long numHeads);
-&Tensor DiTBlock::forward(const &Tensor x, const &Tensor c) const;   // c = conditioning
+&FloatTensor DiTBlock::forward(const &FloatTensor x, const &FloatTensor c) const;   // c = conditioning
 void    DiTBlock::free();
 
 static struct JiTBlock JiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
-&Tensor JiTBlock::forward(const &Tensor x) const;
+&FloatTensor JiTBlock::forward(const &FloatTensor x) const;
 void    JiTBlock::free();
 // 모델: 패치 임베딩 + 컨디셔닝, 그다음 블록들.
-struct JiT { &Tensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
+struct JiT { &FloatTensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
 static struct JiT JiT::new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden, unsigned long numHeads, unsigned long depth);
-&Tensor JiT::forward(const &Tensor patches, const &Tensor cond) const;   // cond: [1, dModel]
+&FloatTensor JiT::forward(const &FloatTensor patches, const &FloatTensor cond) const;   // cond: [1, dModel]
 void    JiT::free();
 ```
 
@@ -629,14 +670,14 @@ void    JiT::free();
   뽑습니다. 이 모듈들의 모든 초기화, 셔플, 샘플링이 이를 거치므로 실행 결과가
   재현됩니다.
 - **미분 가능한 연산** (`tensor.h` / `tensor_nn.h`에 더해):
-  - 산술: `tensor_add_bias`(행 브로드캐스트), `Tensor::add_scalar`.
-  - 원소별: `Tensor::exp`, `Tensor::log`, `Tensor::abs`, `Tensor::leaky_relu`,
-    `Tensor::clamp`, `tensor_minimum`.
-  - 축소와 형태 변환: `Tensor::mean`, `Tensor::sum_rows`(`[m,n] → [m,1]`),
+  - 산술: `tensor_add_bias`(행 브로드캐스트), `FloatTensor::add_scalar`.
+  - 원소별: `FloatTensor::exp`, `FloatTensor::log`, `FloatTensor::abs`, `FloatTensor::leaky_relu`,
+    `FloatTensor::clamp`, `tensor_minimum`.
+  - 축소와 형태 변환: `FloatTensor::mean`, `FloatTensor::sum_rows`(`[m,n] → [m,1]`),
     `tensor_concat_cols`, `tensor_gather_rows`(임베딩·코드북 조회로,
     그래디언트를 scatter-add로 되돌립니다).
-  - `Tensor::log_softmax`.
-  - 그래디언트를 끊는 `Tensor::detach`.
+  - `FloatTensor::log_softmax`.
+  - 그래디언트를 끊는 `FloatTensor::detach`.
 - **손실** (각각 원소 평균인 값 하나를 반환합니다):
   - `tensor_mse_loss`.
   - `tensor_huber_loss`.
@@ -677,10 +718,10 @@ void    JiT::free();
 나옵니다. 파라미터와 옵티마이저 상태는 항상 힙에 남습니다.
 
 ```c
-static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
-static &Tensor clf_logits(&Mlp m, const &Tensor x) { return m.forward(x); }
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
 
 struct Rng rng = Rng::new(1UL);
 struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
@@ -773,18 +814,18 @@ generic<M: Module>
 struct Avg2 {
     M a;
     M b;
-    &Tensor forward(const &Tensor x);
-    void collect_params(&Vec<&Tensor> out) const;
-    void collect_state(&Vec<&Tensor> out) const;
+    &FloatTensor forward(const &FloatTensor x);
+    void collect_params(&Vec<&FloatTensor> out) const;
+    void collect_state(&Vec<&FloatTensor> out) const;
 };
 generic<M: Module>
-&Tensor Avg2::forward(const &Tensor x) {
+&FloatTensor Avg2::forward(const &FloatTensor x) {
     return tensor_add(self.a.forward(x), self.b.forward(x)).scale((float)0.5);
 }
 generic<M: Module>
-void Avg2::collect_params(&Vec<&Tensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
+void Avg2::collect_params(&Vec<&FloatTensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
 generic<M: Module>
-void Avg2::collect_state(&Vec<&Tensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
+void Avg2::collect_state(&Vec<&FloatTensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
 
 struct Avg2<struct Mlp> pair;   // ... pair.a, pair.b = mlp_new(...)
 module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
@@ -803,7 +844,7 @@ module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
 ```
 
 `[batch, dim]` 행에 대한 학습 가능한 정규화 레이어로, autograd를 지원합니다.
-`activations.h`의 `Tensor::layernorm_rows`는 순전파 전용 버전입니다.
+`activations.h`의 `FloatTensor::layernorm_rows`는 순전파 전용 버전입니다.
 
 - **`LayerNorm`**(Ba et al. 2016)은 `y = LN(x) · gamma + beta`를 계산합니다.
   `gamma`(초기값 1)와 `beta`(초기값 0)를 학습합니다.
@@ -813,13 +854,13 @@ module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
   계산합니다. 변환은 0에서 시작하므로(adaLN-Zero) 새 AdaLN은 일반 LayerNorm과
   같습니다. `gated`를 켜면 `AdaLNOut.gate`도 0에서 시작하므로, 잔차 분기
   `x + gate · f(y)`가 항등 함수로 시작합니다.
-- **구성 연산**: `Tensor::layer_norm`, `tensor_mul_row`(모든 행에 벡터를
-  곱함), 그리고 이제 미분 가능해진 `attention.h`의 `Tensor::slice_cols`.
+- **구성 연산**: `FloatTensor::layer_norm`, `tensor_mul_row`(모든 행에 벡터를
+  곱함), 그리고 이제 미분 가능해진 `attention.h`의 `FloatTensor::slice_cols`.
 
 ```c
 struct AdaLN ad = AdaLN::new(dim, condDim, 1);   // 게이트 사용
 struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
-&Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
+&FloatTensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
 model_add_params(&ad, &opt);
 ```
 
@@ -857,7 +898,7 @@ LayerNorm과 같은지 확인합니다. 또 일반 LayerNorm으로는 표현할 
 
 `QLoraMlp::attach`는 기반 모델을 복사하므로 원래 `Mlp`는 해제해도 됩니다. 순전파마다
 가중치를 float32로 역양자화하며, 그래디언트는 고정된 4비트 기반 모델을 거쳐
-어댑터로 흐릅니다. `Nf4Tensor::quantize` / `Nf4Tensor::dequantize`는 단독으로도 쓸 수 있습니다.
+어댑터로 흐릅니다. `Nf4FloatTensor::quantize` / `Nf4FloatTensor::dequantize`는 단독으로도 쓸 수 있습니다.
 
 ```c
 struct LoraConfig cfg = LoraConfig::default(8UL);    // 랭크 8, alpha 8
@@ -887,7 +928,7 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
 ```
 
 `cnn.h`는 `FeatureMap`에서 합성곱을 순방향으로만 실행합니다. `convnet.h`는 같은
-연산을 `Tensor`에서 미분 가능하게 만들어, `Mlp`처럼 `Tensor::backward`,
+연산을 `FloatTensor`에서 미분 가능하게 만들어, `Mlp`처럼 `FloatTensor::backward`,
 옵티마이저, `trainer_fit`으로 학습할 수 있게 합니다. 이미지는 다른 모델과
 마찬가지로 행입니다. 배치는 `[batch, C*H*W]` 텐서이고, 각 행에 CHW 순서의
 이미지 하나가 들어 있습니다. 2D 텐서는 이미지 형상을 담지 않으므로 모든 연산이
@@ -917,7 +958,7 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
 받습니다. 축마다 따로 정하는 윈도우, 스트라이드, 패딩과 `ceilMode`, 그리고
 평균 풀링이라면 `countIncludePad`가 들어 있습니다.
 
-- `Tensor::maxpool2d_ex` / `Tensor::avgpool2d_ex`는 윈도우를 평면 안으로
+- `FloatTensor::maxpool2d_ex` / `FloatTensor::avgpool2d_ex`는 윈도우를 평면 안으로
   자릅니다. 그래서 최대 풀링은 PyTorch의 `MaxPool2d`처럼 패딩을 무시하고,
   각 윈도우의 그래디언트를 첫 번째 최댓값 입력으로 보냅니다.
 - `countIncludePad`를 켜면 평균 풀링은 PyTorch `AvgPool2d`의 기본값처럼,
@@ -925,8 +966,8 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
   나눕니다.
 - `ceilMode`는 출력 크기를 올림합니다. PyTorch처럼 마지막 윈도우도 입력이나
   왼쪽 패딩 안에서 시작해야 합니다.
-- `Tensor::maxpool2d` / `Tensor::avgpool2d`는 정사각 윈도우를 받습니다.
-  `Tensor::global_avgpool2d` / `Tensor::global_maxpool2d`는 채널마다 값
+- `FloatTensor::maxpool2d` / `FloatTensor::avgpool2d`는 정사각 윈도우를 받습니다.
+  `FloatTensor::global_avgpool2d` / `FloatTensor::global_maxpool2d`는 채널마다 값
   하나로 줄입니다(`[batch, C*H*W] → [batch, C]`).
 
 크기는 `conv_out_side_ex`, `conv_transpose_out_side_ex`, `pool_out_side`로
@@ -954,8 +995,8 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
 
 `alignCorners`를 켜면 모서리 픽셀의 중심끼리 맞추고, 끄면 픽셀 영역끼리
 맞춥니다. 가장자리는 고정(clamp)하며, 그래디언트는 같은 가중치로 되돌아갑니다.
-`Tensor::upsample_nearest`는 정수 배율용 빠른 경로이고,
-`Tensor::upsample_bilinear`는 모서리를 맞추지 않고 정수 배율로 크기를 바꿉니다.
+`FloatTensor::upsample_nearest`는 정수 배율용 빠른 경로이고,
+`FloatTensor::upsample_bilinear`는 모서리를 맞추지 않고 정수 배율로 크기를 바꿉니다.
 
 ### 정규화와 드롭아웃
 
@@ -972,11 +1013,11 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
   가중치를 최대 특이값으로 나눕니다. 그 값은 호출 사이에 유지되는 벡터 `u`에서
   출발하는 거듭제곱 반복으로 추정합니다. 그래디언트는 PyTorch처럼 거듭제곱 반복
   벡터를 상수로 봅니다.
-- **드롭아웃**: `Tensor::dropout`은 학습 중에 각 값을 확률 p로 0으로 만들고
+- **드롭아웃**: `FloatTensor::dropout`은 학습 중에 각 값을 확률 p로 0으로 만들고
   나머지를 1/(1 − p)배 하며, 추론 중에는 x를 그대로 통과시킵니다.
-  `Tensor::dropout2d`는 채널 평면 전체를 떨굽니다.
+  `FloatTensor::dropout2d`는 채널 평면 전체를 떨굽니다.
 
-**조건 입력.** `Tensor::label_planes`는 클래스 인덱스를 클래스마다 상수 평면
+**조건 입력.** `FloatTensor::label_planes`는 클래스 인덱스를 클래스마다 상수 평면
 하나로 바꿉니다. 행의 레이블에 해당하는 평면은 1이고 나머지는 0입니다.
 `tensor_append_label_channels`는 그 평면들을 이미지 채널 뒤에 붙입니다. 조건부
 `ConvVae`와 `Dcgan`은 이 방식으로 이미지 쪽 네트워크에 레이블을 넘깁니다.
@@ -1035,7 +1076,7 @@ encode·decode·sample·generate·score는 추론 모드로 실행합니다.
   `Mlp`의 파일도 같은 형식을 씁니다.
 
 ```c
-static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+static &FloatTensor cnn_loss(&ConvNet m, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
 
@@ -1129,7 +1170,7 @@ struct Vae v = Vae::new(100UL, &cfg);
 struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.002);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &shapes, &tc);   // VAE 자체의 손실(Vae::loss)
-&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 100]
+&FloatTensor samples = v.sample(64UL, (?&FloatTensor)labels);   // (0, 1) 범위의 [64, 100]
 ```
 
 테스트는 각 변형의 재구성 오차를 학습 전 오차와 비교합니다. 또 실제 도형으로
@@ -1176,7 +1217,7 @@ struct ConvVae v = ConvVae::new(enc, dec, &cfg);
 struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &mnist, &tc);
-&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
+&FloatTensor samples = v.sample(64UL, (?&FloatTensor)labels);   // (0, 1) 범위의 [64, 784]
 ```
 
 테스트는 두 네트워크 모두에 배치 정규화를 넣고 8×8 도형으로 실행합니다.
@@ -1223,7 +1264,7 @@ struct GanConfig cfg = GanConfig::default(4UL);   // 잠재 차원 4
 cfg.loss = GAN_HINGE;
 struct Gan g = Gan::new(2UL, &cfg);
 g.train(&data, 80UL, 64UL);
-&Tensor fake = g.sample(1000UL, null);   // 힙 텐서, 호출자가 해제
+&FloatTensor fake = g.sample(1000UL, null);   // 힙 텐서, 호출자가 해제
 ```
 
 테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
@@ -1262,7 +1303,7 @@ disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // 점수 하나
 struct GanConfig cfg = GanConfig::default(16UL);
 struct Dcgan g = Dcgan::new(gen, disc, &cfg);
 g.train(&images, 20UL, 64UL);
-&Tensor fake = g.sample(64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
+&FloatTensor fake = g.sample(64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
 ```
 
 테스트는 8×8 도형으로 학습합니다. DCGAN은 샘플의 평균 밝기를 학습 전
@@ -1391,7 +1432,7 @@ while (1) {
 ```c
 #include <std/ml/train.h>
 
-static &Tensor logits(&Mlp m, const &Tensor x) { return m.forward(x); }
+static &FloatTensor logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
 
 struct Rng rng = Rng::new(1UL);
 struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
@@ -1545,7 +1586,7 @@ std::rocm_sgd(W1, dW1, lr);
 두 번의 실행이 다른 솔루션을 골라 마지막 비트가 다를 수 있습니다.
 
 `tensor_rocm.h`는
-호스트 배열 연산을 자동 미분 `Tensor` 함수(`tensor_add_rocm`,
+호스트 배열 연산을 자동 미분 `FloatTensor` 함수(`tensor_add_rocm`,
 `tensor_matmul_rocm_blas`, …)로 감싸며 CPU 대체 경로가 있습니다.
 
 rocBLAS와 직접 작성한 커널의 비교: 이 라이브러리의 타일 SGEMM
@@ -2061,7 +2102,7 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 
 ### 텐서 래퍼 {#tensor-wrappers}
 
-순전파를 백엔드에서 실행하고 CPU 역전파를 재사용하는 자동미분 `Tensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다.
+순전파를 백엔드에서 실행하고 CPU 역전파를 재사용하는 자동미분 `FloatTensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다.
 
 | 헤더 | 함수 | 장치 |
 |--------|-----------|--------|
@@ -2079,7 +2120,7 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 ```c
 void tensor_gpu_batch_begin();
 void tensor_gpu_batch_end();
-void Tensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
+void FloatTensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
 void tensor_gpu_release_all_persistent();
 ```
 
@@ -2179,98 +2220,75 @@ Ryzen 7 7800X3D에서(스레드 하나, 값 16M개, 읽기 + 쓰기 대역폭):
 
 두 계층이 있습니다:
 
-- **`HalfTensor`**는 1D/2D 텐서를 fp16이나 bf16으로 저장합니다 — float32 `Tensor` 메모리의 절반입니다. 연산은 피연산자를 float32로 넓혀 계산한 뒤 결과를 저장 형식으로 반올림하며, 이는 GPU 반정밀도 경로와 같은 산술입니다. `half_matmul`은 텐서 코어처럼 각 내적을 float32로 누적하고 한 번만 반올림합니다. 이 계층에는 자동미분이 없습니다.
-- **float32 `Tensor`에 대한 혼합 정밀도, 자동미분 포함.** `Tensor::cast`는 순방향에서 값을 fp16/bf16 정밀도로 반올림하고 그래디언트는 그대로 통과시킵니다(straight-through 추정량). 그래서 가중치와 그래디언트는 float32로 유지하면서 그래프를 낮은 정밀도로 계산할 수 있습니다. `LossScaler`는 fp16 학습의 동적 손실 스케일링이며, bf16은 float32와 지수 범위가 같아 필요 없습니다.
+- **`HalfTensor`(fp16)와 `BF16Tensor`(bf16)** — 16비트로 저장하는 [`DenseTensor`](#tensor)로, `FloatTensor` 메모리의 절반입니다. 연산과 자동미분은 핵심 텐서 연산 그대로입니다: 피연산자를 float32로 읽고, float32 커널을 실행하고, 결과를 한 번 반올림합니다(`tensor_matmul`은 텐서 코어처럼 각 내적을 float32로 누적합니다). 그래디언트는 float32입니다. 이 헤더는 원소 타입 간 변환, 혼합 정밀도 학습이 쓰는 일괄 헬퍼, 16비트 가중치로 디코딩하는 `gemv`를 더합니다.
+- **float32 텐서에 대한 혼합 정밀도.** `FloatTensor::cast`는 순방향에서 값을 fp16/bf16 정밀도로 반올림하고 그래디언트는 그대로 통과시킵니다(straight-through 추정량). 그래서 가중치와 그래디언트는 float32로 유지하면서 그래프를 낮은 정밀도로 계산할 수 있습니다. `LossScaler`는 fp16 학습의 동적 손실 스케일링이며, bf16은 float32와 지수 범위가 같아 필요 없습니다.
 
 ```c
 #define TENSOR_FP16 1
 #define TENSOR_BF16 2
 
-struct HalfTensor {
-    &heap unsigned short data;     // fp16 or bf16 bits, row-major
-    unsigned long        shape[2];
-    unsigned long        ndim;     // 1 or 2
-    unsigned long        size;
-    int                  dtype;    // TENSOR_FP16 or TENSOR_BF16
-
-    float at1(unsigned long i) const;                   // widened to float32
-    float at2(unsigned long r, unsigned long c) const;
-    void  set1(unsigned long i, float v);               // rounded to dtype
-    void  set2(unsigned long r, unsigned long c, float v);
-    void  free();
-};
-
 float          half_round(float v, int dtype);          // nearest dtype value, as float32
 unsigned short half_encode(float v, int dtype);
 float          half_decode(unsigned short bits, int dtype);
 
-static struct HalfTensor HalfTensor::new_1d(unsigned long n, int dtype);           // zero-filled
-static struct HalfTensor HalfTensor::new_2d(unsigned long rows, unsigned long cols, int dtype);
-struct HalfTensor Tensor::to_half(int dtype) const;                // round to nearest even
-&Tensor           HalfTensor::to_tensor(int requiresGrad) const;     // exact
-
-// Shapes and dtypes must match; otherwise the result is empty (size 0).
-struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
-struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
-struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
-struct HalfTensor HalfTensor::scale(float k) const;
-struct HalfTensor HalfTensor::relu() const;
-struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
-float             HalfTensor::sum() const;                            // float32 accumulate
-int               HalfTensor::gemv(const &float x, &float y) const; // y = w x, float32 x / y
-int               HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // 벡터 m개: x [m][k], y [m][n]
+// dst = dst의 원소 타입으로 반올림한 src(fp16 <-> bf16을 포함한 모든 쌍);
+// 크기가 같아야 함(아니면 0). 그래프 노드가 아님 -- to_float / from_float 참고.
+generic<S, D> int tensor_convert_into(const &DenseTensor<S> src, &DenseTensor<D> dst);
 
 // 혼합 정밀도 일괄 변환: fp32 마스터 <-> 16비트 사본, 16비트 그래디언트 되돌리기
-int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // 기존 사본에
-int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
-int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
-struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
-int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
-int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
-void half_tensors_free(&Vec<struct HalfTensor> hs);
-int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = 모두 유한
+generic<S, D> void tensors_convert(const &Vec<&DenseTensor<S>> src, &Vec<&DenseTensor<D>> out);  // 사본을 덧붙임
+generic<S, D> int  tensors_convert_into(const &Vec<&DenseTensor<S>> src, &Vec<&DenseTensor<D>> dst);
+generic<E>    void tensors_free(&Vec<&DenseTensor<E>> ts);
+generic<E>    int  half_grads_accumulate(const &Vec<&DenseTensor<E>> grads, &Vec<&FloatTensor> params,
+                                         float invScale);  // 1 = 모두 유한
 
-&Tensor Tensor::cast(int dtype) const;                            // straight-through gradient
-&Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
+int HalfTensor::gemv(const &float x, &float y) const;     // y = w x, float32 x / y
+int HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // 벡터 m개: x [m][k], y [m][n]
+int BF16Tensor::gemv(const &float x, &float y) const;
+int BF16Tensor::gemv_batch(const &float x, unsigned long m, &float y) const;
+
+&FloatTensor FloatTensor::cast(int dtype) const;                            // straight-through gradient
+&FloatTensor tensor_matmul_lowp(const &FloatTensor a, const &FloatTensor b, int dtype);    // cast(cast(a) @ cast(b))
 
 struct LossScaler {
-    float scale;            // multiply the loss by this before Tensor::backward()
+    float scale;            // multiply the loss by this before FloatTensor::backward()
     float growthFactor;     // 2.0
     float backoffFactor;    // 0.5
     int   growthInterval;   // 2000 clean steps
     int   goodSteps;
 };
 static struct LossScaler LossScaler::new();                  // scale 65536 (PyTorch GradScaler's defaults)
-int  LossScaler::unscale(&Tensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
-int  LossScaler::unscale_all(&Vec<&Tensor> params);   // 목록의 모든 텐서
+int  LossScaler::unscale(&FloatTensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
+int  LossScaler::unscale_all(&Vec<&FloatTensor> params);   // 목록의 모든 텐서
 void LossScaler::update(int allFinite);               // grow after clean steps, back off after overflow
 ```
 
-`HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
+`HalfTensor`나 `BF16Tensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
 
-`HalfTensor::gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#ml-llm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다. AArch64에서는 NEON 커널이 가중치 8개를 32비트 레인 4개로 읽어 두 절반을 그 자리에서 넓힙니다. M1 Pro(성능 코어 8개)에서 bf16은 95–113 GB/s, fp16은 40–55 GB/s입니다. `HalfTensor::gemv_batch`는 짧은 프롬프트의 프리필이나 추측 디코딩 검증을 위해 벡터 `m`개를 한 번에 계산하며, 가중치는 모든 벡터에 대해 메모리에서 한 번만 읽습니다. M1 Pro에서 bf16 24576 × 1536 가중치에 벡터 6개를 곱하는 데 1.65 ms가 걸리며, `HalfTensor::gemv`를 6번 호출하면 4.35 ms입니다. 이를 사용해 M1 Pro에서 [Gemma 4 E2B](/ko/benchmarks#ml-llm) CPU 경로는 토큰당 136 ms입니다.
+`gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#ml-llm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다. AArch64에서는 NEON 커널이 가중치 8개를 32비트 레인 4개로 읽어 두 절반을 그 자리에서 넓힙니다. M1 Pro(성능 코어 8개)에서 bf16은 95–113 GB/s, fp16은 40–55 GB/s입니다. `gemv_batch`는 짧은 프롬프트의 프리필이나 추측 디코딩 검증을 위해 벡터 `m`개를 한 번에 계산하며, 가중치는 모든 벡터에 대해 메모리에서 한 번만 읽습니다. M1 Pro에서 bf16 24576 × 1536 가중치에 벡터 6개를 곱하는 데 1.65 ms가 걸리며, `gemv`를 6번 호출하면 4.35 ms입니다. 이를 사용해 M1 Pro에서 [Gemma 4 E2B](/ko/benchmarks#ml-llm) CPU 경로는 토큰당 136 ms입니다.
 
-bf16으로 저장하고 계산하기:
+bf16으로 저장하고 계산하기, 자동미분 포함:
 
 ```c
 #include <std/ml/tensor_half.h>
+#include <std/collections/slice.h>
 #include <std/io.h>
 
 int main() {
-    // Store weights in bf16 (half the memory), compute a matmul in bf16.
-    struct HalfTensor w = HalfTensor::new_2d(2UL, 2UL, TENSOR_BF16);
-    struct HalfTensor x = HalfTensor::new_2d(2UL, 1UL, TENSOR_BF16);
+    // 가중치를 bf16으로 저장하고(메모리 절반) bf16으로 행렬곱을 계산한다.
+    &BF16Tensor w = BF16Tensor::new_2d(2UL, 2UL, 1);
+    &BF16Tensor x = BF16Tensor::new_2d(2UL, 1UL, 0);
     w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
     w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
     x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
-    struct HalfTensor y = std::half_matmul(&w, &x);      // f32 accumulate, bf16 result
-    std::println_float((double)y.at1(0UL));             // -2.5
-    std::println_float((double)y.at1(1UL));             // 7
+    &BF16Tensor y = tensor_matmul(w, x);      // f32 누적, bf16 결과
+    std::println_float((double)y.at1(0UL));   // -2.5
+    std::println_float((double)y.at1(1UL));   // 7
 
-    // Back to float32 for anything that needs autograd.
-    &Tensor yf = y.to_tensor(0);
-    yf.free();
-    y.free(); x.free(); w.free();
+    y.sum().backward();                       // w.grad: float32
+    struct Slice<float> g = std::slice_of(w.grad, w.size);
+    std::println_float((double)*g.at(1UL));   // 4 (= x[1])
+    x.free(); w.free();
     return 0;
 }
 ```
@@ -2283,10 +2301,10 @@ int main() {
 
 // One mixed-precision SGD step: fp16 forward, float32 master weights,
 // dynamic loss scaling so small fp16 gradients don't flush to zero.
-int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
-    &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
-    &Tensor diff = std::tensor_sub(y, target);
-    &Tensor loss = std::tensor_mul(diff, diff).sum();
+int train_step(&FloatTensor w, const &FloatTensor x, const &FloatTensor target, &LossScaler scaler, float lr) {
+    &FloatTensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
+    &FloatTensor diff = std::tensor_sub(y, target);
+    &FloatTensor loss = std::tensor_mul(diff, diff).sum();
     loss.scale(scaler.scale).backward();
 
     int finite = scaler.unscale(w);
@@ -2305,9 +2323,9 @@ int main() {
     float wv[2] = { 0.1f, 0.2f };
     float xv[2] = { 1.0f, 2.0f };
     float tv[1] = { 1.0f };
-    &Tensor w = Tensor::from_2d(&wv[0], 2UL, 1UL, 1);
-    &Tensor x = Tensor::from_2d(&xv[0], 1UL, 2UL, 0);
-    &Tensor t = Tensor::from_2d(&tv[0], 1UL, 1UL, 0);
+    &FloatTensor w = FloatTensor::from_2d(&wv[0], 2UL, 1UL, 1);
+    &FloatTensor x = FloatTensor::from_2d(&xv[0], 1UL, 2UL, 0);
+    &FloatTensor t = FloatTensor::from_2d(&tv[0], 1UL, 1UL, 0);
     struct LossScaler scaler = LossScaler::new();
     int ok = 1;
     for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
@@ -2379,15 +2397,15 @@ enum Device {
     DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
     DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
 };
-&Tensor tensor_matmul_on(const &Tensor a, const &Tensor b, enum Device device);
-&Tensor Tensor::relu_on(enum Device device) const;
+&FloatTensor tensor_matmul_on(const &FloatTensor a, const &FloatTensor b, enum Device device);
+&FloatTensor FloatTensor::relu_on(enum Device device) const;
 
 #include <std/ml/transformer_dispatch.h>
-&Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
-&Tensor jit_forward_on(const &JiT model, const &Tensor patches, const &Tensor cond, enum Device device);
+&FloatTensor jit_block_forward_on(const &JiTBlock block, const &FloatTensor x, enum Device device);
+&FloatTensor jit_forward_on(const &JiT model, const &FloatTensor patches, const &FloatTensor cond, enum Device device);
 ```
 
-이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `Tensor::sigmoid`/`Tensor::relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
+이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `FloatTensor::sigmoid`/`FloatTensor::relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
 
 `jit_block_forward_on(block, x, device)`은 실제 계층(JiTBlock의 Q/K/V/출력 투영 + FFN)에 장치 선택을 전달합니다 — CPU/CPU+BLAS/MPS에서 기준값과 비트 단위로 같음을 확인했습니다:
 

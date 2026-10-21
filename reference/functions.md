@@ -170,14 +170,14 @@ A method can also be declared outside the struct's body, with the qualified name
 struct Tensor { ... };
 
 // tensor_nn.h — adds operations to Tensor without touching tensor.h
-&Tensor Tensor::relu() const;
-&Tensor Tensor::softmax() const;
+&FloatTensor FloatTensor::relu() const;
+&FloatTensor FloatTensor::softmax() const;
 
 // tensor_nn.sc
-&Tensor Tensor::relu() const { ... }
+&FloatTensor FloatTensor::relu() const { ... }
 ```
 
-This keeps each module's methods with that module: the standard library's `Tensor` gets its activations from `tensor_nn.h`, its pooling from `convnet.h` and its GPU variants from the backend headers. Static methods must be declared in the struct body (a `static` before an out-of-body declaration means C's internal linkage).
+This keeps each module's methods with that module: the standard library's `FloatTensor` gets its activations from `tensor_nn.h`, its pooling from `convnet.h` and its GPU variants from the backend headers. Static methods must be declared in the struct body (a `static` before an out-of-body declaration means C's internal linkage).
 
 ### Static Methods {#static-methods}
 
