@@ -309,6 +309,84 @@ void              xlstm_state_free(&XLSTMState s);
 
 Each cell's weight tensors are public fields (`W_ih`, `W_hh`, … — named per gate) so you can load trained weights into them.
 
+## State space models (Mamba) {#ssm}
+
+```c
+#include <std/ml/ssm.h>
+```
+
+A state space model mixes a sequence through a linear recurrence per
+channel instead of attention. Each of D channels carries an N-value
+hidden state that every token updates and reads:
+
+`h_t = exp(Δ_t·A)·h_{t−1} + Δ_t·B_t·x_t`, `y_t = C_t·h_t + D·x_t`
+
+A sequence costs O(T·D·N). Decoding one token costs O(D·N) with a state
+of fixed size, however long the context, so there is no KV cache. Mamba
+(Gu & Dao 2023, "S6") makes the step Δ and the B and C projections
+functions of the input. This lets the model choose, token by token, what
+to keep and what to forget.
+
+`ssm_selective_scan` is the scan alone. `Mamba` is one Mamba-1 mixer
+block, without the surrounding RMSNorm and residual add:
+
+1. `(x, z) = X·inProj`.
+2. A causal depthwise conv1d (kernel `dConv`) and SiLU on x.
+3. `(dt, B, C) = x·xProj`.
+4. `Δ = softplus(dt·dtProj + dtBias)`.
+5. The scan with `A = −exp(Alog)`.
+6. Gate with `silu(z)`.
+7. `outProj`.
+
+Weights are `[in, out]` like the rest of `std::ml`. To load a PyTorch
+`nn.Linear`, transpose its weight. The Conv1d weight `[dInner, 1, dConv]`
+loads as `[dInner, dConv]`. `mamba_new` follows the paper's
+initialization: `Alog[d][n] = log(n+1)`, `D = 1`, and `dtBias` chosen so
+that `softplus(dtBias)` spans [0.001, 0.1].
+
+The convolution and the scan run the channels in parallel on the
+[thread pool](/stdlib/sync#parallel). The projections go through
+`tensor_matmul`. `mamba_step` decodes one token and advances a
+`MambaState` (the last `dConv − 1` convolution inputs plus the SSM state).
+Feeding tokens one at a time through `mamba_step` gives the same rows as
+`mamba_forward` on the whole sequence, and the tests check this. With
+weights copied into HF transformers' `MambaMixer`, the outputs match to
+2e-8 absolute, on outputs of about 0.05. Forward only, no autograd.
+
+```c
+// Selective scan alone: x, delta [T, D]; A [D, N]; B, C [T, N]; Dskip [D] -> y [T, D]
+&Tensor ssm_selective_scan(const &Tensor x, const &Tensor delta, const &Tensor A,
+                           const &Tensor B, const &Tensor C, const &Tensor Dskip);
+
+struct Mamba {
+    &Tensor inProj;   // [dModel, 2 * dInner]
+    &Tensor convW;    // [dInner, dConv]
+    &Tensor convB;    // [dInner]
+    &Tensor xProj;    // [dInner, dtRank + 2 * dState]
+    &Tensor dtProj;   // [dtRank, dInner]
+    &Tensor dtBias;   // [dInner]
+    &Tensor Alog;     // [dInner, dState]; A = -exp(Alog)
+    &Tensor Dskip;    // [dInner]
+    &Tensor outProj;  // [dInner, dModel]
+    unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
+};
+struct Mamba mamba_new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
+&Tensor      mamba_forward(const &Mamba layer, const &Tensor X);   // [T, dModel] -> [T, dModel]
+void         mamba_free(&Mamba layer);
+
+struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
+struct MambaState mamba_state_new(const &Mamba layer);
+&Tensor           mamba_step(const &Mamba layer, &MambaState state, const &Tensor x);  // [1, dModel]
+void              mamba_state_reset(&MambaState state);
+void              mamba_state_free(&MambaState state);
+
+struct Mamba m = mamba_new(768UL, 16UL, 4UL, 2UL);
+&Tensor y = mamba_forward(&m, prompt);           // prefill
+struct MambaState st = mamba_state_new(&m);
+// ... or decode token by token with a fixed-size state
+&Tensor yt = mamba_step(&m, &st, token);
+```
+
 ## CNN
 
 ```c
@@ -360,6 +438,51 @@ struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kerne
 struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
 struct FeatureMap upsample2x_nearest(const &FeatureMap input);
 struct FeatureMap concat_channels(const &FeatureMap a, const &FeatureMap b);
+```
+
+### Padded and global pooling, residual blocks {#cnn-residual}
+
+The `_ex` pooling functions add zero padding on every side. The output
+side is `(dim + 2·padding − kernel)/stride + 1`. Max pooling skips the
+padded positions, as PyTorch's `MaxPool2d` does. Average pooling counts
+them as zeros in the divisor when `countIncludePad` is set (PyTorch's
+`AvgPool2d` default). Otherwise it divides by the number of positions
+inside the plane. `global_avgpool2d` / `global_maxpool2d` reduce each
+channel's whole plane to one value, giving channels × 1 × 1: the head of
+a ResNet-style classifier.
+
+`feature_map_add` is the residual connection, `a + b` element by element,
+with an optional ReLU in the same pass. `ResidualBlock` is the ResNet basic
+block (He et al. 2016):
+
+`relu(conv2(relu(conv1(x))) + shortcut(x))`
+
+`conv1` is 3×3 with the block's stride. `conv2` is 3×3 with stride 1. Both
+use padding 1. The shortcut is `x` itself, or a 1×1 convolution with the
+stride when the stride isn't 1 or the channel count changes. There is no
+batch norm: fold a trained model's batch norms into the convolutions'
+weights and biases before loading them. The tests check padded pooling
+against a direct reference, and the block against the composition of its
+convolutions.
+
+```c
+struct FeatureMap maxpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
+                                       unsigned long padding);
+struct FeatureMap avgpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
+                                       unsigned long padding, int countIncludePad);
+struct FeatureMap global_avgpool2d(const &FeatureMap input);   // channels x 1 x 1
+struct FeatureMap global_maxpool2d(const &FeatureMap input);
+struct FeatureMap feature_map_add(const &FeatureMap a, const &FeatureMap b, int relu);
+
+struct ResidualBlock { struct Conv2D conv1; struct Conv2D conv2; struct Conv2D projection; int hasProjection; };
+struct ResidualBlock residual_block_new(unsigned long inChannels, unsigned long outChannels, unsigned long stride);
+struct FeatureMap    residual_block_forward(const &ResidualBlock block, const &FeatureMap input);
+void                 residual_block_free(&ResidualBlock block);
+
+// ResNet-18 stem and first stage
+struct FeatureMap s = conv2d_relu_forward(&stem7x7s2, &image);
+struct FeatureMap p = maxpool2d_forward_ex(&s, 3UL, 2UL, 1UL);
+struct FeatureMap r = residual_block_forward(&layer1a, &p);
 ```
 
 ## U-Net
@@ -462,6 +585,205 @@ void    jit_block_free(&JiTBlock block);
 &Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
                     struct Slice<JiTBlock> blocks);
 ```
+
+## Training: layers, losses, optimizers {#training}
+
+```c
+#include <std/ml/nn.h>        // Rng, more autograd ops, losses, Mlp, Optimizer
+#include <std/ml/datasets.h>  // Dataset, generators, MNIST / CSV loaders, DataLoader
+#include <std/ml/trainer.h>   // trainer_fit, trainer_evaluate, trainer_accuracy
+```
+
+These three headers train a model end to end on `tensor.h`'s autograd. A
+batch is a `[batch, features]` tensor. Class labels are tensors of class
+indices stored as floats.
+
+- **`Rng`** is a seeded splitmix64 generator with uniform, normal and
+  bounded-integer draws. Every initialization, shuffle and sample in these
+  modules goes through one, so runs are reproducible.
+- **Differentiable ops**, in addition to `tensor.h` / `tensor_nn.h`:
+  - Arithmetic: `tensor_add_bias` (row broadcast) and `tensor_add_scalar`.
+  - Elementwise: `tensor_exp`, `tensor_log`, `tensor_abs`,
+    `tensor_leaky_relu`, `tensor_clamp` and `tensor_minimum`.
+  - Reductions and reshaping: `tensor_mean`, `tensor_sum_rows`
+    (`[m,n] → [m,1]`), `tensor_concat_cols` and `tensor_gather_rows`
+    (embedding or codebook lookup, with gradients scatter-added back).
+  - `tensor_log_softmax`.
+  - `tensor_detach`, which stops gradients.
+- **Losses**, each returning one value averaged over elements:
+  - `tensor_mse_loss`.
+  - `tensor_huber_loss`.
+  - `tensor_bce_logits_loss`: binary cross-entropy taken from logits, so
+    it never computes `log(0)`.
+  - `tensor_cross_entropy_loss`: softmax cross-entropy against class
+    indices.
+
+  `tensor_accuracy` scores a batch's predictions.
+- **`Mlp`** is a stack of fully connected layers: `inDim → hidden ×
+  hiddenLayers → outDim`, with `ACT_RELU`, `ACT_LEAKY`, `ACT_TANH`,
+  `ACT_SIGMOID`, `ACT_GELU` or `ACT_SILU` between layers. It is
+  initialized like PyTorch's `nn.Linear`, with weights stored `[in, out]`.
+  `mlp_copy` / `mlp_soft_update` keep target networks in sync.
+- **`Optimizer`** holds a list of parameters and offers `OPT_SGD`,
+  `OPT_MOMENTUM`, `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM` and `OPT_ADAMW`
+  (decoupled weight decay). `optimizer_clip_grad_norm` clips the global
+  gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
+  schedule can change them between steps.
+
+`trainer_fit` is generic over the model type, so the forward pass and loss
+are resolved at compile time. It runs epochs of shuffled mini-batches:
+loss, backward, optional clipping, step, and a per-epoch lr decay. Each
+step's tensors come from a `TensorArena` that is reset after the step.
+Parameters and optimizer state always stay on the heap.
+
+```c
+static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(mlp_forward(m, x), y);
+}
+static &Tensor clf_logits(&Mlp m, const &Tensor x) { return mlp_forward(m, x); }
+
+struct Rng rng = rng_new(1UL);
+struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
+struct DatasetSplit sp = dataset_split(&data, (float)0.25, &rng);
+struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+optimizer_add_mlp(&opt, &net);
+struct TrainConfig cfg = train_config_default();     // 10 epochs, batch 32
+cfg.epochs = 60UL;
+struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // > 0.95 in the tests
+```
+
+**Datasets.** A `Dataset` is `x [n, features]` plus `y [n, targets]`, with
+`classes` set for classification. The synthetic generators are:
+
+- `dataset_moons`, `dataset_circles`, `dataset_spirals`, `dataset_blobs`
+  and `dataset_xor`: 2D toy classification.
+- `dataset_sine`: regression.
+- `dataset_gaussian_ring`: the usual GAN mode-coverage test.
+- `dataset_shapes`: small binary images of four shape classes.
+
+`dataset_load_mnist` reads MNIST / Fashion-MNIST IDX files, with pixels
+scaled to [0, 1]. `dataset_load_csv` reads numeric CSV, with an optional
+header and label column. Both return `n == 0` on error. `dataset_split`,
+`dataset_standardize` and `dataset_standardize_pair` (which applies the
+train set's statistics to both sets) prepare the data. A `DataLoader`
+hands out batches in a fresh shuffled order every epoch.
+
+Every op's gradient is checked against central differences in the tests.
+The optimizers are checked to converge, and an MLP trained on moons
+reaches more than 95% accuracy.
+
+## Autoencoders {#autoencoders}
+
+```c
+#include <std/ml/autoencoder.h>
+```
+
+MLP encoders and decoders over flattened rows. Each `*_loss` function has
+`trainer_fit`'s loss signature. Reconstruction is `RECON_MSE` for real
+values, or `RECON_BCE` for data in [0, 1]. With BCE the decoder outputs
+logits, and `*_decode` / `*_reconstruct` apply the sigmoid.
+
+| Model | What it adds |
+|---|---|
+| `Autoencoder` | Plain undercomplete AE. Its config switches on the variants, which combine: **denoising** (`noiseStd` Gaussian noise and a `dropProb` fraction of zeroed inputs; the loss compares against the clean input) and **sparse** (`sparsity` × L1 penalty on the code). |
+| `Vae` | **VAE** (Kingma & Welling 2014): Gaussian encoder, reparameterization, reconstruction summed over features plus `beta` × KL. `beta > 1` is a **β-VAE**; raise `beta` from 0 for KL warm-up. `classes > 0` makes it a **conditional VAE**: the one-hot label is appended to both the encoder input and the decoder input. `vae_sample` draws from the prior, optionally per class. |
+| `VqVae` | **VQ-VAE** (van den Oord et al. 2017): the encoder output snaps to its nearest codebook vector. Gradients pass straight through, and the loss adds codebook and `commitment` terms. Against codebook collapse, the first batch initializes the codebook, and a code unused for `resetDeadAfter` batches is moved onto a random encoder output. `vqvae_encode` / `vqvae_decode` map to and from the discrete codes. |
+
+```c
+struct VaeConfig cfg = vae_config_default(4UL);   // 256 hidden, BCE, beta 1
+cfg.classes = 4UL;                               // conditional
+struct Vae v = vae_new(100UL, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
+vae_add_params(&opt, &v);
+trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
+&Tensor samples = vae_sample(&v, 64UL, (?&Tensor)labels);   // [64, 100] in (0, 1)
+```
+
+The tests check each variant's reconstruction against its untrained error.
+They also check that a classifier trained on the real shapes recognizes the
+conditional VAE's samples as their requested class (accuracy above 70%),
+and that the VQ-VAE keeps more than 4 codes in use.
+
+## GANs {#gans}
+
+```c
+#include <std/ml/gan.h>
+```
+
+An MLP generator and discriminator (leaky ReLU), trained in alternation.
+The objective is set in the config:
+
+| `loss` | Objective |
+|---|---|
+| `GAN_STANDARD` | Goodfellow et al. 2014, with the non-saturating generator loss. |
+| `GAN_LSGAN` | Least squares (Mao et al. 2017). |
+| `GAN_WGAN` | Wasserstein critic with weight clipping, `nCritic` critic steps per generator step, RMSProp (Arjovsky et al. 2017). |
+| `GAN_HINGE` | Hinge loss (Miyato et al. 2018). |
+
+`classes > 0` makes it a **conditional GAN**: the label goes to both
+networks. `emaDecay` keeps an exponential moving average of the
+generator's weights (Karras et al. 2018), and `gan_generate` samples from
+it. The game oscillates, and the average sits nearer its centre than any
+single step does. The GAN owns its two optimizers (Adam with β1 = 0.5, or
+RMSProp for WGAN) and the arena for its steps. `gan_train` runs epochs
+over a `Dataset`, and `gan_train_step` runs one step on your own batch.
+
+```c
+struct GanConfig cfg = gan_config_default(4UL);   // latent 4
+cfg.loss = GAN_HINGE;
+struct Gan g = gan_new(2UL, &cfg);
+gan_train(&g, &data, 80UL, 64UL);
+&Tensor fake = gan_generate(&g, 1000UL, null);   // heap tensor, caller frees
+```
+
+In the tests, every objective learns a 2D Gaussian, with the mean within
+0.25. The spread is bounded loosely, because GANs tend to under-cover it.
+On a 4-mode ring, a conditional GAN puts more than 75% of its samples
+on the mode of their label.
+
+## Reinforcement learning {#rl}
+
+```c
+#include <std/ml/rl.h>
+```
+
+**Environments.** `Bandit` is a k-armed Gaussian bandit. `GridWorld` has
+walls, pits, goals, slip probability and truncation; `gridworld_cliff()`
+is Sutton & Barto's cliff walk. `CartPole` uses Gym's CartPole-v1
+dynamics, its 12° / 2.4 m limits and 500-step truncation. Steps return an
+`EnvStep` that separates `terminated` (no future value) from `truncated`
+(time limit, so learners bootstrap). Observations are tensors.
+
+| Technique | API |
+|---|---|
+| Bandits | `BanditAgent` with `BANDIT_EPS_GREEDY`, `BANDIT_UCB1`, `BANDIT_THOMPSON` (Gaussian posterior) or `BANDIT_GRADIENT` (softmax preferences with a baseline). |
+| Tabular TD | `TabularAgent`: `q_learning_update`, `sarsa_update`, `expected_sarsa_update`, ε-greedy `tabular_act`. |
+| Value-based | `Dqn` (Mnih et al. 2015): replay buffer, target network (soft or periodic hard copies), Huber loss, linear ε schedule, Double DQN (van Hasselt et al. 2016), gradient clipping. `dqn_act` + `dqn_observe` per step. |
+| Policy-based | `PolicyAgent` with `PG_REINFORCE` (Monte Carlo returns, learned baseline), `PG_A2C` (advantage actor-critic, GAE(λ)) or `PG_PPO` (clipped surrogate, several epochs of shuffled minibatches per rollout). Every variant uses an entropy bonus, advantage normalization and gradient clipping. `pg_act` + `pg_record` per step, then `pg_update` per episode or rollout. |
+
+```c
+struct Dqn d = dqn_new(CARTPOLE_OBS, CARTPOLE_ACTIONS, &cfg);
+struct CartPole env = cartpole_new(1UL);
+cartpole_reset(&env, obs);
+while (1) {
+    unsigned long a = dqn_act(&d, obs, 1);                 // epsilon-greedy
+    struct EnvStep s = cartpole_step(&env, a, next);
+    dqn_observe(&d, obs, a, s.reward, next, s.terminated); // store + train
+    // obs = next ...
+    if (s.terminated || s.truncated) break;
+}
+```
+
+The tests run each technique on its problem:
+
+- The four bandit agents pick the best of 10 arms more than 85% of the
+  time.
+- On the cliff walk, Q-learning learns the optimal 13-step path along the
+  edge, and SARSA a safer, longer one (Sutton & Barto's Example 6.6).
+- DQN, REINFORCE, A2C and PPO each reach CartPole's "solved" mean greedy
+  return of 195 within their step budget.
 
 ## GPU backends
 

@@ -305,6 +305,82 @@ void              xlstm_state_free(&XLSTMState s);
 
 각 셀의 가중치 텐서는 공개 필드(`W_ih`, `W_hh`, … — 게이트별 이름)이므로 학습된 가중치를 넣을 수 있다.
 
+## 상태 공간 모델 (Mamba) {#ssm}
+
+```c
+#include <std/ml/ssm.h>
+```
+
+상태 공간 모델은 어텐션 대신 채널마다의 선형 점화식으로 시퀀스를 섞는다.
+D개 채널은 각각 N개 값으로 된 은닉 상태를 가지며, 토큰마다 이를 갱신하고
+읽는다.
+
+`h_t = exp(Δ_t·A)·h_{t−1} + Δ_t·B_t·x_t`, `y_t = C_t·h_t + D·x_t`
+
+시퀀스 하나의 비용은 O(T·D·N)이다. 토큰 하나를 디코딩하는 비용은 문맥
+길이와 관계없이 고정 크기 상태로 O(D·N)이므로 KV 캐시가 없다. Mamba(Gu &
+Dao 2023, "S6")는 스텝 Δ와 B·C 프로젝션을 입력의 함수로 만든다. 그래서
+모델이 토큰마다 무엇을 기억하고 무엇을 잊을지 고를 수 있다.
+
+`ssm_selective_scan`은 스캔만 수행한다. `Mamba`는 Mamba-1 믹서 블록
+하나다(앞뒤의 RMSNorm과 잔차 덧셈은 포함하지 않는다).
+
+1. `(x, z) = X·inProj`.
+2. x에 인과적 depthwise conv1d(커널 `dConv`)와 SiLU를 적용한다.
+3. `(dt, B, C) = x·xProj`.
+4. `Δ = softplus(dt·dtProj + dtBias)`.
+5. `A = −exp(Alog)`로 스캔한다.
+6. `silu(z)`로 게이트한다.
+7. `outProj`.
+
+가중치는 다른 `std::ml`과 같이 `[in, out]`이다. PyTorch `nn.Linear`를
+불러오려면 가중치를 전치한다. Conv1d 가중치 `[dInner, 1, dConv]`는
+`[dInner, dConv]`로 불러온다. `mamba_new`는 논문의 초기화를 따른다:
+`Alog[d][n] = log(n+1)`, `D = 1`, 그리고 `softplus(dtBias)`가
+[0.001, 0.1]에 걸치도록 고른 `dtBias`.
+
+컨볼루션과 스캔은 [스레드 풀](/ko/stdlib/sync#parallel)에서 채널을 병렬로
+처리한다. 프로젝션은 `tensor_matmul`을 거친다. `mamba_step`은 토큰 하나를
+디코딩하고 `MambaState`(컨볼루션의 마지막 입력 `dConv − 1`개와 SSM
+상태)를 진행시킨다. 토큰을 하나씩 `mamba_step`에 넣으면 시퀀스 전체에 대한
+`mamba_forward`와 같은 행이 나오며, 테스트가 이를 확인한다. 같은 가중치를
+HF transformers의 `MambaMixer`에 복사했을 때 출력이 약 0.05 크기에서 절대
+오차 2e-8 이내로 일치한다. 순전파 전용이며 autograd는 없다.
+
+```c
+// Selective scan alone: x, delta [T, D]; A [D, N]; B, C [T, N]; Dskip [D] -> y [T, D]
+&Tensor ssm_selective_scan(const &Tensor x, const &Tensor delta, const &Tensor A,
+                           const &Tensor B, const &Tensor C, const &Tensor Dskip);
+
+struct Mamba {
+    &Tensor inProj;   // [dModel, 2 * dInner]
+    &Tensor convW;    // [dInner, dConv]
+    &Tensor convB;    // [dInner]
+    &Tensor xProj;    // [dInner, dtRank + 2 * dState]
+    &Tensor dtProj;   // [dtRank, dInner]
+    &Tensor dtBias;   // [dInner]
+    &Tensor Alog;     // [dInner, dState]; A = -exp(Alog)
+    &Tensor Dskip;    // [dInner]
+    &Tensor outProj;  // [dInner, dModel]
+    unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
+};
+struct Mamba mamba_new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
+&Tensor      mamba_forward(const &Mamba layer, const &Tensor X);   // [T, dModel] -> [T, dModel]
+void         mamba_free(&Mamba layer);
+
+struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
+struct MambaState mamba_state_new(const &Mamba layer);
+&Tensor           mamba_step(const &Mamba layer, &MambaState state, const &Tensor x);  // [1, dModel]
+void              mamba_state_reset(&MambaState state);
+void              mamba_state_free(&MambaState state);
+
+struct Mamba m = mamba_new(768UL, 16UL, 4UL, 2UL);
+&Tensor y = mamba_forward(&m, prompt);           // prefill
+struct MambaState st = mamba_state_new(&m);
+// ... 또는 고정 크기 상태로 토큰 하나씩 디코딩
+&Tensor yt = mamba_step(&m, &st, token);
+```
+
 ## CNN {#cnn}
 
 ```c
@@ -354,6 +430,49 @@ struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kerne
 struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
 struct FeatureMap upsample2x_nearest(const &FeatureMap input);
 struct FeatureMap concat_channels(const &FeatureMap a, const &FeatureMap b);
+```
+
+### 패딩·전역 풀링, 잔차 블록 {#cnn-residual}
+
+`_ex` 풀링 함수는 모든 변에 제로 패딩을 더한다. 출력 크기는
+`(dim + 2·padding − kernel)/stride + 1`이다. 최대 풀링은 PyTorch의
+`MaxPool2d`처럼 패딩 위치를 건너뛴다. 평균 풀링은 `countIncludePad`가
+켜져 있으면(PyTorch `AvgPool2d`의 기본값) 패딩 위치를 0으로 쳐서 나눗수에
+넣는다. 꺼져 있으면 평면 안쪽 위치의 수로 나눈다.
+`global_avgpool2d` / `global_maxpool2d`는 채널마다 평면 전체를 값 하나로
+줄여 채널 × 1 × 1을 만든다. ResNet 계열 분류기의 헤드가 이 연산이다.
+
+`feature_map_add`는 잔차 연결로, `a + b`를 원소별로 계산하며 같은 패스에서
+ReLU를 선택적으로 적용한다. `ResidualBlock`은 ResNet 기본 블록(He et al.
+2016)이다.
+
+`relu(conv2(relu(conv1(x))) + shortcut(x))`
+
+`conv1`은 블록의 stride를 쓰는 3×3이다. `conv2`는 stride 1인 3×3이다.
+둘 다 padding 1을 쓴다. shortcut은 `x` 자체이거나, stride가 1이 아니거나
+채널 수가 바뀌면 그 stride를 쓰는 1×1 컨볼루션이다. 배치 정규화는 없다.
+학습된 모델의 배치 정규화는 불러오기 전에 컨볼루션의 가중치와 편향에
+접어 넣는다. 테스트는 패딩 풀링을 직접 계산한 기준값과 비교하고, 블록을
+구성 컨볼루션을 차례로 적용한 결과와 비교한다.
+
+```c
+struct FeatureMap maxpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
+                                       unsigned long padding);
+struct FeatureMap avgpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
+                                       unsigned long padding, int countIncludePad);
+struct FeatureMap global_avgpool2d(const &FeatureMap input);   // channels x 1 x 1
+struct FeatureMap global_maxpool2d(const &FeatureMap input);
+struct FeatureMap feature_map_add(const &FeatureMap a, const &FeatureMap b, int relu);
+
+struct ResidualBlock { struct Conv2D conv1; struct Conv2D conv2; struct Conv2D projection; int hasProjection; };
+struct ResidualBlock residual_block_new(unsigned long inChannels, unsigned long outChannels, unsigned long stride);
+struct FeatureMap    residual_block_forward(const &ResidualBlock block, const &FeatureMap input);
+void                 residual_block_free(&ResidualBlock block);
+
+// ResNet-18 스템과 첫 스테이지
+struct FeatureMap s = conv2d_relu_forward(&stem7x7s2, &image);
+struct FeatureMap p = maxpool2d_forward_ex(&s, 3UL, 2UL, 1UL);
+struct FeatureMap r = residual_block_forward(&layer1a, &p);
 ```
 
 ## U-Net {#u-net}
@@ -454,6 +573,197 @@ void    jit_block_free(&JiTBlock block);
 &Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
                     struct Slice<JiTBlock> blocks);
 ```
+
+## 학습: 레이어, 손실, 옵티마이저 {#training}
+
+```c
+#include <std/ml/nn.h>        // Rng, 추가 autograd 연산, 손실, Mlp, Optimizer
+#include <std/ml/datasets.h>  // Dataset, 생성기, MNIST / CSV 로더, DataLoader
+#include <std/ml/trainer.h>   // trainer_fit, trainer_evaluate, trainer_accuracy
+```
+
+이 세 헤더는 `tensor.h`의 autograd 위에서 모델을 처음부터 끝까지 학습시킨다.
+배치는 `[batch, features]` 텐서다. 클래스 레이블은 클래스 인덱스를 float로
+담은 텐서다.
+
+- **`Rng`**는 시드를 받는 splitmix64 생성기로, 균등·정규·범위 정수 난수를
+  뽑는다. 이 모듈들의 모든 초기화, 셔플, 샘플링이 이를 거치므로 실행 결과가
+  재현된다.
+- **미분 가능한 연산** (`tensor.h` / `tensor_nn.h`에 더해):
+  - 산술: `tensor_add_bias`(행 브로드캐스트), `tensor_add_scalar`.
+  - 원소별: `tensor_exp`, `tensor_log`, `tensor_abs`, `tensor_leaky_relu`,
+    `tensor_clamp`, `tensor_minimum`.
+  - 축소와 형태 변환: `tensor_mean`, `tensor_sum_rows`(`[m,n] → [m,1]`),
+    `tensor_concat_cols`, `tensor_gather_rows`(임베딩·코드북 조회로,
+    그래디언트를 scatter-add로 되돌린다).
+  - `tensor_log_softmax`.
+  - 그래디언트를 끊는 `tensor_detach`.
+- **손실** (각각 원소 평균인 값 하나를 반환한다):
+  - `tensor_mse_loss`.
+  - `tensor_huber_loss`.
+  - `tensor_bce_logits_loss`: 로짓에서 바로 계산하는 이진 교차 엔트로피라
+    `log(0)`을 계산하지 않는다.
+  - `tensor_cross_entropy_loss`: 클래스 인덱스에 대한 softmax 교차 엔트로피.
+
+  `tensor_accuracy`는 배치 예측의 정확도를 구한다.
+- **`Mlp`**는 완전 연결 레이어의 스택이다. `inDim → hidden × hiddenLayers →
+  outDim`이며, 레이어 사이에 `ACT_RELU`, `ACT_LEAKY`, `ACT_TANH`,
+  `ACT_SIGMOID`, `ACT_GELU`, `ACT_SILU` 중 하나를 쓴다. PyTorch `nn.Linear`처럼
+  초기화하며 가중치는 `[in, out]`으로 저장한다. `mlp_copy` /
+  `mlp_soft_update`는 타깃 네트워크를 동기화한다.
+- **`Optimizer`**는 파라미터 목록을 갖고 `OPT_SGD`, `OPT_MOMENTUM`,
+  `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM`, `OPT_ADAMW`(분리된 weight decay)를
+  제공한다. `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자른다.
+  필드(`lr`, beta, `weightDecay`)가 공개되어 있어 스텝 사이에 스케줄로 바꿀 수
+  있다.
+
+`trainer_fit`은 모델 타입에 대해 제네릭이라 순전파와 손실이 컴파일 시간에
+결정된다. 섞인 미니배치로 에폭을 돌린다: 손실, 역전파, 선택적 클리핑, 스텝,
+에폭마다 lr 감쇠. 각 스텝의 텐서는 스텝이 끝나면 리셋되는 `TensorArena`에서
+나온다. 파라미터와 옵티마이저 상태는 항상 힙에 남는다.
+
+```c
+static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(mlp_forward(m, x), y);
+}
+static &Tensor clf_logits(&Mlp m, const &Tensor x) { return mlp_forward(m, x); }
+
+struct Rng rng = rng_new(1UL);
+struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
+struct DatasetSplit sp = dataset_split(&data, (float)0.25, &rng);
+struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+optimizer_add_mlp(&opt, &net);
+struct TrainConfig cfg = train_config_default();     // 10 에폭, 배치 32
+cfg.epochs = 60UL;
+struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트에서 0.95 초과
+```
+
+**데이터셋.** `Dataset`은 `x [n, features]`와 `y [n, targets]`이며, 분류에서는
+`classes`를 설정한다. 합성 생성기는 다음과 같다.
+
+- `dataset_moons`, `dataset_circles`, `dataset_spirals`, `dataset_blobs`,
+  `dataset_xor`: 2D 장난감 분류 문제.
+- `dataset_sine`: 회귀.
+- `dataset_gaussian_ring`: GAN의 모드 커버리지 테스트에 흔히 쓰는 데이터.
+- `dataset_shapes`: 네 가지 도형 클래스의 작은 이진 이미지.
+
+`dataset_load_mnist`는 MNIST / Fashion-MNIST IDX 파일을 읽어 픽셀을 [0, 1]로
+맞춘다. `dataset_load_csv`는 숫자 CSV를 읽으며, 헤더와 레이블 열은 선택이다.
+둘 다 오류 시 `n == 0`을 반환한다. `dataset_split`, `dataset_standardize`,
+`dataset_standardize_pair`(학습 세트의 통계를 양쪽에 적용)로 데이터를
+준비한다. `DataLoader`는 에폭마다 새로 섞은 순서로 배치를 내준다.
+
+테스트는 모든 연산의 그래디언트를 중앙 차분과 비교한다. 옵티마이저가
+수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘는다.
+
+## 오토인코더 {#autoencoders}
+
+```c
+#include <std/ml/autoencoder.h>
+```
+
+평탄화한 행에 대한 MLP 인코더와 디코더다. 각 `*_loss` 함수는 `trainer_fit`의
+손실 시그니처를 따른다. 재구성 손실은 실수 데이터에 `RECON_MSE`, [0, 1]
+데이터에 `RECON_BCE`를 쓴다. BCE에서는 디코더가 로짓을 출력하고 `*_decode` /
+`*_reconstruct`가 sigmoid를 적용한다.
+
+| 모델 | 추가되는 것 |
+|---|---|
+| `Autoencoder` | 기본 undercomplete AE. 설정으로 변형을 켜며, 변형끼리 조합할 수 있다. **디노이징**은 `noiseStd` 가우시안 노이즈를 더하고 입력의 `dropProb` 비율을 0으로 만들며, 손실은 깨끗한 입력과 비교한다. **희소**는 코드에 `sparsity` × L1 벌점을 더한다. |
+| `Vae` | **VAE**(Kingma & Welling 2014): 가우시안 인코더와 재매개변수화를 쓰며, 손실은 특징에 대해 합한 재구성 오차에 `beta` × KL을 더한 것이다. `beta > 1`이면 **β-VAE**이며, KL 워밍업에는 `beta`를 0에서 올린다. `classes > 0`이면 **조건부 VAE**로, 원-핫 레이블을 인코더 입력과 디코더 입력에 모두 붙인다. `vae_sample`은 사전 분포에서 뽑으며, 클래스별로도 뽑을 수 있다. |
+| `VqVae` | **VQ-VAE**(van den Oord et al. 2017): 인코더 출력을 가장 가까운 코드북 벡터로 바꾼다. 그래디언트는 straight-through로 통과하고, 손실에 코드북 항과 `commitment` 항이 더해진다. 코드북 붕괴를 막기 위해 첫 배치로 코드북을 초기화하고, `resetDeadAfter` 배치 동안 안 쓰인 코드는 무작위 인코더 출력으로 옮긴다. `vqvae_encode` / `vqvae_decode`는 이산 코드와 서로 변환한다. |
+
+```c
+struct VaeConfig cfg = vae_config_default(4UL);   // 은닉 256, BCE, beta 1
+cfg.classes = 4UL;                               // 조건부
+struct Vae v = vae_new(100UL, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
+vae_add_params(&opt, &v);
+trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
+&Tensor samples = vae_sample(&v, 64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 100]
+```
+
+테스트는 각 변형의 재구성 오차를 학습 전 오차와 비교한다. 또 실제 도형으로
+학습한 분류기가 조건부 VAE의 샘플을 요청한 클래스로 인식하는지(정확도 70%
+초과), VQ-VAE가 코드를 4개 넘게 쓰는지도 확인한다.
+
+## GAN {#gans}
+
+```c
+#include <std/ml/gan.h>
+```
+
+MLP 생성기와 판별기(leaky ReLU)를 번갈아 학습한다. 목적 함수는 설정에서
+고른다.
+
+| `loss` | 목적 함수 |
+|---|---|
+| `GAN_STANDARD` | Goodfellow et al. 2014, 비포화(non-saturating) 생성기 손실. |
+| `GAN_LSGAN` | 최소 제곱(Mao et al. 2017). |
+| `GAN_WGAN` | 가중치 클리핑을 쓰는 Wasserstein 크리틱. 생성기 스텝마다 크리틱 스텝 `nCritic`번, RMSProp(Arjovsky et al. 2017). |
+| `GAN_HINGE` | 힌지 손실(Miyato et al. 2018). |
+
+`classes > 0`이면 **조건부 GAN**으로, 레이블이 두 네트워크에 모두 들어간다.
+`emaDecay`는 생성기 가중치의 지수 이동 평균(Karras et al. 2018)을 유지하며,
+`gan_generate`는 그 평균에서 샘플링한다. 적대적 게임은 진동하고, 평균은
+어느 한 스텝의 가중치보다 중심에 가깝다. GAN은 두 옵티마이저(Adam, β1 =
+0.5. WGAN은 RMSProp)와 스텝용 아레나를 직접 가진다. `gan_train`은 `Dataset`에
+대해 에폭을 돌리고, `gan_train_step`은 직접 만든 배치로 한 스텝을 돌린다.
+
+```c
+struct GanConfig cfg = gan_config_default(4UL);   // 잠재 차원 4
+cfg.loss = GAN_HINGE;
+struct Gan g = gan_new(2UL, &cfg);
+gan_train(&g, &data, 80UL, 64UL);
+&Tensor fake = gan_generate(&g, 1000UL, null);   // 힙 텐서, 호출자가 해제
+```
+
+테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
+맞춘다. GAN은 분산을 덜 덮는 경향이 있어 퍼짐은 느슨하게 확인한다. 조건부
+GAN은 4개 모드 링에서 샘플의 75% 넘게를 각 레이블의 모드에 놓는다.
+
+## 강화 학습 {#rl}
+
+```c
+#include <std/ml/rl.h>
+```
+
+**환경.** `Bandit`은 k개 팔 가우시안 밴딧이다. `GridWorld`는 벽, 구덩이,
+목표, 미끄러짐 확률, 잘림(truncation)을 지원하며, `gridworld_cliff()`는 Sutton
+& Barto의 절벽 걷기다. `CartPole`은 Gym CartPole-v1의 동역학, 12° / 2.4 m
+한계, 500 스텝 잘림을 쓴다. 스텝은 `EnvStep`을 반환하며, `terminated`(미래
+가치 없음)와 `truncated`(시간 제한이라 부트스트랩한다)를 구분한다. 관측은
+텐서다.
+
+| 기법 | API |
+|---|---|
+| 밴딧 | `BanditAgent`: `BANDIT_EPS_GREEDY`, `BANDIT_UCB1`, `BANDIT_THOMPSON`(가우시안 사후 분포), `BANDIT_GRADIENT`(기준선을 둔 softmax 선호도). |
+| 테이블 TD | `TabularAgent`: `q_learning_update`, `sarsa_update`, `expected_sarsa_update`, ε-greedy `tabular_act`. |
+| 가치 기반 | `Dqn`(Mnih et al. 2015): 리플레이 버퍼, 타깃 네트워크(소프트 갱신 또는 주기적 하드 복사), Huber 손실, 선형 ε 스케줄, Double DQN(van Hasselt et al. 2016), 그래디언트 클리핑. 스텝마다 `dqn_act` + `dqn_observe`. |
+| 정책 기반 | `PolicyAgent`: `PG_REINFORCE`(몬테카를로 리턴, 학습된 기준선), `PG_A2C`(advantage actor-critic, GAE(λ)), `PG_PPO`(클리핑된 surrogate, 롤아웃마다 섞은 미니배치로 여러 에폭). 모든 변형이 엔트로피 보너스, advantage 정규화, 그래디언트 클리핑을 쓴다. 스텝마다 `pg_act` + `pg_record`, 에피소드나 롤아웃마다 `pg_update`. |
+
+```c
+struct Dqn d = dqn_new(CARTPOLE_OBS, CARTPOLE_ACTIONS, &cfg);
+struct CartPole env = cartpole_new(1UL);
+cartpole_reset(&env, obs);
+while (1) {
+    unsigned long a = dqn_act(&d, obs, 1);                 // epsilon-greedy
+    struct EnvStep s = cartpole_step(&env, a, next);
+    dqn_observe(&d, obs, a, s.reward, next, s.terminated); // 저장 + 학습
+    // obs = next ...
+    if (s.terminated || s.truncated) break;
+}
+```
+
+테스트는 각 기법을 해당 문제에서 실행한다.
+
+- 네 밴딧 에이전트는 10개 팔 중 최적의 팔을 85% 넘게 고른다.
+- 절벽 걷기에서 Q-learning은 가장자리를 따라가는 최적 13스텝 경로를,
+  SARSA는 더 안전하고 긴 경로를 배운다(Sutton & Barto 예제 6.6).
+- DQN, REINFORCE, A2C, PPO는 각자의 스텝 예산 안에 CartPole의 "해결" 기준인
+  평균 greedy 리턴 195에 도달한다.
 
 ## GPU 백엔드 {#gpu-backends}
 
