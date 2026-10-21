@@ -441,6 +441,34 @@ def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_sr
     return res
 
 
+def bench_ml_nn(runs):
+    """The std::ml training stack (nn.h, trainer.h, autoencoder.h, gan.h, rl.h,
+    lora.h, convnet.h) on its test-suite workloads, against PyTorch."""
+    res = {}
+    cases = [("safec_cpu", "ml_nn/safec/train_nn.sc", [])]
+    cases += [(f"safec_cpu_{v}", "ml_nn/safec/train_nn.sc", flags) for v, flags in vendor_blas().items()]
+    if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
+        cases.append(("safec_rocm_per_op", "ml_nn/safec/train_nn_rocm.sc",
+                      [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]))
+    for key, src, libs in cases:
+        out = os.path.join(BUILD, "ml_nn", key)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
+            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  ml_nn {key} {res[key]}", flush=True)
+    for dev in torch_devices():
+        key = f"pytorch_{dev}"
+        try:
+            res[key] = best_labeled([sh([MLPY, os.path.join(HERE, "ml_nn/pytorch/train_nn.py"), dev]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  ml_nn {key} {res[key]}", flush=True)
+    return res
+
+
 def bench_conv(runs):
     return cpu_vs_cuda("conv", "conv/safec/conv_cpu.sc", "conv/safec/conv_cuda.sc", ["-lcudnn"],
                        "conv/pytorch/conv.py", runs, "conv/safec/conv_rocm.sc", ["-lMIOpen"])
@@ -714,6 +742,7 @@ BENCHES = {
     "collections": bench_collections,
     "memalloc": bench_memalloc,
     "ml": bench_ml,
+    "ml_nn": bench_ml_nn,
     "conv": bench_conv,
     "fft": bench_fft,
     "attention": bench_attention,
