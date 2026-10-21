@@ -23,6 +23,15 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 신경 쓰지 않으므로, 특정 리전에 고정되는 함수는 없습니다. 원시 포인터(또는
 어떤 리전이든의 참조)는 `unsafe` 없이 암묵적으로 이 타입으로 변환됩니다.
 
+상태를 가진 타입(모델, 레이어, 옵티마이저, 데이터 로더, 에이전트,
+디바이스 신경망과 버퍼)은 [메서드](/ko/reference/functions#struct-methods)로
+씁니다: `net.forward(x)`, `net.add_params(&opt)`, `opt.step()`,
+`buf.free()`. SafeC에는 정적 메서드가 없으므로 생성자는 `*_new`(다른
+타입에서 만들 때는 `*_from_*` / `*_upload`)라는 이름의 함수입니다. 텐서
+연산은 함수로 남고(`tensor_matmul(a, b)`), `trainer_fit` /
+`rocm_trainer_fit`에 값으로 넘기는 손실 함수와 단계 함수(`vae_loss`,
+`rocm_net_ce_step`)도 마찬가지입니다.
+
 ---
 
 ## 텐서 {#tensor}
@@ -102,28 +111,28 @@ void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops reco
 
 ### 텐서 아레나 {#tensor-arena}
 
-모든 연산은 출력을 새로 할당하므로, 학습 루프는 단계마다 연산마다 `malloc`(그리고 새 메모리라면 페이지 폴트)을 합니다. 작은 MLP에서는 그 비용이 계산보다 컸습니다. `TensorArena`는 한 단계의 임시 텐서를 위한 청크 단위 범프 할당자(64바이트 정렬)입니다. `tensor_arena_begin`과 `tensor_arena_end` 사이에 그 스레드에서 만든 모든 텐서(데이터, shape, 기울기)는 아레나에서 나옵니다. `tensor_arena_reset`은 그것들을 한꺼번에 버리고, 이미 페이지가 할당된 메모리는 다음 단계를 위해 남겨 둡니다.
+모든 연산은 출력을 새로 할당하므로, 학습 루프는 단계마다 연산마다 `malloc`(그리고 새 메모리라면 페이지 폴트)을 합니다. 작은 MLP에서는 그 비용이 계산보다 컸습니다. `TensorArena`는 한 단계의 임시 텐서를 위한 청크 단위 범프 할당자(64바이트 정렬)입니다. `TensorArena::begin`과 `tensor_arena_end` 사이에 그 스레드에서 만든 모든 텐서(데이터, shape, 기울기)는 아레나에서 나옵니다. `TensorArena::reset`은 그것들을 한꺼번에 버리고, 이미 페이지가 할당된 메모리는 다음 단계를 위해 남겨 둡니다.
 
 ```c
 struct TensorArena tensor_arena_new(unsigned long chunkBytes);   // 0 = 16 MiB 청크
-void tensor_arena_begin(&TensorArena a);   // 이 스레드의 새 텐서는 a에서 할당
-void tensor_arena_end();                   // 다시 힙으로
-void tensor_arena_reset(&TensorArena a);   // 안의 텐서를 모두 버리고 메모리는 유지
-void tensor_arena_free(&TensorArena a);
-unsigned long tensor_arena_used(const &TensorArena a);   // 마지막 reset 이후 할당한 바이트
+void TensorArena::begin();                                       // 이 스레드의 새 텐서는 a에서 할당
+void tensor_arena_end();                                         // 다시 힙으로
+void TensorArena::reset();                                       // 안의 텐서를 모두 버리고 메모리는 유지
+void TensorArena::free();
+unsigned long TensorArena::used() const;   // 마지막 reset 이후 할당한 바이트
 
 struct TensorArena step = tensor_arena_new(0UL);
 while (s < steps) {
-    tensor_arena_begin(&step);
+    step.begin();
     // ... 순전파, tensor_backward, 옵티마이저 갱신 ...
     tensor_arena_end();
-    tensor_arena_reset(&step);   // 이 단계의 텐서는 사라짐
+    step.reset();   // 이 단계의 텐서는 사라짐
     s = s + 1;
 }
-tensor_arena_free(&step);
+step.free();
 ```
 
-매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 아레나가 활성인 동안 만든 [`FeatureMap`](#cnn)도 `unet_forward` 안의 모든 중간 결과까지 포함해 아레나에서 할당하며, `feature_map_free`는 그것들을 reset에 맡깁니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
+매개변수처럼 아레나 밖에서 만든 텐서는 힙에 남고, 그 기울기도 마찬가지라서 reset 뒤에도 살아 있습니다. 아레나가 활성인 동안 만든 [`FeatureMap`](#cnn)도 `UNet::forward` 안의 모든 중간 결과까지 포함해 아레나에서 할당하며, `FeatureMap::free`는 그것들을 reset에 맡깁니다. 각 텐서는 자신의 `owner`를 기록합니다. 아레나 텐서에 대한 `Tensor::free()`는 아무 일도 하지 않으며, 아레나가 reset된 뒤에는 그 텐서를 쓰면 안 됩니다.
 
 ### 자동미분 연산과 옵티마이저 — `tensor_nn.h` {#autograd-ops-and-optimizer-tensor-nn-h}
 
@@ -154,8 +163,8 @@ struct AdamState {
 };
 struct AdamState adam_new(unsigned long size, float lr, float beta1, float beta2, float eps);
 struct AdamState adam_new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
-void adam_step(&AdamState state, &Tensor param);                   // uses param.grad
-void adam_free(&AdamState state);
+void AdamState::step(&Tensor param);                               // uses param.grad
+void AdamState::free();
 ```
 
 ## 활성화 함수 {#activations}
@@ -241,7 +250,7 @@ flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼
   Window(Swin) 어텐션: 고정 크기의 로컬 윈도우로 분할하되, 순환
   시프트(`shift` 파라미터)를 적용해 다음 레이어의 윈도우가 이 레이어의
   경계를 가로지르게 합니다.
-- **`gated_deltanet_forward`** — Gated DeltaNet(Yang 외 2024): 델타 규칙
+- **`GatedDeltaNet::forward`** — Gated DeltaNet(Yang 외 2024): 델타 규칙
   상태 업데이트(상태가 이미 예측한 값과 새 값 사이의 잔차를 씀)와
   스칼라 감쇠 게이트를 순차 스캔으로 계산하는, 선형 순환 어텐션
   대체제.
@@ -260,9 +269,8 @@ DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되
 
 struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
 struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
-&Tensor gated_deltanet_forward(const &GatedDeltaNet layer, const &Tensor X,
-                               const &Tensor Q, const &Tensor K, const &Tensor V);
-void    gated_deltanet_free(&GatedDeltaNet layer);
+&Tensor GatedDeltaNet::forward(const &Tensor X, const &Tensor Q, const &Tensor K, const &Tensor V) const;
+void    GatedDeltaNet::free();
 ```
 
 `eg_mla_forward`는 그룹별 업프로젝션을 텐서 참조의 [`Slice`](/ko/stdlib/collections#slice)로 받습니다 — 길이가 그룹 수인, 경계 검사가 있는 배열입니다. 고정 크기 스택이나 정적 배열(`&Tensor groups[4]`)로, 개수가 런타임에만 정해지면 힙이나 아레나 할당으로 뒷받침합니다.
@@ -282,25 +290,23 @@ xLSTM의 sLSTM 변형(Beck 외 2024: 로그 도메인 안정화기와 정규화 
 
 ```c
 struct RNNCell  rnn_cell_new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         rnn_cell_forward(const &RNNCell cell, const &Tensor x_t, const &Tensor h_prev);
-void            rnn_cell_free(&RNNCell cell);
+&Tensor         RNNCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+void            RNNCell::free();
 
 struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
-&Tensor         gru_cell_forward(const &GRUCell cell, const &Tensor x_t, const &Tensor h_prev);
-void            gru_cell_free(&GRUCell cell);
+&Tensor         GRUCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
+void            GRUCell::free();
 
 struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
 // Returns h_t; the new cell state is written through c_out.
-&Tensor         lstm_cell_forward(const &LSTMCell cell, const &Tensor x_t,
-                                  const &Tensor h_prev, const &Tensor c_prev,
-                                  &&Tensor c_out);
-void            lstm_cell_free(&LSTMCell cell);
+&Tensor         LSTMCell::forward(const &Tensor x_t, const &Tensor h_prev, const &Tensor c_prev, &&Tensor c_out) const;
+void            LSTMCell::free();
 
 struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
 struct XLSTMCell  xlstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
-struct XLSTMState xlstm_cell_forward(const &XLSTMCell cell, const &Tensor x_t, const &XLSTMState prev);
-void              xlstm_cell_free(&XLSTMCell cell);
-void              xlstm_state_free(&XLSTMState s);
+struct XLSTMState XLSTMCell::forward(const &Tensor x_t, const &XLSTMState prev) const;
+void              XLSTMCell::free();
+void              XLSTMState::free();
 ```
 
 각 셀의 가중치 텐서는 공개 필드(`W_ih`, `W_hh`, … — 게이트별 이름)이므로 학습된 가중치를 넣을 수 있습니다.
@@ -340,10 +346,10 @@ Dao 2023, "S6")는 스텝 Δ와 B·C 프로젝션을 입력의 함수로 만듭�
 [0.001, 0.1]에 걸치도록 고른 `dtBias`.
 
 컨볼루션과 스캔은 [스레드 풀](/ko/stdlib/sync#parallel)에서 채널을 병렬로
-처리합니다. 프로젝션은 `tensor_matmul`을 거칩니다. `mamba_step`은 토큰 하나를
+처리합니다. 프로젝션은 `tensor_matmul`을 거칩니다. `Mamba::step`은 토큰 하나를
 디코딩하고 `MambaState`(컨볼루션의 마지막 입력 `dConv − 1`개와 SSM
-상태)를 진행시킵니다. 토큰을 하나씩 `mamba_step`에 넣으면 시퀀스 전체에 대한
-`mamba_forward`와 같은 행이 나오며, 테스트가 이를 확인합니다. 같은 가중치를
+상태)를 진행시킵니다. 토큰을 하나씩 `Mamba::step`에 넣으면 시퀀스 전체에 대한
+`Mamba::forward`와 같은 행이 나오며, 테스트가 이를 확인합니다. 같은 가중치를
 HF transformers의 `MambaMixer`에 복사했을 때 출력이 약 0.05 크기에서 절대
 오차 2e-8 이내로 일치합니다. 순전파 전용이며 autograd는 없습니다.
 
@@ -365,20 +371,20 @@ struct Mamba {
     unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
 };
 struct Mamba mamba_new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
-&Tensor      mamba_forward(const &Mamba layer, const &Tensor X);   // [T, dModel] -> [T, dModel]
-void         mamba_free(&Mamba layer);
+&Tensor      Mamba::forward(const &Tensor X) const;   // [T, dModel] -> [T, dModel]
+void         Mamba::free();
 
 struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
 struct MambaState mamba_state_new(const &Mamba layer);
-&Tensor           mamba_step(const &Mamba layer, &MambaState state, const &Tensor x);  // [1, dModel]
-void              mamba_state_reset(&MambaState state);
-void              mamba_state_free(&MambaState state);
+&Tensor           Mamba::step(&MambaState state, const &Tensor x) const;   // [1, dModel]
+void              MambaState::reset();
+void              MambaState::free();
 
 struct Mamba m = mamba_new(768UL, 16UL, 4UL, 2UL);
-&Tensor y = mamba_forward(&m, prompt);           // prefill
+&Tensor y = m.forward(prompt);   // prefill
 struct MambaState st = mamba_state_new(&m);
 // ... 또는 고정 크기 상태로 토큰 하나씩 디코딩
-&Tensor yt = mamba_step(&m, &st, token);
+&Tensor yt = m.step(&st, token);
 ```
 
 ## CNN {#cnn}
@@ -405,11 +411,11 @@ struct MambaState st = mamba_state_new(&m);
 처리합니다. 결과는 직접 합과 상대 오차 약 1e-6 이내로 일치합니다. 그 밖의
 레이어는 im2col을 씁니다.
 
-`conv2d_forward`는 im2col + [`sgemm`](/ko/stdlib/simd#gemm)입니다. 출력
+`Conv2D::forward`는 im2col + [`sgemm`](/ko/stdlib/simd#gemm)입니다. 출력
 픽셀 블록마다 수용 영역을 스레드별 열 버퍼에 모아 가중치 행렬과 곱합니다.
 블록들은 [스레드 풀](/ko/stdlib/sync#parallel)에서 실행되므로 전체 im2col
 행렬은 만들어지지 않습니다. 1×1 컨볼루션은 모으는 단계를 건너뜁니다.
-`conv2d_relu_forward`는 같은 패스에서 ReLU를 적용합니다. 풀링, 업샘플링,
+`Conv2D::relu_forward`는 같은 패스에서 ReLU를 적용합니다. 풀링, 업샘플링,
 연결은 맵이 충분히 크면 채널 단위로 풀에 나뉘어 실행됩니다.
 
 ```c
@@ -420,14 +426,14 @@ struct FeatureMap {
     unsigned long width;
 };
 struct FeatureMap feature_map_new(unsigned long channels, unsigned long height, unsigned long width);
-void              feature_map_free(&FeatureMap fm);
+void              FeatureMap::free();
 
 struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
                          unsigned long kH, unsigned long kW,
                          unsigned long stride, unsigned long padding);
-struct FeatureMap conv2d_forward(const &Conv2D layer, const &FeatureMap input);
-struct FeatureMap conv2d_relu_forward(const &Conv2D layer, const &FeatureMap input);  // relu(conv), 한 패스
-void              conv2d_free(&Conv2D layer);
+struct FeatureMap Conv2D::forward(const &FeatureMap input) const;
+struct FeatureMap Conv2D::relu_forward(const &FeatureMap input) const;   // relu(conv), 한 패스
+void              Conv2D::free();
 
 struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
 struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
@@ -469,13 +475,13 @@ struct FeatureMap feature_map_add(const &FeatureMap a, const &FeatureMap b, int 
 
 struct ResidualBlock { struct Conv2D conv1; struct Conv2D conv2; struct Conv2D projection; int hasProjection; };
 struct ResidualBlock residual_block_new(unsigned long inChannels, unsigned long outChannels, unsigned long stride);
-struct FeatureMap    residual_block_forward(const &ResidualBlock block, const &FeatureMap input);
-void                 residual_block_free(&ResidualBlock block);
+struct FeatureMap    ResidualBlock::forward(const &FeatureMap input) const;
+void                 ResidualBlock::free();
 
 // ResNet-18 스템과 첫 스테이지
-struct FeatureMap s = conv2d_relu_forward(&stem7x7s2, &image);
+struct FeatureMap s = stem7x7s2.relu_forward(&image);
 struct FeatureMap p = maxpool2d_forward_ex(&s, 3UL, 2UL, 1UL);
-struct FeatureMap r = residual_block_forward(&layer1a, &p);
+struct FeatureMap r = layer1a.forward(&p);
 ```
 
 ## U-Net {#u-net}
@@ -486,14 +492,14 @@ struct FeatureMap r = residual_block_forward(&layer1a, &p);
 
 스킵 연결을 갖춘 고정된 2단계 인코더/디코더 CNN(Ronneberger 외 2015)
 — 전형적인 DDPM 스타일 디퓨전 디노이저 백본입니다. 출력 형태 검사와,
-`unet_forward`의 호출 순서를 수동으로 재현한 것과의 완전한 자기
+`UNet::forward`의 호출 순서를 수동으로 재현한 것과의 완전한 자기
 일관성 검사를 통해 검증되었습니다.
 
 ```c
 struct UNet unet_new(unsigned long inChannels, unsigned long c1, unsigned long c2,
                      unsigned long outChannels);
-struct FeatureMap unet_forward(&UNet net, const &FeatureMap input);
-void unet_free(&UNet net);
+struct FeatureMap UNet::forward(const &FeatureMap input);
+void UNet::free();
 ```
 
 ## 디퓨전 {#diffusion}
@@ -566,12 +572,12 @@ generic<T>
 ```c
 struct DiTBlock dit_block_new(unsigned long dModel, unsigned long dHidden,
                               unsigned long dModelCond, unsigned long numHeads);
-&Tensor dit_block_forward(const &DiTBlock block, const &Tensor x, const &Tensor c);  // c = conditioning
-void    dit_block_free(&DiTBlock block);
+&Tensor DiTBlock::forward(const &Tensor x, const &Tensor c) const;   // c = conditioning
+void    DiTBlock::free();
 
 struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
-&Tensor jit_block_forward(const &JiTBlock block, const &Tensor x);
-void    jit_block_free(&JiTBlock block);
+&Tensor JiTBlock::forward(const &Tensor x) const;
+void    JiTBlock::free();
 // Patch embedding + conditioning, then numBlocks blocks.
 &Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
                     struct Slice<JiTBlock> blocks);
@@ -612,8 +618,8 @@ void    jit_block_free(&JiTBlock block);
 - **`Mlp`**는 완전 연결 레이어의 스택입니다. `inDim → hidden × hiddenLayers →
   outDim`이며, 레이어 사이에 `ACT_RELU`, `ACT_LEAKY`, `ACT_TANH`,
   `ACT_SIGMOID`, `ACT_GELU`, `ACT_SILU` 중 하나를 씁니다. PyTorch `nn.Linear`처럼
-  초기화하며 가중치는 `[in, out]`으로 저장합니다. `mlp_copy` /
-  `mlp_soft_update`는 타깃 네트워크를 동기화합니다.
+  초기화하며 가중치는 `[in, out]`으로 저장합니다. `Mlp::copy` /
+  `Mlp::soft_update`는 타깃 네트워크를 동기화합니다.
 - **`Optimizer`**는 파라미터 목록을 갖고 다음 종류를 제공합니다.
 
   | 종류 | 갱신 |
@@ -626,13 +632,13 @@ void    jit_block_free(&JiTBlock block);
   | `OPT_ADAMW` | 분리된 weight decay를 쓰는 Adam(`weightDecay` 0.01). |
   | `OPT_LION` | 보간한 모멘텀의 부호로 갱신합니다(Chen et al. 2023). 분리된 decay를 쓰며, 학습률은 Adam보다 3~10배 작게 줍니다. |
 
-  `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자릅니다.
+  `Optimizer::clip_grad_norm`은 전체 그래디언트 노름을 자릅니다.
   필드(`lr`, beta, `weightDecay`)가 공개되어 있어 스텝 사이에 스케줄로 바꿀 수
   있습니다.
 
 - **저장과 불러오기.** `tensors_save` / `tensors_load`는 텐서 목록(형상과
   float32 값)을 파일에 쓰고, 같은 형상의 텐서에 다시 읽어 들입니다.
-  `mlp_save_file` / `mlp_load_file`은 `Mlp`에 대해 같은 일을 합니다. 파일이
+  `Mlp::save_file` / `Mlp::load_file`은 `Mlp`에 대해 같은 일을 합니다. 파일이
   없거나 맞지 않으면 아무것도 바꾸지 않고 0을 반환합니다.
 
 `trainer_fit`은 모델 타입에 대해 제네릭이라 순전파와 손실이 컴파일 시간에
@@ -642,16 +648,16 @@ void    jit_block_free(&JiTBlock block);
 
 ```c
 static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
-    return tensor_cross_entropy_loss(mlp_forward(m, x), y);
+    return tensor_cross_entropy_loss(m.forward(x), y);
 }
-static &Tensor clf_logits(&Mlp m, const &Tensor x) { return mlp_forward(m, x); }
+static &Tensor clf_logits(&Mlp m, const &Tensor x) { return m.forward(x); }
 
 struct Rng rng = rng_new(1UL);
 struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
-struct DatasetSplit sp = dataset_split(&data, (float)0.25, &rng);
+struct DatasetSplit sp = data.split((float)0.25, &rng);
 struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
-optimizer_add_mlp(&opt, &net);
+net.add_params(&opt);
 struct TrainConfig cfg = train_config_default();     // 10 에폭, 배치 32
 cfg.epochs = 60UL;
 struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
@@ -669,12 +675,15 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
 
 `dataset_load_mnist`는 MNIST / Fashion-MNIST IDX 파일을 읽어 픽셀을 [0, 1]로
 맞춥니다. `dataset_load_csv`는 숫자 CSV를 읽으며, 헤더와 레이블 열은 선택입니다.
-둘 다 오류 시 `n == 0`을 반환합니다. `dataset_split`, `dataset_standardize`,
-`dataset_standardize_pair`(학습 세트의 통계를 양쪽에 적용)로 데이터를
+둘 다 오류 시 `n == 0`을 반환합니다. `Dataset::split`, `Dataset::standardize`,
+`Dataset::standardize_pair`(학습 세트의 통계를 양쪽에 적용)로 데이터를
 준비합니다. `DataLoader`는 에폭마다 새로 섞은 순서로 배치를 내줍니다.
 
 테스트는 모든 연산의 그래디언트를 중앙 차분과 비교합니다. 옵티마이저가
 수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘습니다.
+
+학습 코드를 한 번만 작성하고 백엔드는 빌드할 때 고르려면
+[`train.h`](#train-traits)를 쓰십시오.
 
 ## 정규화: LayerNorm과 AdaLN {#norm}
 
@@ -697,10 +706,10 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
   곱함), 그리고 이제 미분 가능해진 `attention.h`의 `tensor_slice_cols`.
 
 ```c
-struct AdaLN ad = adaln_new(dim, condDim, 1);          // 게이트 사용
-struct AdaLNOut o = adaln_forward(&ad, x, cond);       // x [m, dim], cond [m, condDim]
-&Tensor h = tensor_add(x, tensor_mul(o.gate, mlp_forward(&ffn, o.out)));
-adaln_add_params(&opt, &ad);
+struct AdaLN ad = adaln_new(dim, condDim, 1);   // 게이트 사용
+struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
+&Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
+ad.add_params(&opt);
 ```
 
 테스트는 두 레이어의 그래디언트를 유한 차분과 비교하고, 새 AdaLN이
@@ -723,9 +732,9 @@ LayerNorm과 같은지 확인합니다. 또 일반 LayerNorm으로는 표현할 
 기반 모델과 똑같이 시작합니다. A와 B만 학습하며, 레이어마다 `in · out` 대신
 `r · (in + out)`개 값입니다.
 
-- `lora_attach`는 기반 모델의 `requiresGrad`를 0으로 만들고, `lora_detach`가
+- `lora_attach`는 기반 모델의 `requiresGrad`를 0으로 만들고, `LoraMlp::detach`가
   되돌립니다.
-- `lora_merge`는 `scale · A·B`를 `W`에 접어 넣으므로, 이후에는 기반 모델만으로
+- `LoraMlp::merge`는 `scale · A·B`를 `W`에 접어 넣으므로, 이후에는 기반 모델만으로
   적응된 출력을 계산하며 추론 비용이 늘지 않습니다.
 
 **QLoRA**(Dettmers et al. 2023)는 같은 일을 **4비트 NormalFloat(NF4)**로
@@ -742,10 +751,10 @@ LayerNorm과 같은지 확인합니다. 또 일반 LayerNorm으로는 표현할 
 ```c
 struct LoraConfig cfg = lora_config_default(8UL);    // 랭크 8, alpha 8
 struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + 이중 양자화
-mlp_free(&pretrained);
+pretrained.free();
 struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
-qlora_add_params(&opt, &ft);                          // 어댑터만
-trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss가 qlora_forward를 호출
+ft.add_params(&opt);                           // 어댑터만
+trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 호출
 ```
 
 테스트에서는 moons로 사전 학습한 MLP를, 회전하고 레이블을 뒤바꾼 과제로 미세
@@ -868,22 +877,22 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss가 qlora_forwar
 
 | 빌더 | 레이어 |
 |---|---|
-| `convnet_conv(&n, outC, kernel, stride, padding, act, &rng)` / `convnet_conv_ex(&n, outC, &spec, act, &rng)` | 합성곱 후 `act` |
-| `convnet_deconv(...)` / `convnet_deconv_ex(...)` | 전치 합성곱 후 `act` |
-| `convnet_maxpool(&n, kernel, stride, padding)` / `convnet_maxpool_ex(&n, &spec)` | 최대 풀링 |
-| `convnet_avgpool(&n, kernel, stride, padding, countIncludePad)` / `convnet_avgpool_ex(&n, &spec)` | 평균 풀링 |
-| `convnet_global_avgpool(&n)` / `convnet_global_maxpool(&n)` | 채널마다 값 하나로. 출력은 `C × 1 × 1` |
-| `convnet_upsample(&n, factor)` / `convnet_upsample_bilinear(&n, factor)` / `convnet_resize(&n, outH, outW, mode, alignCorners)` | 크기 조절 |
-| `convnet_batchnorm(&n, act)` | 배치 정규화(momentum 0.1, eps 1e-5) 후 `act` |
-| `convnet_groupnorm(&n, groups, act)` / `convnet_layernorm(&n, act)` / `convnet_instancenorm(&n, act)` | 그룹 정규화(eps 1e-5) 후 `act` |
-| `convnet_spectral_norm(&n, &rng)` | 마지막 합성곱이나 완전 연결 레이어의 가중치를 스펙트럴 정규화합니다. 학습 패스마다 거듭제곱 반복 1회 |
-| `convnet_dropout(&n, p, byChannel, &rng)` | 드롭아웃. 난수열은 `rng`에서 시드를 받습니다 |
-| `convnet_dense(&n, outDim, act, &rng)` | 평탄화한 맵에 대한 완전 연결. 출력은 `outDim × 1 × 1` |
-| `convnet_reshape(&n, C, H, W)` | 데이터를 옮기지 않고 형상만 다시 해석합니다 |
-| `slot = convnet_save(&n)` | 스킵 연결에 쓸 현재 활성값을 보관합니다 |
-| `convnet_add_skip(&n, slot, act, &rng)` | 보관한 활성값을 더한 뒤 `act`. 채널 수나 크기가 다르면 보관한 활성값을 학습되는 1×1 합성곱에 통과시킵니다(ResNet의 투영 지름길) |
-| `convnet_concat_skip(&n, slot)` | 보관한 활성값의 채널을 뒤에 붙입니다. 높이와 너비가 같아야 합니다(U-Net 스킵) |
-| `convnet_residual_block(&n, outC, stride, batchNorm, act, &rng)` | ResNet 기본 블록: 3×3 합성곱(stride) → [배치 정규화] → act → 3×3 합성곱 → [배치 정규화] → 지름길 더하기 → act |
+| `n.conv(outC, kernel, stride, padding, act, &rng)` / `n.conv_ex(outC, &spec, act, &rng)` | 합성곱 후 `act` |
+| `n.deconv(...)` / `n.deconv_ex(...)` | 전치 합성곱 후 `act` |
+| `n.maxpool(kernel, stride, padding)` / `n.maxpool_ex(&spec)` | 최대 풀링 |
+| `n.avgpool(kernel, stride, padding, countIncludePad)` / `n.avgpool_ex(&spec)` | 평균 풀링 |
+| `n.global_avgpool()` / `n.global_maxpool()` | 채널마다 값 하나로. 출력은 `C × 1 × 1` |
+| `n.upsample(factor)` / `n.upsample_bilinear(factor)` / `n.resize(outH, outW, mode, alignCorners)` | 크기 조절 |
+| `n.batchnorm(act)` | 배치 정규화(momentum 0.1, eps 1e-5) 후 `act` |
+| `n.groupnorm(groups, act)` / `n.layernorm(act)` / `n.instancenorm(act)` | 그룹 정규화(eps 1e-5) 후 `act` |
+| `n.spectral_norm(&rng)` | 마지막 합성곱이나 완전 연결 레이어의 가중치를 스펙트럴 정규화합니다. 학습 패스마다 거듭제곱 반복 1회 |
+| `n.dropout(p, byChannel, &rng)` | 드롭아웃. 난수열은 `rng`에서 시드를 받습니다 |
+| `n.dense(outDim, act, &rng)` | 평탄화한 맵에 대한 완전 연결. 출력은 `outDim × 1 × 1` |
+| `n.reshape(C, H, W)` | 데이터를 옮기지 않고 형상만 다시 해석합니다 |
+| `slot = n.save()` | 스킵 연결에 쓸 현재 활성값을 보관합니다 |
+| `n.add_skip(slot, act, &rng)` | 보관한 활성값을 더한 뒤 `act`. 채널 수나 크기가 다르면 보관한 활성값을 학습되는 1×1 합성곱에 통과시킵니다(ResNet의 투영 지름길) |
+| `n.concat_skip(slot)` | 보관한 활성값의 채널을 뒤에 붙입니다. 높이와 너비가 같아야 합니다(U-Net 스킵) |
+| `n.residual_block(outC, stride, batchNorm, act, &rng)` | ResNet 기본 블록: 3×3 합성곱(stride) → [배치 정규화] → act → 3×3 합성곱 → [배치 정규화] → 지름길 더하기 → act |
 
 정규화는 `ACT_NONE` 합성곱과 활성화 사이에 둡니다. 가중치와 바이어스는
 PyTorch처럼 U(−1/√fanIn, 1/√fanIn)으로 초기화하고, 정규화는 gamma 1,
@@ -893,49 +902,49 @@ beta 0에서 시작합니다. `params`에는 학습되는 텐서가, `buffers`�
 
 `training` 필드는 `convnet_new`에서 1로 시작합니다. 학습 모드에서는 배치
 정규화가 배치 통계를 쓰고 이동 통계를 갱신하며, 스펙트럴 정규화가 반복하고,
-드롭아웃이 값을 떨굽니다. 추론할 때는 `convnet_set_training(&n, 0)`을
+드롭아웃이 값을 떨굽니다. 추론할 때는 `n.set_training(0)`을
 호출하며, 이 함수는 이전 모드를 반환합니다. `autoencoder.h`와 `gan.h`의 모델은
 모드를 직접 바꿉니다. 손실 함수와 학습 스텝 함수는 학습 모드로,
 encode·decode·sample·generate·score는 추론 모드로 실행합니다.
 
 `ConvNet`에 대한 그 밖의 연산:
 
-- `convnet_forward`는 `[batch, convnet_in_dim]`을
-  `[batch, convnet_out_dim]`으로 바꿉니다. `outC`, `outH`, `outW` 필드가 현재
+- `ConvNet::forward`는 `[batch, in_dim()]`을
+  `[batch, out_dim()]`으로 바꿉니다. `outC`, `outH`, `outW` 필드가 현재
   출력 형상입니다.
-- `optimizer_add_convnet`으로 파라미터를 등록합니다.
-- `convnet_clone`, `convnet_copy`, `convnet_soft_update`는 버퍼까지 포함해
+- `ConvNet::add_params`으로 파라미터를 등록합니다.
+- `ConvNet::clone`, `ConvNet::copy`, `ConvNet::soft_update`는 버퍼까지 포함해
   타깃 네트워크와 평균 네트워크를 다룹니다.
-- `convnet_fold_batchnorm`은 합성곱이나 완전 연결 레이어 바로 뒤의 배치
+- `ConvNet::fold_batchnorm`은 합성곱이나 완전 연결 레이어 바로 뒤의 배치
   정규화를 추론용으로 그 레이어의 가중치와 바이어스에 접어 넣습니다. 출력은
   그대로지만, 그 뒤로는 네트워크를 학습하지 않습니다.
-- `convnet_save_file` / `convnet_load_file`은 파라미터와 버퍼를 파일에 쓰고,
+- `ConvNet::save_file` / `ConvNet::load_file`은 파라미터와 버퍼를 파일에 쓰고,
   같은 레이어로 만든 네트워크에 다시 읽어 들입니다. 맞지 않으면 아무것도 덮어쓰지
   않고 0을 반환합니다. `nn.h`의 `tensors_save` / `tensors_load`,
-  `mlp_save_file` / `mlp_load_file`도 같은 형식을 씁니다.
+  `Mlp::save_file` / `Mlp::load_file`도 같은 형식을 씁니다.
 
 ```c
 static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
-    return tensor_cross_entropy_loss(convnet_forward(m, x), y);
+    return tensor_cross_entropy_loss(m.forward(x), y);
 }
 
 struct Rng rng = rng_new(1UL);
-struct ConvNet net = convnet_new(1UL, 28UL, 28UL);                // MNIST
-convnet_conv(&net, 16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);          // 16 x 28 x 28
-convnet_batchnorm(&net, ACT_RELU);
-convnet_residual_block(&net, 16UL, 1UL, 1, ACT_RELU, &rng);       // 16 x 28 x 28
-convnet_residual_block(&net, 32UL, 2UL, 1, ACT_RELU, &rng);       // 32 x 14 x 14
-convnet_residual_block(&net, 64UL, 2UL, 1, ACT_RELU, &rng);       // 64 x 7 x 7
-convnet_dropout(&net, (float)0.1, 1, &rng);
-convnet_global_avgpool(&net);                                     // 64 x 1 x 1
-convnet_dense(&net, 10UL, ACT_NONE, &rng);                        // 로짓
+struct ConvNet net = convnet_new(1UL, 28UL, 28UL);   // MNIST
+net.conv(16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);       // 16 x 28 x 28
+net.batchnorm(ACT_RELU);
+net.residual_block(16UL, 1UL, 1, ACT_RELU, &rng);   // 16 x 28 x 28
+net.residual_block(32UL, 2UL, 1, ACT_RELU, &rng);   // 32 x 14 x 14
+net.residual_block(64UL, 2UL, 1, ACT_RELU, &rng);   // 64 x 7 x 7
+net.dropout((float)0.1, 1, &rng);
+net.global_avgpool();              // 64 x 1 x 1
+net.dense(10UL, ACT_NONE, &rng);   // 로짓
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-optimizer_add_convnet(&opt, &net);
+net.add_params(&opt);
 struct TrainConfig cfg = train_config_default();
 trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
-convnet_set_training(&net, 0);                                    // 여기부터 추론
-convnet_fold_batchnorm(&net);
-convnet_save_file(&net, "mnist_resnet.bin");
+net.set_training(0);   // 여기부터 추론
+net.fold_batchnorm();
+net.save_file("mnist_resnet.bin");
 ```
 
 테스트는 모든 연산의 입력과 파라미터 그래디언트를 중앙 차분과 비교합니다.
@@ -960,7 +969,7 @@ convnet_save_file(&net, "mnist_resnet.bin");
 - 크기: 패딩된 풀링과 ceil 모드 풀링, 팽창 합성곱의 출력 크기가 PyTorch와
   같습니다.
 - `cnn.h`와의 일치: `tensor_conv2d`, 패딩된 풀링, 전역 풀링이
-  `conv2d_forward`, `*pool2d_forward_ex`, `global_*pool2d`와 일치합니다.
+  `Conv2D::forward`, `*pool2d_forward_ex`, `global_*pool2d`와 일치합니다.
   Winograd 경로는 직접 합과 일치합니다.
 - 크기 조절: 쌍선형 업샘플링이 2×2 입력에서 PyTorch와 같은 출력을 내고,
   쌍삼차 크기 조절이 상수 이미지를 그대로 유지합니다.
@@ -999,17 +1008,17 @@ convnet_save_file(&net, "mnist_resnet.bin");
 | 모델 | 추가되는 것 |
 |---|---|
 | `Autoencoder` | 기본 undercomplete AE. 설정으로 변형을 켜며, 변형끼리 조합할 수 있습니다. **디노이징**은 `noiseStd` 가우시안 노이즈를 더하고 입력의 `dropProb` 비율을 0으로 만들며, 손실은 깨끗한 입력과 비교합니다. **희소**는 코드에 `sparsity` × L1 벌점을 더합니다. |
-| `Vae` | **VAE**(Kingma & Welling 2014): 가우시안 인코더와 재매개변수화를 쓰며, 손실은 특징에 대해 합한 재구성 오차에 `beta` × KL을 더한 것입니다. `beta > 1`이면 **β-VAE**이며, KL 워밍업에는 `beta`를 0에서 올립니다. `classes > 0`이면 **조건부 VAE**로, 원-핫 레이블을 인코더 입력과 디코더 입력에 모두 붙입니다. `vae_sample`은 사전 분포에서 뽑으며, 클래스별로도 뽑을 수 있습니다. |
-| `VqVae` | **VQ-VAE**(van den Oord et al. 2017): 인코더 출력을 가장 가까운 코드북 벡터로 바꿉니다. 그래디언트는 straight-through로 통과하고, 손실에 코드북 항과 `commitment` 항이 더해집니다. 코드북 붕괴를 막기 위해 첫 배치로 코드북을 초기화하고, `resetDeadAfter` 배치 동안 안 쓰인 코드는 무작위 인코더 출력으로 옮깁니다. `vqvae_encode` / `vqvae_decode`는 이산 코드와 서로 변환합니다. |
+| `Vae` | **VAE**(Kingma & Welling 2014): 가우시안 인코더와 재매개변수화를 쓰며, 손실은 특징에 대해 합한 재구성 오차에 `beta` × KL을 더한 것입니다. `beta > 1`이면 **β-VAE**이며, KL 워밍업에는 `beta`를 0에서 올립니다. `classes > 0`이면 **조건부 VAE**로, 원-핫 레이블을 인코더 입력과 디코더 입력에 모두 붙입니다. `Vae::sample`은 사전 분포에서 뽑으며, 클래스별로도 뽑을 수 있습니다. |
+| `VqVae` | **VQ-VAE**(van den Oord et al. 2017): 인코더 출력을 가장 가까운 코드북 벡터로 바꿉니다. 그래디언트는 straight-through로 통과하고, 손실에 코드북 항과 `commitment` 항이 더해집니다. 코드북 붕괴를 막기 위해 첫 배치로 코드북을 초기화하고, `resetDeadAfter` 배치 동안 안 쓰인 코드는 무작위 인코더 출력으로 옮깁니다. `VqVae::encode` / `VqVae::decode`는 이산 코드와 서로 변환합니다. |
 
 ```c
 struct VaeConfig cfg = vae_config_default(4UL);   // 은닉 256, BCE, beta 1
 cfg.classes = 4UL;                               // 조건부
 struct Vae v = vae_new(100UL, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
-vae_add_params(&opt, &v);
+v.add_params(&opt);
 trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
-&Tensor samples = vae_sample(&v, 64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 100]
+&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 100]
 ```
 
 테스트는 각 변형의 재구성 오차를 학습 전 오차와 비교합니다. 또 실제 도형으로
@@ -1021,7 +1030,7 @@ trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
 `ConvAutoencoder`와 `ConvVae`는 직접 만든 `ConvNet` 인코더와 디코더를 쓰는
 기본 AE와 VAE입니다. 인코더는 이미지를 특징으로 바꿉니다. 디코더는 코드를
 `latent × 1 × 1` 입력으로 받아 이미지 크기를 출력해야 합니다.
-`convnet_dense` + `convnet_reshape`로 시작하거나, 1×1에서 시작하는 전치
+`ConvNet::dense` + `ConvNet::reshape`로 시작하거나, 1×1에서 시작하는 전치
 합성곱으로 시작하면 됩니다. `ConvVae`에서는 평탄화한 특징 위의 선형 헤드가
 μ와 log σ²를 만듭니다. 손실은 `Vae`와 같고, `VaeConfig`에서 `latent`, `recon`,
 `beta`, `classes`, `seed`를 읽습니다.
@@ -1030,7 +1039,7 @@ trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
 추가 입력 채널(클래스마다 상수 평면 하나)로 받고, 디코더는 코드 뒤에 붙인
 원-핫 레이블을 받습니다. 따라서 C채널 이미지라면 인코더는 `C + classes`채널을
 받고, 디코더는 `latent + classes`개 입력을 받아 C채널을 출력합니다. `Vae`와
-마찬가지로 `y`에 클래스 인덱스가 들어가고, `conv_vae_sample`은 레이블이나
+마찬가지로 `y`에 클래스 인덱스가 들어가고, `ConvVae::sample`은 레이블이나
 `null`을 받습니다.
 
 두 모델 모두 네트워크의 소유권을 가져가므로, 네트워크가 아니라 모델을
@@ -1041,22 +1050,22 @@ reconstruct, sample은 추론 모드로 실행하므로, 거기서 배치 정규
 ```c
 unsigned long classes = 10UL;                                // 조건부, MNIST 숫자
 struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
-convnet_conv(&enc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 14 x 14
-convnet_conv(&enc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 7 x 7
-convnet_batchnorm(&enc, ACT_LEAKY);
+enc.conv(32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);   // 32 x 14 x 14
+enc.conv(64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 64 x 7 x 7
+enc.batchnorm(ACT_LEAKY);
 struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // 잠재 16 + 레이블
-convnet_dense(&dec, 64UL * 49UL, ACT_RELU, &rng);
-convnet_reshape(&dec, 64UL, 7UL, 7UL);
-convnet_deconv(&dec, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
-convnet_batchnorm(&dec, ACT_RELU);
-convnet_deconv(&dec, 1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 1 x 28 x 28 로짓
+dec.dense(64UL * 49UL, ACT_RELU, &rng);
+dec.reshape(64UL, 7UL, 7UL);
+dec.deconv(32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
+dec.batchnorm(ACT_RELU);
+dec.deconv(1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 1 x 28 x 28 로짓
 struct VaeConfig cfg = vae_config_default(16UL);
 cfg.classes = classes;
 struct ConvVae v = conv_vae_new(enc, dec, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-conv_vae_add_params(&opt, &v);
+v.add_params(&opt);
 trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
-&Tensor samples = conv_vae_sample(&v, 64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
+&Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
 ```
 
 테스트는 두 네트워크 모두에 배치 정규화를 넣고 8×8 도형으로 실행합니다.
@@ -1093,17 +1102,17 @@ MLP 생성기와 판별기(leaky ReLU)를 번갈아 학습합니다. 목적 함�
 
 `classes > 0`이면 **조건부 GAN**으로, 레이블이 두 네트워크에 모두 들어갑니다.
 `emaDecay`는 생성기 가중치의 지수 이동 평균(Karras et al. 2018)을 유지하며,
-`gan_generate`는 그 평균에서 샘플링합니다. 적대적 게임은 진동하고, 평균은
+`Gan::generate`는 그 평균에서 샘플링합니다. 적대적 게임은 진동하고, 평균은
 어느 한 스텝의 가중치보다 중심에 가깝습니다. GAN은 두 옵티마이저(Adam, β1 =
-0.5. WGAN은 RMSProp)와 스텝용 아레나를 직접 가집니다. `gan_train`은 `Dataset`에
-대해 에폭을 돌리고, `gan_train_step`은 직접 만든 배치로 한 스텝을 돌립니다.
+0.5. WGAN은 RMSProp)와 스텝용 아레나를 직접 가집니다. `Gan::train`은 `Dataset`에
+대해 에폭을 돌리고, `Gan::train_step`은 직접 만든 배치로 한 스텝을 돌립니다.
 
 ```c
 struct GanConfig cfg = gan_config_default(4UL);   // 잠재 차원 4
 cfg.loss = GAN_HINGE;
 struct Gan g = gan_new(2UL, &cfg);
-gan_train(&g, &data, 80UL, 64UL);
-&Tensor fake = gan_generate(&g, 1000UL, null);   // 힙 텐서, 호출자가 해제
+g.train(&data, 80UL, 64UL);
+&Tensor fake = g.generate(1000UL, null);   // 힙 텐서, 호출자가 해제
 ```
 
 테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
@@ -1119,30 +1128,30 @@ GAN은 4개 모드 링에서 샘플의 75% 넘게를 각 레이블의 모드에 
 
 `classes > 0`이면 **조건부 DCGAN**입니다. G는 노이즈 뒤에 붙인 원-핫 레이블을
 받으므로 `latent + classes`개 입력을 받습니다. D는 레이블을 `classes`개의 추가
-입력 채널(클래스마다 상수 평면 하나)로 받습니다. `dcgan_train_step`,
-`dcgan_generate`, `dcgan_score`는 레이블이나 `null`을 받고, `dcgan_train`은
+입력 채널(클래스마다 상수 평면 하나)로 받습니다. `Dcgan::train_step`,
+`Dcgan::generate`, `Dcgan::score`는 레이블이나 `null`을 받고, `Dcgan::train`은
 데이터셋에서 레이블을 가져옵니다.
 
 DCGAN은 네트워크, 옵티마이저, 평균 생성기, 스텝 아레나를 직접 가집니다. 학습
 스텝은 네트워크를 학습 모드로 실행하므로, DCGAN 논문대로 배치 정규화가 배치
-통계를 씁니다. `dcgan_generate`와 `dcgan_score`는 추론 모드로 실행합니다.
+통계를 씁니다. `Dcgan::generate`와 `Dcgan::score`는 추론 모드로 실행합니다.
 
 ```c
-struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);             // 잠재 차원 16
-convnet_deconv(&gen, 64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
-convnet_batchnorm(&gen, ACT_RELU);
-convnet_deconv(&gen, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 32 x 8 x 8
-convnet_batchnorm(&gen, ACT_RELU);
-convnet_deconv(&gen, 1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);  // 1 x 16 x 16
+struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);   // 잠재 차원 16
+gen.deconv(64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
+gen.batchnorm(ACT_RELU);
+gen.deconv(32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 8 x 8
+gen.batchnorm(ACT_RELU);
+gen.deconv(1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);   // 1 x 16 x 16
 struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
-convnet_conv(&disc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 8 x 8
-convnet_conv(&disc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 4 x 4
-convnet_batchnorm(&disc, ACT_LEAKY);
-convnet_conv(&disc, 1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);      // 점수 하나
+disc.conv(32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);   // 32 x 8 x 8
+disc.conv(64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 64 x 4 x 4
+disc.batchnorm(ACT_LEAKY);
+disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // 점수 하나
 struct GanConfig cfg = gan_config_default(16UL);
 struct Dcgan g = dcgan_new(gen, disc, &cfg);
-dcgan_train(&g, &images, 20UL, 64UL);
-&Tensor fake = dcgan_generate(&g, 64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
+g.train(&images, 20UL, 64UL);
+&Tensor fake = g.generate(64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
 ```
 
 테스트는 8×8 도형으로 학습합니다. DCGAN은 샘플의 평균 밝기를 학습 전
@@ -1166,18 +1175,18 @@ sigmoid의 0.5에서 데이터 평균의 0.1 이내로 옮겨야 합니다. 실�
 | 기법 | API |
 |---|---|
 | 밴딧 | `BanditAgent`: `BANDIT_EPS_GREEDY`, `BANDIT_UCB1`, `BANDIT_THOMPSON`(가우시안 사후 분포), `BANDIT_GRADIENT`(기준선을 둔 softmax 선호도). |
-| 테이블 TD | `TabularAgent`: `q_learning_update`, `sarsa_update`, `expected_sarsa_update`, ε-greedy `tabular_act`. |
-| 가치 기반 | `Dqn`(Mnih et al. 2015): 리플레이 버퍼, 타깃 네트워크(소프트 갱신 또는 주기적 하드 복사), Huber 손실, 선형 ε 스케줄, Double DQN(van Hasselt et al. 2016), 그래디언트 클리핑. 스텝마다 `dqn_act` + `dqn_observe`. |
-| 정책 기반 | `PolicyAgent`: `PG_REINFORCE`(몬테카를로 리턴, 학습된 기준선), `PG_A2C`(advantage actor-critic, GAE(λ)), `PG_PPO`(클리핑된 surrogate, 롤아웃마다 섞은 미니배치로 여러 에폭). 모든 변형이 엔트로피 보너스, advantage 정규화, 그래디언트 클리핑을 씁니다. 스텝마다 `pg_act` + `pg_record`, 에피소드나 롤아웃마다 `pg_update`. |
+| 테이블 TD | `TabularAgent`의 메서드 `q_learning_update`, `sarsa_update`, `expected_sarsa_update`, ε-greedy `act`. |
+| 가치 기반 | `Dqn`(Mnih et al. 2015): 리플레이 버퍼, 타깃 네트워크(소프트 갱신 또는 주기적 하드 복사), Huber 손실, 선형 ε 스케줄, Double DQN(van Hasselt et al. 2016), 그래디언트 클리핑. 스텝마다 `Dqn::act` + `Dqn::observe`. |
+| 정책 기반 | `PolicyAgent`: `PG_REINFORCE`(몬테카를로 리턴, 학습된 기준선), `PG_A2C`(advantage actor-critic, GAE(λ)), `PG_PPO`(클리핑된 surrogate, 롤아웃마다 섞은 미니배치로 여러 에폭). 모든 변형이 엔트로피 보너스, advantage 정규화, 그래디언트 클리핑을 씁니다. 스텝마다 `PolicyAgent::act` + `PolicyAgent::record`, 에피소드나 롤아웃마다 `PolicyAgent::update`. |
 
 ```c
 struct Dqn d = dqn_new(CARTPOLE_OBS, CARTPOLE_ACTIONS, &cfg);
 struct CartPole env = cartpole_new(1UL);
-cartpole_reset(&env, obs);
+env.reset(obs);
 while (1) {
-    unsigned long a = dqn_act(&d, obs, 1);                 // epsilon-greedy
-    struct EnvStep s = cartpole_step(&env, a, next);
-    dqn_observe(&d, obs, a, s.reward, next, s.terminated); // 저장 + 학습
+    unsigned long a = d.act(obs, 1);   // epsilon-greedy
+    struct EnvStep s = env.step(a, next);
+    d.observe(obs, a, s.reward, next, s.terminated);   // 저장 + 학습
     // obs = next ...
     if (s.terminated || s.truncated) break;
 }
@@ -1190,6 +1199,124 @@ while (1) {
   SARSA는 더 안전하고 긴 경로를 배웁니다(Sutton & Barto 예제 6.6).
 - DQN, REINFORCE, A2C, PPO는 각자의 스텝 예산 안에 CartPole의 "해결" 기준인
   평균 greedy 리턴 195에 도달합니다.
+
+## 하나의 학습 인터페이스: CPU 또는 GPU {#train-traits}
+
+```c
+#include <std/ml/train.h>          // 백엔드 중립 이름; 빌드의 feature가 백엔드를 고름
+#include <std/ml/train_traits.h>   // 트레이트와 제네릭 루프 (train.h가 포함함)
+```
+
+위의 CPU 스택과 ROCm의 디바이스 상주 스택(`nn_rocm.h`)은 같은 모델을
+학습합니다. `train_traits.h`는 둘을 하나의 인터페이스 뒤에 둡니다. 역할마다
+[트레이트](/ko/reference/polymorphism#structural-polymorphism-traits)가 하나씩
+있고, 제네릭 루프는 그 트레이트를 대상으로 한 번만 작성됩니다. 트레이트는
+구조적입니다. 트레이너는 메서드를 갖추기만 하면 트레이트를 만족하고,
+만족 여부는 제네릭이 인스턴스화되는 곳에서 검사되며, 모든 호출은 그
+타입의 메서드를 직접 호출합니다. 실행 시간 디스패치는 없습니다.
+
+| 트레이트 | 역할 | 메서드 |
+|---|---|---|
+| `Trainable` | 모델과 옵티마이저를 `Dataset`의 배치로 학습합니다: 손실로 학습하는 신경망(`Mlp`, `ConvNet`), 오토인코더, VAE. | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `train_step(x, y)`(호스트 배치 하나로 한 단계), `learning_rate()` / `set_learning_rate(lr)`, `sync()`, `free()` |
+| `GanTrainable` | 두 옵티마이저를 가진 `Gan` 또는 `Dcgan`. | `train_step(real, labels)`, `train(&data, epochs, batchSize)`, `sync()`, `free()` |
+| `ValueAgent` | 가치 기반 강화 학습 에이전트(`Dqn`). | `epsilon()`, `act(obs, explore)`, `observe(obs, action, reward, next, terminal)`(기울기 단계를 실행했으면 1), `last_loss()`, `updates()`, `sync()`, `free()` |
+| `PolicyLearner` | 정책 경사 에이전트(`PolicyAgent`: REINFORCE, A2C, PPO). | `act(obs, sample)`, `record(obs, action, reward, next, terminated, truncated)`, `update()`, `sync()`, `free()` |
+
+- **`train_fit(&m, &data, &cfg)`** 는 모든 `Trainable`에 대한
+  `trainer_fit`입니다. 배치, 에폭, 학습률 감소, `TrainReport`가 같습니다.
+  끝나면 호스트 모델이 동기화되어 있고, 디바이스에서 실패한 실행은
+  `steps == 0`을 보고합니다.
+- **`train_gan(&g, &data, epochs, batchSize)`** 는 모든 `GanTrainable`에
+  대한 `Gan::train`이며, 역시 호스트 모델을 동기화해 둡니다.
+- 직접 작성한 코드도 같은 방식으로 `generic<A: ValueAgent>`(또는 다른
+  트레이트)를 받을 수 있고, 그러면 어느 백엔드에서든 그대로 실행됩니다.
+
+**트레이너.** `train.h`는 각 트레이너를 백엔드 접두사 없이 이름 붙이고,
+구체 타입은 컴파일 시간에 고릅니다.
+
+| `train.h` | 생성자 | CPU (`train_cpu.h`) | ROCm (`nn_rocm.h`) |
+|---|---|---|---|
+| `MlpTrainer` | `mlp_trainer_new(mlp, loss, &opt, &to)` | `CpuTrainer<Mlp>` | `RocmTrainer<Mlp, RocmNet>` |
+| `ConvNetTrainer` | `convnet_trainer_new(net, loss, &opt, &to)` | `CpuTrainer<ConvNet>` | `RocmTrainer<ConvNet, RocmNet>` |
+| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
+| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
+| `GanTrainer` / `DcganTrainer` | `gan_trainer_new(g, &to)` / `dcgan_trainer_new` | `CpuGanTrainer<Gan>` / `<Dcgan>` | `RocmGanTrainer<Gan>` / `<Dcgan>` |
+| `DqnLearner` | `dqn_learner_new(d)` | `CpuDqnAgent` | `RocmDqnAgent` |
+| `PgLearner` | `pg_learner_new(a, &to)` | `CpuPgAgent` | `RocmPgAgent` |
+
+- **소유권.** 생성자는 호스트 모델을 값으로 받아 트레이너의 `host` 필드에
+  넣습니다. 모델의 텐서는 넘긴 구조체와 공유되지만 다른 필드는 그렇지
+  않으므로, 그 뒤로는 `t.host`를 쓰십시오. `sync()`는 `host`를 최신
+  상태로 만듭니다. CPU에서는 아무 일도 하지 않고, GPU에서는 내려받습니다.
+  `free()`는 트레이너가 할당한 것(옵티마이저 상태, 디바이스 버퍼)만
+  해제하며, 호스트 모델은 평소처럼 직접 해제합니다(`t.host.free()`).
+- **옵티마이저.** 생성자에 넘기는 `Optimizer`는 종류와 하이퍼파라미터만
+  제공합니다(`optimizer_from` / `rocm_optimizer_from`). 트레이너는 모델의
+  파라미터를 자기 옵티마이저에 추가합니다.
+- **손실.** 신경망 트레이너는 `TRAIN_LOSS_CE`(클래스 인덱스에 대한
+  소프트맥스 교차 엔트로피), `TRAIN_LOSS_MSE`, `TRAIN_LOSS_BCE`(로짓
+  기준)를 받습니다. 오토인코더와 VAE는 자체 손실로 학습합니다.
+- **`TrainerOptions`** (`trainer_options_default()`: `maxBatch` 256, fp32).
+  CPU는 두 필드를 모두 무시합니다. `maxBatch`는 디바이스 버퍼의 크기를
+  정하며, `cfg.batchSize`는 이를 넘을 수 없고, `pg_learner_new`에서는 가장
+  긴 롤아웃 길이입니다. `precision`(`TENSOR_FP16` / `TENSOR_BF16`)은
+  디바이스에서 16비트 활성값을 고릅니다. ROCm에서는
+  `RocmNet::set_precision`에 해당하며, 신경망 트레이너에만 적용됩니다.
+- **GPU에서 잃는 것은 없습니다.** `RocmTrainer::fit_epoch`는
+  `rocm_trainer_fit`의 에폭과 같습니다. 데이터셋은 GPU에 머물고 단계는
+  그래프로 재생됩니다. GAN과 강화 학습 트레이너는 `RocmGan`, `RocmDqn`,
+  `RocmPolicy`를 감쌉니다. 디바이스에서 `train_step`은 배치를 올리고 그
+  손실을 기다리므로, 속도보다는 직접 작성하는 루프에 알맞습니다.
+
+```c
+#include <std/ml/train.h>
+
+static &Tensor logits(&Mlp m, const &Tensor x) { return m.forward(x); }
+
+struct Rng rng = rng_new(1UL);
+struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
+struct Optimizer adam = optimizer_new(OPT_ADAM, (float)0.01);   // 종류와 하이퍼파라미터
+struct TrainerOptions to = trainer_options_default();
+MlpTrainer t = mlp_trainer_new(mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng),
+                               TRAIN_LOSS_CE, &adam, &to);
+struct TrainConfig cfg = train_config_default();
+cfg.epochs = 60UL;
+struct TrainReport rep = train_fit(&t, &data, &cfg);         // t.host가 학습된 Mlp
+float acc = trainer_accuracy(&t.host, logits, &data, 64UL);
+t.free();
+t.host.free();
+```
+
+### 백엔드 고르기 {#train-backend}
+
+빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 고르므로, 위 프로그램은
+소스 변경 없이 CPU에서도 AMD GPU에서도 학습합니다.
+
+```toml
+[features]
+rocm = []       # safeguard build --features rocm
+```
+
+| Feature | 백엔드 | 비고 |
+|---|---|---|
+| 없음 | CPU (`train_cpu.h`) | |
+| `rocm` (`SAFEC_FEATURE_ROCM`) | ROCm (`nn_rocm.h`) | `gpu_rocm` 라이브러리를 링크하고, MIOpen 합성곱에는 `-lMIOpen`도 링크합니다. |
+| `cuda` (`SAFEC_FEATURE_CUDA`) | 아직 없음 | 컴파일 오류가 납니다. CUDA에는 연산 단위 커널(`gpu_cuda.h`)은 있지만 디바이스 상주 학습 스택은 아직 없습니다. `rocm`도 함께 켜져 있으면 ROCm을 씁니다. |
+
+`ML_TRAIN_BACKEND`는 선택된 백엔드의 이름 문자열입니다(`"cpu"` 또는
+`"rocm"`). `train.h`의 각 이름은 typedef이고, 각 생성자는 백엔드 자체
+생성자(`cpu_mlp_trainer_new`, `rocm_mlp_trainer_new`, …)로 넘기는 정적
+함수입니다. 한 프로그램에서 두 백엔드를 함께 쓰려면 그 생성자들을 직접
+호출할 수도 있습니다. 앞으로 CUDA 백엔드는 같은 트레이트를 만족하는
+타입과 `train.h`의 분기 하나를 더하게 됩니다.
+
+`tests/stdlib/tests/test_ml_traits.sc`는 트레이트를 통해 쓴 모든 CPU
+트레이너가 감싼 API(`trainer_fit`, `Gan::train`, `Dqn`, `PolicyAgent`)와
+비트 단위까지 똑같이 학습하는지 검사합니다. `tests/stdlib/rocm/run.sh`는
+`train.h`만으로 작성한 프로그램 `train_backend_check.sc`를 CPU용으로 한
+번, `rocm` feature로 한 번 빌드합니다. MI100에서 두 빌드는 비교한 모든
+값이 일치합니다: MLP, `ConvNet`, 합성곱 오토인코더의 손실, `train_step`,
+VAE의 손실 수준, 그리고 단계별로 같은 DQN과 PPO 에이전트.
 
 ## GPU 백엔드 {#gpu-backends}
 
@@ -1249,16 +1376,16 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리입니다(MLX 자체의 셀�
 | 그룹 | 함수 |
 |---|---|
 | 디바이스 | `rocm_available`, `rocm_device_name`, `rocm_sync` |
-| 버퍼 | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `rocm_free` |
+| 버퍼 | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `RocmBuf::free` |
 | 행렬곱 | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, 어느 피연산자든 전치 가능 |
 | 원소별 | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_gelu`(tanh 근사), `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | 디코딩(한 번에 토큰 하나) | `rocm_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 wave 하나로, MI100에서 0.8–1.07 TB/s이며 한 행짜리 `rocm_half_gemm_f32`보다 1.04–1.8배 빠릅니다. `rocm_rmsnorm(x, w, y, rows, n, eps)`는 행별 RMSNorm이며 가중치는 선택, 제자리 계산 가능. [Gemma 4 E2B ROCm 엔진](/ko/benchmarks#ml-llm)의 커널입니다 |
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
-| fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같습니다 |
+| fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `RocmHalfBuf::free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같습니다 |
 | 혼합 정밀도 | `rocm_half_convert`(fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many`(실행 한 번에 버퍼 최대 32개); `rocm_half_unscale_many` / `rocm_unscale_many`(그래디언트 × 1/scale, 오버플로 플래그 포함)와 `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam`(fp32 마스터 가중치, 16비트 사본도 기록, 플래그가 서 있으면 GPU에서 건너뜀); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias`(행 또는 NCHW 채널 바이어스, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. [GPU 혼합 정밀도](#gpu-mixed-precision) 참고 |
 | 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)`(CDNA GPU의 행렬 코어) |
-| 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
+| 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `RocmGraph::free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
 | 호스트 배열 | `rocm_add_f32` … `rocm_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 
@@ -1378,14 +1505,14 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 분류 | 함수 |
 |---|---|
 | 장치 | `cuda_available`, `cuda_device_name`, `cuda_sync` |
-| 버퍼 | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free`; 바이트 단위 복사 `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
+| 버퍼 | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `CudaBuf::free`; 바이트 단위 복사 `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | 행렬곱 | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu`(같은 인자, ReLU 융합) |
 | 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu`(tanh 근사), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
 | 혼합 정밀도 | `cuda_` 이름의 [ROCm 혼합 정밀도 연산](#gpu-mixed-precision): `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_mp_adam_many`(모델 전체의 Adam 한 스텝, 런치마다 텐서 24개), `cuda_half_gemm_strided`(strided-batched 16비트 GEMM), `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`. 큐에 들어가므로 `CudaGraph`에 기록할 수 있습니다. H200에서(bf16, PyTorch 2.10 대비): bf16 사본을 포함한 GPT-2 small AdamW 한 스텝이 `cuda_mp_adam_many`로 1.11 ms, fused `torch.optim.AdamW` + `_foreach_copy_`로 1.61 ms; 언스케일은 `_amp_foreach_non_finite_check_and_unscale_`보다 1.1배 빠르고, fp32 → bf16 변환과 16비트 덧셈은 PyTorch와 7% 이내, 풀링과 바이어스 + ReLU는 1.3–1.6배 빠름 |
 | 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#ml-llm)의 커널에서 가져왔습니다 |
-| 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
+| 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `CudaGraph::free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 | 영구 버퍼(`&void` 핸들) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, fp16/bf16용 `cuda_*_f16_*`/`cuda_*_bf16_*`(2바이트 저장, fp32 연산) |
 
@@ -1431,10 +1558,10 @@ API의 최선 알고리즘(`cudnnFindConvolutionForwardAlgorithm`)을 그 호출
 
 | 분류 | 함수 |
 |---|---|
-| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `cuda_half_conv2d_free` |
-| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_half_conv2d` / `cuda_half_conv2d_relu`(16비트 `CudaHalfBuf`, fp32 계산: fp32와 같은 융합 합성곱 + 바이어스 (+ ReLU) cuDNN 그래프 계획으로, 엔진 구성을 모두 시간 재어 고름; 1×1 stride-1 합성곱은 strided-batched cuBLAS GEMM 한 번과 융합 바이어스 커널; H200에서 NCHW bf16, 배치 32일 때 `cudnn.benchmark`를 켠 PyTorch `conv2d` + `relu_`보다 1.2–1.5배 빠름), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
-| U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (가중치와 모든 활성값을 미리 할당), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
-| 호스트 배열 | `conv2d_forward_cuda`, `unet_forward_cuda`: `conv2d_forward`/`unet_forward`와 같은 시그니처. 호출마다 가중치를 올리고, 쓸 수 있는 GPU가 없으면 CPU 구현으로 돌아갑니다 |
+| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `CudaConv2D::free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `CudaHalfConv2D::free` |
+| 큐 연산 | `CudaConv2D::forward(x, y, batch, h, w)`, `CudaConv2D::forward_relu` (합성곱 + 바이어스 + ReLU 융합), `CudaHalfConv2D::forward` / `CudaHalfConv2D::forward_relu`(16비트 `CudaHalfBuf`, fp32 계산: fp32와 같은 융합 합성곱 + 바이어스 (+ ReLU) cuDNN 그래프 계획으로, 엔진 구성을 모두 시간 재어 고름; 1×1 stride-1 합성곱은 strided-batched cuBLAS GEMM 한 번과 융합 바이어스 커널; H200에서 NCHW bf16, 배치 32일 때 `cudnn.benchmark`를 켠 PyTorch `conv2d` + `relu_`보다 1.2–1.5배 빠름), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
+| U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (가중치와 모든 활성값을 미리 할당), `CudaUNet::forward(x, y)`, `CudaUNet::free` |
+| 호스트 배열 | `conv2d_forward_cuda`, `unet_forward_cuda`: `Conv2D::forward`/`UNet::forward`와 같은 시그니처. 호출마다 가중치를 올리고, 쓸 수 있는 GPU가 없으면 CPU 구현으로 돌아갑니다 |
 
 **`fft_cuda.h`**는 [`fft.h`](/ko/stdlib/dsp#fft-fast-fourier-transform-radix-2-cooley-tukey)의
 GPU판입니다. `fft.h`와 달리 2의 거듭제곱이 아닌 길이도 받습니다. `fft.h`처럼
@@ -1446,7 +1573,7 @@ GPU판입니다. `fft.h`와 달리 2의 거듭제곱이 아닌 길이도 받습�
 | 큐 연산, fp32 `CudaBuf` | `cuda_fft_c2c(in, out, n, batch, inverse)` (re/im 교차 배치), `cuda_fft_r2c` (실수 n개 → 복소수 n/2+1개), `cuda_fft_c2r` (cuFFT처럼 입력을 덮어씀) |
 
 `tests/stdlib/cuda`는 두 라이브러리를 CPU 코드와 비교합니다: stride 1과 2,
-배치를 쓴 `conv2d_forward`, 풀링·업샘플·연결, U-Net 전체, `fft`/`ifft`,
+배치를 쓴 `Conv2D::forward`, 풀링·업샘플·연결, U-Net 전체, `fft`/`ifft`,
 2의 거듭제곱이 아닌 길이에 대한 `dft`, 배치 변환과 2D 변환, fp32 장치 변환.
 그래프로 합성곱을 재실행하는 경우, TF32를 켠 경우, 다른 버퍼로 실행하는 경우,
 크고 길이가 어중간한 호스트 전송(아직 이전 내용을 읽는 커널 뒤에 쓰기를 큐에
@@ -1502,9 +1629,9 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 
 | 그룹 | 함수 |
 |---|---|
-| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `rocm_half_conv2d_free` |
-| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_half_conv2d` / `rocm_half_conv2d_relu`(16비트 `RocmHalfBuf`: fp32 누적으로 MIOpen의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
-| U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)`(디코더 단계마다 연결 버퍼로 바로 업샘플), `rocm_unet_free` |
+| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `RocmConv2D::free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `RocmHalfConv2D::free` |
+| 큐 연산 | `RocmConv2D::forward(x, y, batch, h, w)`, `RocmConv2D::forward_relu`, `RocmHalfConv2D::forward` / `RocmHalfConv2D::forward_relu`(16비트 `RocmHalfBuf`: fp32 누적으로 MIOpen의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `RocmUNet::forward(x, y)`(디코더 단계마다 연결 버퍼로 바로 업샘플), `RocmUNet::free` |
 | 호스트 배열 | `conv2d_forward_rocm`, `unet_forward_rocm`. GPU를 쓸 수 없으면 CPU로 대체 |
 
 **`fft_rocm.h`**는 hipFFT(내부적으로 rocFFT)로 임의 길이의 변환을 실행합니다.
@@ -1873,10 +2000,10 @@ struct LossScaler {
     int   growthInterval;   // 2000 clean steps
     int   goodSteps;
 };
-struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
-int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
-int  loss_scaler_unscale_all(&LossScaler s, &Vec<&Tensor> params);   // 목록의 모든 텐서
-void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
+struct LossScaler loss_scaler_new();                  // scale 65536 (PyTorch GradScaler's defaults)
+int  LossScaler::unscale(&Tensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
+int  LossScaler::unscale_all(&Vec<&Tensor> params);   // 목록의 모든 텐서
+void LossScaler::update(int allFinite);               // grow after clean steps, back off after overflow
 ```
 
 `HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
@@ -1968,9 +2095,9 @@ ROCm과 CUDA는 스텝의 모든 부분에 같은 큐 연산을 갖습니다.
 |---|---|
 | 여러 텐서의 사본 | `rocm_to_half_many(&f32s, &halves)`, `rocm_from_half_many`: 실행 한 번에 버퍼 최대 32개, 호출마다 dtype 하나 |
 | fp16 ↔ bf16 | `rocm_half_convert(src, dst)` |
-| 16비트 계산 | `rocm_half_gemm` / `_f32` / `_relu`, `rocm_half_conv2d` / `_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
+| 16비트 계산 | `rocm_half_gemm` / `_f32` / `_relu`, `RocmHalfConv2D::forward` / `forward_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
 | 스케일 되돌리기 | `rocm_half_unscale_many(&g16, &g32, 1 / scale, flag)`(16비트 그래디언트 → fp32), `rocm_unscale_many(&g32, &g32, …)`(fp32, 제자리): inf / NaN이 하나라도 있으면 `flag[0] = 1`. 먼저 `rocm_zero(flag)` |
-| 갱신 | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)`(Adam / AdamW)와 `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`의 `optimizer_step`과 같은 산술이며, 반올림한 가중치를 `w16`에도 쓰고, `flag[0] != 0`이면 갱신 전체를 GPU에서 건너뜁니다 |
+| 갱신 | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)`(Adam / AdamW)와 `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`의 `Optimizer::step`과 같은 산술이며, 반올림한 가중치를 `w16`에도 쓰고, `flag[0] != 0`이면 갱신 전체를 GPU에서 건너뜁니다 |
 
 GPU에서 건너뛰므로, 오버플로가 난 스텝도 갱신 전에 호스트를 오갈 필요가 없습니다.
 `LossScaler`를 키우거나 줄이려면 스텝마다 편할 때 4바이트 플래그를 한 번 읽으면
@@ -2027,7 +2154,7 @@ enum Device {
 
 | 경로 | y[0] | y[1] | y[2] |
 |---|---|---|---|
-| `jit_block_forward` (기준) | -0.479727 | -0.589425 | -0.537808 |
+| `JiTBlock::forward` (기준) | -0.479727 | -0.589425 | -0.537808 |
 | `..._on(DEVICE_CPU)` | -0.479727 | -0.589425 | -0.537808 |
 | `..._on(DEVICE_CPU_BLAS)` | -0.479727 | -0.589425 | -0.537808 |
 | `..._on(DEVICE_MPS)` | -0.479727 | -0.589425 | -0.537808 |
@@ -2043,7 +2170,7 @@ enum Device {
 
 - **`LlmClient`** — OpenAI chat-completions 와이어 형식(vLLM 자체
   서버를 비롯한 대부분의 로컬/호스팅 LLM 서버가 구현하는 형식)을
-  구사합니다. `llm_chat()`은 `<host>:<port>/v1/chat/completions`로
+  구사합니다. `client.chat()`은 `<host>:<port>/v1/chat/completions`로
   POST합니다.
 - **`PromptTemplate`** — `prompt_template_render(tmpl, vars)`는 `Value`
   객체를 대상으로 `{name}` 치환을 수행합니다.
@@ -2061,30 +2188,29 @@ struct LlmClient  { struct String host; unsigned short port; struct String model
 struct LlmClient llm_client_new(const &char host, unsigned short port,
                                 const &char model, const &char apiKey);
 // The assistant's reply text; *ok = 0 on transport or response-shape failure.
-struct String llm_chat(&LlmClient client, &Vec<struct LlmMessage> messages, ?&int ok);
+struct String LlmClient::chat(&Vec<struct LlmMessage> messages, ?&int ok);
 
 struct String prompt_template_render(const &char tmpl, const &Value vars);   // {name} -> vars.name
 
 typedef fn struct Value(const &Value input) ChainStepFn;
 struct Chain chain_new();
-void         chain_add_step(&Chain c, ChainStepFn step);
-struct Value chain_run(&Chain c, const &Value input);
-void         chain_free(&Chain c);
+void         Chain::add_step(ChainStepFn step);
+struct Value Chain::run(const &Value input);
+void         Chain::free();
 
 typedef fn struct Value(const &Value state) GraphNodeFn;
 typedef fn struct String(const &Value state) GraphRouterFn;   // name of the next node, or "__end__"
 struct Graph graph_new(const &char entryNode);
-void         graph_add_node(&Graph g, const &char name, GraphNodeFn nodeFn, const &char nextNode);
-void         graph_add_conditional_node(&Graph g, const &char name, GraphNodeFn nodeFn, GraphRouterFn router);
-struct Value graph_run(&Graph g, struct Value initialState, int maxSteps);
-void         graph_free(&Graph g);
+void         Graph::add_node(const &char name, GraphNodeFn nodeFn, const &char nextNode);
+void         Graph::add_conditional_node(const &char name, GraphNodeFn nodeFn, GraphRouterFn router);
+struct Value Graph::run(struct Value initialState, int maxSteps);
+void         Graph::free();
 
 struct TraceEvent { struct String name; struct String inputJson; struct String outputJson; double durationMs; };
 struct Tracer tracer_new();
-void          tracer_record(&Tracer t, const &char name, const &Value input,
-                            const &Value output, double durationMs);
-struct String tracer_to_json(const &Tracer t);
-void          tracer_free(&Tracer t);
+void          Tracer::record(const &char name, const &Value input, const &Value output, double durationMs);
+struct String Tracer::to_json() const;
+void          Tracer::free();
 ```
 
 다섯 가지 모두 종단 간(end-to-end)으로 검증되었으며, `LlmClient`는

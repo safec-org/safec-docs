@@ -328,7 +328,7 @@ crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
 blas       = "auto"             # CPU BLAS for std's sgemm (see below)
 ```
 
-`blas` picks the CPU vendor's BLAS that [`sgemm`](/stdlib/simd#gemm) — and through it `tensor_matmul` and `conv2d_forward` — uses, chosen when the program is linked:
+`blas` picks the CPU vendor's BLAS that [`sgemm`](/stdlib/simd#gemm) — and through it `tensor_matmul` and `Conv2D::forward` — uses, chosen when the program is linked:
 
 | `blas` | Links |
 |---|---|

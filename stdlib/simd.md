@@ -138,7 +138,7 @@ int sgemm_vendor();            // 1 if a vendor BLAS is in use
 const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
-`tensor_matmul` (forward and backward), `conv2d_forward` and `half_matmul` are built on it.
+`tensor_matmul` (forward and backward), `Conv2D::forward` and `half_matmul` are built on it.
 
 Throughput on a Ryzen 7 7800X3D (Zen 4, 8 cores / 16 threads), N × N × N, from one baseline x86-64 build:
 
