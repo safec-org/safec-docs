@@ -15,7 +15,7 @@ A software-rendered GUI toolkit: a portable window + event API, a pixel rasteriz
 
 ---
 
-## Backends
+## Backends {#backends}
 
 Every backend implements the same `gui.h` API. Exactly one may be linked into a program, since they all define the same symbols.
 
@@ -24,7 +24,7 @@ Every backend implements the same `gui.h` API. Exactly one may be linked into a 
 | `gui_cocoa.sc` | macOS — Objective-C runtime (`objc_msgSend`) + Core Graphics, layer-backed `NSView` | Built and run on real hardware |
 | `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Written against the Win32 ABI and type-checked; not yet run on Windows |
 | `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Written against the Xlib ABI and type-checked; not yet run on an X server |
-| `gui_fb.sc` | Bare metal — linear framebuffer from the bootloader | Built and run; no OS dependency |
+| `gui_fb.sc` | Bare metal — linear framebuffer from the bootloader; setup calls in `gui/gui_fb.h` | Built and run; no OS dependency |
 
 `safeguard` picks the backend for you: the std archive for a target contains only the variant that matches it (`_cocoa` on Apple, `_x11` on Linux/BSD, `_win32` on Windows, `_fb` on bare-metal targets). See [Package Manager](/advanced/safeguard).
 
@@ -40,7 +40,7 @@ There is no GPU path. Each frame, `gui_present()` copies the pixel buffer to the
 
 ---
 
-## Window and Events — `gui.h`
+## Window and Events — `gui.h` {#window-and-events-gui-h}
 
 ```c
 struct GuiWindow {
@@ -82,7 +82,7 @@ The event and key constants are `#define`s, so they work from any namespace:
 
 Each backend translates native key codes to `GUI_KEY_*`, so application code never sees a platform key code.
 
-### Example — raw drawing loop
+### Example — raw drawing loop {#example-raw-drawing-loop}
 
 ```c
 #include <std/gui/gui.h>
@@ -111,7 +111,7 @@ int main() {
 
 ---
 
-## Drawing — `gui_draw.h`
+## Drawing — `gui_draw.h` {#drawing-gui-draw-h}
 
 ```c
 struct GuiColor { unsigned char r, g, b, a; };
@@ -132,7 +132,7 @@ int gui_text_height(int scale);
 
 ---
 
-## Fonts — `gui_font.h`
+## Fonts — `gui_font.h` {#fonts-gui-font-h}
 
 A `GuiFont` is a bit-packed glyph bitmap of any glyph size. Build one in code, save it, load it back, and draw with the `_ex` functions.
 
@@ -177,7 +177,7 @@ TTF/OTF is not supported: a font must already be rasterized into a `GuiFont`.
 
 ---
 
-## Images — `gui_png.h`
+## Images — `gui_png.h` {#images-gui-png-h}
 
 A from-scratch PNG decoder, including its own DEFLATE (RFC 1951) inflater.
 
@@ -199,7 +199,7 @@ Supported: 8-bit-per-channel, non-interlaced, color types 0 (grayscale), 2 (RGB)
 
 ---
 
-## SVG — `gui_svg.h`
+## SVG — `gui_svg.h` {#svg-gui-svg-h}
 
 ```c
 // Parses a complete <svg>...</svg> document and draws it with its top-left at (ox, oy).
@@ -213,7 +213,7 @@ Not supported: `viewBox`, `transform`, gradients, clip paths, `<text>`, `<use>`,
 
 ---
 
-## Widgets — `gui_widget.h`
+## Widgets — `gui_widget.h` {#widgets-gui-widget-h}
 
 A retained-mode widget tree. Build it once, then lay it out, dispatch events, and render every frame:
 
@@ -224,7 +224,7 @@ std::gui_render(&win, root);
 std::gui_present(&win);
 ```
 
-### Built-in widgets
+### Built-in widgets {#built-in-widgets}
 
 | Constructor | Kind | Notes |
 |-------------|------|-------|
@@ -240,7 +240,7 @@ std::gui_present(&win);
 
 Every constructor returns a non-null, heap-allocated `&Widget` with default styling. `widget_add_child(parent, child)` builds the tree; `widget_free(root)` frees the whole subtree.
 
-### Customization
+### Customization {#customization}
 
 Every setter returns the same widget, so calls chain:
 
@@ -265,11 +265,11 @@ generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T use
 
 `widget_on_click`/`widget_on_change` check the callback against its context type at compile time. The widget stores the pair type-erased, because one tree holds buttons, sliders and custom widgets with unrelated context types (see [Generic Pattern](/stdlib/#generic-pattern)).
 
-### Layout
+### Layout {#layout}
 
 `gui_layout(root, x, y, w, h)` positions the whole tree inside the box. A stack first gives each child with `stretch == 0` its preferred or natural size, then splits the remaining space among stretched children by weight. `padding` applies inside a container, `spacing` between its children, and `alignment` places each child on the cross axis.
 
-### Events and keyboard defaults
+### Events and keyboard defaults {#events-and-keyboard-defaults}
 
 `gui_dispatch_event(root, &ev)` sends the event to the deepest widget under the cursor first, updates `hover`/`pressed`/`focused`, fires `onClick`/`onChange`, and calls a custom widget's event hook. It returns 1 if a widget used the event.
 
@@ -284,7 +284,7 @@ For `GUI_EVENT_KEY_DOWN`, a default action then runs, like a browser's default a
 
 These run even when a widget already handled the event. To stop one, call `gui_event_prevent_default(&ev)` from a custom widget's event hook.
 
-### Custom widgets
+### Custom widgets {#custom-widgets}
 
 ```c
 typedef fn void(&GuiWindow, &Widget) WidgetDrawFn;               // draw inside widget.x/y/w/h
@@ -298,7 +298,7 @@ generic<T>
 
 `draw` and `layout` are required. `eventFn` may be null: the widget then gets the same hover, press and click handling as a button. Set it only when you need raw events, such as drag deltas on a canvas.
 
-### Example — counter
+### Example — counter {#example-counter}
 
 ```c
 #include <std/gui/gui_widget.h>
@@ -350,11 +350,13 @@ int main() {
 
 ---
 
-## Bare Metal — `gui_fb.sc`
+## Bare Metal — `gui_fb.sc` {#bare-metal-gui-fb-sc}
 
 There is no windowing system or input stack on bare metal. Tell the backend where the framebuffer is before creating the window, and feed it input from your own drivers.
 
 ```c
+#include <std/gui/gui_fb.h>   // these declarations, on top of gui.h
+
 struct GuiFbConfig {
     &volatile unsigned char base;  // linear framebuffer memory
     unsigned long pitch;  // bytes per scanline (may include padding)

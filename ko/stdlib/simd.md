@@ -104,7 +104,7 @@ std의 핵심 커널 — [`sgemm`](#gemm), [`vmath.h`](#vmath), FFT 버터플라
 #define SIMD_SSE2 1   // ... SIMD_SSE41 2, SIMD_AVX 3, SIMD_AVX2 4, SIMD_AVX512 5,
                       // SIMD_NEON 10, SIMD_SVE 11, SIMD_DSP 20, SIMD_HELIUM 21, SIMD_WASM128 30
 int simd_level();                     // 한 번 감지한 뒤 캐시
-const char* simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
+const &char simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
 ```
 
 `SAFEC_SIMD=sse2|sse4.1|avx|avx2|avx512|neon|sve`는 수준의 상한을 정해, 더 느린 경로를 시험하거나 비교할 수 있게 합니다.
@@ -135,7 +135,7 @@ void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lo
 void sgemm_serial(/* 같은 매개변수 */);
 
 int sgemm_vendor();            // 벤더 BLAS를 쓰고 있으면 1
-const char* sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
+const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
 `tensor_matmul`(순전파와 역전파), `conv2d_forward`, `half_matmul`이 이것을 기반으로 합니다.

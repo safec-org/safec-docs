@@ -362,7 +362,8 @@ struct TcpConn {
     void close();   // FIN 전송
 }
 
-// pkt의 바이트 오프셋 'offset'에서 TCP 헤더를 파싱한다.
+// pkt의 바이트 오프셋 'offset'에서 TCP 헤더를 파싱한다. 성공 시 0, 잘렸거나
+// 데이터 오프셋이 5워드 미만이거나 패킷을 넘으면 -1.
 int tcp_parse(&stack PacketBuf pkt, unsigned long offset, &stack TcpHdr hdr_out);
 
 unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,

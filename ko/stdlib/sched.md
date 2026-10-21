@@ -1,6 +1,6 @@
 # sched -- 실시간 I/O 스케줄러 (리액터)
 
-`std/sched/`는 [`std::TaskScheduler`](/ko/stdlib/sync#taskscheduler-cooperative-task-scheduler)를
+`std/sched/`는 [`std::TaskScheduler`](/ko/stdlib/sync#taskscheduler)를
 구동하는 단일 스레드 I/O 준비 상태 이벤트 루프 — 즉 **리액터**(reactor) —
 를 추가하여, 여러 개의 동시적인 네트워크·파일·시그널 작업이 단 하나의
 실제 OS 스레드 위에서, 그중 어느 하나 때문에 프로그램 전체가 블록되는
@@ -185,6 +185,21 @@ int tcp_connect_nb(unsigned int addr_network_order, unsigned short port);
     // 논블로킹 connect(); 즉시 EINPROGRESS와 함께 반환 — 호출자는
     // await_fd(fd, SCHED_WRITE)를 사용하고 쓰기 가능 상태를 "연결 완료"로
     // 취급해야 한다(성공/실패를 구분하려면 SO_ERROR를 확인).
+int tcp_wait_connected(int fd);
+    // tcp_connect_nb 핸드셰이크가 끝날 때까지 블록: 연결되면 0, 실패하면 -1
+    // (동기 호출자용; Reactor 태스크는 대신 SCHED_WRITE를 await한다).
+int tcp_connect_timeout(unsigned int addr_network_order, unsigned short port,
+                        int timeout_ms);
+    // 최대 timeout_ms 동안 기다리며 연결(<= 0: 추가 제한 없음); 블로킹 모드로
+    // 돌린 연결된 소켓을 반환하거나 -1(소켓은 닫힘, 시간 초과면 ETIMEDOUT /
+    // WSAETIMEDOUT, 아니면 연결 오류 자체).
+int sock_set_io_timeout(int fd, int timeout_ms);
+    // SO_RCVTIMEO + SO_SNDTIMEO: timeout_ms 동안 진전이 없는 읽기/쓰기 한 번이
+    // 블록 대신 실패한다; <= 0이면 해제. 성공 시 0.
+int sock_would_block();
+    // 마지막 논블로킹 소켓 호출이 블록될 상황이었기 때문에만 실패했으면 1
+    // (errno EAGAIN/EWOULDBLOCK, Windows는 WSAEWOULDBLOCK). 실패한 호출
+    // 직후에 호출한다.
 ```
 
 각 백엔드는 해당 플랫폼의 실제 `sockaddr_in` 레이아웃에 맞는 자신만의
@@ -220,7 +235,7 @@ Windows 파일 핸들에 `await_fd()`를 호출하지 말 것 — 소켓은 세 
 (`Task[]` 배열 순서), 이는 평범한 `TaskScheduler::run_all()`과
 동일합니다 — 유휴 상태일 때 CPU를 전혀 쓰지 않는 대기를 추가할 뿐,
 우선순위나 데드라인 순서를 매기지는 않습니다. 진정한 우선순위 스케줄링은
-[`ThreadSched`](/ko/stdlib/sync#threadsched-priority-based-freestanding-threads)에
+[`ThreadSched`](/ko/stdlib/sync#threadsched)에
 별도로 존재하며, 이는 동일한 내부 `TaskScheduler`를 감싸지만 현재는
 리액터에 연결되어 있지 않습니다 — 오늘날 이 둘은 하나의 타입으로 결합되어
 있지 않습니다.

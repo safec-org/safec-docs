@@ -28,7 +28,7 @@ int main() {
 
 Load and store take a reference to the first element and read or write N consecutive elements from there, as one unaligned vector load or store. Passing the address of an array element (`&src[0]`) needs no `unsafe`.
 
-## Type Aliases
+## Type Aliases {#type-aliases}
 
 Naming convention: `<elem><bits>x<lanes>`. Widths cover every target's
 baseline SIMD register (128-bit: SSE, NEON, WASM SIMD128, RVV with
@@ -47,7 +47,7 @@ just not a single instruction).
 | `u32x4`, `u32x8` | `vec<unsigned int, 4>`, `vec<unsigned int, 8>` |
 | `u8x16`, `u8x32` | `vec<unsigned char, 16>`, `vec<unsigned char, 32>` |
 
-## Functions
+## Functions {#functions}
 
 | Function | Description |
 |---|---|
@@ -104,7 +104,7 @@ So one x86-64 binary built for the portable baseline uses AVX-512 where the CPU 
 #define SIMD_SSE2 1   // ... SIMD_SSE41 2, SIMD_AVX 3, SIMD_AVX2 4, SIMD_AVX512 5,
                       // SIMD_NEON 10, SIMD_SVE 11, SIMD_DSP 20, SIMD_HELIUM 21, SIMD_WASM128 30
 int simd_level();                     // detected once, then cached
-const char* simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
+const &char simd_level_name(int level);   // "AVX-512", "Neon", "Helium", ...
 ```
 
 `SAFEC_SIMD=sse2|sse4.1|avx|avx2|avx512|neon|sve` caps the level, to test or compare the slower paths.
@@ -135,7 +135,7 @@ void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lo
 void sgemm_serial(/* same parameters */);
 
 int sgemm_vendor();            // 1 if a vendor BLAS is in use
-const char* sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
+const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"
 ```
 
 `tensor_matmul` (forward and backward), `conv2d_forward` and `half_matmul` are built on it.
@@ -162,7 +162,7 @@ void vm_sigmoid_f32(const &float x, &float y, unsigned long n);
 
 `y[i] = f(x[i])` as branch-free polynomial code (Cephes-style range reduction), vectorized at the CPU's [SIMD level](#cpu-levels) and split across the thread pool from 32,768 elements. Measured error is under 1 ulp for exp, 1.3 ulp for tanh and 2 ulp for sigmoid, subnormal results included. NaN propagates and overflow gives infinity. About 0.2 ns per element on the 7800X3D. `x` and `y` may be the same array. std's activations (sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU) and softmax use it.
 
-## Per-ISA Convenience Headers
+## Per-ISA Convenience Headers {#per-isa-convenience-headers}
 
 Eight thin headers re-export the same portable types under
 architecture-idiomatic names — each is pure typedefs and documentation,
@@ -181,7 +181,7 @@ generated code for its target (disassembled `llc` output, not just
 | `std/simd/cuda.h` | CUDA (NVPTX) | Real PTX vector-lane codegen — GPU scalarizes to N scalar ops, see caveat below |
 | `std/simd/rocm.h` | ROCm (AMDGPU) | Real GCN vector-ALU codegen — same scalarization caveat |
 
-### Cortex-M DSP intrinsics
+### Cortex-M DSP intrinsics {#cortex-m-dsp-intrinsics}
 
 On Cortex-M4/M7 (`+dsp`) the packed-SIMD instructions work on 2×16-bit or 4×8-bit lanes inside one 32-bit register, and LLVM does not vectorize `vec<T, N>` into them. `std/simd/cortex_m.h` therefore exposes them as functions, each compiling to the single named instruction:
 
@@ -200,7 +200,7 @@ On Cortex-M4/M7 (`+dsp`) the packed-SIMD instructions work on 2×16-bit or 4×8-
 
 Signed variants take and return `int`; `uq*`, `usad8`, `usada8` and `uxtab16` use `unsigned int`. On Cortex-M55/M85 (`+mve`), `mve_f32x4`, `mve_i32x4`, `mve_i16x8` and `mve_i8x16` are native 128-bit vectors. Cortex-M0/M0+/M3/M23 have neither; `vec<T, N>` still works there but is scalarized.
 
-### GPU targets: SIMT, not SIMD-in-one-instruction
+### GPU targets: SIMT, not SIMD-in-one-instruction {#gpu-targets-simt-not-simd-in-one-instruction}
 
 PTX and GCN have no packed-arithmetic instruction the way SSE/NEON do — a
 GPU's parallelism comes from running many threads in lockstep, not wide
@@ -214,7 +214,7 @@ libc) — they don't define kernel entry points (`__global__`/
 `ptx_kernel`/`amdgpu_kernel` calling convention plus launch-configuration
 support is a separate concern this library doesn't address).
 
-### Metal Shading Language
+### Metal Shading Language {#metal-shading-language}
 
 Not supported. Apple's Metal compiler has no LLVM backend upstream —
 unlike NVPTX/AMDGPU/SPIR-V, which are real LLVM targets `--target` can

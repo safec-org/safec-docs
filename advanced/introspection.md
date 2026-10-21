@@ -2,7 +2,7 @@
 
 SafeC provides several built-in operators for inspecting types and expressions at compile time. These are resolved during semantic analysis and produce constant values — no runtime reflection or RTTI is involved.
 
-## `sizeof`
+## `sizeof` {#sizeof}
 
 Returns the size of a type or expression in bytes. The result is a compile-time constant of type `long`.
 
@@ -25,7 +25,7 @@ int x = 42;
 long s = sizeof(x);               // 4 (size of int, x is not evaluated)
 ```
 
-## `alignof`
+## `alignof` {#alignof}
 
 Returns the alignment requirement of a type in bytes. The result is a compile-time constant.
 
@@ -51,7 +51,7 @@ literal integer token for `N`, not an expression, `alignof(...)` call, or
 separately (e.g. in a `static_assert`) and hardcode the literal in `align(N)`.
 :::
 
-## `typeof`
+## `typeof` {#typeof}
 
 Extracts the type of an expression at compile time. The expression is not evaluated — only its type is resolved during semantic analysis.
 
@@ -79,7 +79,7 @@ T double_it(T val) {
 `typeof` is resolved entirely at compile time. The operand expression is never executed — only its type is inspected.
 :::
 
-## `fieldcount`
+## `fieldcount` {#fieldcount}
 
 Returns the number of fields in a struct type as a compile-time constant:
 
@@ -101,7 +101,7 @@ This is useful for compile-time validation and generic serialization patterns:
 static_assert(fieldcount(Config) == 5, "Config struct changed — update serializer");
 ```
 
-## `sizeof...(T)`
+## `sizeof...(T)` {#sizeof-t}
 
 Returns the number of types in a variadic generic type pack:
 
@@ -127,7 +127,7 @@ function isn't accepted as a compile-time constant expression at file
 scope, even though the value is knowable at compile time.
 :::
 
-## `static_assert`
+## `static_assert` {#static-assert}
 
 Verifies a condition at compile time. If the condition is false, compilation fails with the provided message.
 
@@ -139,7 +139,7 @@ static_assert(alignof(double) >= 8, "double must be 8-byte aligned");
 
 `static_assert` can appear at file scope or inside function bodies. The condition must be a compile-time constant expression.
 
-### Combining with `fieldcount`
+### Combining with `fieldcount` {#combining-with-fieldcount}
 
 ```c
 struct Packet {
@@ -152,7 +152,7 @@ static_assert(sizeof(Packet) <= 64, "Packet must fit in a cache line");
 static_assert(fieldcount(Packet) == 3, "Packet field count changed");
 ```
 
-## `if const`
+## `if const` {#if-const}
 
 Compile-time conditional branching. The condition must be a constant expression. Only the taken branch is compiled — the other branch is eliminated before codegen.
 
@@ -184,7 +184,7 @@ void print_value(T val) {
 }
 ```
 
-## Const-Eval Engine Limits
+## Const-Eval Engine Limits {#const-eval-engine-limits}
 
 The compile-time evaluator enforces resource limits to prevent infinite compile times:
 
@@ -219,7 +219,7 @@ limits — assigning the call result to a `const` global (as above) forces
 that; a `consteval` function that's never called in a constant context
 never runs through the const-eval engine at all.
 
-## Summary
+## Summary {#summary}
 
 | Operator | Returns | Evaluated At |
 |----------|---------|-------------|

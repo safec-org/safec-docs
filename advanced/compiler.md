@@ -2,7 +2,7 @@
 
 SafeC compiles `.sc` source files to native executables via LLVM IR. The compiler is a single-pass frontend with no runtime injection — what you write is what gets compiled.
 
-## Pipeline
+## Pipeline {#pipeline}
 
 ```
 Source (.sc)
@@ -26,7 +26,7 @@ LLVM Backend --- object code / bitcode
 
 No runtime injection phase. No implicit transformation inserting hidden allocations.
 
-## Key Design Decisions
+## Key Design Decisions {#key-design-decisions}
 
 **References lower to raw pointers.** A `&stack T` or `&heap T` becomes a plain LLVM `ptr` annotated with `noalias`, `nonnull`, and `dereferenceable` attributes. There is no fat pointer, no reference counting, no hidden indirection.
 
@@ -40,7 +40,7 @@ No runtime injection phase. No implicit transformation inserting hidden allocati
 
 **Struct layout follows C ABI.** SafeC structs are layout-compatible with C structs. No vtable, no hidden fields, no padding surprises.
 
-## Source Layout
+## Source Layout {#source-layout}
 
 ```
 compiler/
@@ -73,7 +73,7 @@ compiler/
 └── CMakeLists.txt
 ```
 
-## Building the Compiler
+## Building the Compiler {#building-the-compiler}
 
 SafeC requires LLVM 21+ and CMake:
 
@@ -86,7 +86,7 @@ cmake --build build
 
 The resulting binary is `build/safec`.
 
-## Usage
+## Usage {#usage}
 
 ```bash
 # Compile to executable (via LLVM IR + clang link) — the two-step form
@@ -113,7 +113,7 @@ clang input.ll -o input
 ./build/safec --version
 ```
 
-## Linking (`--emit-bin`)
+## Linking (`--emit-bin`) {#linking-emit-bin}
 
 `safec`'s own pipeline stops at LLVM IR/bitcode — it never links on its
 own. `--emit-bin` adds a genuine "compile straight to a native
@@ -157,7 +157,7 @@ since there's no link step for them to configure. `SAFEC_CLANG`/`SAFEC_AR`
 environment variables override the discovered `clang`/`ar` path, mirroring
 `safeguard`'s `SAFEC_CLANG`/`SAFEC_CLANGXX`.
 
-## Multi-Target Codegen
+## Multi-Target Codegen {#multi-target-codegen}
 
 `--target <triple>` cross-compiles to any LLVM-registered target — the
 compiler hardcodes nothing architecture-specific; `--target` selects an
@@ -192,7 +192,7 @@ See [`std::simd`](/stdlib/simd) for the SIMD library built on top of this,
 and [Bare-Metal](/reference/baremetal) for ARM Cortex-M specifics (HAL,
 DSP-extension intrinsics, MVE).
 
-## Incremental Compilation
+## Incremental Compilation {#incremental-compilation}
 
 The file-level bitcode cache is **on by default** (optional `--cache-dir <dir>`, defaulting to `.safec_cache`; disable with `--no-incremental`). The compiler hashes the preprocessed source together with the compiler binary's own identity (so a rebuilt compiler always misses stale entries) and every codegen-affecting flag — `--target`, `-g`, `--freestanding`, `--no-strict-aliasing` — using FNV-1a. If a cached `.bc` file with a matching hash exists, all pipeline stages are skipped.
 
@@ -200,7 +200,7 @@ On a cache miss, the full pipeline runs and the resulting bitcode is written to 
 
 Use `--clear-cache` to delete all cached `.bc` files.
 
-## Debug Info
+## Debug Info {#debug-info}
 
 SafeC supports two levels of DWARF debug information:
 
@@ -211,7 +211,7 @@ SafeC supports two levels of DWARF debug information:
 
 No `--g` flag means no debug metadata is emitted.
 
-## Native C Header Import
+## Native C Header Import {#native-c-header-import}
 
 `#include <stdio.h>` works natively in SafeC. The `CHeaderImporter` module invokes `clang -ast-dump=json` on the included header, then extracts `FunctionDecl` and `TypedefDecl` nodes into SafeC's AST.
 
@@ -219,7 +219,7 @@ Unsupported constructs (function pointers, ObjC blocks, `long double`, `__int128
 
 This can be disabled with `--no-import-c-headers`.
 
-## Generics Monomorphization
+## Generics Monomorphization {#generics-monomorphization}
 
 Generic functions (`generic<T>`) are monomorphized at compile time. When the compiler encounters a call to a generic function, it:
 
@@ -230,7 +230,7 @@ Generic functions (`generic<T>`) are monomorphized at compile time. When the com
 
 Generic function bodies are skipped during the first semantic analysis pass — they are only analyzed after monomorphization.
 
-## Const-Eval Engine
+## Const-Eval Engine {#const-eval-engine}
 
 The const-eval engine is a tree-walking interpreter that runs at compile time. It handles:
 

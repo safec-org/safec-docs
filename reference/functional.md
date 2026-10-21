@@ -4,7 +4,7 @@ SafeC borrows a handful of specific, individually-useful ideas from functional p
 
 Read [What SafeC Doesn't Have](#what-safec-doesnt-have) before assuming this is Haskell-with-C-syntax — it isn't, and several FP staples are deliberately absent.
 
-## Functions as Values
+## Functions as Values {#functions-as-values}
 
 A function can be referenced, stored, passed, and returned as an ordinary value via the `fn` type — `fn ReturnType(ParamTypes)`:
 
@@ -15,7 +15,7 @@ fn int(int, int) op = add;
 int result = op(3, 4);        // 7
 ```
 
-### Higher-Order Functions
+### Higher-Order Functions {#higher-order-functions}
 
 Functions that take or return other functions work exactly like any other parameter/return type — no special syntax beyond the `fn` type itself:
 
@@ -66,7 +66,7 @@ Generic type inference works for a `T` that appears as a plain parameter (`T a, 
 
 See [Functions](/reference/functions#function-pointers) for the base `fn` type syntax.
 
-## Purity
+## Purity {#purity}
 
 A `pure` function is a compiler-checked promise of no side effects — not just documentation, it's enforced and exploited: SafeC lowers `pure` functions with LLVM's `readonly`/`nounwind` attributes, unlocking optimizations the compiler can't safely make otherwise (reordering, common-subexpression elimination across calls, etc. — the same category of win Haskell gets from purity by default, opted into per-function here instead):
 
@@ -78,7 +78,7 @@ pure double square(double x) {
 
 Pure functions may not modify global state, perform I/O, or call a non-`pure` function — violations are compile errors, not conventions a reviewer has to catch. See [Functions](/reference/functions#pure-functions).
 
-## Compile-Time Evaluation
+## Compile-Time Evaluation {#compile-time-evaluation}
 
 Three related mechanisms move computation from runtime to compile time — SafeC's answer to the "pure functions can be evaluated whenever" idea FP languages get from referential transparency, made explicit rather than left to an optimizer's discretion:
 
@@ -105,7 +105,7 @@ void init() {
 
 See [Functions](/reference/functions#const-functions), [Functions](/reference/functions#consteval-functions), and [Control Flow](/reference/control-flow#if-const-compile-time-branching).
 
-## Immutability
+## Immutability {#immutability}
 
 `const` on a local binding is FP's default-immutable stance, opted into per-variable rather than assumed globally — "declares an immutable binding; the value cannot be modified after initialization," checked at compile time:
 
@@ -126,7 +126,7 @@ int x = 42;
 
 See [Safety](/reference/safety#aliasing-rules-borrow-checker).
 
-## Algebraic Data Types
+## Algebraic Data Types {#algebraic-data-types}
 
 Sum types (tagged `union`) and product types (`tuple`), read back exhaustively via `match` — the type-plus-pattern-match style familiar from Rust's `enum`/`match` or Haskell's ADTs/case expressions:
 
@@ -150,7 +150,7 @@ double second = pair.1;
 
 A `match` **expression** (as opposed to a `match` statement) must be provably exhaustive — every variant covered, or a `default`/wildcard arm — a compile error otherwise, not a runtime fallthrough. `union` and `tuple` are both generic: `generic<T, E> union Result { T ok; E err; }` is a real, monomorphized sum type over an arbitrary pair of types. See [Types](/reference/types#union-types), [Types](/reference/types#tuple-types), and [Control Flow](/reference/control-flow#match-statement).
 
-## Optional Values and Propagation
+## Optional Values and Propagation {#optional-values-and-propagation}
 
 `?T` is SafeC's Option-shaped type — "may or may not be present," lowered to a `{T, i1}` pair, read back through the same exhaustive-`match` discipline (`none`/`some(v)` arms) or a small fixed set of explicit accessors:
 
@@ -188,7 +188,7 @@ int main() {
 
 What's **not** here: no `.map()`/`.and_then()`/monadic-combinator methods on `?T` — only `is_none()`, `.default(fallback)`, `match`, and (inside `unsafe`) direct unwrapping. Chaining a sequence of fallible operations means writing out `try` at each step, not composing combinators. See [Types](/reference/types#optional-types) and [Control Flow](/reference/control-flow#try-operator).
 
-## Parametric Polymorphism
+## Parametric Polymorphism {#parametric-polymorphism}
 
 Generic functions (`generic<T>`) are SafeC's parametric-polymorphism mechanism — the same core idea as Haskell's `a -> a` type variables or ML's `'a`, fully monomorphized at compile time rather than represented uniformly at runtime. Covered in full, including trait-constrained generics and variadic packs, on [Polymorphism & OOP](/reference/polymorphism#parametric-polymorphism-generics) and [Generics](/reference/generics) — not duplicated here since it's exactly the same feature from either angle, just a different lens on why it's useful.
 

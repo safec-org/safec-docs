@@ -2,7 +2,7 @@
 
 `std/collections/`에는 SafeC의 컨테이너 타입이 있습니다. 모든 원소 컨테이너는 **제네릭 구조체**입니다([제네릭](/ko/reference/generics#generic-structs-and-methods) 참고): `Vec<T>`, `HashMap<K, V>`, `StrMap<V>`, `List<T>`, `Stack<T>`, `Queue<T>`, `BST<K, V, C>`, `BTree<V>`, `Slice<T>`, `StaticVec<T>`, `StaticMap<V>`. 원소는 **값으로** 저장되며, API는 결코 `void*`나 원시 `T*`를 내주지 않습니다:
 
-- 원소 접근은 `?&T`를 반환합니다. 이는 사용 전에 좁혀야 하는 nullable 참조입니다 — `match`, `.default(x)`, `.is_null()`, 또는 `std::expect_ref`로 좁힙니다([Nullable 참조](/ko/reference/memory#nullable-references) 참고).
+- 원소 접근은 `?&T`를 반환합니다. 이는 사용 전에 좁혀야 하는 nullable 참조입니다 — `match`, `.default(x)`, `.is_null()`, 또는 `std::expect_ref`로 좁힙니다([Nullable 참조](/ko/reference/types#reading-a-nullable-value) 참고).
 - 제거는 `?T`를 반환합니다(옵셔널 값: 제거할 것이 없었으면 `null`).
 - 콜백은 타입이 지정된 `fn` 값이고, 순서 관계는 컴파일 타임 타입입니다([순서 관계](#orderings) 참고).
 

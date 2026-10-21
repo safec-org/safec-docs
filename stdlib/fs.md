@@ -13,7 +13,7 @@ need (`block.sc`, `partition.sc`, `vfs.sc`, `fat.sc`, `ext.sc`, `tmpfs.sc`)
 alongside `fs.h`, the same way the examples below do.
 :::
 
-## Architecture
+## Architecture {#architecture}
 
 ```
 ┌────────────────────────────────┐
@@ -29,7 +29,7 @@ alongside `fs.h`, the same way the examples below do.
 
 ---
 
-## BlockDevice
+## BlockDevice {#blockdevice}
 
 ```c
 #include <std/fs/block.h>
@@ -88,7 +88,7 @@ int main() {
 
 `BLOCK_SIZE` is 512 bytes per sector.
 
-## Partition Table (MBR)
+## Partition Table (MBR) {#partition-table-mbr}
 
 ```c
 #include <std/fs/partition.h>
@@ -115,7 +115,7 @@ struct PartTable {
 }
 
 // Read MBR at LBA 0; validates 0x55/0xAA boot signature
-int partition_read(&stack BlockDevice dev, &stack PartTable table_out);
+int partition_read(&BlockDevice dev, &PartTable table_out);
 ```
 
 `get()` returns a nullable reference — unwrap it with `match` (or `.is_null()`/`.default()`) rather than chaining straight into a field:
@@ -132,7 +132,7 @@ match (parts.get(0)) {
 
 Constants: `PART_MAX` (4 primary entries); partition types `PART_TYPE_EMPTY` (0x00), `PART_TYPE_FAT32` (0x0B), `PART_TYPE_FAT32X` (0x0C, FAT32 with LBA), `PART_TYPE_LINUX` (0x83), `PART_TYPE_SWAP` (0x82).
 
-## VFS
+## VFS {#vfs}
 
 ```c
 #include <std/fs/vfs.h>
@@ -140,7 +140,7 @@ Constants: `PART_MAX` (4 primary entries); partition types `PART_TYPE_EMPTY` (0x
 
 The VFS layer routes paths to registered filesystem drivers using longest-prefix matching (e.g. `/mnt/sd/foo` routes to `/mnt/sd` if both `/mnt/sd` and `/mnt` are mounted).
 
-### VfsOps — driver interface
+### VfsOps — driver interface {#vfsops-driver-interface}
 
 The table a filesystem driver fills in (`tmpfs_ops()`, `fat_ops()`, `ext2_ops()` return ready-made ones). It is driver-internal: `ctx` is that driver's own context, stored type-erased because one `Vfs` mounts drivers with different context types. Application code never calls these directly — it goes through `vfs_mount`, `Vfs::open` and the `VfsNode` methods.
 
@@ -160,7 +160,7 @@ struct VfsOps {
 }
 ```
 
-### VfsNode — open file handle
+### VfsNode — open file handle {#vfsnode-open-file-handle}
 
 ```c
 struct VfsNode {
@@ -178,7 +178,7 @@ struct VfsNode {
 generic<T> int vfs_readdir(&VfsNode dir, fn void(&VfsNode, &T) cb, &T user);
 ```
 
-### Vfs global
+### Vfs global {#vfs-global}
 
 Mount with `vfs_mount`, passing the driver's context as a typed reference; open/unlink/mkdir are methods on the global `vfs_root`:
 
@@ -209,7 +209,7 @@ Constants:
 | `VFS_O_READ`, `VFS_O_WRITE`, `VFS_O_CREATE`, `VFS_O_TRUNC` | 0x01, 0x02, 0x04, 0x08 | open flags |
 | `VFS_SEEK_SET`, `VFS_SEEK_CUR`, `VFS_SEEK_END` | 0, 1, 2 | seek origins |
 
-## FAT32 Driver
+## FAT32 Driver {#fat32-driver}
 
 ```c
 #include <std/fs/fat.h>
@@ -228,14 +228,14 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // Read a cluster into `buf` (must be >= bytes_per_cluster bytes).
-    int read_cluster(unsigned long cluster, &unsigned char buf);
+    int read_cluster(unsigned long cluster, &stack unsigned char buf);
 
     // Follow the FAT chain to the cluster at position `idx` from `start_cluster`.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
 }
 
 // Initialise FAT32 context from a block device partition starting at `lba`.
-int fat_init(&stack FatCtx ctx, &stack BlockDevice dev, unsigned long lba);
+int fat_init(&FatCtx ctx, &BlockDevice dev, unsigned long lba);
 
 // VfsOps for the FAT32 driver — 'ctx' passed to Vfs::mount must be a FatCtx*.
 struct VfsOps fat_ops();
@@ -247,7 +247,7 @@ struct VfsOps fat_ops();
 
 Limits: directory walks go at most `FAT_MAX_DEPTH` (8) levels deep, and `fat_init` rejects clusters larger than `FAT_MAX_CLUSTER` (4096 bytes).
 
-## ext2 Driver
+## ext2 Driver {#ext2-driver}
 
 ```c
 #include <std/fs/ext.h>
@@ -290,7 +290,7 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // Read block `block_no` into `buf` (must be >= block_size bytes).
-    int  read_block(unsigned long block_no, &unsigned char buf);
+    int  read_block(unsigned long block_no, &stack unsigned char buf);
 
     // Read inode `ino` into `inode_out`.
     int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
@@ -302,7 +302,7 @@ struct Ext2Ctx {
 
 // Initialise ext2 context from a block device (reads the superblock at
 // byte offset 1024 from the device's LBA 0; validates EXT2_SUPER_MAGIC).
-int ext2_init(&stack Ext2Ctx ctx, &stack BlockDevice dev);
+int ext2_init(&Ext2Ctx ctx, &BlockDevice dev);
 
 // VfsOps for the ext2 driver — 'ctx' passed to Vfs::mount must be an Ext2Ctx*.
 struct VfsOps ext2_ops();
@@ -314,7 +314,7 @@ struct VfsOps ext2_ops();
 
 Constants: `EXT2_SUPER_MAGIC` (0xEF53), `EXT2_ROOT_INODE` (2), `EXT2_BLOCK_SIZE_BASE` (1024); `ext2_init` rejects blocks larger than `EXT2_MAX_BLOCK_SIZE` (4096). Inode mode bits `EXT2_S_IFREG` (0x8000) and `EXT2_S_IFDIR` (0x4000) tell files from directories.
 
-## tmpfs — In-Memory Filesystem
+## tmpfs — In-Memory Filesystem {#tmpfs-in-memory-filesystem}
 
 ```c
 #include <std/fs/tmpfs.h>
@@ -340,7 +340,7 @@ struct TmpfsCtx {
 }
 
 // Initialise a tmpfs context (zero-fills).
-void tmpfs_init(&stack TmpfsCtx ctx);
+void tmpfs_init(&TmpfsCtx ctx);
 
 // VfsOps for the tmpfs driver — 'ctx' passed to Vfs::mount must be a TmpfsCtx*.
 struct VfsOps tmpfs_ops();
@@ -350,7 +350,7 @@ struct VfsOps tmpfs_ops();
 
 ---
 
-## Mount and Read Example
+## Mount and Read Example {#mount-and-read-example}
 
 Mounting tmpfs and doing a real write/read round-trip — verified against a real compile/run:
 

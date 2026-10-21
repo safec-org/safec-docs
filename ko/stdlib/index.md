@@ -126,6 +126,7 @@ int main() {
 | png | `gui/gui_png.h` | 처음부터 작성한 PNG 디코더 (자체 DEFLATE 인플레이터) |
 | svg | `gui/gui_svg.h` | SVG 부분집합 렌더러 (도형, 3차 곡선 경로) |
 | widget | `gui/gui_widget.h` | 리테인드 모드 위젯 트리: 스택, 버튼, 레이블, 체크박스, 텍스트 입력, 슬라이더, 커스텀 위젯 |
+| fb | `gui/gui_fb.h` | 베어메탈 프레임버퍼 백엔드 설정: `gui_fb_configure`, `gui_fb_inject_event` |
 
 ### [파일시스템](/ko/stdlib/fs) {#filesystems}
 

@@ -50,7 +50,7 @@ static float body(const float* x, unsigned long n) __attribute__((always_inline)
 static float body_avx2(const float* x, unsigned long n) __attribute__((target("avx2,fma"))) { return body(x, n); }
 ```
 
-## C-Style Function Pointers
+## C-Style Function Pointers {#c-style-function-pointers}
 
 Alongside SafeC's native `fn RetType(Params)` syntax, the classic C
 declarator form works everywhere a type can appear: typedefs, globals,
@@ -70,7 +70,7 @@ static int apply(int (*callback)(int, int), int x, int y) {
 }
 ```
 
-## Bitfields
+## Bitfields {#bitfields}
 
 ```c
 struct Flags {
@@ -87,7 +87,7 @@ shift/mask codegen on every read and write, including compound assignment
 (`f.a += 1;`, `f.a &= 0xF;`) — a plain store on one bitfield never clobbers
 its siblings packed into the same unit.
 
-## Designated Initializers
+## Designated Initializers {#designated-initializers}
 
 ```c
 struct Point { int x; int y; int z; };
@@ -102,7 +102,7 @@ Designators may be mixed with positional initializers; array designators
 through the same slot-mapping Sema uses for plain positional init, so
 partially-specified aggregates are zero-filled exactly like C.
 
-## Flexible Array Members
+## Flexible Array Members {#flexible-array-members}
 
 ```c
 struct Msg {
@@ -120,7 +120,7 @@ unsafe {
 responsible for over-allocating and indexing past the struct's fixed
 portion, which is why the access above needs `unsafe`.
 
-## Anonymous struct/union
+## Anonymous struct/union {#anonymous-structunion}
 
 ```c
 struct Variant {
@@ -143,7 +143,7 @@ struct Variant v;
 v.as_int = 42;   // no intermediate member name needed
 ```
 
-## Compound Literals
+## Compound Literals {#compound-literals}
 
 ```c
 struct Point { int x; int y; };
@@ -152,7 +152,7 @@ int total = sum_point((struct Point){3, 4});
 struct Point p2 = (struct Point){.x = 10, .y = 20};   // designators work here too
 ```
 
-## `_Generic`
+## `_Generic` {#_generic}
 
 C11 type-generic selection — dispatches on the *type* of the controlling
 expression at compile time, distinct from SafeC's own
@@ -168,7 +168,7 @@ int describe(int i, double d) {
 }
 ```
 
-## Variable-Length Arrays
+## Variable-Length Arrays {#variable-length-arrays}
 
 VLAs are supported, but only inside `unsafe { }` — a runtime-sized stack
 allocation is exactly the kind of unchecked-size operation the safe

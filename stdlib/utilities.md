@@ -19,7 +19,7 @@ Bit manipulation (`bit.h`) and complex numbers (`complex.h`) are documented unde
 
 ---
 
-## convert — String ↔ Number
+## convert — String ↔ Number {#convert-string-number}
 
 ```c
 #include <std/convert.h>
@@ -59,7 +59,7 @@ int main() {
 
 ---
 
-## ctype — Character Classes
+## ctype — Character Classes {#ctype-character-classes}
 
 ```c
 #include <std/ctype.h>
@@ -85,7 +85,7 @@ Locale-aware, like C's `<ctype.h>`. `c` must be in `0..255` or `-1` (EOF). Each 
 
 ---
 
-## errno — Error Codes
+## errno — Error Codes {#errno-error-codes}
 
 ```c
 #include <std/errno.h>
@@ -104,7 +104,7 @@ Most codes have the same value on Linux, macOS and BSD. `EAGAIN`/`EWOULDBLOCK`/`
 
 ---
 
-## fenv — Floating-Point Environment
+## fenv — Floating-Point Environment {#fenv-floating-point-environment}
 
 ```c
 #include <std/fenv.h>
@@ -127,9 +127,11 @@ int fenv_save_clear(&unsigned char env);  // save, then clear all flags
 |----------------|-----------------|
 | `FE_TONEAREST()`, `FE_DOWNWARD()`, `FE_UPWARD()`, `FE_TOWARDZERO()` | `FE_INVALID()`, `FE_DIVBYZERO()`, `FE_OVERFLOW()`, `FE_UNDERFLOW()`, `FE_INEXACT()`, `FE_ALL_EXCEPT()` |
 
+The values are the target's own `<fenv.h>` values, which differ per architecture (x86, ARM/AArch64 and RISC-V each have their own); always pass the functions, never literal numbers.
+
 ---
 
-## fmt — Formatting into Buffers
+## fmt — Formatting into Buffers {#fmt-formatting-into-buffers}
 
 ```c
 #include <std/fmt.h>
@@ -166,7 +168,7 @@ int main() {
 
 ---
 
-## heap — Global Heap
+## heap — Global Heap {#heap-global-heap}
 
 ```c
 #include <std/heap.h>
@@ -184,7 +186,7 @@ unsigned long heap_capacity();                               // bytes; 0 when ho
 
 ---
 
-## locale
+## locale {#locale}
 
 ```c
 #include <std/locale.h>
@@ -200,7 +202,7 @@ Categories: `LC_ALL()`, `LC_COLLATE()`, `LC_CTYPE()`, `LC_MONETARY()`, `LC_NUMER
 
 ---
 
-## log — Logging
+## log — Logging {#log-logging}
 
 ```c
 #include <std/log.h>
@@ -227,7 +229,7 @@ The `LOG_E`/`LOG_W`/`LOG_I`/`LOG_D(tag, msg)` macros fill in `__FILE__`/`__LINE_
 
 ---
 
-## panic — Panics and `expect_ref`
+## panic — Panics and `expect_ref` {#panic-panics-and-expect-ref}
 
 ```c
 #include <std/panic.h>
@@ -249,7 +251,7 @@ The default handler loops forever on freestanding targets and calls `abort()` on
 
 ---
 
-## result — `Result<T, E>`
+## result — `Result<T, E>` {#result-result-t-e}
 
 ```c
 #include <std/result.h>
@@ -294,7 +296,7 @@ int main() {
 
 ---
 
-## signal — POSIX Signals
+## signal — POSIX Signals {#signal-posix-signals}
 
 ```c
 #include <std/signal.h>
@@ -309,13 +311,13 @@ int   signal_kill(int pid, int sig);           // to another process
 void  signal_pause();                          // block until a signal arrives
 ```
 
-Signal numbers (POSIX values): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL` and `SIG_STOP` can't be caught.
+Signal numbers (POSIX values): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL` and `SIG_STOP` can't be caught. `SIG_USR1`, `SIG_USR2`, `SIG_CHLD`, `SIG_CONT`, `SIG_STOP` and `SIG_TSTP` have different numbers on Linux and on macOS/BSD; the functions return the right one for the target.
 
 `signal_handle` returns the previous handler as an opaque `?&void`, since it may be one of the C library's `SIG_DFL`/`SIG_IGN` markers rather than a SafeC function.
 
 ---
 
-## stdckdint — Checked Arithmetic
+## stdckdint — Checked Arithmetic {#stdckdint-checked-arithmetic}
 
 ```c
 #include <std/stdckdint.h>
@@ -345,7 +347,7 @@ The language also has overflow operators built in; see [Overflow Operators](/ref
 
 ---
 
-## sys — Process, Environment, Sorting, Clocks
+## sys — Process, Environment, Sorting, Clocks {#sys-process-environment-sorting-clocks}
 
 ```c
 #include <std/sys.h>
@@ -408,7 +410,7 @@ int main() {
 
 ---
 
-## time — Calendar and Clocks
+## time — Calendar and Clocks {#time-calendar-and-clocks}
 
 ```c
 #include <std/time.h>
@@ -460,7 +462,7 @@ int main() {
 
 ---
 
-## dma — DMA Buffers and Channels
+## dma — DMA Buffers and Channels {#dma-dma-buffers-and-channels}
 
 ```c
 #include <std/dma.h>
@@ -519,7 +521,7 @@ struct DmaSgList {
 
 ---
 
-## assert — Runtime Assertions
+## assert — Runtime Assertions {#assert-runtime-assertions}
 
 ```c
 #include <std/assert.h>
@@ -535,7 +537,7 @@ void assert_true(int cond);                     // fixed message
 
 ---
 
-## C Type and Limit Headers
+## C Type and Limit Headers {#c-type-and-limit-headers}
 
 These headers only define types and constants, matching their C11/C23 counterparts.
 

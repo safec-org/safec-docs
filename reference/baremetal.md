@@ -2,7 +2,7 @@
 
 SafeC supports bare-metal and embedded development through freestanding mode, function attributes for interrupt handling, inline assembly, and volatile/atomic operations for hardware register access.
 
-## Freestanding Mode
+## Freestanding Mode {#freestanding-mode}
 
 The `--freestanding` flag disables the standard library and produces code that does not depend on an OS:
 
@@ -120,9 +120,9 @@ The runtime is `std/wasm/wasm_rt.sc`. It has `malloc`/`free`/`calloc`/`realloc` 
 
 `safeguard build --target wasm32` builds the std archive for wasm with `std/wasm` included, which no other target gets. It links the same kind of library module. `std/wasm/dom.h` and `hydrate.h` add DOM interop and client hydration for the [full-stack example](https://github.com/safec-org/SafeC/tree/main/examples/fullstack_demo).
 
-## Function Attributes
+## Function Attributes {#function-attributes}
 
-### Naked Functions
+### Naked Functions {#naked-functions}
 
 Naked functions have no compiler-generated prologue or epilogue. The function body must consist entirely of inline assembly. Use these for bootloader entry points, ISR trampolines, and context switches.
 
@@ -136,7 +136,7 @@ naked void _start() {
 }
 ```
 
-### Interrupt Functions
+### Interrupt Functions {#interrupt-functions}
 
 Interrupt functions use the ISR calling convention. They must be `void(void)` and the compiler generates appropriate entry/exit sequences (e.g., `iret` on x86):
 
@@ -147,7 +147,7 @@ interrupt void timer_handler() {
 }
 ```
 
-### Noreturn Functions
+### Noreturn Functions {#noreturn-functions}
 
 Functions that never return can be annotated with `noreturn`, allowing the compiler to optimize call sites:
 
@@ -158,7 +158,7 @@ noreturn void panic(const &char msg) {
 }
 ```
 
-### Section Attribute
+### Section Attribute {#section-attribute}
 
 Place functions or variables in specific linker sections:
 
@@ -187,7 +187,7 @@ shape can go in it:
 fn void() reset_vector = _start;      // a bare function name is its address
 ```
 
-## Inline Assembly
+## Inline Assembly {#inline-assembly}
 
 SafeC supports GCC-style extended inline assembly:
 
@@ -204,7 +204,7 @@ construct — except inside a `naked` function, where it's exempt (the whole
 body is already required to be assembly, so there's nothing extra to opt
 into).
 
-### Basic Assembly
+### Basic Assembly {#basic-assembly}
 
 ```c
 unsafe {
@@ -215,7 +215,7 @@ unsafe {
 }
 ```
 
-### Extended Assembly with Operands
+### Extended Assembly with Operands {#extended-assembly-with-operands}
 
 ```c
 int result = 0;
@@ -237,7 +237,7 @@ the `int result = 0;` above works too, just isn't required. A read-write
 operand (`"+r"(var)`) is a genuine read as well as a write, so it still
 requires `var` to already have a value before the `asm` statement.
 
-### Reading Special Registers
+### Reading Special Registers {#reading-special-registers}
 
 ```c
 long long read_tsc() {
@@ -253,7 +253,7 @@ long long read_tsc() {
 }
 ```
 
-### Memory-Mapped I/O with Assembly
+### Memory-Mapped I/O with Assembly {#memory-mapped-io-with-assembly}
 
 ```c
 void outb(uint16_t port, uint8_t value) {
@@ -279,11 +279,11 @@ uint8_t inb(uint16_t port) {
 }
 ```
 
-## Volatile Access
+## Volatile Access {#volatile-access}
 
 The `volatile` qualifier ensures that reads and writes are not optimized away or reordered by the compiler. This is essential for memory-mapped hardware registers.
 
-### Volatile Variables
+### Volatile Variables {#volatile-variables}
 
 ```c
 void uart_registers() {
@@ -301,7 +301,7 @@ volatile int *UART_DATA   = (volatile int*)0x40001000;
 volatile int *UART_STATUS = (volatile int*)(0x40001000 + 4);
 ```
 
-### What `volatile` applies to
+### What `volatile` applies to {#what-volatile-applies-to}
 
 Every load and store through a volatile lvalue is emitted as an LLVM `load volatile` / `store volatile`. That includes plain and compound assignment (`|=`, `+=`, …), `++`/`--`, subscripts, member access and dereference. The qualifier can sit in four places:
 
@@ -345,7 +345,7 @@ void f() {
 
 `volatile` keeps the compiler from removing, merging or reordering the accesses relative to each other. It is not a memory barrier between threads; use [`std::atomic`](/stdlib/atomic) for that. `std::mem_zero_secure` relies on these volatile stores, so wiping a key survives dead-store elimination at `-O2`.
 
-### Volatile Load and Store
+### Volatile Load and Store {#volatile-load-and-store}
 
 Built-in functions provide explicit volatile access:
 
@@ -356,7 +356,7 @@ volatile_store(ptr, value);         // guaranteed to write to memory
 
 These compile to LLVM `load volatile` and `store volatile` instructions. They do the same thing as an access through a `volatile T*`, and are useful when the pointer itself is not declared volatile.
 
-### Example: Polling a Hardware Register
+### Example: Polling a Hardware Register {#example-polling-a-hardware-register}
 
 ```c
 void uart_send(char c) {
@@ -370,17 +370,17 @@ void uart_send(char c) {
 }
 ```
 
-## Atomic Operations
+## Atomic Operations {#atomic-operations}
 
 Atomic operations provide lock-free synchronization and are essential for multi-core bare-metal systems and interrupt handlers.
 
-### Atomic Variables
+### Atomic Variables {#atomic-variables}
 
 ```c
 atomic int counter = 0;
 ```
 
-### Atomic Built-ins
+### Atomic Built-ins {#atomic-built-ins}
 
 | Operation | Signature | Description |
 |-----------|-----------|-------------|
@@ -397,7 +397,7 @@ atomic int counter = 0;
 
 All atomic operations use sequentially consistent ordering by default.
 
-### Example: Lock-Free Counter
+### Example: Lock-Free Counter {#example-lock-free-counter}
 
 ```c
 atomic int shared_counter = 0;
@@ -411,7 +411,7 @@ int read_counter() {
 }
 ```
 
-### Example: Spinlock
+### Example: Spinlock {#example-spinlock}
 
 ```c
 atomic int lock = 0;
@@ -429,7 +429,7 @@ void spin_unlock() {
 }
 ```
 
-## ARM Cortex-M
+## ARM Cortex-M {#arm-cortex-m}
 
 Cortex-M gets first-class treatment beyond the generic bare-metal features
 above: cross-compiles cleanly with `--target thumbv7em-none-eabi
@@ -440,7 +440,7 @@ DSP-extension intrinsics described below. See
 [Multi-Target Codegen](/advanced/compiler#multi-target-codegen) for the
 full cross-compilation matrix.
 
-### HAL: NVIC, SysTick, SCB
+### HAL: NVIC, SysTick, SCB {#hal-nvic-systick-scb}
 
 `std/hal/cortex_m.h` wraps the three most commonly needed Cortex-M
 peripherals as methods on global instances at their standard memory-mapped
@@ -458,7 +458,7 @@ void setup_timer_interrupt() {
 }
 ```
 
-### DSP Extension (Cortex-M4/M7)
+### DSP Extension (Cortex-M4/M7) {#dsp-extension-cortex-m4-m7}
 
 The DSP extension's packed-SIMD/saturating instructions — `SADD16`,
 `SMLAD`, `USAD8`, `SSAT`, and friends — pack 2×16-bit or 4×8-bit lanes into
@@ -493,7 +493,7 @@ while compiling for a non-ARM target (or the default host target on a
 non-ARM machine) is a compile error at the call site, not silently wrong
 codegen.
 
-### MVE (Cortex-M55/M85)
+### MVE (Cortex-M55/M85) {#mve-cortex-m55-m85}
 
 Unlike the DSP extension, MVE ("Helium") *is* a real vector register file,
 and `vec<T,N>` reaches it directly — `vec<int,4>` arithmetic compiled with
@@ -502,7 +502,7 @@ instructions (`vadd.i32 q2, q0, q1`, `vldrw.u32`/`vstrw.32` for loads/
 stores), the same mechanism used for NEON, SSE, RVV, and SIMD128 on the
 other targets — see [Native SIMD](/reference/simd).
 
-## Bare-Metal Example: Minimal Kernel
+## Bare-Metal Example: Minimal Kernel {#bare-metal-example-minimal-kernel}
 
 ```c
 // kernel.sc -- compiled with --freestanding

@@ -2,7 +2,7 @@
 
 SafeC provides a strong, statically-typed type system with no implicit conversions (except safe numeric widening — smaller to bigger, never the reverse). All types are resolved at compile time; generics are fully monomorphized with zero runtime overhead.
 
-## Primitive Types
+## Primitive Types {#primitive-types}
 
 | Type | Size | Description |
 |------|------|-------------|
@@ -14,7 +14,7 @@ SafeC provides a strong, statically-typed type system with no implicit conversio
 | `char` | 8-bit | Character (unsigned byte) |
 | `void` | 0-bit | Unit type / no value |
 
-## Sized Integer Types
+## Sized Integer Types {#sized-integer-types}
 
 For explicit control over width and signedness:
 
@@ -28,7 +28,7 @@ For explicit control over width and signedness:
 
 `size_t` and friends follow the target's pointer width (`__SIZEOF_POINTER__`): 8 bytes on 64-bit targets, 4 on 32-bit ones such as `x86`, `aarch32`, Cortex-M and RV32. SafeC's own `long` is always 64-bit on every target, so it is *not* a pointer-sized integer — use `size_t`/`uintptr_t` for sizes and addresses. An integer argument to an `extern` C function's pointer-width integer parameter (a `size_t` on a 32-bit target) is converted at the call without a cast, so libc calls written with `unsigned long` sizes stay portable.
 
-## Type Inference with `auto`
+## Type Inference with `auto` {#type-inference-with-auto}
 
 `auto` infers a local variable's type from its initializer — the variable must have one (`auto x;` with no initializer is a compile error):
 
@@ -44,7 +44,7 @@ for (auto i = 0; i < 10; i++) {
 
 `auto` only infers from the initializer expression's own type — it doesn't do any broader flow analysis, and (like every other declared type) the inferred type is fixed for the variable's lifetime; there's no re-inference on reassignment. It works anywhere an ordinary declared-type local variable would — including a `for` loop's init clause, as shown above.
 
-## Struct Types
+## Struct Types {#struct-types}
 
 Structs are value types with C-compatible layout. Assignment copies the entire value.
 
@@ -60,7 +60,7 @@ struct Point {
 
 Structs support methods (see [Functions](/reference/functions)), operator overloading, and can be used as generic type arguments.
 
-## Union Types
+## Union Types {#union-types}
 
 Every `union` in SafeC is a **tagged union**: alongside the fields you
 declare, the compiler stores a hidden discriminant recording which field
@@ -120,7 +120,7 @@ Unions can be generic too, the same as [structs](/reference/generics#generic-str
 
 Tagged unions plus exhaustive `match` are SafeC's algebraic-data-type / closed-polymorphism mechanism — see [Polymorphism & OOP](/reference/polymorphism#closed-set-polymorphism-tagged-unions-match) and [Functional Programming](/reference/functional#algebraic-data-types).
 
-## Tuple Types
+## Tuple Types {#tuple-types}
 
 Tuples are anonymous product types. Members are accessed by index using `.0`, `.1`, etc.
 
@@ -142,7 +142,7 @@ int s = sum((3, 4));
 
 Tuples lower to anonymous LLVM struct types at codegen.
 
-## Slice Types
+## Slice Types {#slice-types}
 
 A slice is a fat pointer consisting of a data pointer and a length. Slices provide bounds-checked access to contiguous memory.
 
@@ -155,7 +155,7 @@ long len = s.len;      // length field
 int *raw = s.ptr;      // underlying pointer
 ```
 
-## Optional Types
+## Optional Types {#optional-types}
 
 Optional types represent values that may or may not be present. They lower to a `{T, i1}` pair.
 
@@ -184,7 +184,7 @@ Nullable references use the same `?` syntax:
 ?&stack Node next;   // nullable stack reference
 ```
 
-### Reading a nullable value
+### Reading a nullable value {#reading-a-nullable-value}
 
 A pointer (`T*`), nullable reference (`?&region T` — "region" here also covers the region-less `?&T` form, see [Memory & Regions](/reference/memory)'s "Outliving References" section), or optional (`?T`) cannot be dereferenced, member-accessed, or force-unwrapped directly — the compiler requires one of the following:
 
@@ -228,7 +228,7 @@ A nullable reference can't be *cast* to a non-null one: `(&T)q` on a `?&T q` is 
 
 See [Functional Programming](/reference/functional#optional-values-and-propagation) for `try`-based propagation and what `?T` deliberately doesn't offer (no `.map()`/`.and_then()` combinators).
 
-## Newtype Distinct Types
+## Newtype Distinct Types {#newtype-distinct-types}
 
 Newtypes create distinct types from a base type. They are not interchangeable with their base.
 
@@ -240,7 +240,7 @@ UserId id = (UserId)42;   // explicit cast — no UserId(42) constructor-call sy
 // int x = id;            // ERROR: UserId is not int
 ```
 
-## Enum Types
+## Enum Types {#enum-types}
 
 Enums with explicit underlying type:
 
@@ -258,7 +258,7 @@ enum Status : int {
 }
 ```
 
-## Function Types
+## Function Types {#function-types}
 
 Function pointers use the `fn` keyword:
 
@@ -268,7 +268,7 @@ fn int(int) transform = add_one;
 int result = transform(5);     // calls add_one(5)
 ```
 
-## Region-Qualified Reference Types
+## Region-Qualified Reference Types {#region-qualified-reference-types}
 
 References carry region information that the compiler uses for lifetime analysis:
 
@@ -297,7 +297,7 @@ for `extern` C declarations and `unsafe` code.
 
 See [Memory & Regions](/reference/memory) for details.
 
-## Generic Types
+## Generic Types {#generic-types}
 
 Generics are compile-time only and fully monomorphized. No vtables or runtime dispatch.
 
@@ -323,7 +323,7 @@ T clamp(T val, T lo, T hi) {
 }
 ```
 
-## Type Conversions
+## Type Conversions {#type-conversions}
 
 SafeC has **no implicit conversions** with one exception: safe widening
 — any smaller numeric type to a bigger one, across integer, float, and
@@ -342,7 +342,7 @@ long long big = 100LL;
 int small = (int)big;      // explicit cast required: narrowing
 ```
 
-## Value vs Reference Semantics
+## Value vs Reference Semantics {#value-vs-reference-semantics}
 
 - **Structs are value types**: assignment copies the entire struct
 - **References are explicit**: you must use `&` to create a reference and region-qualify it

@@ -2,7 +2,7 @@
 
 This page covers literal syntax, storage qualifiers, and variable attributes that are part of SafeC's C-compatible foundation.
 
-## Integer Literals
+## Integer Literals {#integer-literals}
 
 SafeC supports multiple integer literal formats:
 
@@ -20,7 +20,7 @@ octal — this sidesteps the classic C footgun where an accidental leading
 zero silently changes a number's base.
 :::
 
-### Integer Suffixes
+### Integer Suffixes {#integer-suffixes}
 
 Suffixes control the type of an integer literal:
 
@@ -40,7 +40,7 @@ long long c = 100000LL;
 unsigned long long d = 0xFFFFFFFFFFFFFFFFULL;
 ```
 
-## Float Literals
+## Float Literals {#float-literals}
 
 ```c
 double a = 3.14;
@@ -52,7 +52,7 @@ A trailing dot with no digit after it (`0.`) also parses as a float —
 equivalent to `0.0` — as long as it isn't immediately followed by another
 `.` (which would instead start a `..`/`...` range/spread token).
 
-## Character Literals
+## Character Literals {#character-literals}
 
 Character literals are enclosed in single quotes:
 
@@ -63,7 +63,7 @@ char tab = '\t';
 char null = '\0';          // null byte
 ```
 
-### Escape Sequences
+### Escape Sequences {#escape-sequences}
 
 | Escape | Meaning |
 |--------|---------|
@@ -78,7 +78,7 @@ char null = '\0';          // null byte
 
 `\xNN` works the same way in string literals: `"A\x42\x43"` is `"ABC"`.
 
-## String Literals
+## String Literals {#string-literals}
 
 String literals are enclosed in double quotes and are implicitly `&static char` references (null-terminated):
 
@@ -88,14 +88,14 @@ const &char msg = "hello, world";
 
 String literals can be passed directly to `extern` C functions because `&static` coerces to `char*` without requiring `unsafe`.
 
-## Boolean Literals
+## Boolean Literals {#boolean-literals}
 
 ```c
 bool a = true;
 bool b = false;
 ```
 
-## Null Literal
+## Null Literal {#null-literal}
 
 ```c
 ?&stack Node next = null;   // null — the empty case for both nullable references and ?T optionals
@@ -106,9 +106,9 @@ bool b = false;
 `?int val = none;` doesn't compile (`none` is undeclared) — `null` is the one empty-value literal for **both** `?T` optionals and `?&region T` nullable references. `some(x)`/`none` only exist as `match` patterns (`match (val) { case none: ... case some(x): ... }`, see [Control Flow](/reference/control-flow)), never as general expressions.
 :::
 
-## Storage Qualifiers
+## Storage Qualifiers {#storage-qualifiers}
 
-### `const`
+### `const` {#const}
 
 Declares an immutable binding. The value cannot be modified after initialization.
 
@@ -125,7 +125,7 @@ int length(const &char str) {
 }
 ```
 
-### `static`
+### `static` {#static}
 
 For local variables, `static` gives the variable static storage duration — it persists across function calls and is initialized only once:
 
@@ -144,7 +144,7 @@ For global variables, `static` restricts visibility to the current translation u
 static int module_state = 0;   // not visible outside this file
 ```
 
-### `extern`
+### `extern` {#extern}
 
 Declares a variable or function defined in another translation unit:
 
@@ -153,7 +153,7 @@ extern int global_counter;     // defined elsewhere
 extern void c_function();      // C function declaration
 ```
 
-### `volatile`
+### `volatile` {#volatile}
 
 Prevents the compiler from optimizing away reads or writes. Used for memory-mapped I/O and hardware registers:
 
@@ -165,7 +165,7 @@ int val = *status_reg;         // guaranteed to read from memory
 
 `volatile` also works on struct fields, on `volatile &T` references, and after the base type (`int volatile*`); `int* volatile p` makes the pointer variable itself volatile. `&x` of a volatile `x` keeps the qualifier, and converting it away implicitly is an error. See [Bare-Metal](/reference/baremetal#what-volatile-applies-to) for the full rules and access patterns.
 
-### `thread_local`
+### `thread_local` {#thread_local}
 
 Declares a variable with thread-local storage duration. Each thread gets its own copy:
 
@@ -182,7 +182,7 @@ __thread int gcc_tls_var = 0;      // GCC extension style
 
 Thread-local variables are initialized when each thread starts and are independent across threads.
 
-### `atomic`
+### `atomic` {#atomic}
 
 Declares an atomic variable for lock-free concurrent access:
 
@@ -192,9 +192,9 @@ atomic int counter = 0;
 
 See [Concurrency](/reference/concurrency) for atomic operations.
 
-## Variable Attributes
+## Variable Attributes {#variable-attributes}
 
-### `align(N)`
+### `align(N)` {#alignn}
 
 Specifies the alignment requirement for a variable or struct field. `N` must be a power of two.
 
@@ -205,7 +205,7 @@ align(64) char cache_line[64];    // cache-line aligned
 
 This maps to LLVM's alignment attributes and is useful for performance-critical code, SIMD operations, and hardware requirements.
 
-### `section("name")`
+### `section("name")` {#sectionname}
 
 Places a variable or function in a specific linker section:
 
@@ -216,7 +216,7 @@ section(".rodata") const int lookup[256] = { /* ... */ };
 
 See [Bare-Metal](/reference/baremetal) for linker section usage.
 
-## Calling Conventions
+## Calling Conventions {#calling-conventions}
 
 SafeC supports platform-specific calling convention annotations for interoperability with system APIs and foreign code:
 
@@ -239,7 +239,7 @@ __cdecl void normal_func() {
 
 Calling conventions are primarily relevant for x86 Windows interop. On other platforms and architectures, the default calling convention is typically sufficient.
 
-## Type Qualifiers Summary
+## Type Qualifiers Summary {#type-qualifiers-summary}
 
 | Qualifier | Effect |
 |-----------|--------|

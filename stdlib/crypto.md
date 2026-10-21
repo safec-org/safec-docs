@@ -12,7 +12,7 @@ SafeC's crypto modules provide correct algorithm implementations. They do not cu
 
 ---
 
-## AES
+## AES {#aes}
 
 ```c
 #include <std/crypto/aes.h>
@@ -27,7 +27,7 @@ AES-128 and AES-256 block cipher with ECB and CBC modes. Full S-box, key expansi
 | `AES128_ROUNDS` / `AES256_ROUNDS` | 10 / 14 |
 | `AES_KS_WORDS` | 60 (key-schedule words) |
 
-### API
+### API {#api}
 
 ```c
 struct AesCtx {
@@ -56,7 +56,7 @@ struct AesCtx aes256_init(const &stack unsigned char key);  // key: 32 bytes
 `cbc_encrypt` / `cbc_decrypt` encrypt the buffer **in-place** and update `self.iv` after each block, ready for chaining the next call. The pointer arithmetic over the buffer happens inside `unsafe {}`.
 :::
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/crypto/aes.h>
@@ -85,7 +85,7 @@ int main() {
 
 ---
 
-## SHA-256
+## SHA-256 {#sha-256}
 
 ```c
 #include <std/crypto/sha256.h>
@@ -120,7 +120,7 @@ void sha256(const &stack unsigned char data, unsigned long len,
 #define SHA256_BLOCK_SIZE   64
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/crypto/sha256.h>
@@ -146,7 +146,7 @@ int main() {
 
 ---
 
-## SHA-512 / SHA-384
+## SHA-512 / SHA-384 {#sha-512-sha-384}
 
 ```c
 #include <std/crypto/sha512.h>
@@ -178,7 +178,7 @@ void sha384(const &stack unsigned char data, unsigned long len, &stack unsigned 
 
 ---
 
-## SHA-1
+## SHA-1 {#sha-1}
 
 ```c
 #include <std/crypto/sha1.h>
@@ -207,7 +207,7 @@ void sha1(const &stack unsigned char data, unsigned long len, &stack unsigned ch
 
 ---
 
-## HMAC-SHA256
+## HMAC-SHA256 {#hmac-sha256}
 
 ```c
 #include <std/crypto/hmac.h>
@@ -238,7 +238,7 @@ int main() {
 
 ---
 
-## RNG — ChaCha20 CSPRNG
+## RNG — ChaCha20 CSPRNG {#rng-chacha20-csprng}
 
 ```c
 #include <std/crypto/rng.h>
@@ -250,19 +250,20 @@ A cryptographically secure pseudo-random number generator based on ChaCha20. Out
 struct RngCtx {
     void          fill(&unsigned char out, unsigned long len);   // len random bytes
     unsigned int  rand32();
-    unsigned long rand64();
+    unsigned long long rand64();
     unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
 };
 
-// Seed from hardware entropy (rdrand / /dev/urandom). 1 on success,
-// 0 if no entropy source is available (e.g. bare metal without a TRNG).
+// Seed from rdrand (x86-64) or /dev/urandom. Returns 1; aborts with a
+// diagnostic if neither exists (e.g. bare metal) — use rng_init_seed with
+// your own entropy source there.
 int  rng_init(&RngCtx ctx);
 
 // Deterministic seed (tests, reproducible simulations).
 void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 ```
 
-### Example
+### Example {#example-2}
 
 ```c
 #include <std/crypto/rng.h>
@@ -270,7 +271,7 @@ void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 
 int main() {
     struct RngCtx rng;
-    if (!std::rng_init(&rng)) { std::println("no entropy source"); return 1; }
+    std::rng_init(&rng);   // aborts if there is no entropy source
 
     std::print("dice: ");
     std::println_int((long long)rng.rand_range(6UL) + 1LL);
@@ -283,7 +284,7 @@ int main() {
 
 ---
 
-## SecureAllocator
+## SecureAllocator {#secureallocator}
 
 ```c
 #include <std/crypto/secure_alloc.h>
@@ -308,7 +309,7 @@ struct SecureAllocator secure_alloc_new(unsigned long obj_size, unsigned long co
 
 ---
 
-## X.509 Certificate Parser
+## X.509 Certificate Parser {#x509-certificate-parser}
 
 ```c
 #include <std/crypto/x509.h>
@@ -318,7 +319,7 @@ Parses X.509v3 DER-encoded certificates. Extracts subject/issuer distinguished n
 
 Fixed limits: `X509_MAX_NAME_LEN` (128 bytes per name), `X509_MAX_SAN` (8 SAN entries), `X509_MAX_SAN_LEN` (64 bytes each), `X509_KEY_LEN` (256-byte public key).
 
-### Structs
+### Structs {#structs}
 
 ```c
 struct X509Validity {
@@ -333,41 +334,43 @@ struct X509Name {
 }
 
 struct X509San {
-    char          names[8][64];  // DNS SAN entries
-    unsigned long count;
+    char names[8][64];  // DNS SAN entries
+    int  count;
 }
 
 struct X509Cert {
-    X509Validity   validity;
     X509Name       subject;
     X509Name       issuer;
+    X509Validity   validity;
     X509San        san;
-    unsigned char  pubkey[256];
+    unsigned char  pubkey[256];     // the SubjectPublicKeyInfo body (truncated to 256 bytes)
+    unsigned long  pubkey_len;
     unsigned char  serial[20];
-    int            is_ca;
-    unsigned short key_usage;
+    unsigned long  serial_len;
+    int            is_ca;           // BasicConstraints CA=TRUE
+    int            key_usage;       // raw KeyUsage bits
 
     int is_valid_at(unsigned long long unix_time) const;
-    int matches_hostname(const &char host) const;  // SAN + CN fallback; wildcard *.domain
+    int matches_hostname(const &char host) const;  // DNS SANs (CN only without SANs); wildcard *.domain
     int is_ca_cert() const;
 }
 ```
 
-### API
+### API {#api-1}
 
 ```c
 // Parse a DER-encoded certificate.
 // Returns 0 on success, negative on error.
 int x509_parse_der(const &unsigned char der, unsigned long len,
-                   &X509Cert out);
+                   &stack X509Cert out);
 
 // Structural issuer/subject name match only.
 // Does NOT verify cryptographic signature.
-int x509_verify_chain(const &X509Cert cert,
-                      const &X509Cert ca);
+int x509_verify_chain(const &stack X509Cert cert,
+                      const &stack X509Cert ca);
 ```
 
-### Example
+### Example {#example-3}
 
 ```c
 #include <std/crypto/x509.h>
@@ -395,12 +398,12 @@ void check_cert(const &unsigned char der, unsigned long len,
 ```
 
 ::: info
-`matches_hostname` supports wildcard certificates: `*.example.com` matches `api.example.com` but not `a.b.example.com`. The CN field is checked as a fallback when no SAN entries are present.
+`matches_hostname` compares case-insensitively and supports wildcard certificates: `*.example.com` matches `api.example.com` but not `a.b.example.com`. The subject CN is checked only when the certificate has no DNS SAN entries (RFC 6125).
 :::
 
 ---
 
-## TLS 1.3 Record Layer
+## TLS 1.3 Record Layer {#tls-13-record-layer}
 
 ```c
 #include <std/crypto/tls.h>
@@ -408,7 +411,11 @@ void check_cert(const &unsigned char der, unsigned long len,
 
 Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encryption, and decryption of TLS records. Key scheduling and the handshake protocol are **not** included — supply keys after completing the handshake externally.
 
-### Constants
+::: warning
+Record protection is AES-256-CBC with PKCS#7 padding and **no MAC**, in place of TLS 1.3's AES-GCM AEAD. Records are not authenticated (an active attacker can alter them, and padding errors are observable), and the wire format does not interoperate with real TLS 1.3 peers. Use it for framing experiments, not to protect traffic.
+:::
+
+### Constants {#constants}
 
 ```c
 #define TLS_CHANGE_CIPHER_SPEC  20
@@ -428,7 +435,7 @@ Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encrypt
 #define TLS_IV_LEN          12      // per RFC 8446 §5.3
 ```
 
-### Structs
+### Structs {#structs-1}
 
 ```c
 struct TlsTranscript {
@@ -449,7 +456,9 @@ struct TlsSession {
     struct TlsTranscript transcript;
 
     // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
-    // after install_keys: AES-256-CBC + PKCS#7. Returns bytes written, 0 on error.
+    // after install_keys: AES-256-CBC + PKCS#7, no MAC (see the warning).
+    // Returns bytes written, 0 on error; a record that doesn't fit out_cap
+    // doesn't consume a sequence number.
     unsigned long encode_record(unsigned char content_type,
                                 const &unsigned char payload, unsigned long payload_len,
                                 &unsigned char out, unsigned long out_cap);
@@ -463,6 +472,8 @@ struct TlsSession {
     unsigned long build_alert(unsigned char level, unsigned char desc,
                               &unsigned char out, unsigned long out_cap);
 
+    // Installs traffic keys, resets both sequence numbers and switches to
+    // protected records (is_established() becomes 1).
     void install_keys(const unsigned char write_key[TLS_KEY_LEN],
                       const unsigned char write_iv[TLS_IV_LEN],
                       const unsigned char read_key[TLS_KEY_LEN],
@@ -473,7 +484,7 @@ struct TlsSession {
 struct TlsSession tls_session_init();
 ```
 
-### Nonce derivation
+### Nonce derivation {#nonce-derivation}
 
 Per RFC 8446 §5.3, the per-record nonce is:
 
@@ -487,7 +498,7 @@ This is computed automatically inside `encode_record` / `decode_record`. The sam
 void TlsSession::compute_nonce(unsigned char nonce[TLS_IV_LEN], int is_write) const;
 ```
 
-### Example
+### Example {#example-4}
 
 ```c
 #include <std/crypto/tls.h>

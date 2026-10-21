@@ -32,7 +32,9 @@ void kernel_setup() {
 (`FRAME_BITMAP_SIZE` = 4096 워드 = 131072개 프레임 = 인스턴스 하나당
 512 MB 추적). `init(n)`, `alloc()`(프레임 번호, OOM 시 `-1`),
 `free(frame)`, `is_used(frame)`, `mark_range(start, count)`(범위를 미리
-예약 — 예를 들어 커널 이미지 자체), `free_count()`.
+예약 — 예를 들어 커널 이미지 자체), `free_count()`. `init`은 `n`을 비트맵이
+추적하는 131072개 프레임으로 제한하며, 이미 해제된 프레임을 해제하면 아무
+일도 하지 않습니다.
 
 ## 페이징 (`kernel/paging.h`) {#paging-kernelpagingh}
 
@@ -61,6 +63,10 @@ KiB 정렬된 물리 페이지 테이블 주소이고 `frames`는 살아 있는
 
 컨텍스트 하나는 2단계 테이블을 최대 `MMU_L2_MAX`(512)개까지 보관합니다.
 
+::: warning
+테이블은 `paging.h`의 x86 방식 플래그 비트를 쓰는 이 모듈 고유의 2단계 레이아웃입니다. 이 형식을 해석하는 실제 MMU는 없으므로(x86-64는 4단계, RISC-V Sv39는 자체 PTE 비트를 쓰는 3단계, AArch64는 자체 디스크립터) 하드웨어에서 `activate()`를 호출해도 주소 변환이 동작하지 않습니다. `map`/`unmap`/`walk`를 소프트웨어 페이지 테이블로 사용합니다.
+:::
+
 ## 프로세스 제어 블록 (`kernel/process.h`) {#process-control-block-kernelprocessh}
 
 `PCB` — `pid`, `state`(`PROC_READY`/`PROC_RUNNING`/`PROC_BLOCKED`/
@@ -76,7 +82,10 @@ pc)`, `exit(code)`(`PROC_ZOMBIE`로 전이).
 가득 찼으면 `-1`), `next()`(우선순위가 가장 높은 READY 프로세스 선택),
 `yield()`(현재 프로세스를 READY로 표시하고 다음 프로세스 선택),
 `block_current()`, `unblock(idx)`, `remove(idx)`(좀비 회수),
-`ready_count()`.
+`ready_count()`. `next()`는 READY 프로세스 중 우선순위가 가장 높은 것을
+고르고, 우선순위가 같으면 현재 프로세스 다음부터 돌아가며 고릅니다.
+`remove`는 `current`가 같은 프로세스를 가리키도록 유지합니다(제거된 것이
+현재 프로세스였으면 `-1`).
 
 ## IPC 메일박스 (`kernel/ipc.h`) {#ipc-mailbox-kernelipch}
 

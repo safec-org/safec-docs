@@ -4,7 +4,7 @@ SafeC generics are compile-time only. Every generic function is fully monomorphi
 
 Structs and unions can be generic too — `generic<T> struct Pair { T first; T second; };` — fully monomorphized per concrete type argument, the same as generic functions; see [Generic Methods](#generic-structs-and-methods) below for struct methods and out-of-line definitions. The standard library's containers are built this way (`Vec<T>`, `HashMap<K, V>`, `BST<K, V, C>`, …) — see [Collections](/stdlib/collections).
 
-## Generic Functions
+## Generic Functions {#generic-functions}
 
 Declare a generic function with `generic<T>` before the return type:
 
@@ -25,7 +25,7 @@ double m2 = max(1.5, 2.7);    // instantiates max<double>
 
 Each instantiation produces a separate function in the generated code.
 
-## Traits and Constrained Generics
+## Traits and Constrained Generics {#traits-and-constrained-generics}
 
 Type parameters can be constrained with traits to restrict what types are accepted:
 
@@ -40,7 +40,7 @@ T clamp(T val, T lo, T hi) {
 
 The `Numeric` constraint ensures `T` supports arithmetic and comparison. The compiler rejects instantiation with types that don't satisfy the constraint.
 
-### Declaring a Trait
+### Declaring a Trait {#declaring-a-trait}
 
 A trait is a named set of method signatures:
 
@@ -65,7 +65,7 @@ render(circle);   // OK: Circle has a matching draw() const
 
 Conformance is checked at the call site during monomorphization: if the concrete type substituted for `T` doesn't have every method the trait bound requires, instantiation fails with a compile error there — not at the (possibly far-away, library-internal) point where the generic function's body uses that method.
 
-### Built-in Traits
+### Built-in Traits {#built-in-traits}
 
 | Trait | Required Operations |
 |-------|---------------------|
@@ -79,7 +79,7 @@ Conformance is checked at the call site during monomorphization: if the concrete
 
 Two further traits are satisfied structurally by the type system itself rather than by user-defined methods: `Indexed` (array, slice, and `vec<T,N>` types — anything usable with `[]`) and `Pointer` (raw pointer and reference types).
 
-## Variadic Generics
+## Variadic Generics {#variadic-generics}
 
 SafeC supports variadic type packs with `generic<T...>`. A variadic generic parameter accepts any number of arguments of any types, and `sizeof...(T)` gives the pack's size:
 
@@ -118,7 +118,7 @@ int first_int(T... args) {
 `args[i]` requires `i` to be a compile-time integer literal, not a runtime variable — the pack doesn't exist as a real indexable array at codegen time, each `args[N]` is rewritten to the Nth actual argument during monomorphization. Looping over a pack with a runtime index isn't supported; write `sizeof...(T)` recursion or repeat the literal-index form for each position you need instead.
 :::
 
-## Monomorphization
+## Monomorphization {#monomorphization}
 
 When the compiler encounters a call to a generic function, it:
 
@@ -130,7 +130,7 @@ When the compiler encounters a call to a generic function, it:
 
 Generic function bodies are **skipped** during the first semantic analysis pass — they are only type-checked after monomorphization with concrete types.
 
-### Name Mangling
+### Name Mangling {#name-mangling}
 
 Monomorphized functions follow the pattern `__safec_<name>_<type>`:
 
@@ -142,11 +142,11 @@ Monomorphized functions follow the pattern `__safec_<name>_<type>`:
 
 Instantiations are emitted with `linkonce_odr` linkage (in a COMDAT on ELF/COFF): every translation unit that uses `Vec<int>` emits its own copy, and the linker keeps exactly one. That is what lets a generic container live entirely in a header.
 
-### Code Size
+### Code Size {#code-size}
 
 Each unique instantiation generates separate code. If you instantiate `max` with 5 different types, 5 separate functions are emitted. This trades binary size for runtime performance (no indirection).
 
-## Generic Structs and Methods
+## Generic Structs and Methods {#generic-structs-and-methods}
 
 A struct (or union) can carry its own type parameters, declared the same way as a generic function's:
 
@@ -185,7 +185,7 @@ void Container::set(T new_value) {
 }
 ```
 
-### Type arguments are inferred from the target
+### Type arguments are inferred from the target {#type-arguments-are-inferred-from-the-target}
 
 There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned:
 
@@ -201,11 +201,11 @@ A bare `null` argument matched against a nullable-reference parameter (`?&T`) bi
 
 Inference only proves that the arguments fit the parameter *pattern*. Each argument is then checked against its instantiated parameter type exactly as for a non-generic call — passing a struct value where `&T` is expected is an error, not a silent copy.
 
-### Nested type arguments
+### Nested type arguments {#nested-type-arguments}
 
 Type arguments nest freely, and `>>` closes two lists: `struct NodePool<struct ListNode<T>>`, `struct Vec<struct Vec<int>>`. A template can mention its own instance (`?&heap struct ListNode<T> next;` inside `ListNode`), and arrays of a type parameter are allowed in a generic struct (`V vals[8];`).
 
-### Compile-time dispatch through a type parameter
+### Compile-time dispatch through a type parameter {#compile-time-dispatch-through-a-type-parameter}
 
 A type parameter can stand for a *policy* type whose methods the generic code calls. After monomorphization the call is a direct call to that type's method, which the optimizer inlines — the zero-cost alternative to passing a function pointer:
 
@@ -231,7 +231,7 @@ unsigned int hash_key(const &K key) {
 }
 ```
 
-## Interaction with Regions
+## Interaction with Regions {#interaction-with-regions}
 
 Generic types can be combined with region-qualified references:
 
@@ -247,7 +247,7 @@ generic<T>
 
 Region qualifiers on references inside generic code follow the same rules as non-generic code. The compiler checks region safety after monomorphization.
 
-## Limitations
+## Limitations {#limitations}
 
 - **No runtime dispatch**: generics are always monomorphized. There are no trait objects or dynamic dispatch.
 - **No partial specialization**: you cannot provide a specialized implementation for a subset of types.

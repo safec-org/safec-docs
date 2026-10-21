@@ -2,7 +2,7 @@
 
 SafeC supports all standard C control flow constructs and extends them with pattern matching, deferred execution, and compile-time branching.
 
-## If / Else
+## If / Else {#if-else}
 
 Standard conditional branching:
 
@@ -16,7 +16,7 @@ if (x > 0) {
 }
 ```
 
-## While Loop
+## While Loop {#while-loop}
 
 ```c
 int i = 0;
@@ -26,7 +26,7 @@ while (i < 10) {
 }
 ```
 
-## For Loop
+## For Loop {#for-loop}
 
 C-style for loops with init, condition, and increment:
 
@@ -36,7 +36,7 @@ for (int i = 0; i < 10; i = i + 1) {
 }
 ```
 
-## Do-While Loop
+## Do-While Loop {#do-while-loop}
 
 Executes the body at least once:
 
@@ -47,7 +47,7 @@ do {
 } while (!try_connect() && attempts < 3);
 ```
 
-## Match Statement
+## Match Statement {#match-statement}
 
 The `match` statement provides pattern matching without fall-through (unlike C `switch`). Each case is independent -- no `break` required.
 
@@ -61,7 +61,7 @@ match (status_code) {
 }
 ```
 
-### Features
+### Features {#features}
 
 **Range patterns** match inclusive ranges of integers or chars, with
 either `..` or `...`:
@@ -106,7 +106,7 @@ match (value) {
 
 A match statement without a wildcard/`default` arm only warns if non-exhaustive (`match statement may not be exhaustive`) — it doesn't error, since falling through with no value produced is harmless in statement position.
 
-### Matching Nullable References and Optionals
+### Matching Nullable References and Optionals {#matching-nullable-references-and-optionals}
 
 `match` also destructures pointers (`T*`), nullable references (`?&region T`), and optionals (`?T`) — this is the primary sanctioned way to read one of these, alongside `is_null()`/`is_none()`/`.default(fallback)` (see [Types](/reference/types#reading-a-nullable-value)); direct dereference/member-access/force-unwrap (`!`) require `unsafe`.
 
@@ -129,7 +129,7 @@ match (maybe) {
 
 Pattern names are `null`/`some(x)` for pointers and nullable references, `none`/`some(x)` for optionals — plain identifiers, not dot-prefixed (unlike tagged-union variant patterns).
 
-### Match as an Expression
+### Match as an Expression {#match-as-an-expression}
 
 `match` can also be used as an expression, producing a value from whichever arm ran. Unlike the statement form, a match **expression** must be provably exhaustive — every tagged-union variant covered (or a `default`/wildcard arm), or, for nullable/optional subjects, both `null`/`none` and `some(x)` covered — otherwise it's a compile error, since it has to produce a value on every path:
 
@@ -148,7 +148,7 @@ int describe_len(?&stack Node next) {
 }
 ```
 
-## Switch Statement
+## Switch Statement {#switch-statement}
 
 Real C fall-through dispatch, distinct from `match` above (which never
 falls through, and whose `break` passes through to an *enclosing loop*,
@@ -179,7 +179,7 @@ Unlabeled `break` exits the switch; `continue` is not consumed by a
 switch — it keeps referring to whatever loop (if any) already encloses
 it, same as real C.
 
-## Defer
+## Defer {#defer}
 
 `defer` schedules a statement to execute when the enclosing scope exits, in LIFO (last-in, first-out) order. This is ideal for resource cleanup.
 
@@ -197,7 +197,7 @@ void process_file(const &char path) {
 
 Deferred statements execute regardless of how the scope is exited -- whether by normal flow, `return`, or early exit.
 
-### Multiple Defers
+### Multiple Defers {#multiple-defers}
 
 Defers execute in reverse order of declaration:
 
@@ -210,7 +210,7 @@ void example() {
 // Output: 1, 2, 3
 ```
 
-## Try Operator
+## Try Operator {#try-operator}
 
 The `try` operator unwraps an optional value, propagating the empty case (`null`) to the caller immediately if the value is absent — equivalent to `if (x.is_none()) return null; T value = ...;` written inline:
 
@@ -226,7 +226,7 @@ The `try` operator unwraps an optional value, propagating the empty case (`null`
 
 A bare `T` returned from a `?T`-returning function implicitly wraps to "present" (`return file;` above needs no explicit wrap), and `return null;` produces the empty case — there's no separate `some(x)` constructor to call in ordinary code (`some`/`none` only appear as `match` patterns, see above).
 
-## Errdefer
+## Errdefer {#errdefer}
 
 `errdefer` is written like `defer`, but is meant to run only on a `try`-propagated failure exit rather than every exit:
 
@@ -251,7 +251,7 @@ registered `defer`, but skips `errdefer`, as the names suggest. A
 owes its work, on top of whatever error-specific cleanup (`errdefer`)
 was registered.
 
-## Labeled Break and Continue
+## Labeled Break and Continue {#labeled-break-and-continue}
 
 Labels allow breaking out of or continuing nested loops:
 
@@ -265,7 +265,7 @@ outer: for (int i = 0; i < 10; i = i + 1) {
 }
 ```
 
-## Goto and Labels
+## Goto and Labels {#goto-and-labels}
 
 For C compatibility and low-level control flow:
 
@@ -287,7 +287,7 @@ done:
 Prefer structured control flow (`match`, loops, `break`/`continue`) over `goto`. The compiler does not verify that `goto` respects region lifetimes.
 :::
 
-## If Const (Compile-Time Branching)
+## If Const (Compile-Time Branching) {#if-const-compile-time-branching}
 
 `if const` evaluates a condition at compile time and selects a branch. The dead branch is eliminated entirely and is not type-checked.
 

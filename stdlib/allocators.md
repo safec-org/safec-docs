@@ -175,7 +175,7 @@ int main() {
 }
 ```
 
-### When to use TLSF
+### When to use TLSF {#when-to-use-tlsf}
 
 - Firmware with hard real-time constraints (audio, motor control)
 - Any context where `malloc` response time must be bounded
@@ -185,7 +185,7 @@ int main() {
 
 Index sizes: `TLSF_FL_MAX` (32 first-level classes) × `TLSF_SL_COUNT` (16 second-level subdivisions).
 
-## Choosing an Allocator
+## Choosing an Allocator {#choosing-an-allocator}
 
 ```
 Per-frame scratch work?        → BumpAllocator (reset every frame)

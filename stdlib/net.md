@@ -6,7 +6,7 @@ SafeC provides a complete embedded networking stack in `std/net/`. All modules w
 #include <std/net/net.h>  // master header: pulls in all modules below
 ```
 
-## Layer Map
+## Layer Map {#layer-map}
 
 ```
 ┌─────────────────────────────────┐
@@ -24,7 +24,7 @@ SafeC provides a complete embedded networking stack in `std/net/`. All modules w
 
 ---
 
-## net-core
+## net-core {#net-core}
 
 ```c
 #include <std/net/net_core.h>
@@ -97,7 +97,7 @@ void net_mac_str(const unsigned char mac[6], &char out); // "aa:bb:cc:dd:ee:ff\0
 
 Constants: `NET_MTU` (1514, Ethernet frame without preamble/FCS), `NET_MAC_LEN` (6), `NET_IP4_LEN` (4).
 
-## ethernet
+## ethernet {#ethernet}
 
 ```c
 #include <std/net/ethernet.h>
@@ -125,7 +125,7 @@ void eth_build(&stack PacketBuf pkt, const unsigned char dst[6],
 
 ---
 
-## arp
+## arp {#arp}
 
 ```c
 #include <std/net/arp.h>
@@ -169,7 +169,7 @@ int  arp_parse_packet(&stack PacketBuf pkt, unsigned long offset,
 
 ---
 
-## ipv4
+## ipv4 {#ipv4}
 
 ```c
 #include <std/net/ipv4.h>
@@ -209,7 +209,7 @@ unsigned long  ipv4_build(&stack PacketBuf pkt, unsigned long offset,
 
 ---
 
-## ipv6
+## ipv6 {#ipv6}
 
 ```c
 #include <std/net/ipv6.h>
@@ -261,7 +261,7 @@ unsigned long ipv6_frame(&stack PacketBuf pkt,
 
 ---
 
-## udp
+## udp {#udp}
 
 ```c
 #include <std/net/udp.h>
@@ -300,7 +300,7 @@ unsigned long udp_frame(&stack PacketBuf pkt,
 
 ---
 
-## tcp
+## tcp {#tcp}
 
 ```c
 #include <std/net/tcp.h>
@@ -363,6 +363,7 @@ struct TcpConn {
 }
 
 // Parse TCP header from pkt at byte offset 'offset'.
+// 0 on success; -1 if truncated or the data offset is below 5 words or past the packet.
 int tcp_parse(&stack PacketBuf pkt, unsigned long offset, &stack TcpHdr hdr_out);
 
 unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
@@ -373,7 +374,7 @@ unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
 
 Constants: `TCP_HDR_MIN_LEN` (20); flags `TCP_FIN` (0x01), `TCP_SYN` (0x02), `TCP_RST` (0x04), `TCP_PSH` (0x08), `TCP_ACK` (0x10), `TCP_URG` (0x20); per-connection buffers `TCP_RX_BUF` and `TCP_TX_BUF` (2048 bytes each).
 
-## dns
+## dns {#dns}
 
 ```c
 #include <std/net/dns.h>
@@ -404,7 +405,7 @@ int dns_parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset,
 
 ---
 
-## dhcp
+## dhcp {#dhcp}
 
 ```c
 #include <std/net/dhcp.h>
@@ -463,7 +464,7 @@ build it, then call `iface.tx(&pkt)` yourself.
 
 Constants: ports `DHCP_SERVER_PORT` (67) / `DHCP_CLIENT_PORT` (68), `DHCP_MAGIC_COOKIE` (0x63825363); message types `DHCP_DISCOVER` (1), `DHCP_OFFER` (2), `DHCP_REQUEST` (3), `DHCP_DECLINE` (4), `DHCP_ACK` (5), `DHCP_NAK` (6), `DHCP_RELEASE` (7), `DHCP_INFORM` (8); client states `DHCP_STATE_IDLE`, `DHCP_STATE_SELECTING`, `DHCP_STATE_REQUESTING`, `DHCP_STATE_BOUND`.
 
-## End-to-End Example
+## End-to-End Example {#end-to-end-example}
 
 `udp_frame` builds the Ethernet + IPv4 + UDP headers into a `PacketBuf` and
 returns the byte offset where the payload belongs (it also pre-sets

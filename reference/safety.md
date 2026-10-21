@@ -2,7 +2,7 @@
 
 SafeC enforces memory safety at compile time through several interlocking analyses. These checks catch common C bugs -- use-after-free, buffer overflows, null dereferences, aliasing violations -- before the program ever runs.
 
-## Definite Initialization
+## Definite Initialization {#definite-initialization}
 
 Every variable must be assigned before it is used. The compiler performs def-use analysis to enforce this:
 
@@ -26,11 +26,11 @@ p.y = 2.0;
 double len = p.x * p.x + p.y * p.y;  // OK
 ```
 
-## Region Escape Analysis
+## Region Escape Analysis {#region-escape-analysis}
 
 The compiler tracks the region of every reference and ensures it cannot outlive its region:
 
-### Stack References Cannot Escape
+### Stack References Cannot Escape {#stack-references-cannot-escape}
 
 ```c
 &stack int bad() {
@@ -39,7 +39,7 @@ The compiler tracks the region of every reference and ensures it cannot outlive 
 }
 ```
 
-### References Cannot Escape to Longer-Lived Storage
+### References Cannot Escape to Longer-Lived Storage {#references-cannot-escape-to-longer-lived-storage}
 
 ```c
 static &stack int global_ref;
@@ -50,7 +50,7 @@ void bad() {
 }
 ```
 
-### Arena References Die on Reset
+### Arena References Die on Reset {#arena-references-die-on-reset}
 
 `arena_reset<R>()`/`arena_destroy<R>()` invalidate *every* outstanding
 reference into `R`, since the memory may be handed out again by a later
@@ -99,7 +99,7 @@ references freed with `std::dealloc(p)` — see
 for the heap-specific scope (intra-procedural, keyed to one variable's
 own declaration).
 
-### Scope Depth Tracking
+### Scope Depth Tracking {#scope-depth-tracking}
 
 The compiler assigns a `declScopeDepth` to each region and reference. An inner reference cannot be stored in an outer scope:
 
@@ -111,11 +111,11 @@ The compiler assigns a `declScopeDepth` to each region and reference. An inner r
 }
 ```
 
-## Aliasing Rules (Borrow Checker)
+## Aliasing Rules (Borrow Checker) {#aliasing-rules-borrow-checker}
 
 SafeC enforces the principle: **either one mutable reference, or any number of immutable references, but never both simultaneously.**
 
-### Single Mutable Reference
+### Single Mutable Reference {#single-mutable-reference}
 
 ```c
 int x = 42;
@@ -123,7 +123,7 @@ int x = 42;
 &stack int b = &x;             // ERROR: x is already mutably borrowed
 ```
 
-### Multiple Immutable References
+### Multiple Immutable References {#multiple-immutable-references}
 
 ```c
 int x = 42;
@@ -142,7 +142,7 @@ misparse upstream of it. Always write `const` *after* the region qualifier
 (`&stack const int`, as above) to get the immutable borrow you intended.
 :::
 
-### Mutable + Immutable Conflict
+### Mutable + Immutable Conflict {#mutable-immutable-conflict}
 
 ```c
 int x = 42;
@@ -163,7 +163,7 @@ aliasing; see [Concurrency](/reference/concurrency) for how the same
 guarantee extends (and where it stops) across `spawn` and `unsafe`.
 :::
 
-### Scope-Based Tracking
+### Scope-Based Tracking {#scope-based-tracking}
 
 Borrows are tracked per scope. When a scope exits, its borrows are released:
 
@@ -175,7 +175,7 @@ int x = 42;
 &stack int b = &x;             // OK: no conflicting borrow
 ```
 
-## Nullability Enforcement
+## Nullability Enforcement {#nullability-enforcement}
 
 Plain references are non-null by default. Nullable references must use the `?&` prefix — with a region (`?&stack Node`) or without one (`?&Node`, an "outliving reference" with no tracked region at all; see [Memory & Regions](/reference/memory)) — and — unlike languages with flow-sensitive null narrowing — a bare `!= null` comparison does **not** make a later dereference safe: the compiler performs no flow analysis linking the check to the access. Reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block:
 
@@ -202,11 +202,11 @@ void demo_default(?&stack Node next) {
 }
 ```
 
-## Bounds Safety
+## Bounds Safety {#bounds-safety}
 
 The compiler inserts bounds checks for array and slice accesses.
 
-### Static Bounds Checking
+### Static Bounds Checking {#static-bounds-checking}
 
 When the index is a compile-time constant, the check happens at compile time:
 
@@ -216,7 +216,7 @@ int x = arr[10];               // ERROR: index 10 out of bounds for
                                //        array of size 5
 ```
 
-### Runtime Bounds Checking
+### Runtime Bounds Checking {#runtime-bounds-checking}
 
 When the index is dynamic, the compiler inserts a runtime check that aborts the program on out-of-bounds access:
 
@@ -226,7 +226,7 @@ int i = get_index();
 int x = arr[i];                // runtime check: if (i >= 5) abort();
 ```
 
-### Slice Bounds Checking
+### Slice Bounds Checking {#slice-bounds-checking}
 
 Slice accesses are always bounds-checked against the slice length:
 
@@ -318,7 +318,7 @@ Union members and `volatile` accesses are exempt. Code that does type-pun throug
 
 Reference parameters are not marked `noalias`. The borrow checker stops two arguments from aliasing, but a function can still reach the same object another way, for example through a global it writes directly, so that promise can't be made.
 
-## The Unsafe Boundary
+## The Unsafe Boundary {#the-unsafe-boundary}
 
 When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing them. Inside an `unsafe` block:
 
@@ -337,20 +337,20 @@ unsafe {
 }
 ```
 
-### Unsafe Rules
+### Unsafe Rules {#unsafe-rules}
 
 1. **Unsafe blocks are explicit** -- the programmer opts in to danger
 2. **Unsafe does not propagate** -- calling a safe function from unsafe context does not make the callee unsafe
 3. **Minimize unsafe surface area** -- keep unsafe blocks as small as possible
 
-### Common Unsafe Uses
+### Common Unsafe Uses {#common-unsafe-uses}
 
 - FFI calls with non-static region references
 - Raw pointer manipulation from C APIs
 - Performance-critical inner loops where bounds checks are measurably costly
 - Hardware register access in bare-metal code
 
-## Summary of Safety Guarantees
+## Summary of Safety Guarantees {#summary-of-safety-guarantees}
 
 By mechanism:
 

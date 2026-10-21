@@ -6,9 +6,9 @@ The `atomic` module provides lock-free atomic operations on shared integers, wra
 #include <std/atomic.h>
 ```
 
-## atomic_int (32-bit signed)
+## atomic_int (32-bit signed) {#atomic_int-32-bit-signed}
 
-### Load / Store
+### Load / Store {#load-store}
 
 ```c
 int  atomic_load_int(const &int addr);
@@ -17,7 +17,7 @@ void atomic_store_int(&int addr, int val);
 
 Atomically read or write `*addr`.
 
-### Fetch-and-Modify
+### Fetch-and-Modify {#fetch-and-modify}
 
 ```c
 int atomic_fetch_add_int(&int addr, int delta);
@@ -29,7 +29,7 @@ int atomic_fetch_xor_int(&int addr, int mask);
 
 Each atomically applies the operation and returns the **old** value.
 
-### Exchange
+### Exchange {#exchange}
 
 ```c
 int atomic_exchange_int(&int addr, int val);
@@ -37,7 +37,7 @@ int atomic_exchange_int(&int addr, int val);
 
 Atomically replace `*addr` with `val` and return the old value.
 
-### Compare-and-Swap (CAS)
+### Compare-and-Swap (CAS) {#compare-and-swap-cas}
 
 ```c
 int atomic_cas_int(&int addr, &int expected, int desired);
@@ -45,7 +45,7 @@ int atomic_cas_int(&int addr, &int expected, int desired);
 
 If `*addr == *expected`, atomically store `desired` into `*addr` and return 1 (success). Otherwise, update `*expected` to the current value of `*addr` and return 0 (failure).
 
-## atomic_long (64-bit signed)
+## atomic_long (64-bit signed) {#atomic_long-64-bit-signed}
 
 ```c
 long long  atomic_load_ll(const &long long addr);
@@ -58,7 +58,7 @@ int        atomic_cas_ll(&long long addr, &long long expected, long long desired
 
 Same semantics as the `_int` variants, operating on `long long` (64-bit) values.
 
-## Memory Fence
+## Memory Fence {#memory-fence}
 
 ```c
 void atomic_thread_fence();
@@ -66,7 +66,7 @@ void atomic_thread_fence();
 
 Issue a full sequential-consistency memory fence. This ensures that all memory operations before the fence are visible to all threads before any memory operations after the fence.
 
-## Example: Lock-Free Counter
+## Example: Lock-Free Counter {#example-lock-free-counter}
 
 ```c
 #include <std/atomic.h>
@@ -99,7 +99,7 @@ int main() {
 }
 ```
 
-## Example: Compare-and-Swap Loop
+## Example: Compare-and-Swap Loop {#example-compare-and-swap-loop}
 
 ```c
 #include <std/atomic.h>
@@ -128,6 +128,6 @@ int main() {
 }
 ```
 
-## Safety Note
+## Safety Note {#safety-note}
 
 The atomic operations themselves are memory-safe. However, storing results into raw pointers received from C FFI requires `unsafe {}` at the call site, as per SafeC's FFI policy.

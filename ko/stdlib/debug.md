@@ -62,7 +62,7 @@ PerfCounter perf_counter_init();
 
 ```c
 unsigned long long perf_read_cycle();   // raw cycle counter for this arch
-unsigned long long perf_read_ns();      // nanoseconds; 0 on freestanding without a known frequency
+unsigned long long perf_read_ns();      // hosted: time_mono_ns(); 0 on freestanding
 ```
 
 `PERF_BEGIN(ctr)` / `PERF_END(ctr)`는 [호환 전처리기 모드](/ko/reference/preprocessor)에서 `ctr.start()` / `ctr.stop()`을 감쌉니다.

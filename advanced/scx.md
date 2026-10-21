@@ -14,7 +14,7 @@ produces an HTML **string** (`struct String`), not a virtual DOM — good fit
 for server-side rendering (build a page, hand it to `std::http_serve` as a
 response body), not for client-side reactivity or diffed re-rendering.
 
-## Syntax
+## Syntax {#syntax}
 
 Markup may appear in exactly one place: as the entire operand of a `return`
 statement.
@@ -54,7 +54,7 @@ does no type-checking of its own (it runs as a text-level pass, before
 Sema ever runs), so a type mismatch surfaces as an ordinary `safec` compile
 error on the generated code, pointing at the synthesized call site.
 
-## Why only `return <markup>;`
+## Why only `return <markup>;` {#why-only-return-markup}
 
 Real JSX/TSX integrate markup into the host language's full expression
 grammar (assignable to a variable, passed as an argument, used in a
@@ -73,7 +73,7 @@ already in scope — no hoisting, no capture analysis, no new grammar in
 that returns markup* — write `render_x(...)` returning `struct String`,
 and call it like any other function.
 
-## Composing pages
+## Composing pages {#composing-pages}
 
 Because a component is just a function, composition means calling one
 function from another — render the child first, then splice its already-
@@ -100,7 +100,7 @@ templating engine without a virtual DOM has to compose: build inner content
 first, then splice, rather than a framework diffing a nested element tree
 for you.
 
-## Runtime
+## Runtime {#runtime}
 
 Generated code calls into a small runtime under `std/scx/scx.h`:
 
@@ -129,7 +129,7 @@ unsafe {
 return __scx0;
 ```
 
-## Editor Support
+## Editor Support {#editor-support}
 
 `sc-lsp` (see [Compiler Architecture](/advanced/compiler)'s tooling section
 and `sc-language-server`'s README) understands `.scx` directly — open one
@@ -148,7 +148,7 @@ the code it expands to. Malformed markup itself (a mismatched closing tag,
 an unterminated `{`) is reported the same way, at the exact line the
 transpiler caught it.
 
-## Feature-gating a frontend
+## Feature-gating a frontend {#feature-gating-a-frontend}
 
 `.scx` files are ordinary project sources — `safeguard` compiles every one
 it finds under `src/` regardless of [feature flags](/advanced/safeguard#feature-flags),

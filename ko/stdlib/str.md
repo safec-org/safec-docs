@@ -178,8 +178,8 @@ const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ?&heap char str_ndup(const &char s, unsigned long n);
 ```
 
-`s`의 처음 `n`바이트에 대한 힙에 할당된 복사본을 NUL로 종료하여
-반환합니다.
+`s`의 처음 최대 `n`바이트를 힙에 복사하고 NUL로 종료하여 반환합니다.
+`s`가 그보다 먼저 끝나면 더 적게 복사합니다(종료 문자 너머는 읽지 않습니다).
 
 ## 예제 {#example}
 

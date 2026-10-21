@@ -6,7 +6,7 @@ title: Introduction
 
 SafeC is a deterministic, region-aware, compile-time-first systems programming language. It is an evolution of C that preserves full C ABI compatibility while enforcing memory safety, type safety, and real-time determinism — all at compile time, with zero runtime overhead.
 
-## Why SafeC?
+## Why SafeC? {#why-safec}
 
 C remains the foundation of systems programming: operating systems, embedded firmware, audio engines, network stacks. But C's lack of memory safety is a persistent source of bugs, vulnerabilities, and undefined behavior.
 
@@ -31,26 +31,26 @@ int main() {
 
 If you know C, you already know most of SafeC. The additions are explicit, visible, and predictable.
 
-## Core Identity
+## Core Identity {#core-identity}
 
 SafeC is defined by five non-negotiable principles:
 
-### 1. Determinism
+### 1. Determinism {#_1-determinism}
 The same input always produces the same output. No hidden runtime variance, no non-deterministic behavior. This makes SafeC suitable for real-time systems, audio processing, embedded firmware, and any domain where predictability is not optional.
 
-### 2. Zero Hidden Cost
+### 2. Zero Hidden Cost {#_2-zero-hidden-cost}
 Every operation has a visible, predictable cost. There are no implicit heap allocations, no implicit copies, no background garbage collection, no implicit destructor chains. What you write is what executes.
 
-### 3. Explicit Control
+### 3. Explicit Control {#_3-explicit-control}
 No implicit memory management, no implicit type conversions, no implicit error handling. The programmer controls allocation, lifetime, and error propagation explicitly. The compiler verifies correctness.
 
-### 4. C ABI Compatibility
+### 4. C ABI Compatibility {#_4-c-abi-compatibility}
 SafeC uses C struct layout, C calling conventions, and C linkage by default. SafeC objects link directly into C projects. C headers can be included natively with `#include <stdio.h>`.
 
-### 5. Compile-Time-First Design
+### 5. Compile-Time-First Design {#_5-compile-time-first-design}
 Anything knowable at compile time is resolved at compile time. `consteval` functions execute during compilation. `static_assert` catches errors before any code runs. `if const` selects branches at compile time. Generics are monomorphized — no runtime dispatch.
 
-## The Determinism Contract
+## The Determinism Contract {#the-determinism-contract}
 
 SafeC guarantees the absence of hidden runtime behavior:
 
@@ -61,7 +61,7 @@ SafeC guarantees the absence of hidden runtime behavior:
 - **No background GC** — memory is managed through regions and explicit deallocation
 - **No implicit destructor calls** — resource cleanup is explicit (`defer`, manual free)
 
-## What SafeC Adds to C
+## What SafeC Adds to C {#what-safec-adds-to-c}
 
 SafeC extends C with safety and modern features while preserving C's execution model:
 
@@ -82,7 +82,7 @@ SafeC extends C with safety and modern features while preserving C's execution m
 | **Concurrency** | `spawn`/`join`, typed channels |
 | **Bare-metal support** | `naked`, `interrupt`, `asm`, `--freestanding` |
 
-## What SafeC Does NOT Add
+## What SafeC Does NOT Add {#what-safec-does-not-add}
 
 Equally important is what SafeC deliberately omits:
 
@@ -94,7 +94,7 @@ Equally important is what SafeC deliberately omits:
 - No standard runtime requirement
 - No class hierarchies or inheritance
 
-## Project Components
+## Project Components {#project-components}
 
 The SafeC project consists of three main components:
 
@@ -104,7 +104,7 @@ The SafeC project consists of three main components:
 
 **Package Manager (`safeguard`)** — A build tool and dependency manager. Handles compilation, linking, dependency fetching, and standard library integration.
 
-## File Extension
+## File Extension {#file-extension}
 
 SafeC source files use the `.sc` extension:
 
@@ -114,7 +114,7 @@ math_utils.sc
 audio_engine.sc
 ```
 
-## Next Steps
+## Next Steps {#next-steps}
 
 - [Getting Started](/guide/getting-started) — Install the compiler and write your first program
 - [Design Philosophy](/guide/design) — Understand the principles behind SafeC's decisions

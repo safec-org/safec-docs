@@ -12,7 +12,7 @@ The signal paths also come in single precision (`float`), described in [Single p
 
 ---
 
-## Single precision (`float`)
+## Single precision (`float`) {#single-precision-float}
 
 The FFT, filters, convolution, windows, STFT, resampling, DCT/DFT and imaging also take `float` data. These functions have an `_f32` suffix, and the types a `32` suffix (`Complex32`, `FirFilter32`, `Biquad32`). Each one has the same contract as its `double` version. Float halves the memory traffic and fits twice as many values in each vector register. It keeps about 7 significant digits (relative error around 1e-6) instead of about 16.
 
@@ -84,7 +84,7 @@ The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `do
 
 ---
 
-## fixed — Q8.24 Fixed-Point Arithmetic
+## fixed — Q8.24 Fixed-Point Arithmetic {#fixed-q824-fixed-point-arithmetic}
 
 ```c
 #include <std/dsp/fixed.h>
@@ -92,7 +92,7 @@ The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `do
 
 `Fixed` is a **Q8.24** fixed-point type: 8 integer bits, 24 fractional bits, stored as a 32-bit signed int (matches 24-bit audio sample depth for sub-sample precision). It's a `newtype` over `int`, so the compiler treats it as a distinct type while using the same bit representation.
 
-### Constants
+### Constants {#constants}
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -100,7 +100,7 @@ The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `do
 | `FIXED_HALF` | 8388608 | 0.5 |
 | `FIXED_PI` | 52707178 | ≈ π |
 
-### Conversion
+### Conversion {#conversion}
 
 ```c
 Fixed  fixed_from_int(int x);       // x << 24
@@ -109,7 +109,7 @@ int    fixed_to_int(Fixed x);       // x >> 24 (arithmetic, rounds toward -inf)
 double fixed_to_float(Fixed x);     // x / 16777216.0
 ```
 
-### Arithmetic
+### Arithmetic {#arithmetic}
 
 ```c
 Fixed fixed_add(Fixed a, Fixed b);
@@ -121,7 +121,7 @@ Fixed fixed_neg(Fixed x);
 Fixed fixed_sqrt(Fixed x);           // Newton-Raphson, 4 iterations; x must be >= 0
 ```
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/dsp/fixed.h>
@@ -143,7 +143,7 @@ int main() {
 
 ---
 
-## dsp — Array Primitives
+## dsp — Array Primitives {#dsp-array-primitives}
 
 ```c
 #include <std/dsp/dsp.h>
@@ -152,11 +152,11 @@ int main() {
 Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed` arrays (passed as `&Fixed` to the first element) with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
 
 ```c
-Fixed dsp_dot(&stack Fixed a, &stack Fixed b, unsigned long n);           // sum of a[i]*b[i]
+Fixed dsp_dot(const &Fixed a, const &Fixed b, unsigned long n);           // sum of a[i]*b[i]
 void  dsp_scale(&stack Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
-void  dsp_add(&stack Fixed a, &stack Fixed b, &stack Fixed out, unsigned long n); // out[i] = a[i]+b[i]
+void  dsp_add(const &Fixed a, const &Fixed b, &Fixed out, unsigned long n); // out[i] = a[i]+b[i]
 void  dsp_clip(&stack Fixed a, Fixed lo, Fixed hi, unsigned long n);      // clamp to [lo, hi]
-Fixed dsp_peak(&stack Fixed a, unsigned long n);                          // max |a[i]|
+Fixed dsp_peak(const &Fixed a, unsigned long n);                          // max |a[i]|
 Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
 
 // SIMD FMA-accelerated dot product of two *double* arrays (see simd.h) —
@@ -180,7 +180,7 @@ void dsp_sliding_dot_f32(const &float a, const &float x, &float out, unsigned lo
 
 ---
 
-## complex_dsp — Complex Numbers
+## complex_dsp — Complex Numbers {#complex_dsp-complex-numbers}
 
 ```c
 #include <std/dsp/complex_dsp.h>
@@ -221,7 +221,7 @@ Complex  fcomplex_to_float(FComplex c);
 
 ---
 
-## dft — Discrete Fourier Transform (direct, O(n²))
+## dft — Discrete Fourier Transform (direct, O(n²)) {#dft-discrete-fourier-transform-direct-on}
 
 ```c
 #include <std/dsp/dft.h>
@@ -239,7 +239,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 inver
 
 ---
 
-## fft — Fast Fourier Transform (radix-2 Cooley-Tukey)
+## fft — Fast Fourier Transform (radix-2 Cooley-Tukey) {#fft-fast-fourier-transform-radix-2-cooley-tukey}
 
 ```c
 #include <std/dsp/fft.h>
@@ -285,7 +285,7 @@ int ffft(&FComplex data, unsigned long n);                    // Q8.24 forward
 int fifft(&FComplex data, unsigned long n);                   // Q8.24 inverse
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/dsp/fft.h>
@@ -306,7 +306,7 @@ int main() {
 
 ---
 
-## convolution — Linear Convolution
+## convolution — Linear Convolution {#convolution-linear-convolution}
 
 ```c
 #include <std/dsp/convolution.h>
@@ -335,7 +335,7 @@ void conv_fft(const &double x, unsigned long len_x,
 
 ---
 
-## window — Window Functions
+## window — Window Functions {#window-window-functions}
 
 ```c
 #include <std/dsp/window.h>
@@ -353,7 +353,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 
 ---
 
-## filter — General Streaming FIR / IIR
+## filter — General Streaming FIR / IIR {#filter-general-streaming-fir-iir}
 
 ```c
 #include <std/dsp/filter.h>
@@ -396,7 +396,7 @@ void iir_process_block(&IirFilter f, const &double in, &double out, unsigned lon
 
 `struct FFirFilter`/`ffir_init`/`ffir_process_block` and `struct FIirFilter`/`fiir_init`/`fiir_process_block` are the Q8.24 counterparts, same shape with `&Fixed` in place of `&double`.
 
-### Example — 3-tap moving average
+### Example — 3-tap moving average {#example-3-tap-moving-average}
 
 ```c
 #include <std/dsp/filter.h>
@@ -418,7 +418,7 @@ int main() {
 
 ---
 
-## biquad — 2nd-Order IIR Sections + RBJ Cookbook
+## biquad — 2nd-Order IIR Sections + RBJ Cookbook {#biquad-2nd-order-iir-sections-rbj-cookbook}
 
 ```c
 #include <std/dsp/biquad.h>
@@ -466,8 +466,8 @@ struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
 
 // Z-domain frequency response at freqHz: magnitude (linear) and phase (radians).
-double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
+double biquad_response_mag(const &stack Biquad bq, double fs, double freqHz);
+double biquad_response_phase(const &stack Biquad bq, double fs, double freqHz);
 
 struct FBiquad {   // Q8.24 counterpart
     Fixed b0, b1, b2, a1, a2, z1, z2;
@@ -477,7 +477,7 @@ struct FBiquad {   // Q8.24 counterpart
 struct FBiquad biquad_to_fixed(struct Biquad bq);   // quantize a designed-in-double biquad once
 ```
 
-### Example
+### Example {#example-2}
 
 ```c
 #include <std/dsp/biquad.h>
@@ -500,7 +500,7 @@ int main() {
 
 ---
 
-## dct — Discrete Cosine Transform (DCT-II / DCT-III)
+## dct — Discrete Cosine Transform (DCT-II / DCT-III) {#dct-discrete-cosine-transform-dct-ii-dct-iii}
 
 ```c
 #include <std/dsp/dct.h>
@@ -517,7 +517,7 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 inverse
 
 ---
 
-## stft — Short-Time Fourier Transform + Multi-Resolution STFT Loss
+## stft — Short-Time Fourier Transform + Multi-Resolution STFT Loss {#stft-short-time-fourier-transform-multi-resolution-stft-loss}
 
 ```c
 #include <std/dsp/stft.h>
@@ -556,7 +556,7 @@ Lower is more similar; `0` for identical signals.
 
 ---
 
-## resample — Upsampling / Downsampling
+## resample — Upsampling / Downsampling {#resample-upsampling-downsampling}
 
 ```c
 #include <std/dsp/resample.h>
@@ -588,7 +588,7 @@ void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned
 
 ---
 
-## ztransform — General N-th Order Bilinear Transform
+## ztransform — General N-th Order Bilinear Transform {#ztransform-general-n-th-order-bilinear-transform}
 
 ```c
 #include <std/dsp/ztransform.h>
@@ -611,7 +611,7 @@ double ztransform_response_phase(const &double b, const &double a, unsigned long
 
 ---
 
-## comb — Comb Filters + Karplus-Strong String Synthesis
+## comb — Comb Filters + Karplus-Strong String Synthesis {#comb-comb-filters-karplus-strong-string-synthesis}
 
 ```c
 #include <std/dsp/comb.h>
@@ -650,7 +650,7 @@ struct KarplusStrong ks_init(&double buffer, unsigned long length, double dampin
 
 `struct FCombFF`/`FCombFB`/`FKarplusStrong` plus `comb_ff_init_fixed`/`comb_fb_init_fixed`/`ks_init_fixed` are the Q8.24 counterparts.
 
-### Example — plucked string
+### Example — plucked string {#example-plucked-string}
 
 ```c
 #include <std/dsp/comb.h>
@@ -672,7 +672,7 @@ int main() {
 
 ---
 
-## minphase — Minimum-Phase Reconstruction
+## minphase — Minimum-Phase Reconstruction {#minphase-minimum-phase-reconstruction}
 
 ```c
 #include <std/dsp/minphase.h>
@@ -691,7 +691,7 @@ void minimum_phase(const &double x, unsigned long n, unsigned long fftLen, &doub
 
 ---
 
-## cqt — Constant-Q Transform
+## cqt — Constant-Q Transform {#cqt-constant-q-transform}
 
 ```c
 #include <std/dsp/cqt.h>
@@ -711,7 +711,7 @@ void cqt_forward(const &double signal, unsigned long signalLen, double fs,
 
 ---
 
-## cwt — Continuous Wavelet Transform (Morlet)
+## cwt — Continuous Wavelet Transform (Morlet) {#cwt-continuous-wavelet-transform-morlet}
 
 ```c
 #include <std/dsp/cwt.h>
@@ -730,7 +730,7 @@ void cwt_morlet(const &double signal, unsigned long signalLen,
 
 ---
 
-## imaging — 2D DSP
+## imaging — 2D DSP {#imaging-2d-dsp}
 
 ```c
 #include <std/dsp/imaging.h>
@@ -754,7 +754,7 @@ void sobel_y_kernel(&double kernel);
 
 ---
 
-## AudioBuffer — Lock-Free Multi-Channel Ring Buffer
+## AudioBuffer — Lock-Free Multi-Channel Ring Buffer {#audiobuffer-lock-free-multi-channel-ring-buffer}
 
 ```c
 #include <std/dsp/audio_buffer.h>
@@ -762,7 +762,7 @@ void sobel_y_kernel(&double kernel);
 
 A single-producer / single-consumer ring of interleaved multi-channel Q8.24 (`Fixed`) frames, stored inline — no heap. Capacity is `AUDIO_BUF_FRAMES` (512) frames of up to `AUDIO_MAX_CHANNELS` (8) channels, so the struct is large (16 KB); keep it in static storage on small targets.
 
-### Struct
+### Struct {#struct}
 
 ```c
 struct AudioBuffer {
@@ -786,7 +786,7 @@ struct AudioBuffer {
 struct AudioBuffer audio_buf_init(unsigned long channels);
 ```
 
-### Example — producer / consumer
+### Example — producer / consumer {#example-producer-consumer}
 
 ```c
 #include <std/dsp/audio_buffer.h>
@@ -822,7 +822,7 @@ int main() {
 
 ---
 
-## TimerWheel — O(1) Real-Time Timer
+## TimerWheel — O(1) Real-Time Timer {#timerwheel-o1-real-time-timer}
 
 ```c
 #include <std/dsp/timer_wheel.h>
@@ -830,7 +830,7 @@ int main() {
 
 A timer scheduler with up to `WHEEL_TIMERS` (64) concurrent timers. `tick()` advances the clock by one and fires every timer due at the new tick. One wheel is multi-tenant — unrelated subsystems share it with different context types — so each slot stores its callback type-erased; the generic `timer_add`/`timer_add_periodic` entry points take a matching `fn void(?&T)` / `?&T` pair, so the call is always well-typed.
 
-### API
+### API {#api}
 
 ```c
 #define WHEEL_SLOTS   256
@@ -854,7 +854,7 @@ generic<T> int timer_add(&TimerWheel tw, unsigned long tick, fn void(?&T) cb, ?&
 generic<T> int timer_add_periodic(&TimerWheel tw, unsigned long period, fn void(?&T) cb, ?&T ctx);
 ```
 
-### Example
+### Example {#example-3}
 
 ```c
 #include <std/dsp/timer_wheel.h>

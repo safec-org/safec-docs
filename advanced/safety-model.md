@@ -2,9 +2,9 @@
 
 SafeC's safety guarantees are not aspirational — they are formalized as a type system with syntactic type safety (progress + preservation), drawing on prior work from Oxide (Weiss et al.) and Cyclone (Grossman et al.).
 
-## Seven Safety Properties
+## Seven Safety Properties {#seven-safety-properties}
 
-### 1. Spatial Safety
+### 1. Spatial Safety {#_1-spatial-safety}
 
 No out-of-bounds memory access. Array subscripts are bounds-checked at compile time for constant indices and at runtime for dynamic indices.
 
@@ -18,7 +18,7 @@ arr[i] = 1;        // runtime bounds check inserted (abort on violation)
 
 Runtime bounds checks can be suppressed inside `unsafe {}` blocks.
 
-### 2. Temporal Safety
+### 2. Temporal Safety {#_2-temporal-safety}
 
 No use-after-free: region annotations tie reference lifetimes to allocation scopes. A reference to stack memory cannot escape the function, a reference into an arena is invalidated by `arena_reset<R>()`/`arena_destroy<R>()`/`arena_free_to<R>()`, and a `&heap T` reference is invalidated by `std::dealloc()` — all three are checked at compile time, not just at runtime.
 
@@ -67,7 +67,7 @@ for the exact scope). `unsafe {}` remains the escape hatch for cases the
 checker can't (yet) prove safe on its own.
 :::
 
-### 3. Aliasing Safety
+### 3. Aliasing Safety {#_3-aliasing-safety}
 
 Mutable references are exclusive. The borrow checker enforces that at any point in the program, a value has either one mutable reference or any number of immutable references, but never both simultaneously.
 
@@ -84,7 +84,7 @@ but silently misparses as a mutable borrow — a known parser bug (see
 `const` *after* the region qualifier (`&stack const int`, as above).
 :::
 
-### 4. Region Escape Safety
+### 4. Region Escape Safety {#_4-region-escape-safety}
 
 References cannot outlive the region they point into. The compiler tracks region scope depth and rejects any assignment or return that would move a reference to a shallower scope.
 
@@ -99,19 +99,19 @@ void demo() {
 }
 ```
 
-### 5. Data Race Freedom
+### 5. Data Race Freedom {#_5-data-race-freedom}
 
 Threads spawned with `spawn()` operate on isolated data. The type system prevents sharing mutable state across thread boundaries without explicit synchronization.
 
-### 6. Null Safety
+### 6. Null Safety {#_6-null-safety}
 
 References are non-null by default. There is no null reference in safe SafeC code. Nullable references use the `?&T` syntax; unlike languages with flow-sensitive null narrowing, a bare `!= null` comparison does not by itself make a later dereference safe — reading a nullable reference is only sanctioned through `match`, `.is_null()`, `.default(fallback)`, or an explicit `unsafe` block (see [Safety](/reference/safety#nullability-enforcement)).
 
-### 7. Determinism
+### 7. Determinism {#_7-determinism}
 
 No hidden runtime costs. SafeC does not insert garbage collection, reference counting, or implicit heap allocations. Every allocation is explicit in the source code. The performance model is transparent — what you write is what runs.
 
-## Memory Safety Compared to C, C++, Rust, and Zig
+## Memory Safety Compared to C, C++, Rust, and Zig {#memory-safety-compared-to-c-c-rust-and-zig}
 
 [Comparison](/guide/comparison) has a one-line "Memory Safety: Yes/No" summary across the same five languages; this breaks that single row out into the properties above, since "yes" and "no" hide real differences in *when* each language checks (compile time vs. runtime vs. not at all) and *how completely* (every safe-mode program vs. an opt-in build mode vs. nothing).
 
@@ -128,7 +128,7 @@ No hidden runtime costs. SafeC does not insert garbage collection, reference cou
 
 The throughline: C and C++ don't check most of these at all (undefined behavior is the "checked" state most of the time). Zig checks several of them, but as a *build-mode* choice — the same source either has the checks or doesn't, decided once for the whole binary, not per-line. Rust and SafeC both check at compile time by default and require an explicit, lexically-scoped opt-out (`unsafe {}`) to turn a check off for a specific block of code — that's the property this page's own [`unsafe` escape hatch](#the-unsafe-escape-hatch) section is describing. Where Rust and SafeC differ is *how* they prove temporal safety (ownership/borrowing vs. region membership — see [Compared to Rust](/guide/comparison#compared-to-rust) for that trade-off in detail) and how complete the proof is: Rust's borrow checker is a sound, complete static proof for the patterns it accepts (it may reject valid programs, but never accepts an unsound one); SafeC's region/generation-counter checks are sound but intentionally incomplete in a few documented shapes (nested arena marks, heap aliasing beyond one hop — see the warnings throughout this page), trading some precision for a simpler, more C-compatible mental model.
 
-## Safety Analysis Phases
+## Safety Analysis Phases {#safety-analysis-phases}
 
 The compiler enforces these properties through a series of analysis passes during semantic analysis:
 
@@ -142,7 +142,7 @@ The compiler enforces these properties through a series of analysis passes durin
 
 All checks run at compile time. The only runtime insertion is bounds checks for dynamic array indices, and those are visible in the generated IR.
 
-## The `unsafe` Escape Hatch
+## The `unsafe` Escape Hatch {#the-unsafe-escape-hatch}
 
 All safety checks can be locally suppressed inside `unsafe {}` blocks:
 
@@ -155,7 +155,7 @@ unsafe {
 
 `unsafe` is lexically scoped. It does not propagate to called functions. It serves as a grep-able marker for code that requires manual auditing.
 
-## FFI Boundary Rules
+## FFI Boundary Rules {#ffi-boundary-rules}
 
 Foreign function calls (C interop) follow specific safety rules:
 
@@ -171,7 +171,7 @@ Foreign function calls (C interop) follow specific safety rules:
 
 These rules ensure that the boundary between safe SafeC code and unsafe C code is always explicit.
 
-## Formal Foundations
+## Formal Foundations {#formal-foundations}
 
 The safety model is grounded in established type theory:
 
@@ -180,7 +180,7 @@ The safety model is grounded in established type theory:
 
 SafeC adapts these formalisms to a C-compatible language with regions as the primary memory safety mechanism.
 
-### Progress and Preservation
+### Progress and Preservation {#progress-and-preservation}
 
 The type system satisfies the standard syntactic safety properties:
 

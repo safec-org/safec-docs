@@ -2,13 +2,13 @@
 
 The `io` module provides formatted output to stdout/stderr, stdin input, and buffer formatting. The `io_file` module provides FILE\*-based file I/O. Both are included via `io.h` and `io_file.h` respectively.
 
-## io -- Console I/O
+## io -- Console I/O {#io-console-io}
 
 ```c
 #include <std/io.h>
 ```
 
-### Constants
+### Constants {#constants}
 
 ```c
 #define SC_SEEK_SET  0
@@ -17,7 +17,7 @@ The `io` module provides formatted output to stdout/stderr, stdin input, and buf
 #define SC_EOF       (-1)
 ```
 
-### Formatted Output (stdout)
+### Formatted Output (stdout) {#formatted-output-stdout}
 
 ```c
 void print(const &char s);                // print string
@@ -35,7 +35,7 @@ void println_float(double v);           // print float + newline
 void println_char(int c);               // print char + newline
 ```
 
-### Formatted Output (stderr)
+### Formatted Output (stderr) {#formatted-output-stderr}
 
 ```c
 void eprint(const &char s);
@@ -44,7 +44,7 @@ void eprint_int(long long v);
 void eprint_float(double v);
 ```
 
-### Buffer Formatting
+### Buffer Formatting {#buffer-formatting}
 
 All return the number of characters written (excluding NUL), or -1 on error.
 
@@ -57,23 +57,23 @@ int io_fmt_hex(&char buf, int n, unsigned long long v);
 int io_fmt_str(&char buf, int n, const &char s);
 ```
 
-### Input (stdin)
+### Input (stdin) {#input-stdin}
 
 ```c
 int  io_getchar();                        // read single char; returns SC_EOF on end
 int  io_ungetc(int c);                    // push char back onto stdin
 int  io_read_line(&char buf, int n);      // read line (up to n-1 chars + NUL)
 int  io_read_token(&char buf, int n);     // read whitespace-delimited token
-int  io_scan_int(&long long out);         // parse decimal int from stdin
-int  io_scan_uint(&unsigned long long out); // parse unsigned int from stdin
-int  io_scan_float(&double out);          // parse float from stdin
+int  io_scan_int(&stack long long out);           // parse decimal int from stdin
+int  io_scan_uint(&stack unsigned long long out); // parse unsigned int from stdin
+int  io_scan_float(&stack double out);            // parse float from stdin
 ```
 
 `io_read_line` returns the number of characters read (excluding NUL), or -1 on EOF/error.
 
 `io_scan_*` functions return 1 on success, 0 on error.
 
-### File System Operations
+### File System Operations {#file-system-operations}
 
 ```c
 int   io_remove(const &char path);                     // delete a file
@@ -81,7 +81,7 @@ int   io_rename(const &char old_path, const &char new_path); // rename/move
 ?&File io_tmpfile();                                    // create temporary file; null on failure
 ```
 
-### Flush
+### Flush {#flush}
 
 ```c
 void flush_stdout();
@@ -90,7 +90,7 @@ void flush_stderr();
 
 ---
 
-## io_file -- File I/O
+## io_file -- File I/O {#io_file-file-io}
 
 ```c
 #include <std/io_file.h>
@@ -98,14 +98,14 @@ void flush_stderr();
 
 Handles are `&File` references to an opaque type — the C `FILE` underneath is never exposed. `file_open` returns `?&File` (null on failure), so it must be narrowed (`match`, `std::expect_ref`) before use; every other function takes a non-null `&File`. Byte buffers are `&unsigned char` / `const &unsigned char`.
 
-### Open / Close
+### Open / Close {#open-close}
 
 ```c
 ?&File file_open(const &char path, const &char mode); // "r", "w", "a", "rb", "wb", etc.
 int   file_close(&File f);                             // returns 0 on success
 ```
 
-### Read
+### Read {#read}
 
 ```c
 unsigned long file_read(&File f, &unsigned char buf, unsigned long n);  // returns bytes read
@@ -113,7 +113,7 @@ int           file_getc(&File f);                               // returns char 
 ?&char       file_gets(&char buf, int n, &File f);             // buf, or null at EOF/error
 ```
 
-### Write
+### Write {#write}
 
 ```c
 unsigned long file_write(&File f, const &unsigned char buf, unsigned long n); // returns bytes written
@@ -121,7 +121,7 @@ int           file_putc(int c, &File f);                              // returns
 int           file_puts(const &char s, &File f);                      // returns non-negative on success
 ```
 
-### Seek / Tell
+### Seek / Tell {#seek-tell}
 
 ```c
 int       file_seek(&File f, long long offset, int whence);  // 0=SET, 1=CUR, 2=END
@@ -129,7 +129,7 @@ long long file_tell(&File f);                                  // current positi
 void      file_rewind(&File f);                                // rewind to start
 ```
 
-### Status
+### Status {#status}
 
 ```c
 int file_eof(&File f);    // non-zero if last op hit EOF
@@ -137,13 +137,13 @@ int file_error(&File f);  // non-zero if error indicator set
 int file_flush(&File f);  // flush buffered writes; 0 on success
 ```
 
-### Convenience
+### Convenience {#convenience}
 
 ```c
 long long file_size(&File f);  // file size in bytes, -1 on error
 ```
 
-## Example
+## Example {#example}
 
 ```c
 #include <std/io.h>
