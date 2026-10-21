@@ -107,7 +107,7 @@ generic<T, C> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, in
 generic<T>    void vec_sort(&Vec<T> v);              // vec_sort_by(v, Less<T>)
 ```
 
-Sorting is introsort (median-of-three quicksort, heapsort fallback, insertion sort for short runs). `sort(cmp)` calls through a function pointer; `vec_sort` / `vec_sort_by` take a compile-time [ordering](#orderings) and inline every comparison — on 1,000,000 shuffled `int`s that is about 1.9× faster than C's `qsort` (see [Benchmarks](/benchmarks#collections-stdcollections-throughput-1000000-elements)).
+Sorting is introsort (median-of-three quicksort, heapsort fallback, insertion sort for short runs). `sort(cmp)` calls through a function pointer; `vec_sort` / `vec_sort_by` take a compile-time [ordering](#orderings) and inline every comparison — on 1,000,000 shuffled `int`s that is about 1.9× faster than C's `qsort` (see [Benchmarks](/benchmarks#collections)).
 
 ```c
 #include <std/collections/vec.h>

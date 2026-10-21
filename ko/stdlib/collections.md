@@ -107,7 +107,7 @@ generic<T, C> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, in
 generic<T>    void vec_sort(&Vec<T> v);              // vec_sort_by(v, Less<T>)
 ```
 
-정렬은 인트로소트입니다(세 값의 중앙값 퀵소트, 힙소트 대체, 짧은 구간에는 삽입 정렬). `sort(cmp)`는 함수 포인터를 통해 호출하고, `vec_sort` / `vec_sort_by`는 컴파일 타임 [순서 관계](#orderings)를 받아 모든 비교를 인라인합니다 — 섞인 `int` 1,000,000개에서 C의 `qsort`보다 약 1.9배 빠릅니다([벤치마크](/ko/benchmarks#collections-stdcollections-throughput-1000000-elements) 참고).
+정렬은 인트로소트입니다(세 값의 중앙값 퀵소트, 힙소트 대체, 짧은 구간에는 삽입 정렬). `sort(cmp)`는 함수 포인터를 통해 호출하고, `vec_sort` / `vec_sort_by`는 컴파일 타임 [순서 관계](#orderings)를 받아 모든 비교를 인라인합니다 — 섞인 `int` 1,000,000개에서 C의 `qsort`보다 약 1.9배 빠릅니다([벤치마크](/ko/benchmarks#collections) 참고).
 
 ```c
 #include <std/collections/vec.h>

@@ -485,13 +485,13 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
   그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
   반올림, 16비트 GEMM, SGD)를 CPU 결과와 비교하며(검사 87개), [MIOpen과
   hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 43개).
-  [ML 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference)는
+  [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 MPS 경로와 같은 손실까지 학습한다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했다 —
   `tests/stdlib/cuda/run.sh`가 모든 연산, 네 가지 GEMM 전치 조합(ReLU 융합
   유무 모두), 그래프, 호스트 배열 API와 영구 버퍼 API, fp16/bf16 커널,
   [cuDNN·cuFFT 라이브러리](#cuda-cudnn-cufft)를 CPU 결과와 비교하고(216개 검사),
-  [ML 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference)는
+  [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 ROCm 경로와 같은 손실까지 학습한다.
 :::
 
@@ -516,7 +516,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 버퍼 | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `rocm_free` |
 | 행렬곱 | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, 어느 피연산자든 전치 가능 |
 | 원소별 | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_gelu`(tanh 근사), `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
-| 디코딩(한 번에 토큰 하나) | `rocm_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 wave 하나로, MI100에서 0.8–1.07 TB/s이며 한 행짜리 `rocm_half_gemm_f32`보다 1.04–1.8배 빠르다. `rocm_rmsnorm(x, w, y, rows, n, eps)`는 행별 RMSNorm이며 가중치는 선택, 제자리 계산 가능. [Gemma 4 E2B ROCm 엔진](/ko/benchmarks#gemma4-rocm)의 커널이다 |
+| 디코딩(한 번에 토큰 하나) | `rocm_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 wave 하나로, MI100에서 0.8–1.07 TB/s이며 한 행짜리 `rocm_half_gemm_f32`보다 1.04–1.8배 빠르다. `rocm_rmsnorm(x, w, y, rows, n, eps)`는 행별 RMSNorm이며 가중치는 선택, 제자리 계산 가능. [Gemma 4 E2B ROCm 엔진](/ko/benchmarks#ml-llm)의 커널이다 |
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
 | fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
@@ -594,7 +594,7 @@ fp32(MFMA)로 돈다. 다른 AMD GPU는 반올림 오차 범위에서 같은 결
 코어 커널을 쓰고 있는지를 돌려준다.
 
 MI100, 배치 4 × 헤드 16, fp32, 호출당 ms, 같은 GPU의 ROCm용 PyTorch 2.9.1과
-비교([전체 결과](/ko/benchmarks#mi100-attention)):
+비교([전체 결과](/ko/benchmarks#ml-attention)):
 
 | 연산 | `headDim` | 토큰 | Causal | SafeC | PyTorch |
 |---|---:|---:|:---:|---:|---:|
@@ -646,7 +646,7 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu`(tanh 근사), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
-| 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#gemma4-h200)의 커널에서 가져왔습니다 |
+| 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#ml-llm)의 커널에서 가져왔습니다 |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 | 영구 버퍼(`&void` 핸들) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, fp16/bf16용 `cuda_*_f16_*`/`cuda_*_bf16_*`(2바이트 저장, fp32 연산) |
@@ -718,7 +718,7 @@ H200에서 큐 연산은 배치 합성곱(이미지 32장: fp32에서 0.164 ms, 
 0.257 ms)과 U-Net(배치 1: 0.175 ms, PyTorch 0.206 ms, 그래프 하나로는
 0.164 ms)에서 PyTorch-CUDA보다 빠르다. 이미지 한 장짜리 합성곱 하나는
 PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친 cuFFT와
-같은 속도다. [벤치마크](/ko/benchmarks#h200-conv-fft)를 보라.
+같은 속도다. [벤치마크](/ko/benchmarks#ml-convolution)를 보라.
 
 ### CUDA의 어텐션 {#cuda-attention}
 
@@ -742,7 +742,7 @@ PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친
 | 호스트 배열 | `cuda_flash_attention_f32`, `cuda_linear_attention_f32`(업로드, 계산, 읽기) |
 | 제어 | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn`, `cuda_attention_use_decode` |
 
-H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 1.34배 빠르고 128에서 같으며(0.97–1.05배), linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠릅니다(head dim 128 fp32 non-causal에서는 PyTorch의 TF32 einsum과 같음). [벤치마크](/ko/benchmarks#h200-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`, `cuda_sm_count()`, `cuda_load_module(source, name)`이 추가되었습니다.
+H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 1.34배 빠르고 128에서 같으며(0.97–1.05배), linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠릅니다(head dim 128 fp32 non-causal에서는 PyTorch의 TF32 einsum과 같음). [벤치마크](/ko/benchmarks#ml-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`, `cuda_sm_count()`, `cuda_load_module(source, name)`이 추가되었습니다.
 
 ### ROCm의 합성곱(MIOpen)과 FFT(hipFFT) {#rocm-miopen-hipfft}
 
@@ -781,7 +781,7 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 비교해 실행합니다(MI100에서 검사 43개): 스트라이드 1과 2, 배치, ReLU, 그래프
 재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태.
 
-MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms(0.315 ms)이며, 배치 16–32에서는 2% 이내입니다. 장치 상주 FFT는 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다. [벤치마크](/ko/benchmarks#mi100-conv-fft)를 참고하세요.
+MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms(0.315 ms)이며, 배치 16–32에서는 2% 이내입니다. 장치 상주 FFT는 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다. [벤치마크](/ko/benchmarks#ml-convolution)를 참고하세요.
 
 ### 호스트 배열 API (MPS, CUDA, SPIR-V, WebGPU) {#host-array-api-mps-cuda-spir-v-webgpu}
 
@@ -878,7 +878,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 | 호스트 배열 | `mps_flash_attention_f32`, `mps_linear_attention_f32` (업로드, 계산, 읽어 오기) |
 | 버퍼 | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
-M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같으며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배(2.6–3.4 TFLOPS)이고, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#m1pro-attention)를 참고하세요.
+M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같으며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배(2.6–3.4 TFLOPS)이고, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#ml-attention)를 참고하세요.
 
 `tests/stdlib/mps/run.sh`는 `mps_attention_check`를 빌드해 모든 경로(두 flash 커널, 청크 병렬과 순차 linear 커널, 세 데이터 타입, GQA, KV 캐시 오프셋, 슬라이딩 윈도, 호스트 배열 형태)를 배정밀도 참조와 attention.h의 CPU 함수와 비교합니다: 95개 검사.
 
@@ -981,8 +981,8 @@ void tensor_gpu_release_all_persistent();
 
 | 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
 |---|---|---|---|---|
-| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#machine-learning-small-mlp-training-and-inference), [합성곱/FFT 벤치마크](/ko/benchmarks#h200-conv-fft) |
+| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
+| CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#ml-mlp), [합성곱/FFT 벤치마크](/ko/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
 | WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
 
@@ -1081,7 +1081,7 @@ void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean s
 
 `HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
 
-`half_gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#gemma4-rocm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다. AArch64에서는 NEON 커널이 가중치 8개를 32비트 레인 4개로 읽어 두 절반을 그 자리에서 넓힙니다. M1 Pro(성능 코어 8개)에서 bf16은 95–113 GB/s, fp16은 40–55 GB/s입니다. `half_gemv_batch`는 짧은 프롬프트의 프리필이나 추측 디코딩 검증을 위해 벡터 `m`개를 한 번에 계산하며, 가중치는 모든 벡터에 대해 메모리에서 한 번만 읽습니다. M1 Pro에서 bf16 24576 × 1536 가중치에 벡터 6개를 곱하는 데 1.65 ms가 걸리며, `half_gemv`를 6번 호출하면 4.35 ms입니다. 이를 사용해 M1 Pro에서 [Gemma 4 E2B](/ko/benchmarks#machine-learning-real-llm-inference-gemma-4-e2b-from-scratch) CPU 경로는 토큰당 136 ms입니다.
+`half_gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#ml-llm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다. AArch64에서는 NEON 커널이 가중치 8개를 32비트 레인 4개로 읽어 두 절반을 그 자리에서 넓힙니다. M1 Pro(성능 코어 8개)에서 bf16은 95–113 GB/s, fp16은 40–55 GB/s입니다. `half_gemv_batch`는 짧은 프롬프트의 프리필이나 추측 디코딩 검증을 위해 벡터 `m`개를 한 번에 계산하며, 가중치는 모든 벡터에 대해 메모리에서 한 번만 읽습니다. M1 Pro에서 bf16 24576 × 1536 가중치에 벡터 6개를 곱하는 데 1.65 ms가 걸리며, `half_gemv`를 6번 호출하면 4.35 ms입니다. 이를 사용해 M1 Pro에서 [Gemma 4 E2B](/ko/benchmarks#ml-llm) CPU 경로는 토큰당 136 ms입니다.
 
 bf16으로 저장하고 계산하기:
 
