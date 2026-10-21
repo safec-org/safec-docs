@@ -387,6 +387,9 @@ struct MambaState st = mamba_state_new(&m);
 #include <std/ml/cnn.h>
 ```
 
+이 레이어들은 순방향 전용이다. 합성곱 네트워크를 학습하려면 같은 연산을
+자동미분 텐서로 제공하는 [`convnet.h`](#convnet)를 쓴다.
+
 `Conv2D`(스트라이드 + 제로 패딩, 팽창/그룹 컨볼루션 없음),
 `maxpool2d_forward`/`avgpool2d_forward`, `upsample2x_nearest`(최근접
 이웃 방식의 2배 공간 업샘플링), `concat_channels`(채널 축 연결) — 모두
@@ -611,11 +614,26 @@ void    jit_block_free(&JiTBlock block);
   `ACT_SIGMOID`, `ACT_GELU`, `ACT_SILU` 중 하나를 쓴다. PyTorch `nn.Linear`처럼
   초기화하며 가중치는 `[in, out]`으로 저장한다. `mlp_copy` /
   `mlp_soft_update`는 타깃 네트워크를 동기화한다.
-- **`Optimizer`**는 파라미터 목록을 갖고 `OPT_SGD`, `OPT_MOMENTUM`,
-  `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM`, `OPT_ADAMW`(분리된 weight decay)를
-  제공한다. `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자른다.
+- **`Optimizer`**는 파라미터 목록을 갖고 다음 종류를 제공한다.
+
+  | 종류 | 갱신 |
+  |---|---|
+  | `OPT_SGD` | 기본 경사 하강. |
+  | `OPT_MOMENTUM` / `OPT_NESTEROV` | heavy-ball 또는 Nesterov 모멘텀(`momentum` 0.9). |
+  | `OPT_RMSPROP` | 제곱 그래디언트의 이동 평균(`beta2` 0.99). |
+  | `OPT_ADAGRAD` | 누적 제곱 그래디언트의 제곱근으로 학습률을 나눈다(Duchi et al. 2011). |
+  | `OPT_ADAM` | L2 weight decay를 쓰는 Adam(`beta1` 0.9, `beta2` 0.999). |
+  | `OPT_ADAMW` | 분리된 weight decay를 쓰는 Adam(`weightDecay` 0.01). |
+  | `OPT_LION` | 보간한 모멘텀의 부호로 갱신한다(Chen et al. 2023). 분리된 decay를 쓰며, 학습률은 Adam보다 3~10배 작게 준다. |
+
+  `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자른다.
   필드(`lr`, beta, `weightDecay`)가 공개되어 있어 스텝 사이에 스케줄로 바꿀 수
   있다.
+
+- **저장과 불러오기.** `tensors_save` / `tensors_load`는 텐서 목록(형상과
+  float32 값)을 파일에 쓰고, 같은 형상의 텐서에 다시 읽어 들인다.
+  `mlp_save_file` / `mlp_load_file`은 `Mlp`에 대해 같은 일을 한다. 파일이
+  없거나 맞지 않으면 아무것도 바꾸지 않고 0을 반환한다.
 
 `trainer_fit`은 모델 타입에 대해 제네릭이라 순전파와 손실이 컴파일 시간에
 결정된다. 섞인 미니배치로 에폭을 돌린다: 손실, 역전파, 선택적 클리핑, 스텝,
@@ -658,6 +676,315 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
 테스트는 모든 연산의 그래디언트를 중앙 차분과 비교한다. 옵티마이저가
 수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘는다.
 
+## 정규화: LayerNorm과 AdaLN {#norm}
+
+```c
+#include <std/ml/norm.h>
+```
+
+`[batch, dim]` 행에 대한 학습 가능한 정규화 레이어로, autograd를 지원한다.
+`activations.h`의 `tensor_layernorm_rows`는 순전파 전용 버전이다.
+
+- **`LayerNorm`**(Ba et al. 2016)은 `y = LN(x) · gamma + beta`를 계산한다.
+  `gamma`(초기값 1)와 `beta`(초기값 0)를 학습한다.
+- **`AdaLN`**은 DiT(Peebles & Xie 2023)의 적응형 LayerNorm이다. 샘플마다의
+  조건 벡터(타임스텝·클래스 임베딩 등)에 선형 변환을 적용해
+  `(shift, scale[, gate])`를 얻고, `y = LN(x) · (1 + scale) + shift`를
+  계산한다. 변환은 0에서 시작하므로(adaLN-Zero) 새 AdaLN은 일반 LayerNorm과
+  같다. `gated`를 켜면 `AdaLNOut.gate`도 0에서 시작하므로, 잔차 분기
+  `x + gate · f(y)`가 항등 함수로 시작한다.
+- **구성 연산**: `tensor_layer_norm`, `tensor_mul_row`(모든 행에 벡터를
+  곱함), 그리고 이제 미분 가능해진 `attention.h`의 `tensor_slice_cols`.
+
+```c
+struct AdaLN ad = adaln_new(dim, condDim, 1);          // 게이트 사용
+struct AdaLNOut o = adaln_forward(&ad, x, cond);       // x [m, dim], cond [m, condDim]
+&Tensor h = tensor_add(x, tensor_mul(o.gate, mlp_forward(&ffn, o.out)));
+adaln_add_params(&opt, &ad);
+```
+
+테스트는 두 레이어의 그래디언트를 유한 차분과 비교하고, 새 AdaLN이
+LayerNorm과 같은지 확인한다. 또 일반 LayerNorm으로는 표현할 수 없는 클래스별
+아핀 변환을 AdaLN이 학습해, 손실을 0.5 초과에서 0.001 미만으로 낮추는지도
+확인한다.
+
+## 미세 조정: LoRA와 QLoRA {#lora}
+
+```c
+#include <std/ml/lora.h>
+```
+
+**LoRA**(Hu et al. 2021)는 사전 학습된 `Mlp`를 고정하고 레이어마다 저랭크
+갱신을 학습한다.
+
+`y = x·W + b + (alpha / r) · (dropout(x)·A)·B`
+
+`A [in, r]`는 무작위로, `B [r, out]`는 0으로 시작하므로 적응된 네트워크는
+기반 모델과 똑같이 시작한다. A와 B만 학습하며, 레이어마다 `in · out` 대신
+`r · (in + out)`개 값이다.
+
+- `lora_attach`는 기반 모델의 `requiresGrad`를 0으로 만들고, `lora_detach`가
+  되돌린다.
+- `lora_merge`는 `scale · A·B`를 `W`에 접어 넣으므로, 이후에는 기반 모델만으로
+  적응된 출력을 계산하며 추론 비용이 늘지 않는다.
+
+**QLoRA**(Dettmers et al. 2023)는 같은 일을 **4비트 NormalFloat(NF4)**로
+저장한 기반 모델 위에서 한다. 가중치 64개 블록마다 absmax 스케일 하나와,
+16개 NF4 레벨에 대한 4비트 인덱스를 둔다. NF4 레벨은 정규 분포의
+분위수이므로, 가우시안에 가까운 가중치가 레벨을 고르게 쓴다. 이중 양자화는
+스케일도 8비트로 저장하고 스케일 256개마다 float 하나를 두어, 기반 모델을
+가중치당 약 4.1비트로 줄인다.
+
+`qlora_attach`는 기반 모델을 복사하므로 원래 `Mlp`는 해제해도 된다. 순전파마다
+가중치를 float32로 역양자화하며, 그래디언트는 고정된 4비트 기반 모델을 거쳐
+어댑터로 흐른다. `nf4_quantize` / `nf4_dequantize`는 단독으로도 쓸 수 있다.
+
+```c
+struct LoraConfig cfg = lora_config_default(8UL);    // 랭크 8, alpha 8
+struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + 이중 양자화
+mlp_free(&pretrained);
+struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
+qlora_add_params(&opt, &ft);                          // 어댑터만
+trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss가 qlora_forward를 호출
+```
+
+테스트에서는 moons로 사전 학습한 MLP를, 회전하고 레이블을 뒤바꾼 과제로 미세
+조정한다. 고정된 기반 모델은 이 과제를 틀린다(정확도 70% 미만).
+
+- **LoRA**는 정확도 95%를 넘긴다. 기반 가중치는 비트 단위로 그대로이며,
+  병합한 기반 모델은 어댑터의 출력을 1e-3 이내로 재현한다.
+- **NF4**는 격자 위의 값을 정확히 복원한다. 가우시안 가중치에서는 가중치당
+  4.5비트에 상대 RMS 오차가 12% 미만이며, 이중 양자화를 쓰면 거의 같은 오차로
+  4.2비트 미만이 된다.
+- **QLoRA**는 float32 크기의 1/6 미만으로 저장한 기반 모델에서 동작한다. 4비트
+  기반 모델은 원래 과제에서 여전히 95%를 넘기고, 어댑터는 새 과제에서 95%를
+  넘긴다.
+
+## 합성곱 네트워크 {#convnet}
+
+```c
+#include <std/ml/convnet.h>
+```
+
+`cnn.h`는 `FeatureMap`에서 합성곱을 순방향으로만 실행한다. `convnet.h`는 같은
+연산을 `Tensor`에서 미분 가능하게 만들어, `Mlp`처럼 `tensor_backward`,
+옵티마이저, `trainer_fit`으로 학습할 수 있게 한다. 이미지는 다른 모델과
+마찬가지로 행이다. 배치는 `[batch, C*H*W]` 텐서이고, 각 행에 CHW 순서의
+이미지 하나가 들어 있다. 2D 텐서는 이미지 형상을 담지 않으므로 모든 연산이
+`C, H, W`를 인수로 받는다. 각 연산은 입력과 학습 파라미터의 그래디언트를
+기록한다.
+
+### 합성곱과 풀링
+
+`tensor_conv2d_ex`와 `tensor_conv_transpose2d_ex`는 `Conv2dSpec`을 받는다.
+축마다 따로 정하는 커널 크기, 스트라이드, 패딩, 팽창(dilation)에 더해
+`groups`와, 전치 합성곱이라면 `outPadH` / `outPadW`가 들어 있다.
+`conv2d_spec(kernel, stride, padding)`은 정사각 커널, 팽창 1, 그룹 1, 출력
+패딩 0으로 채우며, 필요한 필드만 바꾸면 된다. `tensor_conv2d` /
+`tensor_conv_transpose2d`는 두 축에 같은 스트라이드와 패딩을 쓰는 흔한
+경우다.
+
+| 연산 | 가중치 | 출력 크기 |
+|---|---|---|
+| `tensor_conv2d_ex` | `[outC, (inC/groups)*kH*kW]`(PyTorch `Conv2d` 가중치를 평탄화한 것), 바이어스 `[outC]` | `(dim + 2·pad − dil·(k − 1) − 1)/stride + 1`, 내림 |
+| `tensor_conv_transpose2d_ex` | `[inC, (outC/groups)*kH*kW]`(PyTorch `ConvTranspose2d` 가중치를 평탄화한 것), 바이어스 `[outC]` | `(dim − 1)·stride − 2·pad + dil·(k − 1) + outPad + 1` |
+
+`groups == inC`이면 깊이별(depthwise) 합성곱이다. 출력 패딩은 PyTorch처럼
+스트라이드나 팽창보다 작아야 한다. 같은 스트라이드가 한 입력 크기로 되돌리는
+여러 출력 크기 중 하나를 고르는 데 쓴다.
+
+풀링은 `pool2d_spec(kernel, stride, padding)`으로 만드는 `Pool2dSpec`을
+받는다. 축마다 따로 정하는 윈도우, 스트라이드, 패딩과 `ceilMode`, 그리고
+평균 풀링이라면 `countIncludePad`가 들어 있다.
+
+- `tensor_maxpool2d_ex` / `tensor_avgpool2d_ex`는 윈도우를 평면 안으로
+  자른다. 그래서 최대 풀링은 PyTorch의 `MaxPool2d`처럼 패딩을 무시하고,
+  각 윈도우의 그래디언트를 첫 번째 최댓값 입력으로 보낸다.
+- `countIncludePad`를 켜면 평균 풀링은 PyTorch `AvgPool2d`의 기본값처럼,
+  패딩된 평면 안에 드는 윈도우 크기로 나눈다. 끄면 평면 안의 위치 수로
+  나눈다.
+- `ceilMode`는 출력 크기를 올림한다. PyTorch처럼 마지막 윈도우도 입력이나
+  왼쪽 패딩 안에서 시작해야 한다.
+- `tensor_maxpool2d` / `tensor_avgpool2d`는 정사각 윈도우를 받는다.
+  `tensor_global_avgpool2d` / `tensor_global_maxpool2d`는 채널마다 값
+  하나로 줄인다(`[batch, C*H*W] → [batch, C]`).
+
+크기는 `conv_out_side_ex`, `conv_transpose_out_side_ex`, `pool_out_side`로
+구한다.
+
+두 합성곱 모두 그룹마다 im2col + `sgemm`으로 계산한다. 입출력 채널이 8개
+이상인 3×3, 스트라이드 1 레이어는 순방향을 `cnn.h`의 Winograd F(2×2, 3×3)
+커널로, 1×1 레이어는 직접 경로로 실행한다. 배치가 충분히 크면 스레드 풀에
+나눠, 스레드마다 이미지 묶음 하나를 맡긴다. 가중치와 바이어스 그래디언트는
+묶음별로 합한 뒤 묶음 순서대로 더하므로, 결과가 스케줄링에 따라 달라지지
+않는다. 풀링, 크기 조절, 정규화는 큰 입력을 평면, 행, 채널 단위로 나눈다.
+단위끼리 출력을 공유하지 않으므로, 여러 스레드의 결과가 한 스레드의 결과와
+비트 단위로 같다.
+
+### 크기 조절
+
+`tensor_resize2d(x, C, H, W, outH, outW, mode, alignCorners)`는 PyTorch의
+`interpolate(size=...)`처럼 어떤 크기로든 키우거나 줄인다.
+
+| `mode` | 읽는 위치 |
+|---|---|
+| `RESIZE_NEAREST` | 원본 픽셀 `floor(o · in / out)`(PyTorch `nearest`) |
+| `RESIZE_BILINEAR` | 가장 가까운 픽셀 4개 |
+| `RESIZE_BICUBIC` | 가장 가까운 픽셀 16개, a = −0.75 3차 합성곱 |
+
+`alignCorners`를 켜면 모서리 픽셀의 중심끼리 맞추고, 끄면 픽셀 영역끼리
+맞춘다. 가장자리는 고정(clamp)하며, 그래디언트는 같은 가중치로 되돌아간다.
+`tensor_upsample_nearest`는 정수 배율용 빠른 경로이고,
+`tensor_upsample_bilinear`는 모서리를 맞추지 않고 정수 배율로 크기를 바꾼다.
+
+### 정규화와 드롭아웃
+
+- **배치 정규화**(`tensor_batch_norm`, Ioffe & Szegedy 2015)는 채널마다
+  배치와 평면에 걸쳐 정규화한다. 특징 맵에는 `plane = H*W`를,
+  `[batch, features]` 행에는 1을 넘긴다. 학습 중에는 배치 통계를 쓰고 이동
+  통계를 `momentum`만큼 그쪽으로 옮긴다. 이동 분산은 PyTorch처럼 불편
+  추정치를 쓴다. 추론 중에는 이동 통계를 쓴다.
+- **그룹 정규화**(`tensor_group_norm`, Wu & He 2018)는 이미지마다 채널
+  그룹을 그 채널과 평면에 걸쳐 정규화한다. 배치와 무관하므로 학습과 추론에서
+  똑같이 동작한다. 그룹 1개는 (C, H, W)에 대한 레이어 정규화이고, 채널마다
+  그룹 하나는 인스턴스 정규화다.
+- **스펙트럴 정규화**(`tensor_spectral_norm`, Miyato et al. 2018)는
+  가중치를 최대 특이값으로 나눈다. 그 값은 호출 사이에 유지되는 벡터 `u`에서
+  출발하는 거듭제곱 반복으로 추정한다. 그래디언트는 PyTorch처럼 거듭제곱 반복
+  벡터를 상수로 본다.
+- **드롭아웃**: `tensor_dropout`은 학습 중에 각 값을 확률 p로 0으로 만들고
+  나머지를 1/(1 − p)배 하며, 추론 중에는 x를 그대로 통과시킨다.
+  `tensor_dropout2d`는 채널 평면 전체를 떨군다.
+
+**조건 입력.** `tensor_label_planes`는 클래스 인덱스를 클래스마다 상수 평면
+하나로 바꾼다. 행의 레이블에 해당하는 평면은 1이고 나머지는 0이다.
+`tensor_append_label_channels`는 그 평면들을 이미지 채널 뒤에 붙인다. 조건부
+`ConvVae`와 `Dcgan`은 이 방식으로 이미지 쪽 네트워크에 레이블을 넘긴다.
+
+### `ConvNet`
+
+`ConvNet`은 `Mlp`에 대응하는 합성곱 네트워크다. 입력 형상으로 시작해
+레이어를 덧붙이며, 각 레이어의 입력은 앞 레이어의 출력이다.
+
+| 빌더 | 레이어 |
+|---|---|
+| `convnet_conv(&n, outC, kernel, stride, padding, act, &rng)` / `convnet_conv_ex(&n, outC, &spec, act, &rng)` | 합성곱 후 `act` |
+| `convnet_deconv(...)` / `convnet_deconv_ex(...)` | 전치 합성곱 후 `act` |
+| `convnet_maxpool(&n, kernel, stride, padding)` / `convnet_maxpool_ex(&n, &spec)` | 최대 풀링 |
+| `convnet_avgpool(&n, kernel, stride, padding, countIncludePad)` / `convnet_avgpool_ex(&n, &spec)` | 평균 풀링 |
+| `convnet_global_avgpool(&n)` / `convnet_global_maxpool(&n)` | 채널마다 값 하나로. 출력은 `C × 1 × 1` |
+| `convnet_upsample(&n, factor)` / `convnet_upsample_bilinear(&n, factor)` / `convnet_resize(&n, outH, outW, mode, alignCorners)` | 크기 조절 |
+| `convnet_batchnorm(&n, act)` | 배치 정규화(momentum 0.1, eps 1e-5) 후 `act` |
+| `convnet_groupnorm(&n, groups, act)` / `convnet_layernorm(&n, act)` / `convnet_instancenorm(&n, act)` | 그룹 정규화(eps 1e-5) 후 `act` |
+| `convnet_spectral_norm(&n, &rng)` | 마지막 합성곱이나 완전 연결 레이어의 가중치를 스펙트럴 정규화한다. 학습 패스마다 거듭제곱 반복 1회 |
+| `convnet_dropout(&n, p, byChannel, &rng)` | 드롭아웃. 난수열은 `rng`에서 시드를 받는다 |
+| `convnet_dense(&n, outDim, act, &rng)` | 평탄화한 맵에 대한 완전 연결. 출력은 `outDim × 1 × 1` |
+| `convnet_reshape(&n, C, H, W)` | 데이터를 옮기지 않고 형상만 다시 해석한다 |
+| `slot = convnet_save(&n)` | 스킵 연결에 쓸 현재 활성값을 보관한다 |
+| `convnet_add_skip(&n, slot, act, &rng)` | 보관한 활성값을 더한 뒤 `act`. 채널 수나 크기가 다르면 보관한 활성값을 학습되는 1×1 합성곱에 통과시킨다(ResNet의 투영 지름길) |
+| `convnet_concat_skip(&n, slot)` | 보관한 활성값의 채널을 뒤에 붙인다. 높이와 너비가 같아야 한다(U-Net 스킵) |
+| `convnet_residual_block(&n, outC, stride, batchNorm, act, &rng)` | ResNet 기본 블록: 3×3 합성곱(stride) → [배치 정규화] → act → 3×3 합성곱 → [배치 정규화] → 지름길 더하기 → act |
+
+정규화는 `ACT_NONE` 합성곱과 활성화 사이에 둔다. 가중치와 바이어스는
+PyTorch처럼 U(−1/√fanIn, 1/√fanIn)으로 초기화하고, 정규화는 gamma 1,
+beta 0에서 시작한다. `params`에는 학습되는 텐서가, `buffers`에는 옵티마이저가
+학습하지 않는 것(이동 통계, 스펙트럴 정규화의 `u`)이 들어 있으며, 둘 다 힙에
+둔다.
+
+`training` 필드는 `convnet_new`에서 1로 시작한다. 학습 모드에서는 배치
+정규화가 배치 통계를 쓰고 이동 통계를 갱신하며, 스펙트럴 정규화가 반복하고,
+드롭아웃이 값을 떨군다. 추론할 때는 `convnet_set_training(&n, 0)`을
+호출하며, 이 함수는 이전 모드를 반환한다. `autoencoder.h`와 `gan.h`의 모델은
+모드를 직접 바꾼다. 손실 함수와 학습 스텝 함수는 학습 모드로,
+encode·decode·sample·generate·score는 추론 모드로 실행한다.
+
+`ConvNet`에 대한 그 밖의 연산:
+
+- `convnet_forward`는 `[batch, convnet_in_dim]`을
+  `[batch, convnet_out_dim]`으로 바꾼다. `outC`, `outH`, `outW` 필드가 현재
+  출력 형상이다.
+- `optimizer_add_convnet`으로 파라미터를 등록한다.
+- `convnet_clone`, `convnet_copy`, `convnet_soft_update`는 버퍼까지 포함해
+  타깃 네트워크와 평균 네트워크를 다룬다.
+- `convnet_fold_batchnorm`은 합성곱이나 완전 연결 레이어 바로 뒤의 배치
+  정규화를 추론용으로 그 레이어의 가중치와 바이어스에 접어 넣는다. 출력은
+  그대로지만, 그 뒤로는 네트워크를 학습하지 않는다.
+- `convnet_save_file` / `convnet_load_file`은 파라미터와 버퍼를 파일에 쓰고,
+  같은 레이어로 만든 네트워크에 다시 읽어 들인다. 맞지 않으면 아무것도 덮어쓰지
+  않고 0을 반환한다. `nn.h`의 `tensors_save` / `tensors_load`,
+  `mlp_save_file` / `mlp_load_file`도 같은 형식을 쓴다.
+
+```c
+static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(convnet_forward(m, x), y);
+}
+
+struct Rng rng = rng_new(1UL);
+struct ConvNet net = convnet_new(1UL, 28UL, 28UL);                // MNIST
+convnet_conv(&net, 16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);          // 16 x 28 x 28
+convnet_batchnorm(&net, ACT_RELU);
+convnet_residual_block(&net, 16UL, 1UL, 1, ACT_RELU, &rng);       // 16 x 28 x 28
+convnet_residual_block(&net, 32UL, 2UL, 1, ACT_RELU, &rng);       // 32 x 14 x 14
+convnet_residual_block(&net, 64UL, 2UL, 1, ACT_RELU, &rng);       // 64 x 7 x 7
+convnet_dropout(&net, (float)0.1, 1, &rng);
+convnet_global_avgpool(&net);                                     // 64 x 1 x 1
+convnet_dense(&net, 10UL, ACT_NONE, &rng);                        // 로짓
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+optimizer_add_convnet(&opt, &net);
+struct TrainConfig cfg = train_config_default();
+trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
+convnet_set_training(&net, 0);                                    // 여기부터 추론
+convnet_fold_batchnorm(&net);
+convnet_save_file(&net, "mnist_resnet.bin");
+```
+
+테스트는 모든 연산의 입력과 파라미터 그래디언트를 중앙 차분과 비교한다.
+다루는 경우는 다음과 같다.
+
+- 스트라이드 1과 2의 conv2d, 팽창 그룹 합성곱, 깊이별 합성곱, 축마다
+  스트라이드와 패딩이 다른 2×3 커널
+- 스트라이드 1과 2의 전치 합성곱, 출력 패딩이 있는 그룹 전치 합성곱, 팽창
+  전치 합성곱
+- 겹치지 않는 윈도우, 겹치는 윈도우, 패딩된 윈도우, 2×3 ceil 모드 윈도우의
+  최대 풀링
+- 패딩을 셀 때와 세지 않을 때, 그리고 ceil 모드의 평균 풀링
+- 전역 평균 풀링과 전역 최대 풀링
+- 최근접 업샘플링, 2배와 3배 쌍선형 업샘플링, 5×4로의 모서리 맞춤 쌍선형,
+  7×5로의 쌍삼차, 최근접 다운샘플링
+- 학습 모드와 추론 모드의 배치 정규화, 레이어 정규화, 그룹 정규화
+- 스펙트럴 정규화
+- 드롭아웃과 채널 드롭아웃
+
+기준값과의 비교:
+
+- 크기: 패딩된 풀링과 ceil 모드 풀링, 팽창 합성곱의 출력 크기가 PyTorch와
+  같다.
+- `cnn.h`와의 일치: `tensor_conv2d`, 패딩된 풀링, 전역 풀링이
+  `conv2d_forward`, `*pool2d_forward_ex`, `global_*pool2d`와 일치한다.
+  Winograd 경로는 직접 합과 일치한다.
+- 크기 조절: 쌍선형 업샘플링이 2×2 입력에서 PyTorch와 같은 출력을 내고,
+  쌍삼차 크기 조절이 상수 이미지를 그대로 유지한다.
+
+`ConvNet` 확인:
+
+- 투영 스킵, 연결 스킵, 그룹 정규화, 완전 연결 레이어를 거치는 입력
+  그래디언트를 확인한다.
+- 잔차 블록의 파라미터 수를 확인한다.
+- 배치 정규화 접기 뒤의 추론 출력이 1e-4 이내로 같다.
+- 저장한 네트워크를 다르게 초기화한 네트워크에 읽으면 출력이 정확히 같고,
+  구조가 다른 네트워크는 읽기를 거부한다.
+
+그 밖의 확인:
+
+- 배치 정규화의 이동 통계가 배치 통계를 따라간다.
+- 드롭아웃이 정해진 비율만큼 떨구고, 채널 드롭아웃이 평면 전체를 떨군다.
+- 스펙트럴 정규화 뒤의 최대 특이값이 1이다.
+- 그룹 정규화가 배치의 다른 행과 무관하다.
+- 여러 스레드의 합성곱이 한 스레드와 1e-4 이내로 같고, 풀링·업샘플링·배치
+  정규화는 비트 단위로 같다.
+- 끝에서 끝까지, 배치 정규화와 채널 드롭아웃을 쓰는 작은 잔차 CNN이 따로 떼어
+  둔 12×12 도형을 90% 넘게 맞힌다.
+
 ## 오토인코더 {#autoencoders}
 
 ```c
@@ -689,6 +1016,57 @@ trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
 학습한 분류기가 조건부 VAE의 샘플을 요청한 클래스로 인식하는지(정확도 70%
 초과), VQ-VAE가 코드를 4개 넘게 쓰는지도 확인한다.
 
+### 합성곱 오토인코더 {#conv-autoencoders}
+
+`ConvAutoencoder`와 `ConvVae`는 직접 만든 `ConvNet` 인코더와 디코더를 쓰는
+기본 AE와 VAE다. 인코더는 이미지를 특징으로 바꾼다. 디코더는 코드를
+`latent × 1 × 1` 입력으로 받아 이미지 크기를 출력해야 한다.
+`convnet_dense` + `convnet_reshape`로 시작하거나, 1×1에서 시작하는 전치
+합성곱으로 시작하면 된다. `ConvVae`에서는 평탄화한 특징 위의 선형 헤드가
+μ와 log σ²를 만든다. 손실은 `Vae`와 같고, `VaeConfig`에서 `latent`, `recon`,
+`beta`, `classes`, `seed`를 읽는다.
+
+`classes > 0`이면 `ConvVae`는 **조건부 VAE**다. 인코더는 레이블을 `classes`개의
+추가 입력 채널(클래스마다 상수 평면 하나)로 받고, 디코더는 코드 뒤에 붙인
+원-핫 레이블을 받는다. 따라서 C채널 이미지라면 인코더는 `C + classes`채널을
+받고, 디코더는 `latent + classes`개 입력을 받아 C채널을 출력한다. `Vae`와
+마찬가지로 `y`에 클래스 인덱스가 들어가고, `conv_vae_sample`은 레이블이나
+`null`을 받는다.
+
+두 모델 모두 네트워크의 소유권을 가져가므로, 네트워크가 아니라 모델을
+해제한다. 손실 함수는 네트워크를 학습 모드로 실행한다. encode, decode,
+reconstruct, sample은 추론 모드로 실행하므로, 거기서 배치 정규화는 이동
+통계를 쓴다.
+
+```c
+unsigned long classes = 10UL;                                // 조건부, MNIST 숫자
+struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
+convnet_conv(&enc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 14 x 14
+convnet_conv(&enc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 7 x 7
+convnet_batchnorm(&enc, ACT_LEAKY);
+struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // 잠재 16 + 레이블
+convnet_dense(&dec, 64UL * 49UL, ACT_RELU, &rng);
+convnet_reshape(&dec, 64UL, 7UL, 7UL);
+convnet_deconv(&dec, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
+convnet_batchnorm(&dec, ACT_RELU);
+convnet_deconv(&dec, 1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 1 x 28 x 28 로짓
+struct VaeConfig cfg = vae_config_default(16UL);
+cfg.classes = classes;
+struct ConvVae v = conv_vae_new(enc, dec, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+conv_vae_add_params(&opt, &v);
+trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+&Tensor samples = conv_vae_sample(&v, 64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
+```
+
+테스트는 두 네트워크 모두에 배치 정규화를 넣고 8×8 도형으로 실행한다.
+
+- 합성곱 AE는 재구성 오차를 학습 전의 30% 미만으로 줄여야 한다.
+- 합성곱 VAE는 손실을 첫 에폭의 60% 미만으로 줄이고, KL을 0.1보다 크게
+  유지하며, MSE 0.1 미만으로 재구성해야 한다.
+- 실제 이미지로 학습한 분류기가 조건부 합성곱 VAE의 샘플을 요청한 클래스로
+  인식하는 비율이 70%를 넘어야 한다.
+
 ## GAN {#gans}
 
 ```c
@@ -704,6 +1082,14 @@ MLP 생성기와 판별기(leaky ReLU)를 번갈아 학습한다. 목적 함수�
 | `GAN_LSGAN` | 최소 제곱(Mao et al. 2017). |
 | `GAN_WGAN` | 가중치 클리핑을 쓰는 Wasserstein 크리틱. 생성기 스텝마다 크리틱 스텝 `nCritic`번, RMSProp(Arjovsky et al. 2017). |
 | `GAN_HINGE` | 힌지 손실(Miyato et al. 2018). |
+| `GAN_WGAN_GP` | 그래디언트 벌점을 쓰는 Wasserstein 크리틱(Gulrajani et al. 2017): 실제 행과 생성 행을 무작위로 섞은 점에서 `gpWeight`(10) × (‖∇ₓD(x̂)‖ − 1)². 클리핑 없음, Adam (0, 0.9). `nCritic`은 5를 쓴다. |
+
+크리틱 파라미터에 대한 벌점의 그래디언트는 혼합 2계 도함수다. 역전파를
+다시 미분하는 대신, 행마다 정규화한 입력 그래디언트 방향으로 크리틱의 중앙
+차분을 구해 계산한다. 크리틱 패스가 두 번 더 들고 O(ε²)까지 정확하며(ε =
+0.01), 테스트에서 벌점 자체의 유한 차분과 비교한다. 벌점이 행을 독립적으로
+다루므로 크리틱에 배치 정규화를 쓰면 안 된다(그룹 정규화나 레이어 정규화는
+괜찮다).
 
 `classes > 0`이면 **조건부 GAN**으로, 레이블이 두 네트워크에 모두 들어간다.
 `emaDecay`는 생성기 가중치의 지수 이동 평균(Karras et al. 2018)을 유지하며,
@@ -721,8 +1107,48 @@ gan_train(&g, &data, 80UL, 64UL);
 ```
 
 테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
-맞춘다. GAN은 분산을 덜 덮는 경향이 있어 퍼짐은 느슨하게 확인한다. 조건부
+맞춘다. WGAN-GP 크리틱의 입력 그래디언트 노름은 0.6과 1.4 사이에 든다. GAN은 분산을 덜 덮는 경향이 있어 퍼짐은 느슨하게 확인한다. 조건부
 GAN은 4개 모드 링에서 샘플의 75% 넘게를 각 레이블의 모드에 놓는다.
+
+### DCGAN {#dcgan}
+
+`Dcgan`은 `ConvNet` 생성기와 판별기로 같은 게임을 한다(Radford et al.
+2016). G는 잠재 배치를 `latent × 1 × 1` 입력으로 받아 데이터 크기를 출력해야
+하고, D는 데이터 행을 받아 점수 하나를 출력해야 한다. `GanConfig`에서 목적
+함수, 학습률, `nCritic`, `clip`, `classes`, `emaDecay`, `seed`를 읽는다.
+
+`classes > 0`이면 **조건부 DCGAN**이다. G는 노이즈 뒤에 붙인 원-핫 레이블을
+받으므로 `latent + classes`개 입력을 받는다. D는 레이블을 `classes`개의 추가
+입력 채널(클래스마다 상수 평면 하나)로 받는다. `dcgan_train_step`,
+`dcgan_generate`, `dcgan_score`는 레이블이나 `null`을 받고, `dcgan_train`은
+데이터셋에서 레이블을 가져온다.
+
+DCGAN은 네트워크, 옵티마이저, 평균 생성기, 스텝 아레나를 직접 가진다. 학습
+스텝은 네트워크를 학습 모드로 실행하므로, DCGAN 논문대로 배치 정규화가 배치
+통계를 쓴다. `dcgan_generate`와 `dcgan_score`는 추론 모드로 실행한다.
+
+```c
+struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);             // 잠재 차원 16
+convnet_deconv(&gen, 64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 32 x 8 x 8
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);  // 1 x 16 x 16
+struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
+convnet_conv(&disc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 8 x 8
+convnet_conv(&disc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 4 x 4
+convnet_batchnorm(&disc, ACT_LEAKY);
+convnet_conv(&disc, 1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);      // 점수 하나
+struct GanConfig cfg = gan_config_default(16UL);
+struct Dcgan g = dcgan_new(gen, disc, &cfg);
+dcgan_train(&g, &images, 20UL, 64UL);
+&Tensor fake = dcgan_generate(&g, 64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
+```
+
+테스트는 8×8 도형으로 학습한다. DCGAN은 샘플의 평균 밝기를 학습 전
+sigmoid의 0.5에서 데이터 평균의 0.1 이내로 옮겨야 한다. 실제 이미지로 학습한
+분류기가 조건부 DCGAN의 샘플을 요청한 클래스로 인식하는 비율은 55%를 넘어야
+한다(우연 수준은 25%).
 
 ## 강화 학습 {#rl}
 
@@ -793,8 +1219,8 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 - **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
   그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
-  반올림, 16비트 GEMM, SGD)를 CPU 결과와 비교하며(검사 87개), [MIOpen과
-  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 43개).
+  반올림, 16비트 GEMM, SGD, 혼합 정밀도 연산)를 CPU 결과와 비교하며(검사 325개), [MIOpen과
+  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 73개).
   [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 MPS 경로와 같은 손실까지 학습한다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했다 —
@@ -830,6 +1256,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
 | fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
+| 혼합 정밀도 | `rocm_half_convert`(fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many`(실행 한 번에 버퍼 최대 32개); `rocm_half_unscale_many` / `rocm_unscale_many`(그래디언트 × 1/scale, 오버플로 플래그 포함)와 `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam`(fp32 마스터 가중치, 16비트 사본도 기록, 플래그가 서 있으면 GPU에서 건너뜀); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias`(행 또는 NCHW 채널 바이어스, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. [GPU 혼합 정밀도](#gpu-mixed-precision) 참고 |
 | 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)`(CDNA GPU의 행렬 코어) |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
@@ -956,6 +1383,7 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu`(tanh 근사), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
+| 혼합 정밀도 | `cuda_` 이름의 [ROCm 혼합 정밀도 연산](#gpu-mixed-precision): `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`. 큐에 들어가므로 `CudaGraph`에 기록할 수 있습니다 |
 | 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#ml-llm)의 커널에서 가져왔습니다 |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
@@ -1003,8 +1431,8 @@ API의 최선 알고리즘(`cudnnFindConvolutionForwardAlgorithm`)을 그 호출
 
 | 분류 | 함수 |
 |---|---|
-| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
+| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `cuda_half_conv2d_free` |
+| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_half_conv2d` / `cuda_half_conv2d_relu`(16비트 `CudaHalfBuf`: fp32 계산과 tensor-op 수학으로 cuDNN의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (가중치와 모든 활성값을 미리 할당), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | 호스트 배열 | `conv2d_forward_cuda`, `unet_forward_cuda`: `conv2d_forward`/`unet_forward`와 같은 시그니처. 호출마다 가중치를 올리고, 쓸 수 있는 GPU가 없으면 CPU 구현으로 돌아간다 |
 
@@ -1074,8 +1502,8 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 
 | 그룹 | 함수 |
 |---|---|
-| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
-| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `rocm_half_conv2d_free` |
+| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_half_conv2d` / `rocm_half_conv2d_relu`(16비트 `RocmHalfBuf`: fp32 누적으로 MIOpen의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
 | U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)`(디코더 단계마다 연결 버퍼로 바로 업샘플), `rocm_unet_free` |
 | 호스트 배열 | `conv2d_forward_rocm`, `unet_forward_rocm`. GPU를 쓸 수 없으면 CPU로 대체 |
 
@@ -1088,8 +1516,11 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 | 큐, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r`(입력을 덮어쓸 수 있음) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc`는 CUDA 모음과 같은 검사를 CPU 코드와
-비교해 실행합니다(MI100에서 검사 43개): 스트라이드 1과 2, 배치, ReLU, 그래프
-재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태.
+비교해 실행합니다(MI100에서 검사 73개): 스트라이드 1과 2, 배치, ReLU, 그래프
+재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태; 같은 반올림 입력에서
+`cnn.h`와 비교한 fp16·bf16 합성곱과 풀링. MIOpen에는 모든 GPU에서 쓸 수 있는
+bfloat16 풀링 solver가 없으므로(MI100에는 없음), 16비트 풀링은 `gpu_rocm.h`의 HIP
+커널입니다.
 
 MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms(0.315 ms)이며, 배치 16–32에서는 2% 이내입니다. 장치 상주 FFT는 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다. [벤치마크](/ko/benchmarks#ml-convolution)를 참고하세요.
 
@@ -1291,7 +1722,7 @@ void tensor_gpu_release_all_persistent();
 
 | 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
 |---|---|---|---|---|
-| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
+| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 325 + 73개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
 | CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#ml-mlp), [합성곱/FFT 벤치마크](/ko/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
 | WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
@@ -1322,7 +1753,55 @@ void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+
+int         half_cpu_features();        // HALF_CPU_* 비트, 한 번 감지
+const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
+
+**CPU가 직접 하는 것.** 2012년 이후의 모든 x86-64 CPU는 fp16을 하드웨어로
+변환하고(F16C), 모든 AArch64 코어도 마찬가지다(FCVTL / FCVTN). bf16은 더 새롭고
+선택 사항이다. Cooper Lake, Sapphire Rapids, Zen 4 이후의 AVX512-BF16, 그리고
+Armv8.6 코어(Neoverse V1 / N2, Apple M2 이후)의 FEAT_BF16에 있다. fp16 산술
+(AVX512-FP16, FEAT_FP16)도 선택 사항이다. `half_cpu_features()`가 이 CPU에 있는
+것을 알려 준다.
+
+| 비트 | 뜻 | x86-64 | AArch64 |
+|---|---|---|---|
+| `HALF_CPU_F16_CONVERT` | fp16 ↔ fp32 명령 | F16C | 항상 |
+| `HALF_CPU_F16_ARITH` | fp16 산술 | AVX512-FP16 | FEAT_FP16 |
+| `HALF_CPU_BF16_CONVERT` | fp32 → bf16 명령 | AVX512-BF16 | FEAT_BF16 |
+| `HALF_CPU_BF16_DOT` | bf16 내적 | AVX512-BF16(`VDPBF16PS`) | FEAT_BF16(`BFDOT`) |
+
+감지는 한 번만 한다. x86-64에서는 cpuid와 xgetbv, Linux AArch64에서는
+`getauxval`, Apple에서는 `sysctl`을 쓴다. `SAFEC_HALF=soft`는 아무것도 없다고
+보고하고, 비교할 수 있도록 일괄 변환이 이식 가능한 코드를 쓰게 한다.
+
+**일괄 변환.**
+
+- fp16: x86-64에서는 F16C, AArch64에서는 FCVTL / FCVTN을 쓴다.
+- fp32 → bf16: AVX512-BF16이 있으면 명령 하나에 값 16개를 바꾼다.
+  `VCVTNEPS2BF16`은 fp32 비정규수를 0으로 만들어 버리므로, 비정규수가 든 블록은
+  `VFPCLASSPS`로 찾아 소프트웨어로 대신 변환한다.
+- 그 밖에는 bf16 → fp32는 시프트이고 fp32 → bf16은 정수 반올림이며, 둘 다
+  컴파일러가 벡터화하는 루프다.
+- 값이 256K개 이상인 배열은 스레드 풀에 나눈다.
+
+결과는 NaN이 페이로드를 더 많이 유지할 수 있다는 점을 빼면 스칼라 함수와 비트
+단위로 같다. 테스트는 두 모드 모두에서 fp16 패턴 65,536개 전부와, 모든 종류의
+무작위 fp32 패턴을 비교한다.
+
+Ryzen 7 7800X3D에서(스레드 하나, 값 16M개, 읽기 + 쓰기 대역폭):
+
+| 변환 | 하드웨어 | `SAFEC_HALF=soft` |
+|---|---|---|
+| fp32 → fp16 | 47 GB/s | 2.8 GB/s |
+| fp16 → fp32 | 43 GB/s | 7.0 GB/s |
+| fp32 → bf16 | 53 GB/s | 27 GB/s |
+| bf16 → fp32 | 39 GB/s(어느 쪽이든 시프트) | 41 GB/s |
+
+스레드 16개 전부를 쓰면 하드웨어 경로에서 모든 변환이 58–99 GB/s에 이른다.
 
 
 ### 반정밀도 텐서 — `tensor_half.h` {#half-precision-tensors}
@@ -1374,6 +1853,16 @@ float             half_sum(const &HalfTensor a);                            // f
 int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // 벡터 m개: x [m][k], y [m][n]
 
+// 혼합 정밀도 일괄 변환: fp32 마스터 <-> 16비트 사본, 16비트 그래디언트 되돌리기
+int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // 기존 사본에
+int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
+int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
+struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
+int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
+int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
+void half_tensors_free(&Vec<struct HalfTensor> hs);
+int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = 모두 유한
+
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
@@ -1386,6 +1875,7 @@ struct LossScaler {
 };
 struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
 int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+int  loss_scaler_unscale_all(&LossScaler s, &Vec<&Tensor> params);   // 목록의 모든 텐서
 void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
 ```
 
@@ -1458,6 +1948,50 @@ int main() {
     return (ok && pred > (float)0.95 && pred < (float)1.05) ? 0 : 1;
 }
 ```
+
+### GPU 혼합 정밀도 {#gpu-mixed-precision}
+
+```c
+#include <std/ml/gpu_rocm.h>     // ROCm. gpu_cuda.h에는 cuda_ 이름으로 같은 함수가 있다
+#include <std/ml/gpu_miopen.h>   // 16비트 합성곱(CUDA에서는 gpu_cudnn.h)
+```
+
+혼합 정밀도 학습은 보통 다음을 둔다.
+
+- fp32 마스터 가중치와 옵티마이저 상태
+- 순전파와 역전파에 쓰는 가중치의 16비트 사본
+- 손실 스케일이 곱해진 그래디언트
+
+ROCm과 CUDA는 스텝의 모든 부분에 같은 큐 연산을 갖는다.
+
+| 단계 | ROCm(CUDA에서는 `cuda_`) |
+|---|---|
+| 여러 텐서의 사본 | `rocm_to_half_many(&f32s, &halves)`, `rocm_from_half_many`: 실행 한 번에 버퍼 최대 32개, 호출마다 dtype 하나 |
+| fp16 ↔ bf16 | `rocm_half_convert(src, dst)` |
+| 16비트 계산 | `rocm_half_gemm` / `_f32` / `_relu`, `rocm_half_conv2d` / `_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
+| 스케일 되돌리기 | `rocm_half_unscale_many(&g16, &g32, 1 / scale, flag)`(16비트 그래디언트 → fp32), `rocm_unscale_many(&g32, &g32, …)`(fp32, 제자리): inf / NaN이 하나라도 있으면 `flag[0] = 1`. 먼저 `rocm_zero(flag)` |
+| 갱신 | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)`(Adam / AdamW)와 `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`의 `optimizer_step`과 같은 산술이며, 반올림한 가중치를 `w16`에도 쓰고, `flag[0] != 0`이면 갱신 전체를 GPU에서 건너뛴다 |
+
+GPU에서 건너뛰므로, 오버플로가 난 스텝도 갱신 전에 호스트를 오갈 필요가 없다.
+`LossScaler`를 키우거나 줄이려면 스텝마다 편할 때 4바이트 플래그를 한 번 읽으면
+된다. bf16은 fp32와 지수 범위가 같아서 보통 손실 스케일링 없이 학습한다.
+`rocm_mp_*`에 무효한 `flag`(`dev == 0`)를 넘기면 건너뛰지 않는다.
+
+모든 커널은 fp32로 계산하고 저장할 값마다 한 번 반올림한다. 갱신은 FMA 축약
+없이 실행하므로(HIP에서는 `fp contract(off)`, CUDA에서는 `__fmul_rn` 계열
+intrinsic) CPU 산술과 결과가 같다. `tests/stdlib/rocm/rocm_check.sc`는 MI100에서
+다음을 확인한다.
+
+- 모든 16비트 패턴에서의 fp16 ↔ bf16
+- bf16을 거쳐 돌아오는 버퍼 40개
+- 스케일 되돌리기와 오버플로 플래그
+- CPU와 비교한 Adam·AdamW·모멘텀 SGD 세 스텝(1e-5 이내)과 그 bf16 사본, 그리고
+  플래그가 선 스텝이 아무것도 바꾸지 않는지
+- 모든 16비트 원소별 연산과 NCHW 바이어스가 비트 단위로 같은지
+
+CUDA 버전은 `tests/stdlib/cuda/cuda_check.sc`에 같은 테스트가 있다. 커널은
+컴파일되고(clang, sm_80) 테스트도 빌드되지만, 아직 NVIDIA GPU에서 실행하지는
+않았다.
 
 ## 장치 선택 {#device-selection}
 

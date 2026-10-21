@@ -393,6 +393,9 @@ struct MambaState st = mamba_state_new(&m);
 #include <std/ml/cnn.h>
 ```
 
+These layers run forward only. To train convolutional networks, use
+[`convnet.h`](#convnet), which has the same operations on autograd tensors.
+
 `Conv2D` (stride + zero-padding, no dilation/grouped conv),
 `maxpool2d_forward`/`avgpool2d_forward`, `upsample2x_nearest` (nearest-
 neighbor 2x spatial upsample), `concat_channels` (channel-axis
@@ -624,11 +627,26 @@ indices stored as floats.
   `ACT_SIGMOID`, `ACT_GELU` or `ACT_SILU` between layers. It is
   initialized like PyTorch's `nn.Linear`, with weights stored `[in, out]`.
   `mlp_copy` / `mlp_soft_update` keep target networks in sync.
-- **`Optimizer`** holds a list of parameters and offers `OPT_SGD`,
-  `OPT_MOMENTUM`, `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM` and `OPT_ADAMW`
-  (decoupled weight decay). `optimizer_clip_grad_norm` clips the global
-  gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
+- **`Optimizer`** holds a list of parameters and offers these kinds:
+
+  | Kind | Update |
+  |---|---|
+  | `OPT_SGD` | Plain gradient descent. |
+  | `OPT_MOMENTUM` / `OPT_NESTEROV` | Heavy-ball or Nesterov momentum (`momentum` 0.9). |
+  | `OPT_RMSPROP` | Running average of squared gradients (`beta2` 0.99). |
+  | `OPT_ADAGRAD` | Learning rate divided by the root of the summed squared gradients (Duchi et al. 2011). |
+  | `OPT_ADAM` | Adam with L2 weight decay (`beta1` 0.9, `beta2` 0.999). |
+  | `OPT_ADAMW` | Adam with decoupled weight decay (`weightDecay` 0.01). |
+  | `OPT_LION` | Sign of the interpolated momentum (Chen et al. 2023), with decoupled decay. Use a learning rate 3–10× smaller than Adam's. |
+
+  `optimizer_clip_grad_norm` clips the global gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
   schedule can change them between steps.
+
+- **Saving and loading.** `tensors_save` / `tensors_load` write a list of
+  tensors (shapes and float32 values) to a file and read it back into
+  tensors of the same shapes. `mlp_save_file` / `mlp_load_file` do this
+  for an `Mlp`. Loading returns 0, and changes nothing, when the file is
+  missing or doesn't match.
 
 `trainer_fit` is generic over the model type, so the forward pass and loss
 are resolved at compile time. It runs epochs of shuffled mini-batches:
@@ -674,6 +692,331 @@ Every op's gradient is checked against central differences in the tests.
 The optimizers are checked to converge, and an MLP trained on moons
 reaches more than 95% accuracy.
 
+## Normalization: LayerNorm and AdaLN {#norm}
+
+```c
+#include <std/ml/norm.h>
+```
+
+Trainable normalization layers, with autograd, over `[batch, dim]` rows.
+`activations.h`'s `tensor_layernorm_rows` is the forward-only version.
+
+- **`LayerNorm`** (Ba et al. 2016) computes `y = LN(x) · gamma + beta`, with
+  learned `gamma` (initialized to 1) and `beta` (initialized to 0).
+- **`AdaLN`** is the adaptive LayerNorm of DiT (Peebles & Xie 2023). A
+  linear map of a per-sample conditioning vector, such as a timestep or
+  class embedding, gives `(shift, scale[, gate])`, and
+  `y = LN(x) · (1 + scale) + shift`. The map starts at zero (adaLN-Zero),
+  so a fresh AdaLN is a plain LayerNorm. With `gated`, `AdaLNOut.gate`
+  also starts at 0, so a residual branch `x + gate · f(y)` starts as the
+  identity.
+- **Building blocks**: `tensor_layer_norm`, `tensor_mul_row` (multiply by
+  a vector on every row), and `attention.h`'s `tensor_slice_cols`, which is
+  now differentiable.
+
+```c
+struct AdaLN ad = adaln_new(dim, condDim, 1);          // gated
+struct AdaLNOut o = adaln_forward(&ad, x, cond);       // x [m, dim], cond [m, condDim]
+&Tensor h = tensor_add(x, tensor_mul(o.gate, mlp_forward(&ffn, o.out)));
+adaln_add_params(&opt, &ad);
+```
+
+The tests check both layers' gradients against finite differences, and
+check that a fresh AdaLN equals LayerNorm. They also check that AdaLN
+learns a class-dependent affine map that a plain LayerNorm cannot
+represent, bringing its loss from above 0.5 to below 0.001.
+
+## Fine-tuning: LoRA and QLoRA {#lora}
+
+```c
+#include <std/ml/lora.h>
+```
+
+**LoRA** (Hu et al. 2021) freezes a pretrained `Mlp` and learns a low-rank
+update for each layer:
+
+`y = x·W + b + (alpha / r) · (dropout(x)·A)·B`
+
+`A [in, r]` starts random and `B [r, out]` starts at zero, so the adapted
+network begins identical to the base. Only A and B train, which is
+`r · (in + out)` values per layer instead of `in · out`.
+
+- `lora_attach` sets the base's `requiresGrad` to 0, and `lora_detach`
+  restores it.
+- `lora_merge` folds `scale · A·B` into `W`, so the base alone then
+  computes the adapted output at no extra inference cost.
+
+**QLoRA** (Dettmers et al. 2023) does the same on a base stored as
+**4-bit NormalFloat (NF4)**. Each block of 64 weights keeps one absmax
+scale and a 4-bit index into the 16 NF4 levels, which are quantiles of a
+normal distribution, so Gaussian-like weights use the levels evenly.
+Double quantization also stores the scales in 8 bits, with one float per
+256 scales, bringing the base to about 4.1 bits per weight.
+
+`qlora_attach` copies the base, so the original `Mlp` can be freed. Each
+forward pass dequantizes the weights to float32, and gradients flow
+through the frozen 4-bit base to the adapters. `nf4_quantize` /
+`nf4_dequantize` are also usable on their own.
+
+```c
+struct LoraConfig cfg = lora_config_default(8UL);    // rank 8, alpha 8
+struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + double quant
+mlp_free(&pretrained);
+struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
+qlora_add_params(&opt, &ft);                          // adapters only
+trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss calls qlora_forward
+```
+
+In the tests, an MLP pretrained on moons is fine-tuned to a rotated,
+label-swapped task that the frozen base gets wrong (accuracy below 70%):
+
+- **LoRA** reaches more than 95% accuracy. The base weights stay
+  bit-identical, and the merged base reproduces the adapter's output to
+  1e-3.
+- **NF4** reproduces values on its grid exactly. On Gaussian weights the
+  relative RMS error is below 12%, at 4.5 bits per weight, or under 4.2
+  bits with double quantization at almost the same error.
+- **QLoRA** works on a base stored in under 1/6 of its float32 size. The
+  4-bit base still scores above 95% on the original task, and the adapters
+  reach more than 95% on the new one.
+
+## Convolutional networks {#convnet}
+
+```c
+#include <std/ml/convnet.h>
+```
+
+`cnn.h` runs convolutions forward on `FeatureMap`s. `convnet.h` makes them
+differentiable on `Tensor`s, so they train with `tensor_backward`, the
+optimizers and `trainer_fit` like `Mlp` does. Images are rows, as in every
+other model here: a batch is a `[batch, C*H*W]` tensor, and each row holds
+one image in CHW order. A 2D tensor doesn't carry the image geometry, so
+every op takes `C, H, W` as arguments. Each op records gradients for its
+input and its trained parameters.
+
+### Convolution and pooling
+
+`tensor_conv2d_ex` and `tensor_conv_transpose2d_ex` take a `Conv2dSpec`
+with a separate kernel size, stride, padding and dilation for each axis,
+plus `groups` and, for the transposed convolution, `outPadH` / `outPadW`.
+`conv2d_spec(kernel, stride, padding)` fills in a square kernel with
+dilation 1, one group and no output padding; change the fields you need.
+`tensor_conv2d` / `tensor_conv_transpose2d` are the common case with one
+stride and padding for both axes.
+
+| Op | Weight | Output side |
+|---|---|---|
+| `tensor_conv2d_ex` | `[outC, (inC/groups)*kH*kW]` (a PyTorch `Conv2d` weight, flattened), bias `[outC]` | `(dim + 2·pad − dil·(k − 1) − 1)/stride + 1`, rounded down |
+| `tensor_conv_transpose2d_ex` | `[inC, (outC/groups)*kH*kW]` (a PyTorch `ConvTranspose2d` weight, flattened), bias `[outC]` | `(dim − 1)·stride − 2·pad + dil·(k − 1) + outPad + 1` |
+
+`groups == inC` gives a depthwise convolution. Output padding must be
+below the stride or the dilation, as in PyTorch; it picks among the
+output sizes that the same stride maps back to one input size.
+
+Pooling takes a `Pool2dSpec`, built with `pool2d_spec(kernel, stride,
+padding)`: a separate window, stride and padding per axis, `ceilMode`,
+and, for avg pooling, `countIncludePad`.
+
+- `tensor_maxpool2d_ex` / `tensor_avgpool2d_ex` clip their windows to the
+  plane. Max pooling therefore ignores the padding, as PyTorch's
+  `MaxPool2d` does, and sends each window's gradient to its first largest
+  input.
+- With `countIncludePad`, avg pooling divides by the window's extent
+  inside the padded plane, as PyTorch's `AvgPool2d` does by default.
+  Without it, avg pooling divides by the positions inside the plane.
+- `ceilMode` rounds the output side up. As in PyTorch, the last window
+  must still start inside the input or its left padding.
+- `tensor_maxpool2d` / `tensor_avgpool2d` take a square window.
+  `tensor_global_avgpool2d` / `tensor_global_maxpool2d` reduce each
+  channel to one value, `[batch, C*H*W] → [batch, C]`.
+
+`conv_out_side_ex`, `conv_transpose_out_side_ex` and `pool_out_side`
+compute the sizes.
+
+Both convolutions use im2col + `sgemm`, per group. A 3×3, stride-1 layer
+with at least 8 input and output channels runs its forward pass through
+`cnn.h`'s Winograd F(2×2, 3×3) kernel, and a 1×1 layer through its direct
+path. A large enough batch is split across the thread pool, one chunk of
+images per thread. Weight and bias gradients are summed per chunk and
+then added up in chunk order, so the result doesn't depend on scheduling.
+Pooling, resizing and the norms split large inputs by plane, row or
+channel. Those units never share an output, so the threaded result is
+bit-for-bit the single-threaded one.
+
+### Resizing
+
+`tensor_resize2d(x, C, H, W, outH, outW, mode, alignCorners)` resizes to
+any size, up or down, as PyTorch's `interpolate(size=...)`:
+
+| `mode` | Reads |
+|---|---|
+| `RESIZE_NEAREST` | source pixel `floor(o · in / out)` (PyTorch's `nearest`) |
+| `RESIZE_BILINEAR` | the four nearest pixels |
+| `RESIZE_BICUBIC` | the sixteen nearest pixels, cubic convolution with a = −0.75 |
+
+With `alignCorners`, the corner pixels' centres map onto each other.
+Without it, pixel areas line up. Edges are clamped, and gradients scatter
+back with the same weights. `tensor_upsample_nearest` is a fast path for
+an integer factor. `tensor_upsample_bilinear` resizes by an integer
+factor without aligning corners.
+
+### Normalization and dropout
+
+- **Batch norm** (`tensor_batch_norm`; Ioffe & Szegedy 2015) normalizes
+  each channel over the batch and the plane. Pass `plane = H*W` for
+  feature maps, or 1 for `[batch, features]` rows. In training it uses the
+  batch's statistics and moves the running ones toward them by `momentum`.
+  The running variance uses the unbiased estimate, as in PyTorch. In
+  inference it uses the running statistics.
+- **Group norm** (`tensor_group_norm`; Wu & He 2018) normalizes each
+  image's channel groups over their channels and planes. It doesn't depend
+  on the batch, so it behaves the same in training and inference. One
+  group is layer norm over (C, H, W); one group per channel is instance
+  norm.
+- **Spectral norm** (`tensor_spectral_norm`; Miyato et al. 2018) divides
+  a weight by its largest singular value. It estimates that value by power
+  iteration from a vector `u` kept between calls. The gradient treats the
+  power-iteration vectors as constants, as PyTorch does.
+- **Dropout**: `tensor_dropout` zeroes each value with probability p and
+  scales the rest by 1/(1 − p) in training, and passes x unchanged in
+  inference. `tensor_dropout2d` drops whole channel planes.
+
+**Conditioning.** `tensor_label_planes` turns class indices into one
+constant plane per class: 1 in the plane of the row's label and 0
+elsewhere. `tensor_append_label_channels` adds those planes after an
+image's channels. This is how the conditional `ConvVae` and `Dcgan` pass
+the label to their image-side network.
+
+### `ConvNet`
+
+`ConvNet` is the convolutional counterpart of `Mlp`. Start it with the
+input geometry and append layers; each layer's input is the previous
+layer's output.
+
+| Builder | Layer |
+|---|---|
+| `convnet_conv(&n, outC, kernel, stride, padding, act, &rng)` / `convnet_conv_ex(&n, outC, &spec, act, &rng)` | convolution, then `act` |
+| `convnet_deconv(...)` / `convnet_deconv_ex(...)` | transposed convolution, then `act` |
+| `convnet_maxpool(&n, kernel, stride, padding)` / `convnet_maxpool_ex(&n, &spec)` | max pooling |
+| `convnet_avgpool(&n, kernel, stride, padding, countIncludePad)` / `convnet_avgpool_ex(&n, &spec)` | avg pooling |
+| `convnet_global_avgpool(&n)` / `convnet_global_maxpool(&n)` | each channel to one value; output `C × 1 × 1` |
+| `convnet_upsample(&n, factor)` / `convnet_upsample_bilinear(&n, factor)` / `convnet_resize(&n, outH, outW, mode, alignCorners)` | resizing |
+| `convnet_batchnorm(&n, act)` | batch norm (momentum 0.1, eps 1e-5), then `act` |
+| `convnet_groupnorm(&n, groups, act)` / `convnet_layernorm(&n, act)` / `convnet_instancenorm(&n, act)` | group norm (eps 1e-5), then `act` |
+| `convnet_spectral_norm(&n, &rng)` | spectrally normalizes the last convolution's or dense layer's weight, with one power iteration per training pass |
+| `convnet_dropout(&n, p, byChannel, &rng)` | dropout, with its own random stream seeded from `rng` |
+| `convnet_dense(&n, outDim, act, &rng)` | fully connected over the flattened map; output `outDim × 1 × 1` |
+| `convnet_reshape(&n, C, H, W)` | reinterprets the geometry without moving data |
+| `slot = convnet_save(&n)` | keeps the current activation for a skip |
+| `convnet_add_skip(&n, slot, act, &rng)` | adds a saved activation, then `act`; when the channels or size differ, the saved activation goes through a learned 1×1 convolution (ResNet's projection shortcut) |
+| `convnet_concat_skip(&n, slot)` | appends a saved activation's channels, which must match the current height and width (a U-Net skip) |
+| `convnet_residual_block(&n, outC, stride, batchNorm, act, &rng)` | ResNet's basic block: conv 3×3 (stride) → [batch norm] → act → conv 3×3 → [batch norm] → add the shortcut → act |
+
+Place a norm between a convolution with `ACT_NONE` and the activation.
+Weights and biases are initialized like PyTorch's, from
+U(−1/√fanIn, 1/√fanIn), and the norms start at gamma 1 and beta 0.
+`params` holds the trained tensors. `buffers` holds what the optimizer
+doesn't train: running statistics and spectral norms' `u`. Both stay on
+the heap.
+
+The `training` field is 1 from `convnet_new`. In training mode, batch norm
+uses batch statistics and updates the running ones, spectral norms
+iterate, and dropout drops. Call `convnet_set_training(&n, 0)` for
+inference; it returns the previous mode. The models in `autoencoder.h`
+and `gan.h` switch modes themselves: their loss and training-step
+functions run in training mode, and encode, decode, sample, generate and
+score run in inference mode.
+
+Other operations on a `ConvNet`:
+
+- `convnet_forward` maps `[batch, convnet_in_dim]` to
+  `[batch, convnet_out_dim]`. The `outC`, `outH` and `outW` fields give
+  the current output geometry.
+- `optimizer_add_convnet` registers the parameters.
+- `convnet_clone`, `convnet_copy` and `convnet_soft_update` handle target
+  and averaged networks, buffers included.
+- `convnet_fold_batchnorm` folds each batch norm that directly follows a
+  convolution or dense layer into that layer's weight and bias, for
+  inference. The output is unchanged, but don't train the net afterwards.
+- `convnet_save_file` / `convnet_load_file` write the parameters and
+  buffers to a file and read them back into a net built with the same
+  layers. Loading returns 0 on a mismatch, and nothing is overwritten.
+  `tensors_save` / `tensors_load` and `mlp_save_file` / `mlp_load_file`
+  in `nn.h` use the same format.
+
+```c
+static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(convnet_forward(m, x), y);
+}
+
+struct Rng rng = rng_new(1UL);
+struct ConvNet net = convnet_new(1UL, 28UL, 28UL);                // MNIST
+convnet_conv(&net, 16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);          // 16 x 28 x 28
+convnet_batchnorm(&net, ACT_RELU);
+convnet_residual_block(&net, 16UL, 1UL, 1, ACT_RELU, &rng);       // 16 x 28 x 28
+convnet_residual_block(&net, 32UL, 2UL, 1, ACT_RELU, &rng);       // 32 x 14 x 14
+convnet_residual_block(&net, 64UL, 2UL, 1, ACT_RELU, &rng);       // 64 x 7 x 7
+convnet_dropout(&net, (float)0.1, 1, &rng);
+convnet_global_avgpool(&net);                                     // 64 x 1 x 1
+convnet_dense(&net, 10UL, ACT_NONE, &rng);                        // logits
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+optimizer_add_convnet(&opt, &net);
+struct TrainConfig cfg = train_config_default();
+trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
+convnet_set_training(&net, 0);                                    // inference from here on
+convnet_fold_batchnorm(&net);
+convnet_save_file(&net, "mnist_resnet.bin");
+```
+
+The tests check every op's input and parameter gradients against central
+differences. The cases cover:
+
+- conv2d with stride 1 and 2, a dilated grouped convolution, a depthwise
+  convolution, and a 2×3 kernel with different strides and padding per
+  axis;
+- transposed convolution with stride 1 and 2, grouped with output padding,
+  and dilated;
+- max pooling with disjoint, overlapping, padded, and 2×3 ceil-mode
+  windows;
+- avg pooling, with and without padding counted, and in ceil mode;
+- global average and max pooling;
+- nearest upsampling, bilinear upsampling by 2 and 3, aligned-corner
+  bilinear to 5×4, bicubic to 7×5, and nearest downsampling;
+- batch norm in training and inference mode, layer norm, and group norm;
+- spectral norm;
+- dropout and channel dropout.
+
+Further checks against reference values:
+
+- Sizes: the output sides of padded and ceil-mode pooling and of dilated
+  convolutions match PyTorch's.
+- `cnn.h` parity: `tensor_conv2d`, the padded pooling and global pooling
+  match `conv2d_forward`, `*pool2d_forward_ex` and `global_*pool2d`. The
+  Winograd path matches a direct sum.
+- Resizing: bilinear upsampling reproduces PyTorch's output for a 2×2
+  input, and bicubic resizing keeps a constant image constant.
+
+ConvNet checks:
+
+- An input-gradient check runs through a projection skip, a concat skip,
+  group norm and dense layers.
+- The residual blocks' parameter counts are checked.
+- Batch-norm folding leaves inference output unchanged within 1e-4.
+- A saved net loads into a differently initialized one and gives the same
+  output exactly; a mismatched net refuses to load.
+
+Other checks:
+
+- Batch norm's running statistics follow the batch's.
+- Dropout drops the right fraction, and channel dropout drops whole
+  planes.
+- Spectral norm leaves a largest singular value of 1.
+- Group norm doesn't depend on the rest of the batch.
+- Threaded convolutions match one thread within 1e-4, and pooling,
+  upsampling and batch norm match bit for bit.
+- End to end, a small residual CNN with batch norm and channel dropout
+  classifies held-out 12×12 shapes with more than 90% accuracy.
+
 ## Autoencoders {#autoencoders}
 
 ```c
@@ -706,6 +1049,61 @@ They also check that a classifier trained on the real shapes recognizes the
 conditional VAE's samples as their requested class (accuracy above 70%),
 and that the VQ-VAE keeps more than 4 codes in use.
 
+### Convolutional autoencoders {#conv-autoencoders}
+
+`ConvAutoencoder` and `ConvVae` are the plain AE and the VAE with
+`ConvNet` encoders and decoders that you build. The encoder maps the image
+to features. The decoder takes the code as a `latent × 1 × 1` input and
+must output the image's size; start it with `convnet_dense` +
+`convnet_reshape`, or with a transposed convolution from 1×1. In
+`ConvVae`, linear heads on the flattened features produce μ and log σ².
+Its loss is `Vae`'s, and it reads `latent`, `recon`, `beta`, `classes` and
+`seed` from a `VaeConfig`.
+
+With `classes > 0`, `ConvVae` is a **conditional VAE**. The encoder gets
+the label as `classes` extra input channels (one constant plane per
+class), and the decoder gets the one-hot label appended to the code. So
+for C-channel images the encoder takes `C + classes` channels, and the
+decoder takes `latent + classes` inputs and outputs C channels. As with
+`Vae`, `y` carries the class indices, and `conv_vae_sample` takes labels
+or `null`.
+
+Both models take ownership of the nets, so free the model and not the
+nets. Loss functions run the nets in training mode. Encode, decode,
+reconstruct and sample run them in inference mode, so batch norm uses its
+running statistics there.
+
+```c
+unsigned long classes = 10UL;                                // conditional, MNIST digits
+struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
+convnet_conv(&enc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 14 x 14
+convnet_conv(&enc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 7 x 7
+convnet_batchnorm(&enc, ACT_LEAKY);
+struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // latent 16 + label
+convnet_dense(&dec, 64UL * 49UL, ACT_RELU, &rng);
+convnet_reshape(&dec, 64UL, 7UL, 7UL);
+convnet_deconv(&dec, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
+convnet_batchnorm(&dec, ACT_RELU);
+convnet_deconv(&dec, 1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 1 x 28 x 28 logits
+struct VaeConfig cfg = vae_config_default(16UL);
+cfg.classes = classes;
+struct ConvVae v = conv_vae_new(enc, dec, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+conv_vae_add_params(&opt, &v);
+trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+&Tensor samples = conv_vae_sample(&v, 64UL, (?&Tensor)labels);   // [64, 784] in (0, 1)
+```
+
+The tests run on 8×8 shapes, with batch norm in both nets:
+
+- A conv AE must cut its reconstruction error to below 30% of the
+  untrained error.
+- A conv VAE must cut its loss to below 60% of the first epoch's, keep KL
+  above 0.1, and reconstruct with MSE below 0.1.
+- The conditional conv VAE's samples must be recognized as their
+  requested class more than 70% of the time, by a classifier trained on
+  the real images.
+
 ## GANs {#gans}
 
 ```c
@@ -721,6 +1119,16 @@ The objective is set in the config:
 | `GAN_LSGAN` | Least squares (Mao et al. 2017). |
 | `GAN_WGAN` | Wasserstein critic with weight clipping, `nCritic` critic steps per generator step, RMSProp (Arjovsky et al. 2017). |
 | `GAN_HINGE` | Hinge loss (Miyato et al. 2018). |
+| `GAN_WGAN_GP` | Wasserstein critic with gradient penalty (Gulrajani et al. 2017): `gpWeight` (10) × (‖∇ₓD(x̂)‖ − 1)² on random interpolates of real and generated rows, no clipping, Adam with betas (0, 0.9); use `nCritic` 5. |
+
+The penalty's gradient with respect to the critic's parameters is a mixed
+second derivative. Rather than differentiating the backward pass, it is
+computed from a central difference of the critic along each row's
+normalized input gradient. That costs two extra critic passes and is
+exact to O(ε²), with ε = 0.01; the tests check it against finite
+differences of the penalty itself. Because the penalty treats rows
+independently, the critic must not use batch norm (group norm or layer
+norm are fine).
 
 `classes > 0` makes it a **conditional GAN**: the label goes to both
 networks. `emaDecay` keeps an exponential moving average of the
@@ -739,9 +1147,53 @@ gan_train(&g, &data, 80UL, 64UL);
 ```
 
 In the tests, every objective learns a 2D Gaussian, with the mean within
-0.25. The spread is bounded loosely, because GANs tend to under-cover it.
+0.25. The WGAN-GP critic's input gradient ends up with a norm between 0.6
+and 1.4. The spread is bounded loosely, because GANs tend to under-cover it.
 On a 4-mode ring, a conditional GAN puts more than 75% of its samples
 on the mode of their label.
+
+### DCGAN {#dcgan}
+
+`Dcgan` plays the same game with a `ConvNet` generator and discriminator
+(Radford et al. 2016). G takes the latent batch as a `latent × 1 × 1`
+input and must output the data's size. D takes a data row and must output
+one score. It reads the objective, learning rates, `nCritic`, `clip`,
+`classes`, `emaDecay` and `seed` from a `GanConfig`.
+
+With `classes > 0`, it is a **conditional DCGAN**. G gets the one-hot label
+appended to its noise, so it takes `latent + classes` inputs. D gets the
+label as `classes` extra input channels, one constant plane per class.
+`dcgan_train_step`, `dcgan_generate` and `dcgan_score` take labels or
+`null`, and `dcgan_train` takes them from the dataset.
+
+The DCGAN owns the nets, the optimizers, the averaged generator and the
+step arena. Training steps run the nets in training mode, so batch norm
+uses batch statistics, as DCGAN prescribes. `dcgan_generate` and
+`dcgan_score` run in inference mode.
+
+```c
+struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);             // latent 16
+convnet_deconv(&gen, 64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 32 x 8 x 8
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);  // 1 x 16 x 16
+struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
+convnet_conv(&disc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 8 x 8
+convnet_conv(&disc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 4 x 4
+convnet_batchnorm(&disc, ACT_LEAKY);
+convnet_conv(&disc, 1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);      // one score
+struct GanConfig cfg = gan_config_default(16UL);
+struct Dcgan g = dcgan_new(gen, disc, &cfg);
+dcgan_train(&g, &images, 20UL, 64UL);
+&Tensor fake = dcgan_generate(&g, 64UL, null);   // [64, 256], heap tensor, caller frees
+```
+
+The tests train on 8×8 shapes. A DCGAN must move its samples' mean
+intensity from the untrained sigmoid's 0.5 to within 0.1 of the data's.
+A conditional DCGAN's samples must be recognized as their requested class
+more than 55% of the time, by a classifier trained on the real images
+(chance is 25%).
 
 ## Reinforcement learning {#rl}
 
@@ -815,8 +1267,8 @@ discrete memory model needs.
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
   combinations, graphs, the host-array API and the fp16/bf16 buffers
   (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
-  results (87 checks), plus the [MIOpen and hipFFT
-  libraries](#rocm-miopen-hipfft) (43 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
+  results (325 checks, including the mixed-precision ops), plus the [MIOpen and hipFFT
+  libraries](#rocm-miopen-hipfft) (73 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
   train to the same loss as the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
@@ -852,6 +1304,7 @@ the backend picks the one with the most compute units.
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
 | fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
+| Mixed precision | `rocm_half_convert` (fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many` (up to 32 buffers per launch); `rocm_half_unscale_many` / `rocm_unscale_many` (gradients × 1/scale, with an overflow flag) and `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam` (fp32 master weights, also writing the 16-bit copy, skipped on the GPU when the flag is set); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias` (row or NCHW channel bias, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. See [mixed precision on the GPU](#gpu-mixed-precision) |
 | Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)` (matrix cores on CDNA GPUs) |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
@@ -982,6 +1435,7 @@ into graphs.
 | Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu` (tanh approximation), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
+| Mixed precision | The [ROCm mixed-precision ops](#gpu-mixed-precision) with `cuda_` names: `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`; queued, so they can be recorded into a `CudaGraph` |
 | Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm), taken from the [Gemma 4 CUDA engine](/benchmarks#ml-llm)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
@@ -1031,8 +1485,8 @@ switch the cuBLAS GEMMs use.
 
 | Group | Functions |
 |---|---|
-| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU, fused), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
+| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D` (weights rounded to fp16 / bf16), `cuda_half_conv2d_free` |
+| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU, fused), `cuda_half_conv2d` / `cuda_half_conv2d_relu` (16-bit `CudaHalfBuf`s: cuDNN's half / bfloat16 convolution with fp32 compute and tensor-op math, then the fused 16-bit bias kernel), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | Host arrays | `conv2d_forward_cuda`, `unet_forward_cuda`: the signatures of `conv2d_forward`/`unet_forward`. They upload the weights on every call and fall back to the CPU when no GPU is usable |
 
@@ -1107,8 +1561,8 @@ shapes, so the bias add and ReLU run as one HIP kernel after the convolution
 
 | Group | Functions |
 |---|---|
-| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
-| Queued ops | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D` (weights rounded to fp16 / bf16), `rocm_half_conv2d_free` |
+| Queued ops | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_half_conv2d` / `rocm_half_conv2d_relu` (16-bit `RocmHalfBuf`s: MIOpen's half / bfloat16 convolution with fp32 accumulation, then the fused 16-bit bias kernel), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
 | U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)` (each decoder step upsamples straight into its concat buffer), `rocm_unet_free` |
 | Host arrays | `conv2d_forward_rocm`, `unet_forward_rocm`, falling back to the CPU when no GPU is usable |
 
@@ -1121,9 +1575,12 @@ any length. Forward transforms are unnormalized and inverse ones include 1/N.
 | Queued, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r` (may overwrite its input) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc` runs the same checks as the CUDA
-suite against the CPU code (43 checks on an MI100): convolutions at stride 1
+suite against the CPU code (73 checks on an MI100): convolutions at stride 1
 and 2, batched, with ReLU and replayed from a graph; pooling, upsample and
-concat; a whole U-Net; and every FFT form.
+concat; a whole U-Net; every FFT form; and fp16 and bf16 convolutions and
+pooling against `cnn.h` on the same rounded inputs. 16-bit pooling is a HIP
+kernel in `gpu_rocm.h`, since MIOpen has no bfloat16 pooling solver on every
+GPU (none on the MI100).
 
 On the MI100, one 64-channel convolution takes 0.027 ms against PyTorch-ROCm's 0.063 ms and the batch-1 U-Net 0.227 ms against 0.315 ms; at batch 16–32 the two are within 2%. Device-resident FFTs are 1.4–1.7× faster than through PyTorch. See the [benchmarks](/benchmarks#ml-convolution).
 
@@ -1325,7 +1782,7 @@ void tensor_gpu_release_all_persistent();
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
-| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
+| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 325 + 73 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
 | CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#ml-mlp) and the [conv/FFT benchmarks](/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
@@ -1356,7 +1813,56 @@ void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+
+int         half_cpu_features();        // HALF_CPU_* bits, detected once
+const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
+
+**What the CPU does natively.** Every x86-64 CPU since 2012 converts fp16
+in hardware (F16C), and so does every AArch64 core (FCVTL / FCVTN). bf16 is
+newer and optional: AVX512-BF16 on Cooper Lake, Sapphire Rapids and Zen 4
+or later, and FEAT_BF16 on Armv8.6 cores (Neoverse V1 / N2, Apple M2 and
+later). fp16 arithmetic (AVX512-FP16, FEAT_FP16) is optional too.
+`half_cpu_features()` reports what this CPU has:
+
+| Bit | Meaning | x86-64 | AArch64 |
+|---|---|---|---|
+| `HALF_CPU_F16_CONVERT` | fp16 ↔ fp32 instructions | F16C | always |
+| `HALF_CPU_F16_ARITH` | fp16 arithmetic | AVX512-FP16 | FEAT_FP16 |
+| `HALF_CPU_BF16_CONVERT` | fp32 → bf16 instructions | AVX512-BF16 | FEAT_BF16 |
+| `HALF_CPU_BF16_DOT` | bf16 dot products | AVX512-BF16 (`VDPBF16PS`) | FEAT_BF16 (`BFDOT`) |
+
+Detection runs once: cpuid and xgetbv on x86-64, `getauxval` on Linux
+AArch64, `sysctl` on Apple. `SAFEC_HALF=soft` reports none and makes the
+bulk conversions use the portable code, for comparison.
+
+**Bulk conversions.**
+
+- fp16: F16C on x86-64 and FCVTL / FCVTN on AArch64.
+- fp32 → bf16: AVX512-BF16 where present, 16 values per instruction.
+  `VCVTNEPS2BF16` flushes fp32 subnormals to zero, so a block containing
+  one is spotted with `VFPCLASSPS` and converted in software instead.
+- Everywhere else: bf16 → fp32 is a shift, and fp32 → bf16 an integer
+  rounding, both in loops the compiler vectorizes.
+- Arrays of 256K values or more are split across the thread pool.
+
+The results are bit-identical to the scalar functions, except that NaNs
+may keep more of their payload. The tests compare every one of the 65,536
+fp16 patterns, and random fp32 patterns of every class, in both modes.
+
+On a Ryzen 7 7800X3D (one thread, 16M values, read + write bandwidth):
+
+| Conversion | Hardware | `SAFEC_HALF=soft` |
+|---|---|---|
+| fp32 → fp16 | 47 GB/s | 2.8 GB/s |
+| fp16 → fp32 | 43 GB/s | 7.0 GB/s |
+| fp32 → bf16 | 53 GB/s | 27 GB/s |
+| bf16 → fp32 | 39 GB/s (a shift either way) | 41 GB/s |
+
+Across all 16 threads, every conversion reaches 58–99 GB/s with the
+hardware paths.
 
 ### Half-precision tensors — `tensor_half.h` {#half-precision-tensors}
 
@@ -1407,6 +1913,16 @@ float             half_sum(const &HalfTensor a);                            // f
 int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // m vectors: x [m][k], y [m][n]
 
+// Mixed-precision batches: fp32 masters <-> 16-bit copies, 16-bit gradients back
+int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // into an existing copy
+int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
+int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
+struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
+int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
+int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
+void half_tensors_free(&Vec<struct HalfTensor> hs);
+int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = all finite
+
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
@@ -1419,6 +1935,7 @@ struct LossScaler {
 };
 struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
 int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+int  loss_scaler_unscale_all(&LossScaler s, &Vec<&Tensor> params);   // every tensor in a list
 void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
 ```
 
@@ -1492,6 +2009,51 @@ int main() {
 }
 ```
 
+
+### Mixed precision on the GPU {#gpu-mixed-precision}
+
+```c
+#include <std/ml/gpu_rocm.h>     // ROCm; gpu_cuda.h has the same functions with cuda_ names
+#include <std/ml/gpu_miopen.h>   // 16-bit convolution (gpu_cudnn.h on CUDA)
+```
+
+Mixed-precision training normally keeps:
+
+- fp32 master weights and optimizer state;
+- a 16-bit copy of the weights for the forward and backward passes;
+- gradients that carry the loss scale.
+
+ROCm and CUDA have the same queued ops for every part of the step:
+
+| Step | ROCm (`cuda_` on CUDA) |
+|---|---|
+| Copies of many tensors | `rocm_to_half_many(&f32s, &halves)`, `rocm_from_half_many`: up to 32 buffers per launch, one dtype per call |
+| fp16 ↔ bf16 | `rocm_half_convert(src, dst)` |
+| 16-bit compute | `rocm_half_gemm` / `_f32` / `_relu`, `rocm_half_conv2d` / `_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
+| Unscaling | `rocm_half_unscale_many(&g16, &g32, 1 / scale, flag)` (16-bit gradients → fp32), `rocm_unscale_many(&g32, &g32, …)` (fp32, in place): set `flag[0] = 1` on any inf / NaN; `rocm_zero(flag)` first |
+| Update | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)` (Adam / AdamW) and `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`'s `optimizer_step` arithmetic, the rounded weights also written to `w16`, and the whole update skipped on the GPU when `flag[0] != 0` |
+
+Because the skip happens on the GPU, an overflowed step needs no host round
+trip before the update. Read the 4-byte flag once per step, whenever it's
+convenient, to grow or back off the `LossScaler`. bf16 shares fp32's exponent
+range and usually trains without loss scaling; pass an invalid `flag`
+(`dev == 0`) to `rocm_mp_*` to never skip.
+
+Every kernel computes in fp32 and rounds once per stored value. Updates run
+without FMA contraction (`fp contract(off)` in HIP, `__fmul_rn`-style
+intrinsics in CUDA), so the results match the CPU arithmetic.
+`tests/stdlib/rocm/rocm_check.sc` checks this on an MI100:
+
+- fp16 ↔ bf16 over every 16-bit pattern;
+- 40 buffers through bf16 and back;
+- unscaling, and the overflow flag;
+- three Adam, AdamW and momentum-SGD steps against the CPU (within 1e-5)
+  with their bf16 copies, and a flagged step changing nothing;
+- every 16-bit elementwise op and the NCHW bias bit-for-bit.
+
+The CUDA versions have the same tests in `tests/stdlib/cuda/cuda_check.sc`.
+Their kernels compile (clang, sm_80) and the tests build, but they haven't
+yet run on an NVIDIA GPU.
 
 ## Device selection {#device-selection}
 
