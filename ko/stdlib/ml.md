@@ -1060,6 +1060,7 @@ struct HalfTensor half_relu(const &HalfTensor a);
 struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
 float             half_sum(const &HalfTensor a);                            // float32 accumulate
 int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
+int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // 벡터 m개: x [m][k], y [m][n]
 
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
@@ -1078,7 +1079,7 @@ void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean s
 
 `HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
 
-`half_gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#gemma4-rocm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다.
+`half_gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#gemma4-rocm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다. AArch64에서는 NEON 커널이 가중치 8개를 32비트 레인 4개로 읽어 두 절반을 그 자리에서 넓힙니다. M1 Pro(성능 코어 8개)에서 bf16은 95–113 GB/s, fp16은 40–55 GB/s입니다. `half_gemv_batch`는 짧은 프롬프트의 프리필이나 추측 디코딩 검증을 위해 벡터 `m`개를 한 번에 계산하며, 가중치는 모든 벡터에 대해 메모리에서 한 번만 읽습니다. M1 Pro에서 bf16 24576 × 1536 가중치에 벡터 6개를 곱하는 데 1.65 ms가 걸리며, `half_gemv`를 6번 호출하면 4.35 ms입니다. 이를 사용해 M1 Pro에서 [Gemma 4 E2B](/ko/benchmarks#machine-learning-real-llm-inference-gemma-4-e2b-from-scratch) CPU 경로는 토큰당 136 ms입니다.
 
 bf16으로 저장하고 계산하기:
 
