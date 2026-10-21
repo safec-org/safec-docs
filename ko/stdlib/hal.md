@@ -1,10 +1,10 @@
 # 하드웨어 추상화 계층 (`std::hal`)
 
 `std/hal/`은 흔히 쓰이는 임베디드 주변장치를, 해당 주변장치의 MMIO 베이스
-주소를 담고 있는 구조체 인스턴스의 메서드로 감싼다 — 대응하는
-`*_init()` 함수로 인스턴스를 만든 다음 그 위에서 메서드를 호출하면 된다.
+주소를 담고 있는 구조체 인스턴스의 메서드로 감쌉니다 — 대응하는
+`*_init()` 함수로 인스턴스를 만든 다음 그 위에서 메서드를 호출하면 됩니다.
 모든 모듈이 프리스탠딩 환경에서 안전하며(libc 의존성 없음), 일반적인
-`--target` 크로스 컴파일은 물론 `--freestanding`에서도 동작한다.
+`--target` 크로스 컴파일은 물론 `--freestanding`에서도 동작합니다.
 
 ```c
 #include <std/hal/gpio.h>
@@ -27,8 +27,8 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 ```
 
 생성자 함수는 네임스페이스가 적용되지만 구조체 *타입* 자체는 그렇지
-않다는 점에 유의한다 — `struct std::GpioPin`이 아니라 `struct GpioPin`
-이다([네임스페이스](/ko/reference/namespaces#what-gets-namespaced) 참고).
+않다는 점에 유의합니다 — `struct std::GpioPin`이 아니라 `struct GpioPin`
+입니다([네임스페이스](/ko/reference/namespaces#what-gets-namespaced) 참고).
 
 ## 범용 주변장치 {#generic-peripherals}
 
@@ -43,17 +43,17 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 
 상수: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C 결과 `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3`(CPOL/CPHA = 00, 01, 10, 11).
 
-모두 원시 MMIO 주소에 직접 작동하는 폴링 기반 드라이버다(인터럽트 기반
+모두 원시 MMIO 주소에 직접 작동하는 폴링 기반 드라이버입니다(인터럽트 기반
 변형은 없음) — 주변장치가 완료를 비동기적으로 알려야 할 경우 인터럽트를
 다루는 쪽은 [`std::interrupt`](/ko/stdlib/interrupt)(ISR 등록, 벡터
-테이블, MMIO 비트필드 헬퍼)를 참고한다.
+테이블, MMIO 비트필드 헬퍼)를 참고합니다.
 
 ## ARM Cortex-M {#arm-cortex-m}
 
 `hal/cortex_m.h` — NVIC, SysTick, SCB를 Cortex-M 표준 메모리 맵 주소에
-위치한 전역 인스턴스로 제공한다. 전체 설명(HAL 사용법, DSP 확장
+위치한 전역 인스턴스로 제공합니다. 전체 설명(HAL 사용법, DSP 확장
 내장 함수, MVE)은 [베어메탈 → ARM Cortex-M](/ko/reference/baremetal#arm-cortex-m)을
-참고한다.
+참고합니다.
 
 ```c
 #define NVIC_BASE     0xE000E100UL
@@ -97,7 +97,7 @@ struct Scb {                       // global instance: scb (scb_init())
 ## AArch64 {#aarch64}
 
 `hal/aarch64.h` — 위의 Cortex-M *마이크로컨트롤러* HAL과는 별개로,
-ARMv8-A 애플리케이션 코어(Cortex-A53/A57/A72/A55/A76)를 대상으로 한다.
+ARMv8-A 애플리케이션 코어(Cortex-A53/A57/A72/A55/A76)를 대상으로 합니다.
 
 **시스템 레지스터**(인스턴스 없이 사용하는 자유 함수):
 `aa64_read_mpidr()`(프로세서 어피니티/CPU ID), `aa64_read_currentel()`
@@ -121,7 +121,7 @@ ARMv8-A 애플리케이션 코어(Cortex-A53/A57/A72/A55/A76)를 대상으로 �
 
 ## RISC-V {#risc-v}
 
-`hal/riscv.h` — 주소는 SiFive FE310 / 표준 RISC-V MMIO 맵을 따른다.
+`hal/riscv.h` — 주소는 SiFive FE310 / 표준 RISC-V MMIO 맵을 따릅니다.
 
 **CSR 접근**(인라인 `asm`을 사용하는 자유 함수):
 `rv_csr_read_mstatus`/`rv_csr_write_mstatus`, `rv_csr_read_mie`/

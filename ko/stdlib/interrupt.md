@@ -3,7 +3,7 @@
 `std/interrupt/`는 인터럽트 처리 중 소프트웨어가 관리하는 부분 —
 벡터 테이블, ISR 등록/디스패치, MMIO 레지스터 접근, 비트필드 조작,
 클럭 설정 — 을 다루며, [`std::hal`](/ko/stdlib/hal)의 주변장치 드라이버를
-보완한다. 모두 프리스탠딩 환경에서 안전하다.
+보완합니다. 모두 프리스탠딩 환경에서 안전합니다.
 
 ```c
 #include <std/interrupt/mmio.h>
@@ -24,7 +24,7 @@ void configure_uart(&volatile unsigned int uart_base) {
 고정 주소로부터 `unsafe` 안에서 한 번 만듭니다 — 패턴은
 [HAL](/ko/stdlib/hal)을 참고하세요.
 
-동일한 연산을 두 가지 방식으로 동등하게 제공한다: 한 레지스터에 대해
+동일한 연산을 두 가지 방식으로 동등하게 제공합니다: 한 레지스터에 대해
 여러 접근을 묶을 때 쓰는 `MmioReg` 구조체(`mmio_reg(addr)`로 생성한 뒤
 메서드 호출)와, 일회성 접근을 위한 자유 함수.
 
@@ -45,7 +45,7 @@ void configure_uart(&volatile unsigned int uart_base) {
 ## ISR 벡터 테이블 (`interrupt/isr.h`) {#isr-vector-table-interruptisrh}
 
 아래의 하드웨어 벡터 테이블과는 별개인 소프트웨어 디스패치 테이블 —
-`IsrTable`은 최대 `ISR_MAX`(256)개의 `fn void()` 핸들러를 담는다:
+`IsrTable`은 최대 `ISR_MAX`(256)개의 `fn void()` 핸들러를 담습니다:
 
 ```c
 static void uart_rx_isr() { /* ... */ }
@@ -58,15 +58,15 @@ if (table.dispatch(3)) { /* 핸들러가 실행됨 */ }
 ```
 
 그 외에 `irq_disable()`/`irq_enable()`이 있으며, 이는 전역 인터럽트
-활성화 플래그를 감싸는 플랫폼별 인라인 `asm`이다.
+활성화 플래그를 감싸는 플랫폼별 인라인 `asm`입니다.
 
 ## 하드웨어 벡터 테이블 (`interrupt/vector_table.h`) {#hardware-vector-table-interruptvector_tableh}
 
 `VectorTable`(전역 인스턴스 `vtable`)은 CPU가 실제로 인식하는 벡터
-테이블이다 — 이를 채우려면 `install(index, handler)`/`remove(index)`/
+테이블입니다 — 이를 채우려면 `install(index, handler)`/`remove(index)`/
 `get(index)`를, 특정 슬롯의 핸들러(또는 `set_default()`로 지정한 기본
 핸들러)를 호출하려면 `dispatch(index)`를, CPU가 이 테이블을 가리키게
-하려면 `vtable_activate()`를 사용한다:
+하려면 `vtable_activate()`를 사용합니다:
 
 | 대상 | `vtable_activate()`가 하는 일 |
 |---|---|
@@ -76,7 +76,7 @@ if (table.dispatch(3)) { /* 핸들러가 실행됨 */ }
 
 `vtable_init()`은 사용 전에 모든 슬롯을 `vtable_default_handler`(프로젝트별로
 재정의하도록 만들어진, 약한 심벌(weak)의 무한 루프 폴트 핸들러)로
-설정한다.
+설정합니다.
 
 `VTABLE_MAX_VECTORS`는 256개입니다(Cortex-M: 코어 예외 16개 + 외부 IRQ 최대 240개).
 

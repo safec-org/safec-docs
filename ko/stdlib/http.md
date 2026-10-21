@@ -33,15 +33,15 @@ std::http_serve_threaded(8080, handle, /*numThreads=*/4);
 ```
 
 `numThreads`개의 워커 스레드가 모두 동일한 리스닝 소켓에 대해
-`accept()`를 호출한다 — OS 커널이 현재 `accept()`에서 블록되어 있는
+`accept()`를 호출합니다 — OS 커널이 현재 `accept()`에서 블록되어 있는
 스레드들에게 들어오는 연결을 공평하게 분배하며, 이는 nginx의 워커
 모델이 사용하는 것과 동일한 "스레드당 리스너" 패턴으로, 별도의 작업
-큐가 필요 없다. `handler`는 최대 `numThreads`개의 OS 스레드에서
+큐가 필요 없습니다. `handler`는 최대 `numThreads`개의 OS 스레드에서
 동시에 호출될 수 있으므로, 핸들러(그리고 그것이 다루는 모든 것)는 그런
-방식으로 호출되어도 안전해야 한다. 검증됨: 300ms의 인위적 지연을 가진
+방식으로 호출되어도 안전해야 합니다. 검증됨: 300ms의 인위적 지연을 가진
 핸들러에 대해 4개의 동시 요청을 보냈을 때 전체가 약 1.2초가 아니라 약
-0.34초 만에 완료되었다 — 직렬화가 아니라 실제 병렬 처리가 이루어짐을
-확인했다.
+0.34초 만에 완료되었습니다 — 직렬화가 아니라 실제 병렬 처리가 이루어짐을
+확인했습니다.
 
 `http_serve_reactor(port, handler, numThreads)`도 같은 계약이지만, 각 스레드가 논블로킹 [`Reactor`](/ko/stdlib/sched) 이벤트 루프를 돌리므로 스레드 하나가 여러 연결을 동시에 처리합니다.
 
@@ -109,8 +109,8 @@ const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" o
 #include <std/http/cors.h>
 ```
 
-래핑하는 미들웨어가 아니다(단순한 `HttpHandler` 함수 포인터에는 클로저
-슬롯이 없다) — 자신의 핸들러에서 직접 호출한다:
+래핑하는 미들웨어가 아닙니다(단순한 `HttpHandler` 함수 포인터에는 클로저
+슬롯이 없습니다) — 자신의 핸들러에서 직접 호출합니다:
 
 ```c
 struct HttpResponse handle(&HttpRequest req) {
@@ -158,9 +158,9 @@ struct Value  jwt_verify(const &char token, const &char secret, ?&int ok);
 ```
 
 `jwt_verify`는 `alg: HS256`만 허용하며(`none`을 포함해 다른 알고리즘을
-주장하는 토큰은 곧바로 거부된다) 서명을 검사한다 — `exp`/`nbf` 등 다른
-클레임 검증은 호출자가 담당해야 한다. sign→verify 왕복, 잘못된 시크릿에
-대한 거부, 변조된 토큰에 대한 거부를 통해 검증되었다.
+주장하는 토큰은 곧바로 거부됩니다) 서명을 검사합니다 — `exp`/`nbf` 등 다른
+클레임 검증은 호출자가 담당해야 합니다. sign→verify 왕복, 잘못된 시크릿에
+대한 거부, 변조된 토큰에 대한 거부를 통해 검증되었습니다.
 
 ## OAuth2 {#oauth2}
 
@@ -169,7 +169,7 @@ struct Value  jwt_verify(const &char token, const &char secret, ?&int ok);
 ```
 
 클라이언트 측 토큰 교환(RFC 6749) — 제공자에 구애받지 않으며, 실제
-OAuth2 토큰 엔드포인트라면 어디든 동작한다:
+OAuth2 토큰 엔드포인트라면 어디든 동작합니다:
 
 ```c
 int ok;
@@ -204,9 +204,9 @@ struct OAuth2Token oauth2_refresh(const &char tokenHost, unsigned short tokenPor
 void oauth2_token_free(&OAuth2Token t);
 ```
 
-로컬 모의(mock) 토큰 엔드포인트에 대해 종단 간(end-to-end) 검증되었다.
+로컬 모의(mock) 토큰 엔드포인트에 대해 종단 간(end-to-end) 검증되었습니다.
 브라우저용 `/authorize?...` 리다이렉트 URL을 구성하는 것은 제공자마다
-다른 쿼리 파라미터가 필요하며, 호출자의 몫으로 남겨져 있다.
+다른 쿼리 파라미터가 필요하며, 호출자의 몫으로 남겨져 있습니다.
 
 ## WebSocket {#websocket}
 

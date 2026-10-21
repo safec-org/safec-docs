@@ -3,10 +3,10 @@
 `std/kernel/`은 작은 커널이나 하이퍼바이저를 처음부터 작성하기 위한
 구성 요소 — 물리 메모리 할당, 페이지 테이블과 MMU 컨텍스트, 프로세스
 제어 블록, 라운드 로빈 스케줄러, IPC 메일박스, 시스템 콜 디스패치 —
-를 제공한다. 모두 프리스탠딩 환경에서 안전하며, 단일 주소 공간을 위한
+를 제공합니다. 모두 프리스탠딩 환경에서 안전하며, 단일 주소 공간을 위한
 펌웨어를 작성한다고 가정하는 [`std::hal`](/ko/stdlib/hal)/
 [`std::interrupt`](/ko/stdlib/interrupt)보다 더 저수준으로, 여러 개의
-주소 공간을 관리하는 데 쓰인다.
+주소 공간을 관리하는 데 쓰입니다.
 
 ```c
 #include <std/kernel/frame.h>
@@ -28,7 +28,7 @@ void kernel_setup() {
 
 ## 물리 프레임 얼로케이터 (`kernel/frame.h`) {#physical-frame-allocator-kernelframeh}
 
-`FrameAllocator`는 4 KiB 프레임 단위의 비트맵 얼로케이터다
+`FrameAllocator`는 4 KiB 프레임 단위의 비트맵 얼로케이터입니다
 (`FRAME_BITMAP_SIZE` = 4096 워드 = 131072개 프레임 = 인스턴스 하나당
 512 MB 추적). `init(n)`, `alloc()`(프레임 번호, OOM 시 `-1`),
 `free(frame)`, `is_used(frame)`, `mark_range(start, count)`(범위를 미리
@@ -50,12 +50,12 @@ void kernel_setup() {
 
 `MmuContext`는 `paging.h` + `frame.h` 위에 구축된 완전한 2단계
 (Sv30 스타일: 9+9+12비트, 컨텍스트당 1 GiB 주소 공간) 가상 메모리
-컨텍스트다 — `mmu_init(root, frames)`에서 `root`는 0으로 초기화된, 4
+컨텍스트입니다 — `mmu_init(root, frames)`에서 `root`는 0으로 초기화된, 4
 KiB 정렬된 물리 페이지 테이블 주소이고 `frames`는 살아 있는
-`FrameAllocator`다. `map(virt, phys, flags)`(필요하면 `frames`에서 L2
+`FrameAllocator`입니다. `map(virt, phys, flags)`(필요하면 `frames`에서 L2
 프레임을 할당), `unmap(virt)`, `walk(virt, &stack phys_out)`(수정 없이
 해석), `tlb_flush_all()`/`tlb_flush_page(virt)`, 그리고 `activate()` —
-마지막 세 함수는 각각 내부적으로 아키텍처별로 디스패치된다(x86-64:
+마지막 세 함수는 각각 내부적으로 아키텍처별로 디스패치됩니다(x86-64:
 `CR3`/`invlpg`; RISC-V: `sfence.vma`/`satp`; AArch64: `TTBR0_EL1`/
 `TLBI`).
 

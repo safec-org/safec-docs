@@ -1,8 +1,8 @@
 # 프로세스 간 통신 (IPC)
 
 `std/ipc/`는 동일 프로세스 내의 다른 스레드가 아니라 *다른 프로세스*와
-통신하는 것을 다룬다 — 모두 프로세스 내부용인 `Channel`/`MpscQueue`/
-`LFQueue`는 [동기화](/ko/stdlib/sync)를 참고한다.
+통신하는 것을 다룹니다 — 모두 프로세스 내부용인 `Channel`/`MpscQueue`/
+`LFQueue`는 [동기화](/ko/stdlib/sync)를 참고합니다.
 
 ```c
 #include <std/ipc/pipe.h>
@@ -16,16 +16,16 @@
 ## 파이프 — 익명 파이프 {#pipe-anonymous-pipes}
 
 가장 단순한 형태의 호스트 IPC: 읽기 끝과 쓰기 끝을 가진 단방향 바이트
-스트림으로, 가장 흔히는 부모/자식 프로세스 간 통신에 쓰인다 —
+스트림으로, 가장 흔히는 부모/자식 프로세스 간 통신에 쓰입니다 —
 spawn된 자식 프로세스가 파이프의 fd/핸들을 상속받거나, 자식의
-stdin/stdout에 연결된다(그 연결 작업 자체는 이 모듈의 범위 밖이며,
-이 모듈은 파이프를 생성하고 조작하는 것만 담당한다).
+stdin/stdout에 연결됩니다(그 연결 작업 자체는 이 모듈의 범위 밖이며,
+이 모듈은 파이프를 생성하고 조작하는 것만 담당합니다).
 
-핸들은 플랫폼 전반에 걸쳐 균일하게 `long long`이다: POSIX 파이프 fd는
+핸들은 플랫폼 전반에 걸쳐 균일하게 `long long`입니다: POSIX 파이프 fd는
 그대로 들어맞고, Windows 파이프 `HANDLE`(포인터 크기의 값)은
 `std/thread.h`의 OS 스레드 핸들이 이미 사용하는 것과 동일한
-포인터-정수 변환 관례를 통해 저장된다. 두 개의 백엔드가 있으며 선택
-방식은 `std/sched/reactor.h`의 것과 동일하다: `pipe_posix.sc`(macOS,
+포인터-정수 변환 관례를 통해 저장됩니다. 두 개의 백엔드가 있으며 선택
+방식은 `std/sched/reactor.h`의 것과 동일합니다: `pipe_posix.sc`(macOS,
 iOS, Linux, Android, FreeBSD — 이들 모두에서 `pipe()`는 동일함)와
 `pipe_win32.sc`(`CreatePipe`/`ReadFile`/`WriteFile`/`CloseHandle`).
 
@@ -82,33 +82,33 @@ int main() {
 
 ::: tip
 이 예제는 자체 완결적으로 만들기 위해 단일 프로세스/스레드 내에서
-쓰고 읽는다 — 실제 사용 사례는 `fork()`를 거쳐 공유되는 파이프로,
+쓰고 읽습니다 — 실제 사용 사례는 `fork()`를 거쳐 공유되는 파이프로,
 부모와 자식이 각자 사용하지 않는 끝을 닫고 나머지 한쪽을 통해
-통신한다.
+통신합니다.
 :::
 
 ---
 
 ## UDS — 유닉스 도메인 소켓 {#uds-unix-domain-sockets}
 
-*관련 없는* 프로세스 간의 이름 있는, 주소 지정 가능한 IPC다(이미 fd를
+*관련 없는* 프로세스 간의 이름 있는, 주소 지정 가능한 IPC입니다(이미 fd를
 가지고 있는 것 — 보통은 `fork()`된 자식 — 사이에서만 동작하는 `Pipe`의
-익명 파이프와 다르다): 파일 시스템 경로를 아는 프로세스라면 어느
+익명 파이프와 다릅니다): 파일 시스템 경로를 아는 프로세스라면 어느
 쪽이든 연결할 수 있으며, 이는 TCP 포트를 아는 프로세스가 네트워크를
-통해 연결할 수 있는 것과 마찬가지다. `std/sched/io_nb.h`의 `tcp_*_nb`
+통해 연결할 수 있는 것과 마찬가지입니다. `std/sched/io_nb.h`의 `tcp_*_nb`
 함수와 의도적으로 동일한, 논블로킹이며 `std::Reactor`와 짝지을 수 있는
-형태다 — 태스크가 이 함수들 중 하나를 호출하면 프로그램 전체를
+형태입니다 — 태스크가 이 함수들 중 하나를 호출하면 프로그램 전체를
 블로킹하는 대신 곧바로 `EAGAIN`/`EWOULDBLOCK`을 받고,
 `TaskScheduler::await_fd(fd, SCHED_READ/SCHED_WRITE)`를 통해 준비
-상태를 기다린다.
+상태를 기다립니다.
 
 ::: info Windows 백엔드 없음
 Windows에는 이 프로젝트가 지원하는 버전 전반에 걸쳐 보편적으로
 적용되는, 전통적인 BSD 소켓 의미의 `AF_UNIX` 도메인 소켓에 대응하는
-것이 없다. 그래서 `uds_win32.sc`는 존재하지 않는다 — 네임드 파이프
+것이 없습니다. 그래서 `uds_win32.sc`는 존재하지 않습니다 — 네임드 파이프
 (`CreateNamedPipe`/`ConnectNamedPipe`, 완전히 다른 형태의 API)가
 Windows의 네이티브 대응물이며, 이 함수 시그니처들에 끼워 맞추기보다는
-별도의 모듈이 필요할 것이다.
+별도의 모듈이 필요할 것입니다.
 :::
 
 두 개의 백엔드: `uds_bsd.sc`(macOS, iOS, FreeBSD — `struct sockaddr_un`에

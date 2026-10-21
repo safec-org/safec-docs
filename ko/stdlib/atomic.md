@@ -1,8 +1,8 @@
 # atomic -- 아토믹
 
 `atomic` 모듈은 C11 `<stdatomic.h>`를 감싸, 공유 정수에 대한 락 프리
-아토믹 연산을 제공한다. 모든 연산은 순차 일관성(sequential
-consistency) 순서를 사용한다.
+아토믹 연산을 제공합니다. 모든 연산은 순차 일관성(sequential
+consistency) 순서를 사용합니다.
 
 ```c
 #include <std/atomic.h>
@@ -17,7 +17,7 @@ int  atomic_load_int(const &int addr);
 void atomic_store_int(&int addr, int val);
 ```
 
-`*addr`를 원자적으로 읽거나 쓴다.
+`*addr`를 원자적으로 읽거나 씁니다.
 
 ### 페치 후 변경 (Fetch-and-Modify) {#fetch-and-modify}
 
@@ -29,7 +29,7 @@ int atomic_fetch_or_int(&int addr, int mask);
 int atomic_fetch_xor_int(&int addr, int mask);
 ```
 
-각 함수는 연산을 원자적으로 적용하고 **이전** 값을 반환한다.
+각 함수는 연산을 원자적으로 적용하고 **이전** 값을 반환합니다.
 
 ### 교환 (Exchange) {#exchange}
 
@@ -37,7 +37,7 @@ int atomic_fetch_xor_int(&int addr, int mask);
 int atomic_exchange_int(&int addr, int val);
 ```
 
-`*addr`를 `val`로 원자적으로 교체하고 이전 값을 반환한다.
+`*addr`를 `val`로 원자적으로 교체하고 이전 값을 반환합니다.
 
 ### Compare-and-Swap (CAS) {#compare-and-swap-cas}
 
@@ -46,8 +46,8 @@ int atomic_cas_int(&int addr, &int expected, int desired);
 ```
 
 `*addr == *expected`이면 `desired`를 `*addr`에 원자적으로 저장하고 1(성공)을
-반환한다. 그렇지 않으면 `*expected`를 `*addr`의 현재 값으로 갱신하고
-0(실패)을 반환한다.
+반환합니다. 그렇지 않으면 `*expected`를 `*addr`의 현재 값으로 갱신하고
+0(실패)을 반환합니다.
 
 ## atomic_long (64비트 부호 있음) {#atomic_long-64-bit-signed}
 
@@ -61,7 +61,7 @@ int        atomic_cas_ll(&long long addr, &long long expected, long long desired
 ```
 
 `_int` 변형과 동일한 의미를 가지며, `long long`(64비트) 값에 대해
-동작한다.
+동작합니다.
 
 ## 메모리 펜스 {#memory-fence}
 
@@ -69,9 +69,9 @@ int        atomic_cas_ll(&long long addr, &long long expected, long long desired
 void atomic_thread_fence();
 ```
 
-완전한 순차 일관성 메모리 펜스를 발행한다. 이는 펜스 이전의 모든 메모리
+완전한 순차 일관성 메모리 펜스를 발행합니다. 이는 펜스 이전의 모든 메모리
 연산이, 펜스 이후의 어떤 메모리 연산보다 먼저 모든 스레드에 보이도록
-보장한다.
+보장합니다.
 
 ## 예제: 락 프리 카운터 {#example-lock-free-counter}
 
@@ -137,6 +137,6 @@ int main() {
 
 ## 안전성 참고 사항 {#safety-note}
 
-아토믹 연산 자체는 메모리 안전하다. 다만 C FFI로부터 받은 원시
+아토믹 연산 자체는 메모리 안전합니다. 다만 C FFI로부터 받은 원시
 포인터에 결과를 저장하는 것은 SafeC의 FFI 정책에 따라 호출부에서
-`unsafe {}`가 필요하다.
+`unsafe {}`가 필요합니다.

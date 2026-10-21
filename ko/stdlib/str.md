@@ -1,13 +1,13 @@
 # str -- 문자열
 
 `str` 모듈은 길이, 비교, 복사, 검색, 토큰화, 복제를 아우르는 C 문자열
-조작 함수를 제공한다. 이 함수들은 NUL로 끝나는 C 문자열을 첫 문자에 대한
-참조로 받는다 — 읽을 때는 `const &char`, 쓸 때는 `&char`. 문자열
-리터럴과 `char` 배열은 그대로 넘길 수 있다.
+조작 함수를 제공합니다. 이 함수들은 NUL로 끝나는 C 문자열을 첫 문자에 대한
+참조로 받습니다 — 읽을 때는 `const &char`, 쓸 때는 `&char`. 문자열
+리터럴과 `char` 배열은 그대로 넘길 수 있습니다.
 
 가변적이고 힙에 할당되는, 커질 수 있는 문자열 타입은
 [`String` 컬렉션](/ko/stdlib/collections#string-mutable-string)을
-참고한다.
+참고합니다.
 
 ```c
 #include <std/str.h>
@@ -21,7 +21,7 @@
 unsigned long str_len(const &char s);
 ```
 
-`s`의 바이트 길이를 반환한다(NUL 종료 문자는 포함하지 않음).
+`s`의 바이트 길이를 반환합니다(NUL 종료 문자는 포함하지 않음).
 
 ### str_cmp {#str_cmp}
 
@@ -29,7 +29,7 @@ unsigned long str_len(const &char s);
 int str_cmp(const &char a, const &char b);
 ```
 
-사전식 비교. `< 0`, `0`, `> 0` 중 하나를 반환한다.
+사전식 비교. `< 0`, `0`, `> 0` 중 하나를 반환합니다.
 
 ### str_ncmp {#str_ncmp}
 
@@ -37,7 +37,7 @@ int str_cmp(const &char a, const &char b);
 int str_ncmp(const &char a, const &char b, unsigned long n);
 ```
 
-`a`와 `b`를 최대 `n`바이트까지 비교한다.
+`a`와 `b`를 최대 `n`바이트까지 비교합니다.
 
 ### str_eq {#str_eq}
 
@@ -45,8 +45,8 @@ int str_ncmp(const &char a, const &char b, unsigned long n);
 int str_eq(const &char a, const &char b);
 ```
 
-두 문자열이 같으면 1, 아니면 0을 반환한다. `str_cmp`를 감싸는 편의
-래퍼다.
+두 문자열이 같으면 1, 아니면 0을 반환합니다. `str_cmp`를 감싸는 편의
+래퍼입니다.
 
 ## 복사 및 연결 {#copy-concatenation}
 
@@ -56,8 +56,8 @@ int str_eq(const &char a, const &char b);
 void str_copy(&char dst, const &char src, unsigned long n);
 ```
 
-`src`를 `dst`로 복사한다 -- NUL을 포함해 최대 `n`바이트까지. `dst`는
-최소 `n`바이트를 담을 수 있어야 한다.
+`src`를 `dst`로 복사합니다 -- NUL을 포함해 최대 `n`바이트까지. `dst`는
+최소 `n`바이트를 담을 수 있어야 합니다.
 
 ### str_cat {#str_cat}
 
@@ -65,8 +65,8 @@ void str_copy(&char dst, const &char src, unsigned long n);
 void str_cat(&char dst, const &char src);
 ```
 
-`dst`에 있는 NUL로 끝나는 문자열 뒤에 `src`를 덧붙인다. 대상 버퍼는
-충분한 공간을 가지고 있어야 한다.
+`dst`에 있는 NUL로 끝나는 문자열 뒤에 `src`를 덧붙입니다. 대상 버퍼는
+충분한 공간을 가지고 있어야 합니다.
 
 ### str_ncat {#str_ncat}
 
@@ -74,7 +74,7 @@ void str_cat(&char dst, const &char src);
 void str_ncat(&char dst, const &char src, unsigned long n);
 ```
 
-`src`의 최대 `n`바이트를 `dst`에 덧붙이고 항상 NUL로 종료한다.
+`src`의 최대 `n`바이트를 `dst`에 덧붙이고 항상 NUL로 종료합니다.
 
 ## 검색 {#search}
 
@@ -84,8 +84,8 @@ void str_ncat(&char dst, const &char src, unsigned long n);
 const ?&char str_find(const &char haystack, const &char needle);
 ```
 
-`haystack`에서 `needle`이 처음 나타나는 위치를 찾는다. 일치하는
-위치에 대한 포인터를 반환하며, 찾지 못하면 NULL을 반환한다.
+`haystack`에서 `needle`이 처음 나타나는 위치를 찾습니다. 일치하는
+위치에 대한 포인터를 반환하며, 찾지 못하면 NULL을 반환합니다.
 
 ### str_find_char {#str_find_char}
 
@@ -93,8 +93,8 @@ const ?&char str_find(const &char haystack, const &char needle);
 const ?&char str_find_char(const &char s, int c);
 ```
 
-`s`에서 문자 `c`가 처음 나타나는 위치를 찾는다. 포인터 또는 NULL을
-반환한다.
+`s`에서 문자 `c`가 처음 나타나는 위치를 찾습니다. 포인터 또는 NULL을
+반환합니다.
 
 ### str_rfind_char {#str_rfind_char}
 
@@ -102,8 +102,8 @@ const ?&char str_find_char(const &char s, int c);
 const ?&char str_rfind_char(const &char s, int c);
 ```
 
-`s`에서 문자 `c`가 마지막으로 나타나는 위치를 찾는다. 포인터 또는
-NULL을 반환한다.
+`s`에서 문자 `c`가 마지막으로 나타나는 위치를 찾습니다. 포인터 또는
+NULL을 반환합니다.
 
 ### str_find_any {#str_find_any}
 
@@ -111,8 +111,8 @@ NULL을 반환한다.
 const ?&char str_find_any(const &char s, const &char accept);
 ```
 
-`s`에서 `accept`에도 속하는 첫 번째 문자를 찾는다. 포인터 또는 NULL을
-반환한다.
+`s`에서 `accept`에도 속하는 첫 번째 문자를 찾습니다. 포인터 또는 NULL을
+반환합니다.
 
 ## 구간 및 분류 {#span-classification}
 
@@ -123,7 +123,7 @@ unsigned long str_span(const &char s, const &char accept);
 ```
 
 `s`의 시작 부분 중 `accept`에 속한 문자로만 이루어진 구간의 길이를
-반환한다.
+반환합니다.
 
 ### str_cspan {#str_cspan}
 
@@ -132,7 +132,7 @@ unsigned long str_cspan(const &char s, const &char reject);
 ```
 
 `s`의 시작 부분 중 `reject`에 속한 문자가 하나도 없는 구간의 길이를
-반환한다.
+반환합니다.
 
 ## 토큰화 {#tokenisation}
 
@@ -145,10 +145,10 @@ unsigned long str_cspan(const &char s, const &char reject);
 재진입 가능한 토크나이저(`strtok_r`/`strtok_s`를 감쌈).
 
 - **첫 호출:** `s`에 문자열을 전달하고, `saveptr`에는 `?&char` 변수의
-  주소를 전달한다(토크나이저가 위치를 기억하는 곳).
-- **이후 호출:** `s`에 `null`을 전달한다.
-- 다음 토큰에 대한 참조를 반환하거나, 모두 소진되면 `null`을 반환한다.
-- 입력 문자열은 실제로 수정된다(구분자 위치에 NUL 종료 문자가 기록됨).
+  주소를 전달합니다(토크나이저가 위치를 기억하는 곳).
+- **이후 호출:** `s`에 `null`을 전달합니다.
+- 다음 토큰에 대한 참조를 반환하거나, 모두 소진되면 `null`을 반환합니다.
+- 입력 문자열은 실제로 수정됩니다(구분자 위치에 NUL 종료 문자가 기록됨).
 
 ## 메모리 검색 {#memory-search}
 
@@ -159,7 +159,7 @@ const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ```
 
 `s`가 가리키는 `n`바이트 블록 안에서 바이트 `c`가 처음 나타나는
-위치에 대한 포인터를 반환하며, 없으면 NULL을 반환한다.
+위치에 대한 포인터를 반환하며, 없으면 NULL을 반환합니다.
 
 ## 할당 및 복제 {#allocation-duplication}
 
@@ -169,8 +169,8 @@ const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ?&heap char str_dup(const &char s);
 ```
 
-`s`의 힙에 할당된 NUL로 끝나는 복사본을 반환한다. 호출자는 이를
-해제하기 위해 `dealloc()`을 호출해야 한다.
+`s`의 힙에 할당된 NUL로 끝나는 복사본을 반환합니다. 호출자는 이를
+해제하기 위해 `dealloc()`을 호출해야 합니다.
 
 ### str_ndup {#str_ndup}
 
@@ -179,7 +179,7 @@ const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
 ```
 
 `s`의 처음 `n`바이트에 대한 힙에 할당된 복사본을 NUL로 종료하여
-반환한다.
+반환합니다.
 
 ## 예제 {#example}
 
