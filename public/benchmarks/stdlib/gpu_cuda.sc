@@ -10,6 +10,7 @@
 #include <std/stddef.h>
 #include <std/ml/gpu_cuda.h>
 #include <std/ml/float16.h>
+#include <std/math.h>
 #include <std/mem.h>
 #include <std/thread.h>
 
@@ -70,6 +71,11 @@ extern int cublasSgemm_v2(void* handle, int transa, int transb, int m, int n, in
 extern int cublasGemmEx(void* handle, int transa, int transb, int m, int n, int k, const void* alpha,
                         const void* a, int aType, int lda, const void* b, int bType, int ldb,
                         const void* beta, void* c, int cType, int ldc, int computeType, int algo);
+extern int cublasGemmStridedBatchedEx(void* handle, int transa, int transb, int m, int n, int k, const void* alpha,
+                                      const void* a, int aType, int lda, long long strideA,
+                                      const void* b, int bType, int ldb, long long strideB, const void* beta,
+                                      void* c, int cType, int ldc, long long strideC, int batch,
+                                      int computeType, int algo);
 extern int cublasLtCreate(void** handle);
 extern int cublasLtMatmulDescCreate(void** desc, int computeType, int scaleType);
 extern int cublasLtMatmulDescSetAttribute(void* desc, int attr, const void* buf, size_t size);
@@ -437,7 +443,175 @@ static const char* cuda_kernel_source_() {
     "extern \"C\" __global__ void __launch_bounds__(128) gemv_f16(const unsigned short* W, const float* x, float* y, unsigned n, unsigned k, int wpr) { gemv16<0, 1>(W, x, y, n, k, wpr); }\n"
     "extern \"C\" __global__ void __launch_bounds__(128) gemv_bf16(const unsigned short* W, const float* x, float* y, unsigned n, unsigned k, int wpr) { gemv16<1, 1>(W, x, y, n, k, wpr); }\n"
     "extern \"C\" __global__ void __launch_bounds__(128) gemv1_f16(const unsigned short* W, const float* x, float* y, unsigned n, unsigned k, int wpr) { gemv16<0, 0>(W, x, y, n, k, wpr); }\n"
-    "extern \"C\" __global__ void __launch_bounds__(128) gemv1_bf16(const unsigned short* W, const float* x, float* y, unsigned n, unsigned k, int wpr) { gemv16<1, 0>(W, x, y, n, k, wpr); }\n";
+    "extern \"C\" __global__ void __launch_bounds__(128) gemv1_bf16(const unsigned short* W, const float* x, float* y, unsigned n, unsigned k, int wpr) { gemv16<1, 0>(W, x, y, n, k, wpr); }\n"
+    "// ── Mixed precision (the dtype as a runtime flag; _rn intrinsics so nothing\n"
+    "// is contracted into an FMA: the same arithmetic as the CPU) ───────────────\n"
+    "__device__ __forceinline__ float ldx(unsigned short v, int bf) { return bf ? b2f(v) : h2f(v); }\n"
+    "__device__ __forceinline__ unsigned short stx(float v, int bf) { return bf ? f2b(v) : f2h(v); }\n"
+    "extern \"C\" __global__ void half_to_half(const unsigned short* a, unsigned short* o, unsigned n, int toBf) {\n"
+    "    GS o[i] = stx(ldx(a[i], !toBf), toBf);\n"
+    "}\n"
+    "// Up to 32 buffers per launch, blockIdx.y picking one. mode 0: fp32 -> 16-bit;\n"
+    "// 1: 16-bit -> fp32 times scale; 2: fp32 -> fp32 times scale (in place allowed).\n"
+    "// Modes 1 and 2 set *flag = 1 when a result is not finite.\n"
+    "struct CvtTab { const void* src[32]; void* dst[32]; unsigned n[32]; };\n"
+    "#define GTID (blockIdx.x * blockDim.x + threadIdx.x)\n"
+    "#define GSTRIDE (gridDim.x * blockDim.x)\n"
+    "__device__ __forceinline__ unsigned pack2(float lo, float hi, int bf) { return (unsigned)stx(lo, bf) | ((unsigned)stx(hi, bf) << 16); }\n"
+    "__device__ __forceinline__ float lo16x(unsigned u, int bf) { return ldx((unsigned short)(u & 0xffffu), bf); }\n"
+    "__device__ __forceinline__ float hi16x(unsigned u, int bf) { return ldx((unsigned short)(u >> 16), bf); }\n"
+    "__device__ __forceinline__ float cvt1(float v, float scale, int& bad) {\n"
+    "    v = __fmul_rn(v, scale);\n"
+    "    if (!isfinite(v)) bad = 1;\n"
+    "    return v;\n"
+    "}\n"
+    "// vec: every pointer 16-byte aligned, so each thread moves 4 values at a time\n"
+    "// (float4 / 8 bytes of 16-bit) and the last n % 4 go one by one.\n"
+    "extern \"C\" __global__ void cvt_many(CvtTab t, int mode, int bf, float scale, float* flag, int vec) {\n"
+    "    const unsigned b = blockIdx.y, n = t.n[b];\n"
+    "    int bad = 0;\n"
+    "    unsigned head = 0;\n"
+    "    if (vec) {\n"
+    "        const unsigned nv = n / 4;\n"
+    "        head = nv * 4;\n"
+    "        for (unsigned j = GTID; j < nv; j += GSTRIDE) {\n"
+    "            if (mode == 0) {\n"
+    "                const float4 x = ((const float4*)t.src[b])[j];\n"
+    "                ((uint2*)t.dst[b])[j] = make_uint2(pack2(x.x, x.y, bf), pack2(x.z, x.w, bf));\n"
+    "            } else if (mode == 1) {\n"
+    "                const uint2 u = ((const uint2*)t.src[b])[j];\n"
+    "                ((float4*)t.dst[b])[j] = make_float4(cvt1(lo16x(u.x, bf), scale, bad), cvt1(hi16x(u.x, bf), scale, bad),\n"
+    "                                                    cvt1(lo16x(u.y, bf), scale, bad), cvt1(hi16x(u.y, bf), scale, bad));\n"
+    "            } else {\n"
+    "                const float4 x = ((const float4*)t.src[b])[j];\n"
+    "                ((float4*)t.dst[b])[j] = make_float4(cvt1(x.x, scale, bad), cvt1(x.y, scale, bad),\n"
+    "                                                    cvt1(x.z, scale, bad), cvt1(x.w, scale, bad));\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "    for (unsigned i = head + GTID; i < n; i += GSTRIDE) {\n"
+    "        if (mode == 0) { ((unsigned short*)t.dst[b])[i] = stx(((const float*)t.src[b])[i], bf); continue; }\n"
+    "        float v = mode == 1 ? ldx(((const unsigned short*)t.src[b])[i], bf) : ((const float*)t.src[b])[i];\n"
+    "        ((float*)t.dst[b])[i] = cvt1(v, scale, bad);\n"
+    "    }\n"
+    "    if (bad && flag) *flag = 1.0f;\n"
+    "}\n"
+    "// fp32 master-weight steps (nn.h's optimizer_step), writing the 16-bit copy\n"
+    "// wh when not null; nothing happens when *skip != 0.\n"
+    "extern \"C\" __global__ void mp_sgd(float* w, const float* g, float* vel, unsigned short* wh, float lr,\n"
+    "                                      float mom, float wd, unsigned n, int bf, const float* skip) {\n"
+    "    if (skip && *skip != 0.0f) return;\n"
+    "    GS {\n"
+    "        float gi = __fadd_rn(g[i], __fmul_rn(wd, w[i]));\n"
+    "        if (vel) { float v = __fadd_rn(__fmul_rn(mom, vel[i]), gi); vel[i] = v; gi = v; }\n"
+    "        float nw = __fsub_rn(w[i], __fmul_rn(lr, gi));\n"
+    "        w[i] = nw;\n"
+    "        if (wh) wh[i] = stx(nw, bf);\n"
+    "    }\n"
+    "}\n"
+    "struct AdamArgs { float lr, b1, b2, eps, wd, bc1, bc2; int decoupled; };\n"
+    "__device__ __forceinline__ float adam1(float w, float& m, float& v, float g, const AdamArgs& a) {\n"
+    "    if (!a.decoupled) g = __fadd_rn(g, __fmul_rn(a.wd, w));\n"
+    "    m = __fadd_rn(__fmul_rn(a.b1, m), __fmul_rn(__fsub_rn(1.0f, a.b1), g));\n"
+    "    v = __fadd_rn(__fmul_rn(a.b2, v), __fmul_rn(__fmul_rn(__fsub_rn(1.0f, a.b2), g), g));\n"
+    "    float upd = __fdiv_rn(__fdiv_rn(m, a.bc1), __fadd_rn(__fsqrt_rn(__fdiv_rn(v, a.bc2)), a.eps));\n"
+    "    if (a.decoupled) upd = __fadd_rn(upd, __fmul_rn(a.wd, w));\n"
+    "    return __fsub_rn(w, __fmul_rn(a.lr, upd));\n"
+    "}\n"
+    "// One tensor's Adam step over [GTID, n): 4 values per thread when vec (w, m,\n"
+    "// v, g 16-byte and wh 8-byte aligned), then the tail one by one.\n"
+    "__device__ __forceinline__ void adam_span(float* w, float* m, float* v, const float* g, unsigned short* wh,\n"
+    "                                          unsigned n, int bf, int vec, const AdamArgs& a) {\n"
+    "    unsigned head = 0;\n"
+    "    if (vec) {\n"
+    "        const unsigned nv = n / 4;\n"
+    "        head = nv * 4;\n"
+    "        for (unsigned j = GTID; j < nv; j += GSTRIDE) {\n"
+    "            float4 W = ((float4*)w)[j], M = ((float4*)m)[j], V = ((float4*)v)[j];\n"
+    "            const float4 G = ((const float4*)g)[j];\n"
+    "            W.x = adam1(W.x, M.x, V.x, G.x, a); W.y = adam1(W.y, M.y, V.y, G.y, a);\n"
+    "            W.z = adam1(W.z, M.z, V.z, G.z, a); W.w = adam1(W.w, M.w, V.w, G.w, a);\n"
+    "            ((float4*)w)[j] = W; ((float4*)m)[j] = M; ((float4*)v)[j] = V;\n"
+    "            if (wh) ((uint2*)wh)[j] = make_uint2(pack2(W.x, W.y, bf), pack2(W.z, W.w, bf));\n"
+    "        }\n"
+    "    }\n"
+    "    for (unsigned i = head + GTID; i < n; i += GSTRIDE) {\n"
+    "        float mi = m[i], vi = v[i];\n"
+    "        const float nw = adam1(w[i], mi, vi, g[i], a);\n"
+    "        m[i] = mi; v[i] = vi; w[i] = nw;\n"
+    "        if (wh) wh[i] = stx(nw, bf);\n"
+    "    }\n"
+    "}\n"
+    "extern \"C\" __global__ void mp_adam(float* w, float* m, float* v, const float* g, unsigned short* wh,\n"
+    "                                       float lr, float b1, float b2, float eps, float wd, float bc1, float bc2,\n"
+    "                                       int decoupled, unsigned n, int bf, const float* skip, int vec) {\n"
+    "    if (skip && *skip != 0.0f) return;\n"
+    "    const AdamArgs a = {lr, b1, b2, eps, wd, bc1, bc2, decoupled};\n"
+    "    adam_span(w, m, v, g, wh, n, bf, vec, a);\n"
+    "}\n"
+    "// Up to 24 tensors per launch (blockIdx.y picks one): a model's step in a few launches.\n"
+    "struct AdamTab { float* w[24]; float* m[24]; float* v[24]; const float* g[24]; unsigned short* wh[24]; unsigned n[24]; };\n"
+    "extern \"C\" __global__ void mp_adam_many(AdamTab t, AdamArgs a, int bf, const float* skip, int vec) {\n"
+    "    if (skip && *skip != 0.0f) return;\n"
+    "    const unsigned b = blockIdx.y;\n"
+    "    if (blockIdx.x * blockDim.x * (vec ? 4u : 1u) >= t.n[b]) return;\n"
+    "    adam_span(t.w[b], t.m[b], t.v[b], t.g[b], t.wh[b], t.n[b], bf, vec, a);\n"
+    "}\n"
+    "// 16-bit elementwise: 0 a+b, 1 a-b, 2 a*b, 3 a*k, 4 a + k*b.\n"
+    "__device__ __forceinline__ float ew1(float x, float y, float k, int op) {\n"
+    "    return op == 0 ? __fadd_rn(x, y) : op == 1 ? __fsub_rn(x, y) : op == 2 ? __fmul_rn(x, y)\n"
+    "         : op == 3 ? __fmul_rn(x, k) : __fadd_rn(x, __fmul_rn(k, y));\n"
+    "}\n"
+    "__device__ __forceinline__ unsigned ew2(unsigned x, unsigned y, float k, int op, int bf) {\n"
+    "    return pack2(ew1(lo16x(x, bf), lo16x(y, bf), k, op), ew1(hi16x(x, bf), hi16x(y, bf), k, op), bf);\n"
+    "}\n"
+    "// vec: a, b, o 16-byte aligned; 8 values per thread, then the tail.\n"
+    "extern \"C\" __global__ void half_ew(const unsigned short* a, const unsigned short* b, unsigned short* o,\n"
+    "                                       float k, unsigned n, int op, int bf, int vec) {\n"
+    "    unsigned head = 0;\n"
+    "    if (vec) {\n"
+    "        const unsigned nv = n / 8;\n"
+    "        head = nv * 8;\n"
+    "        for (unsigned j = GTID; j < nv; j += GSTRIDE) {\n"
+    "            const uint4 x = ((const uint4*)a)[j];\n"
+    "            const uint4 y = op == 3 ? x : ((const uint4*)b)[j];\n"
+    "            ((uint4*)o)[j] = make_uint4(ew2(x.x, y.x, k, op, bf), ew2(x.y, y.y, k, op, bf),\n"
+    "                                        ew2(x.z, y.z, k, op, bf), ew2(x.w, y.w, k, op, bf));\n"
+    "        }\n"
+    "    }\n"
+    "    for (unsigned i = head + GTID; i < n; i += GSTRIDE)\n"
+    "        o[i] = stx(ew1(ldx(a[i], bf), op == 3 ? 0.0f : ldx(b[i], bf), k, op), bf);\n"
+    "}\n"
+    "// y[i] += bias[(i / plane) % channels], then ReLU if relu.\n"
+    "extern \"C\" __global__ void half_bias(unsigned short* y, const unsigned short* bias, unsigned n,\n"
+    "                                         unsigned channels, unsigned plane, int relu, int bf) {\n"
+    "    GS {\n"
+    "        float r = __fadd_rn(ldx(y[i], bf), ldx(bias[(i / plane) % channels], bf));\n"
+    "        if (relu && r < 0.0f) r = 0.0f;\n"
+    "        y[i] = stx(r, bf);\n"
+    "    }\n"
+    "}\n"
+    "// 16-bit max / avg pooling over planes [rows][h][w], no padding.\n"
+    "extern \"C\" __global__ void half_pool(const unsigned short* x, unsigned short* y, unsigned rows,\n"
+    "                                         unsigned h, unsigned w, unsigned oh, unsigned ow, unsigned k,\n"
+    "                                         unsigned s, int avg, int bf) {\n"
+    "    unsigned plane = oh * ow, n = rows * plane;\n"
+    "    GS {\n"
+    "        unsigned p = i / plane, r = i % plane, oy = r / ow, ox = r % ow;\n"
+    "        const unsigned short* src = x + (size_t)p * h * w + (size_t)(oy * s) * w + ox * s;\n"
+    "        float acc = 0.0f;\n"
+    "        unsigned short best = src[0];\n"
+    "        float bv = ldx(best, bf);\n"
+    "        for (unsigned ky = 0; ky < k; ++ky)\n"
+    "            for (unsigned kx = 0; kx < k; ++kx) {\n"
+    "                unsigned short b = src[ky * w + kx];\n"
+    "                float v = ldx(b, bf);\n"
+    "                acc = __fadd_rn(acc, v);\n"
+    "                if (v > bv) { bv = v; best = b; }\n"
+    "            }\n"
+    "        y[i] = avg ? stx(__fdiv_rn(acc, (float)(k * k)), bf) : best;\n"
+    "    }\n"
+    "}\n";
 }
 
 // Kernel table, in this order.
@@ -475,7 +649,15 @@ static const char* cuda_kernel_source_() {
 #define K_RMSNORM 36
 #define K_GEMV_F16 37
 #define K_GEMV1_F16 39   // scalar loads (k % 8 != 0 or unaligned)
-#define K_COUNT 41
+#define K_HALF_CVT 41
+#define K_CVT_MANY 42
+#define K_MP_SGD 43
+#define K_MP_ADAM 44
+#define K_HALF_EW 45
+#define K_HALF_BIAS 46
+#define K_HALF_POOL 47
+#define K_MP_ADAM_MANY 48
+#define K_COUNT 49
 
 static const char* cuda_kernel_name_(int k) {
     if (k == K_ADD) return "ew_add";
@@ -518,6 +700,14 @@ static const char* cuda_kernel_name_(int k) {
     if (k == K_GEMV_F16 + 1) return "gemv_bf16";
     if (k == K_GEMV1_F16) return "gemv1_f16";
     if (k == K_GEMV1_F16 + 1) return "gemv1_bf16";
+    if (k == K_HALF_CVT) return "half_to_half";
+    if (k == K_CVT_MANY) return "cvt_many";
+    if (k == K_MP_SGD) return "mp_sgd";
+    if (k == K_MP_ADAM) return "mp_adam";
+    if (k == K_MP_ADAM_MANY) return "mp_adam_many";
+    if (k == K_HALF_EW) return "half_ew";
+    if (k == K_HALF_BIAS) return "half_bias";
+    if (k == K_HALF_POOL) return "half_pool";
     return "upsample2x";
 }
 
@@ -1696,6 +1886,28 @@ static int cuda_half_gemm_ok_(struct CudaHalfBuf a, struct CudaHalfBuf b, unsign
            cuda_half_ok_(a, m * k) && cuda_half_ok_(b, k * n);
 }
 
+int cuda_half_gemm_strided(struct CudaHalfBuf a, int ta, unsigned long strideA, struct CudaHalfBuf b, int tb,
+                           unsigned long strideB, struct CudaHalfBuf c, unsigned long strideC,
+                           unsigned long m, unsigned long n, unsigned long k, unsigned long batch) {
+    if (!cuda_ensure_() || !cuda_gemm_dims_ok_(m, n, k) || batch == 0UL || batch > 2147483647UL ||
+        a.dtype != b.dtype || c.dtype != a.dtype || strideC < m * n) return 0;
+    unsigned long last = batch - 1UL;
+    if (!cuda_half_ok_(a, last * strideA + m * k) || !cuda_half_ok_(b, last * strideB + k * n) ||
+        !cuda_half_ok_(c, last * strideC + m * n)) return 0;
+    int t = cuda_dtype_type_(a.dtype);
+    float one = 1.0f;
+    float zero = 0.0f;
+    // Row-major, so each product goes to cuBLAS as C^T = op(B)^T op(A)^T (see cuda_gemm_raw_).
+    unsafe {
+        return cublasGemmStridedBatchedEx(g_cuda_blas, tb ? CUDA_BLAS_T : CUDA_BLAS_N, ta ? CUDA_BLAS_T : CUDA_BLAS_N,
+                                          (int)n, (int)m, (int)k, (const void*)&one,
+                                          (const void*)b.dev, t, tb ? (int)k : (int)n, (long long)strideB,
+                                          (const void*)a.dev, t, ta ? (int)m : (int)k, (long long)strideA,
+                                          (const void*)&zero, (void*)c.dev, t, (int)n, (long long)strideC,
+                                          (int)batch, CUDA_COMPUTE_32F, CUDA_GEMM_DEFAULT_) == 0;
+    }
+}
+
 int cuda_half_gemm(struct CudaHalfBuf a, int ta, struct CudaHalfBuf b, int tb, struct CudaHalfBuf c,
                    unsigned long m, unsigned long n, unsigned long k) {
     if (!cuda_half_gemm_ok_(a, b, m, n, k) || c.dtype != a.dtype || !cuda_half_ok_(c, m * n)) return 0;
@@ -1829,6 +2041,434 @@ int cuda_half_sgd2(struct CudaHalfBuf w1, struct CudaHalfBuf g1, struct CudaHalf
         params[6] = (void*)&rate;
         return cuda_launch_(cuda_k16_(K_SGD2_F16, w1.dtype), n1 + n2, (&void)&params[0]);
     }
+}
+
+// ── Mixed precision ──────────────────────────────────────────────────────────
+
+extern void* malloc(unsigned long size);
+extern void  free(void* ptr);
+
+int cuda_zero(struct CudaBuf b) {
+    if (!cuda_ensure_() || b.dev == 0UL) return 0;
+    unsafe { return cuMemsetD32Async((unsigned long long)b.dev, 0U, (size_t)b.len, g_cuda_stream) == CUDA_OK; }
+}
+
+int cuda_half_convert(struct CudaHalfBuf src, struct CudaHalfBuf dst) {
+    unsigned long n = src.len;
+    if (!cuda_ensure_() || !cuda_half_ok_(src, n) || !cuda_half_ok_(dst, n) || n > 4294967295UL) return 0;
+    if (src.dtype == dst.dtype) {
+        unsafe {
+            return cuMemcpyDtoDAsync_v2((unsigned long long)dst.dev, (unsigned long long)src.dev, (size_t)(n * 2UL),
+                                        g_cuda_stream) == CUDA_OK;
+        }
+    }
+    unsafe {
+        void* pa = (void*)src.dev;
+        void* po = (void*)dst.dev;
+        unsigned int nn = (unsigned int)n;
+        int toBf = dst.dtype == CUDA_BF16 ? 1 : 0;
+        void* params[4];
+        params[0] = (void*)&pa; params[1] = (void*)&po; params[2] = (void*)&nn; params[3] = (void*)&toBf;
+        return cuda_launch_(K_HALF_CVT, n, (&void)&params[0]);
+    }
+}
+
+// The kernel's CvtTab: 32 source / destination pointers and lengths.
+#define CUDA_CVT_TAB 32UL
+struct CudaCvtTab_ {
+    unsigned long src[32];
+    unsigned long dst[32];
+    unsigned int  n[32];
+};
+
+// One launch per 32 entries; mode as in the cvt_many kernel.
+static int cuda_cvt_many_(const unsigned long* src, const unsigned long* dst, const unsigned long* len,
+                          unsigned long count, int mode, int bf, float scale, unsigned long flag) {
+    unsigned long base = 0UL;
+    while (base < count) {
+        struct CudaCvtTab_ t;
+        unsigned long c = count - base < CUDA_CVT_TAB ? count - base : CUDA_CVT_TAB;
+        unsigned long most = 1UL;
+        unsafe {
+            unsigned long i = 0UL;
+            while (i < CUDA_CVT_TAB) {
+                t.src[i] = i < c ? src[base + i] : 0UL;
+                t.dst[i] = i < c ? dst[base + i] : 0UL;
+                t.n[i] = i < c ? (unsigned int)len[base + i] : 0U;
+                if (i < c && len[base + i] > most) most = len[base + i];
+                i = i + 1UL;
+            }
+            unsigned long blocks = (most + (unsigned long)CUDA_BLOCK - 1UL) / (unsigned long)CUDA_BLOCK;
+            if (blocks > 1024UL) blocks = 1024UL;
+            int m = mode;
+            int b = bf;
+            float sc = scale;
+            void* pf = (void*)flag;
+            int vec = 1;
+            i = 0UL;
+            while (i < c) { if ((t.src[i] | t.dst[i]) % 16UL != 0UL) vec = 0; i = i + 1UL; }
+            void* params[6];
+            params[0] = (void*)&t; params[1] = (void*)&m; params[2] = (void*)&b; params[3] = (void*)&sc;
+            params[4] = (void*)&pf; params[5] = (void*)&vec;
+            if (cuLaunchKernel(g_cuda_fn[K_CVT_MANY], (unsigned int)blocks, (unsigned int)c, 1U, CUDA_BLOCK, 1U, 1U,
+                               0U, g_cuda_stream, &params[0], (void**)0) != CUDA_OK) return 0;
+        }
+        base = base + c;
+    }
+    return 1;
+}
+
+// Pointer / length tables for cuda_cvt_many_ (heap, freed by the caller).
+struct CudaCvtLists_ {
+    unsigned long* src;
+    unsigned long* dst;
+    unsigned long* len;
+    int            ok;
+    int            bf;
+};
+
+static struct CudaCvtLists_ cuda_cvt_lists_(unsigned long count) {
+    struct CudaCvtLists_ l;
+    unsafe {
+        unsigned long bytes = sizeof(unsigned long) * (count == 0UL ? 1UL : count);
+        l.src = (unsigned long*)malloc(bytes);
+        l.dst = (unsigned long*)malloc(bytes);
+        l.len = (unsigned long*)malloc(bytes);
+    }
+    l.ok = 1;
+    l.bf = -1;
+    return l;
+}
+
+static void cuda_cvt_lists_free_(&CudaCvtLists_ l) {
+    unsafe { free((void*)l.src); free((void*)l.dst); free((void*)l.len); }
+}
+
+// One 16-bit dtype per call (the kernel's bf flag); mixed lists are refused.
+static void cuda_cvt_dtype_(&CudaCvtLists_ l, int dtype) {
+    int bf = dtype == CUDA_BF16 ? 1 : 0;
+    if (l.bf < 0) l.bf = bf;
+    else if (l.bf != bf) l.ok = 0;
+}
+
+int cuda_to_half_many(const &Vec<struct CudaBuf> src, const &Vec<struct CudaHalfBuf> dst) {
+    unsigned long n = src.length();
+    if (!cuda_ensure_() || n != dst.length()) return 0;
+    if (n == 0UL) return 1;
+    struct CudaCvtLists_ l = cuda_cvt_lists_(n);
+    unsafe {
+        unsigned long i = 0UL;
+        while (i < n) {
+            struct CudaBuf s = *src.at(i);
+            struct CudaHalfBuf d = *dst.at(i);
+            if (!cuda_fits_(s, d.len) || !cuda_half_ok_(d, d.len) || d.len > 4294967295UL) l.ok = 0;
+            cuda_cvt_dtype_(&l, d.dtype);
+            l.src[i] = s.dev; l.dst[i] = d.dev; l.len[i] = d.len;
+            i = i + 1UL;
+        }
+    }
+    int ok = l.ok && cuda_cvt_many_((const unsigned long*)l.src, (const unsigned long*)l.dst, (const unsigned long*)l.len,
+                                    n, 0, l.bf, (float)1.0, 0UL);
+    cuda_cvt_lists_free_(&l);
+    return ok;
+}
+
+int cuda_from_half_many(const &Vec<struct CudaHalfBuf> src, const &Vec<struct CudaBuf> dst) {
+    unsigned long n = src.length();
+    if (!cuda_ensure_() || n != dst.length()) return 0;
+    if (n == 0UL) return 1;
+    struct CudaCvtLists_ l = cuda_cvt_lists_(n);
+    unsafe {
+        unsigned long i = 0UL;
+        while (i < n) {
+            struct CudaHalfBuf s = *src.at(i);
+            struct CudaBuf d = *dst.at(i);
+            if (!cuda_half_ok_(s, d.len) || !cuda_fits_(d, d.len) || d.len > 4294967295UL) l.ok = 0;
+            cuda_cvt_dtype_(&l, s.dtype);
+            l.src[i] = s.dev; l.dst[i] = d.dev; l.len[i] = d.len;
+            i = i + 1UL;
+        }
+    }
+    int ok = l.ok && cuda_cvt_many_((const unsigned long*)l.src, (const unsigned long*)l.dst, (const unsigned long*)l.len,
+                                    n, 1, l.bf, (float)1.0, 0UL);
+    cuda_cvt_lists_free_(&l);
+    return ok;
+}
+
+int cuda_half_unscale_many(const &Vec<struct CudaHalfBuf> src, const &Vec<struct CudaBuf> dst, float scale,
+                           struct CudaBuf flag) {
+    unsigned long n = src.length();
+    if (!cuda_ensure_() || n != dst.length() || !cuda_fits_(flag, 1UL)) return 0;
+    if (n == 0UL) return 1;
+    struct CudaCvtLists_ l = cuda_cvt_lists_(n);
+    unsafe {
+        unsigned long i = 0UL;
+        while (i < n) {
+            struct CudaHalfBuf s = *src.at(i);
+            struct CudaBuf d = *dst.at(i);
+            if (!cuda_half_ok_(s, s.len) || !cuda_fits_(d, s.len) || s.len > 4294967295UL) l.ok = 0;
+            cuda_cvt_dtype_(&l, s.dtype);
+            l.src[i] = s.dev; l.dst[i] = d.dev; l.len[i] = s.len;
+            i = i + 1UL;
+        }
+    }
+    int ok = l.ok && cuda_cvt_many_((const unsigned long*)l.src, (const unsigned long*)l.dst, (const unsigned long*)l.len,
+                                    n, 1, l.bf, scale, flag.dev);
+    cuda_cvt_lists_free_(&l);
+    return ok;
+}
+
+int cuda_unscale_many(const &Vec<struct CudaBuf> src, const &Vec<struct CudaBuf> dst, float scale,
+                      struct CudaBuf flag) {
+    unsigned long n = src.length();
+    if (!cuda_ensure_() || n != dst.length() || !cuda_fits_(flag, 1UL)) return 0;
+    if (n == 0UL) return 1;
+    struct CudaCvtLists_ l = cuda_cvt_lists_(n);
+    unsafe {
+        unsigned long i = 0UL;
+        while (i < n) {
+            struct CudaBuf s = *src.at(i);
+            struct CudaBuf d = *dst.at(i);
+            if (!cuda_fits_(s, s.len) || !cuda_fits_(d, s.len) || s.len > 4294967295UL) l.ok = 0;
+            l.src[i] = s.dev; l.dst[i] = d.dev; l.len[i] = s.len;
+            i = i + 1UL;
+        }
+    }
+    int ok = l.ok && cuda_cvt_many_((const unsigned long*)l.src, (const unsigned long*)l.dst, (const unsigned long*)l.len,
+                                    n, 2, 0, scale, flag.dev);
+    cuda_cvt_lists_free_(&l);
+    return ok;
+}
+
+int cuda_mp_sgd(struct CudaBuf w, struct CudaBuf g, struct CudaBuf vel, struct CudaHalfBuf wHalf,
+                float lr, float momentum, float weightDecay, struct CudaBuf skip) {
+    unsigned long n = w.len;
+    if (!cuda_ensure_() || !cuda_fits_(w, n) || !cuda_fits_(g, n) || n > 4294967295UL) return 0;
+    if (vel.dev != 0UL && !cuda_fits_(vel, n)) return 0;
+    if (wHalf.dev != 0UL && !cuda_half_ok_(wHalf, n)) return 0;
+    unsafe {
+        void* pw = (void*)w.dev;
+        void* pg = (void*)g.dev;
+        void* pv = (void*)vel.dev;
+        void* ph = (void*)wHalf.dev;
+        void* ps = (void*)skip.dev;
+        float l = lr;
+        float mo = momentum;
+        float wd = weightDecay;
+        unsigned int nn = (unsigned int)n;
+        int bf = wHalf.dtype == CUDA_BF16 ? 1 : 0;
+        void* params[10];
+        params[0] = (void*)&pw; params[1] = (void*)&pg; params[2] = (void*)&pv; params[3] = (void*)&ph;
+        params[4] = (void*)&l; params[5] = (void*)&mo; params[6] = (void*)&wd; params[7] = (void*)&nn;
+        params[8] = (void*)&bf; params[9] = (void*)&ps;
+        return cuda_launch_(K_MP_SGD, n, (&void)&params[0]);
+    }
+}
+
+// 1 if an Adam step on these buffers can move 4 values per thread (w, m, v, g
+// 16-byte aligned, the 16-bit copy 8-byte aligned or absent).
+static int cuda_adam_vec_(unsigned long w, unsigned long m, unsigned long v, unsigned long g, unsigned long wh) {
+    return (w | m | v | g) % 16UL == 0UL && wh % 8UL == 0UL;
+}
+
+int cuda_mp_adam(struct CudaBuf w, struct CudaBuf m, struct CudaBuf v, struct CudaBuf g, struct CudaHalfBuf wHalf,
+                 float lr, float beta1, float beta2, float eps, float weightDecay, int decoupled,
+                 unsigned long step, struct CudaBuf skip) {
+    unsigned long n = w.len;
+    if (!cuda_ensure_() || !cuda_fits_(w, n) || !cuda_fits_(m, n) || !cuda_fits_(v, n) || !cuda_fits_(g, n) ||
+        n > 4294967295UL || step == 0UL) return 0;
+    if (wHalf.dev != 0UL && !cuda_half_ok_(wHalf, n)) return 0;
+    float bc1 = (float)1.0 - pow_f(beta1, (float)step);
+    float bc2 = (float)1.0 - pow_f(beta2, (float)step);
+    unsafe {
+        void* pw = (void*)w.dev;
+        void* pm = (void*)m.dev;
+        void* pv = (void*)v.dev;
+        void* pg = (void*)g.dev;
+        void* ph = (void*)wHalf.dev;
+        void* ps = (void*)skip.dev;
+        float l = lr; float b1 = beta1; float b2 = beta2; float e = eps; float wd = weightDecay;
+        float c1 = bc1; float c2 = bc2;
+        int dec = decoupled ? 1 : 0;
+        unsigned int nn = (unsigned int)n;
+        int bf = wHalf.dtype == CUDA_BF16 ? 1 : 0;
+        int vec = cuda_adam_vec_(w.dev, m.dev, v.dev, g.dev, wHalf.dev);
+        void* params[17];
+        params[0] = (void*)&pw; params[1] = (void*)&pm; params[2] = (void*)&pv; params[3] = (void*)&pg;
+        params[4] = (void*)&ph; params[5] = (void*)&l; params[6] = (void*)&b1; params[7] = (void*)&b2;
+        params[8] = (void*)&e; params[9] = (void*)&wd; params[10] = (void*)&c1; params[11] = (void*)&c2;
+        params[12] = (void*)&dec; params[13] = (void*)&nn; params[14] = (void*)&bf; params[15] = (void*)&ps;
+        params[16] = (void*)&vec;
+        return cuda_launch_(K_MP_ADAM, vec ? (n + 3UL) / 4UL : n, (&void)&params[0]);
+    }
+}
+
+// The kernels' AdamArgs and AdamTab (24 tensors per launch).
+#define CUDA_ADAM_TAB 24UL
+struct CudaAdamArgs_ {
+    float lr; float b1; float b2; float eps; float wd; float bc1; float bc2;
+    int decoupled;
+};
+struct CudaAdamTab_ {
+    unsigned long w[24];
+    unsigned long m[24];
+    unsigned long v[24];
+    unsigned long g[24];
+    unsigned long wh[24];
+    unsigned int  n[24];
+};
+
+int cuda_mp_adam_many(const &Vec<struct CudaBuf> w, const &Vec<struct CudaBuf> m, const &Vec<struct CudaBuf> v,
+                      const &Vec<struct CudaBuf> g, const &Vec<struct CudaHalfBuf> wHalf, float lr, float beta1,
+                      float beta2, float eps, float weightDecay, int decoupled, unsigned long step,
+                      struct CudaBuf skip) {
+    unsigned long count = w.length();
+    unsigned long nh = wHalf.length();
+    if (!cuda_ensure_() || step == 0UL || m.length() != count || v.length() != count || g.length() != count ||
+        (nh != 0UL && nh != count)) return 0;
+    int bf = -1;
+    unsigned long i = 0UL;
+    while (i < count) {
+        unsigned long n = (*w.at(i)).len;
+        if (!cuda_fits_(*w.at(i), n) || !cuda_fits_(*m.at(i), n) || !cuda_fits_(*v.at(i), n) ||
+            !cuda_fits_(*g.at(i), n) || n == 0UL || n > 4294967295UL) return 0;
+        if (nh != 0UL) {
+            struct CudaHalfBuf h = *wHalf.at(i);
+            if (!cuda_half_ok_(h, n)) return 0;
+            int b = h.dtype == CUDA_BF16 ? 1 : 0;
+            if (bf >= 0 && b != bf) return 0;   // one 16-bit dtype per call
+            bf = b;
+        }
+        i = i + 1UL;
+    }
+    struct CudaAdamArgs_ a;
+    a.lr = lr; a.b1 = beta1; a.b2 = beta2; a.eps = eps; a.wd = weightDecay;
+    a.bc1 = (float)1.0 - pow_f(beta1, (float)step);
+    a.bc2 = (float)1.0 - pow_f(beta2, (float)step);
+    a.decoupled = decoupled ? 1 : 0;
+    if (bf < 0) bf = 0;
+    unsigned long base = 0UL;
+    while (base < count) {
+        struct CudaAdamTab_ t;
+        unsigned long c = count - base < CUDA_ADAM_TAB ? count - base : CUDA_ADAM_TAB;
+        unsigned long most = 1UL;
+        int vec = 1;
+        unsafe {
+            unsigned long j = 0UL;
+            while (j < CUDA_ADAM_TAB) {
+                int in = j < c;
+                t.w[j] = in ? (*w.at(base + j)).dev : 0UL;
+                t.m[j] = in ? (*m.at(base + j)).dev : 0UL;
+                t.v[j] = in ? (*v.at(base + j)).dev : 0UL;
+                t.g[j] = in ? (*g.at(base + j)).dev : 0UL;
+                t.wh[j] = in && nh != 0UL ? (*wHalf.at(base + j)).dev : 0UL;
+                t.n[j] = in ? (unsigned int)(*w.at(base + j)).len : 0U;
+                if (in) {
+                    if (!cuda_adam_vec_(t.w[j], t.m[j], t.v[j], t.g[j], t.wh[j])) vec = 0;
+                    if ((*w.at(base + j)).len > most) most = (*w.at(base + j)).len;
+                }
+                j = j + 1UL;
+            }
+            unsigned long per = vec ? (unsigned long)CUDA_BLOCK * 4UL : (unsigned long)CUDA_BLOCK;
+            unsigned long blocks = (most + per - 1UL) / per;
+            if (blocks > 2048UL) blocks = 2048UL;
+            int b = bf;
+            void* ps = (void*)skip.dev;
+            void* params[5];
+            params[0] = (void*)&t; params[1] = (void*)&a; params[2] = (void*)&b; params[3] = (void*)&ps;
+            params[4] = (void*)&vec;
+            if (cuLaunchKernel(g_cuda_fn[K_MP_ADAM_MANY], (unsigned int)blocks, (unsigned int)c, 1U, CUDA_BLOCK, 1U, 1U,
+                               0U, g_cuda_stream, &params[0], (void**)0) != CUDA_OK) return 0;
+        }
+        base = base + c;
+    }
+    return 1;
+}
+
+static int cuda_half_ew_(struct CudaHalfBuf a, struct CudaHalfBuf b, struct CudaHalfBuf out, float k, int op) {
+    unsigned long n = a.len;
+    if (!cuda_ensure_() || !cuda_half_ok_(a, n) || !cuda_half_ok_(out, n) || a.dtype != out.dtype ||
+        n > 4294967295UL) return 0;
+    if (op != 3 && (!cuda_half_ok_(b, n) || b.dtype != a.dtype)) return 0;
+    unsafe {
+        void* pa = (void*)a.dev;
+        void* pb = (void*)b.dev;
+        void* po = (void*)out.dev;
+        float kk = k;
+        unsigned int nn = (unsigned int)n;
+        int o = op;
+        int bf = a.dtype == CUDA_BF16 ? 1 : 0;
+        int vec = (a.dev | b.dev | out.dev) % 16UL == 0UL;
+        void* params[8];
+        params[0] = (void*)&pa; params[1] = (void*)&pb; params[2] = (void*)&po; params[3] = (void*)&kk;
+        params[4] = (void*)&nn; params[5] = (void*)&o; params[6] = (void*)&bf; params[7] = (void*)&vec;
+        return cuda_launch_(K_HALF_EW, vec ? (n + 7UL) / 8UL : n, (&void)&params[0]);
+    }
+}
+
+int cuda_half_add(struct CudaHalfBuf a, struct CudaHalfBuf b, struct CudaHalfBuf out) { return cuda_half_ew_(a, b, out, (float)0.0, 0); }
+int cuda_half_sub(struct CudaHalfBuf a, struct CudaHalfBuf b, struct CudaHalfBuf out) { return cuda_half_ew_(a, b, out, (float)0.0, 1); }
+int cuda_half_mul(struct CudaHalfBuf a, struct CudaHalfBuf b, struct CudaHalfBuf out) { return cuda_half_ew_(a, b, out, (float)0.0, 2); }
+int cuda_half_scale(struct CudaHalfBuf a, float k, struct CudaHalfBuf out) { return cuda_half_ew_(a, a, out, k, 3); }
+int cuda_half_axpy(struct CudaHalfBuf a, float k, struct CudaHalfBuf b, struct CudaHalfBuf out) {
+    return cuda_half_ew_(a, b, out, k, 4);
+}
+
+int cuda_half_bias(struct CudaHalfBuf y, struct CudaHalfBuf bias, unsigned long rows, unsigned long channels,
+                   unsigned long plane, int relu) {
+    unsigned long total = rows * channels * plane;
+    if (!cuda_ensure_() || total == 0UL || total > 4294967295UL || !cuda_half_ok_(y, total) ||
+        !cuda_half_ok_(bias, channels) || y.dtype != bias.dtype) return 0;
+    unsafe {
+        void* py = (void*)y.dev;
+        void* pb = (void*)bias.dev;
+        unsigned int t = (unsigned int)total;
+        unsigned int c = (unsigned int)channels;
+        unsigned int p = (unsigned int)plane;
+        int r = relu ? 1 : 0;
+        int bf = y.dtype == CUDA_BF16 ? 1 : 0;
+        void* params[7];
+        params[0] = (void*)&py; params[1] = (void*)&pb; params[2] = (void*)&t; params[3] = (void*)&c;
+        params[4] = (void*)&p; params[5] = (void*)&r; params[6] = (void*)&bf;
+        return cuda_launch_(K_HALF_BIAS, total, (&void)&params[0]);
+    }
+}
+
+static int cuda_half_pool_(struct CudaHalfBuf x, struct CudaHalfBuf y, unsigned long batch, unsigned long channels,
+                           unsigned long height, unsigned long width, unsigned long kernel, unsigned long stride, int avg) {
+    if (!cuda_ensure_() || kernel == 0UL || stride == 0UL || height < kernel || width < kernel || x.dtype != y.dtype)
+        return 0;
+    unsigned long oh = (height - kernel) / stride + 1UL;
+    unsigned long ow = (width - kernel) / stride + 1UL;
+    unsigned long rows = batch * channels;
+    unsigned long total = rows * oh * ow;
+    if (total == 0UL || total > 4294967295UL || height * width > 4294967295UL ||
+        !cuda_half_ok_(x, rows * height * width) || !cuda_half_ok_(y, total)) return 0;
+    unsafe {
+        void* px = (void*)x.dev;
+        void* py = (void*)y.dev;
+        unsigned int r = (unsigned int)rows;
+        unsigned int hh = (unsigned int)height; unsigned int ww = (unsigned int)width;
+        unsigned int ohh = (unsigned int)oh; unsigned int oww = (unsigned int)ow;
+        unsigned int kk = (unsigned int)kernel; unsigned int ss = (unsigned int)stride;
+        int a = avg;
+        int bf = x.dtype == CUDA_BF16 ? 1 : 0;
+        void* params[11];
+        params[0] = (void*)&px; params[1] = (void*)&py; params[2] = (void*)&r; params[3] = (void*)&hh;
+        params[4] = (void*)&ww; params[5] = (void*)&ohh; params[6] = (void*)&oww; params[7] = (void*)&kk;
+        params[8] = (void*)&ss; params[9] = (void*)&a; params[10] = (void*)&bf;
+        return cuda_launch_(K_HALF_POOL, total, (&void)&params[0]);
+    }
+}
+
+int cuda_half_maxpool2d(struct CudaHalfBuf x, struct CudaHalfBuf y, unsigned long batch, unsigned long channels,
+                        unsigned long height, unsigned long width, unsigned long kernel, unsigned long stride) {
+    return cuda_half_pool_(x, y, batch, channels, height, width, kernel, stride, 0);
+}
+
+int cuda_half_avgpool2d(struct CudaHalfBuf x, struct CudaHalfBuf y, unsigned long batch, unsigned long channels,
+                        unsigned long height, unsigned long width, unsigned long kernel, unsigned long stride) {
+    return cuda_half_pool_(x, y, batch, channels, height, width, kernel, stride, 1);
 }
 
 } // namespace std
