@@ -54,7 +54,7 @@ void addition_works() {
 }
 
 int main(void) {
-    struct TestSuite t = std::test_suite_init();
+    struct TestSuite t = std::TestSuite::new();
     t.add("addition works", addition_works);
     std::test_run_and_exit(&t);   // exits 1 on any failure
 }

@@ -77,6 +77,7 @@ struct Reactor {
     struct Vec sigfds;    // reactor_epoll.sc의 signum -> signalfd 테이블
     struct Vec watched;   // reactor_win32.sc의 등록된 (fd, filter) 테이블
 
+    static struct Reactor new();                             // OS 큐는 아직 없음(kq = -1); 이어서 init()을 호출합니다
     int  init();                                             // 백엔드를 열고/초기화; 성공 0, 실패 -1
     void add(int fd, int filter);                             // 영구적인, 레벨 트리거 관심 등록
     void remove(int fd, int filter);
@@ -87,8 +88,6 @@ struct Reactor {
         // 언블록된 태스크 수와 다를 수 있다).
     void close_();
 }
-
-struct Reactor reactor_init();
 ```
 
 ## `reactor_run` — 스케줄러 그 자체 {#reactor_run-the-scheduler-itself}
@@ -131,15 +130,15 @@ static int echo_conn(?&Conn c, int resume_point) {
 }
 
 int main() {
-    g_sched = std::task_sched_init();
-    struct Reactor reactor = std::reactor_init();
+    g_sched = std::TaskScheduler::new();
+    struct Reactor reactor = std::Reactor::new();
     reactor.init();
 
     int listenfd = std::tcp_listen_nb(8080);
     reactor.add(listenfd, SCHED_READ);
 
     // ... an accept task spawns echo_conn per connection:
-    //     std::task_spawn(&g_sched, echo_conn, conn_ref);
+    //     g_sched.spawn(echo_conn, conn_ref);
 
     std::reactor_run(&g_sched, &reactor);
     reactor.close_();

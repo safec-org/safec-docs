@@ -120,7 +120,7 @@ becomes a single `String::push("...")` call, and only `{expr}`
 interpolation sites cost a runtime call — generated code looks like:
 
 ```c
-struct String __scx0 = std::string_new();
+struct String __scx0 = std::String::new();
 unsafe {
     __scx0.push("<h1>Hello, ");
     std::scx_append_esc(&__scx0, (visitor_name));

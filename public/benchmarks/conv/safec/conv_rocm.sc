@@ -25,32 +25,32 @@ extern void srand48(long seed);
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 static struct RocmBuf random_buf(unsigned long n) {
-    struct Vec<float> v = std::vec_with_cap(n);
+    struct Vec<float> v = std::Vec::with_cap(n);
     unsigned long i = 0UL;
     while (i < n) { unsafe { v.push((float)(drand48() * 2.0 - 1.0)); } i = i + 1UL; }
-    struct RocmBuf b = std::rocm_upload(v.at(0UL), n);
+    struct RocmBuf b = RocmBuf::upload(v.at(0UL), n);
     v.free();
     return b;
 }
 
 static double time_conv(const &RocmConv2D d, struct RocmBuf x, struct RocmBuf y, unsigned long batch, int iters) {
     int i = 0;
-    while (i < 5) { std::rocm_conv2d(d, x, y, batch, 56UL, 56UL); i = i + 1; }
+    while (i < 5) { d.forward(x, y, batch, 56UL, 56UL); i = i + 1; }
     std::rocm_sync();
     double t0 = now_ms();
     i = 0;
-    while (i < iters) { std::rocm_conv2d(d, x, y, batch, 56UL, 56UL); i = i + 1; }
+    while (i < iters) { d.forward(x, y, batch, 56UL, 56UL); i = i + 1; }
     std::rocm_sync();
     return (now_ms() - t0) / (double)iters;
 }
 
 static double time_unet(const &RocmUNet g, struct RocmBuf x, struct RocmBuf y, int iters) {
     int i = 0;
-    while (i < 5) { std::rocm_unet_forward(g, x, y); i = i + 1; }
+    while (i < 5) { g.forward(x, y); i = i + 1; }
     std::rocm_sync();
     double t0 = now_ms();
     i = 0;
-    while (i < iters) { std::rocm_unet_forward(g, x, y); i = i + 1; }
+    while (i < iters) { g.forward(x, y); i = i + 1; }
     std::rocm_sync();
     return (now_ms() - t0) / (double)iters;
 }
@@ -58,9 +58,9 @@ static double time_unet(const &RocmUNet g, struct RocmBuf x, struct RocmBuf y, i
 int main() {
     if (!std::rocm_available()) { unsafe { printf("no ROCm GPU\n"); } return 1; }
     unsafe { srand48(42L); }
-    struct Conv2D layer = std::conv2d_new(64UL, 64UL, 3UL, 3UL, 1UL, 1UL);
-    struct RocmConv2D d = std::rocm_conv2d_upload(&layer);
-    struct UNet net = std::unet_new(3UL, 32UL, 64UL, 3UL);
+    struct Conv2D layer = Conv2D::new(64UL, 64UL, 3UL, 3UL, 1UL, 1UL);
+    struct RocmConv2D d = RocmConv2D::upload(&layer);
+    struct UNet net = UNet::new(3UL, 32UL, 64UL, 3UL);
     const char* mode = "fp32";
     {
         unsigned long batches[2];
@@ -71,22 +71,22 @@ int main() {
             unsigned long B;
             unsafe { B = batches[bi]; }
             struct RocmBuf x = random_buf(B * 64UL * 56UL * 56UL);
-            struct RocmBuf y = std::rocm_alloc(B * 64UL * 56UL * 56UL);
+            struct RocmBuf y = RocmBuf::alloc(B * 64UL * 56UL * 56UL);
             double ms = time_conv(&d, x, y, B, B == 1UL ? 2000 : 300);
             unsafe { printf("[conv64 b=%lu %s] ms_per_batch=%.4f ms_per_image=%.5f\n", B, mode, ms, ms / (double)B); }
-            std::rocm_free(&x);
-            std::rocm_free(&y);
+            x.free();
+            y.free();
             bi = bi + 1;
         }
 
         // U-Net, batch 1: queued ops, then the same forward as one graph
-        struct RocmUNet g = std::rocm_unet_new(&net, 1UL, 128UL, 128UL);
+        struct RocmUNet g = RocmUNet::new(&net, 1UL, 128UL, 128UL);
         struct RocmBuf ux = random_buf(3UL * 128UL * 128UL);
-        struct RocmBuf uy = std::rocm_alloc(3UL * 128UL * 128UL);
+        struct RocmBuf uy = RocmBuf::alloc(3UL * 128UL * 128UL);
         double ms = time_unet(&g, ux, uy, 1000);
         unsafe { printf("[unet128 b=1 %s] ms_per_batch=%.4f ms_per_image=%.5f\n", mode, ms, ms); }
         std::rocm_capture_begin();
-        std::rocm_unet_forward(&g, ux, uy);
+        g.forward(ux, uy);
         struct RocmGraph graph = std::rocm_capture_end();
         int i = 0;
         while (i < 5) { std::rocm_graph_launch(graph); i = i + 1; }
@@ -97,23 +97,23 @@ int main() {
         std::rocm_sync();
         ms = (now_ms() - t0) / 1000.0;
         unsafe { printf("[unet128 b=1 graph %s] ms_per_batch=%.4f ms_per_image=%.5f\n", mode, ms, ms); }
-        std::rocm_graph_free(&graph);
-        std::rocm_unet_free(&g);
-        std::rocm_free(&ux);
-        std::rocm_free(&uy);
+        graph.free();
+        g.free();
+        ux.free();
+        uy.free();
 
         // U-Net, batch 16
-        g = std::rocm_unet_new(&net, 16UL, 128UL, 128UL);
+        g = RocmUNet::new(&net, 16UL, 128UL, 128UL);
         ux = random_buf(16UL * 3UL * 128UL * 128UL);
-        uy = std::rocm_alloc(16UL * 3UL * 128UL * 128UL);
+        uy = RocmBuf::alloc(16UL * 3UL * 128UL * 128UL);
         ms = time_unet(&g, ux, uy, 300);
         unsafe { printf("[unet128 b=16 %s] ms_per_batch=%.4f ms_per_image=%.5f\n", mode, ms, ms / 16.0); }
-        std::rocm_unet_free(&g);
-        std::rocm_free(&ux);
-        std::rocm_free(&uy);
+        g.free();
+        ux.free();
+        uy.free();
     }
-    std::unet_free(&net);
-    std::rocm_conv2d_free(&d);
-    std::conv2d_free(&layer);
+    net.free();
+    d.free();
+    layer.free();
     return 0;
 }

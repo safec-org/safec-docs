@@ -27,7 +27,7 @@ extern unsigned long strlen(const char* s);
 static unsigned int __g4t_read_u32_le(&File f) {
     unsigned char buf[4];
     unsigned long got;
-    unsafe { got = file_read(f, &buf[0], 4UL); }
+    unsafe { got = f.read(&buf[0], 4UL); }
     if (got != 4UL) { return 0xFFFFFFFFU; }
     unsigned int v;
     unsafe {
@@ -47,7 +47,7 @@ static char* __g4t_read_lenstr(&File f, unsigned long* outLen) {
     unsigned long got;
     unsafe {
         buf = (char*)malloc((unsigned long)len + 1UL);
-        got = file_read(f, (unsigned char*)buf, (unsigned long)len);
+        got = f.read((unsigned char*)buf, (unsigned long)len);
         buf[len] = (char)0;
     }
     if (got != (unsigned long)len) {
@@ -65,15 +65,15 @@ static unsigned long long __g4t_pair_key(int leftId, int rightId) {
 
 struct Gemma4Tokenizer gemma4_tok_load(const char* vocabBinPath, const char* mergesBinPath) {
     struct Gemma4Tokenizer tok;
-    tok.vocabToId = str_map_new();
+    tok.vocabToId = StrMap::new();
     unsafe { tok.idToVocab = (struct String*)0; }
     tok.vocabSize = 0UL;
-    tok.mergeRank = map_new();
+    tok.mergeRank = HashMap::new();
     tok.mergeCount = 0UL;
     tok.padId = 0; tok.eosId = 1; tok.bosId = 2; tok.unkId = 3;
 
     ?&File vfq;
-    unsafe { vfq = file_open(vocabBinPath, "rb"); }
+    unsafe { vfq = File::open(vocabBinPath, "rb"); }
     if (vfq.is_null()) {
         printf("gemma4_tokenizer: could not open vocab file %s\n", vocabBinPath);
         return tok;
@@ -89,16 +89,16 @@ struct Gemma4Tokenizer gemma4_tok_load(const char* vocabBinPath, const char* mer
     while (i < tok.vocabSize) {
         unsigned long len;
         char* s = __g4t_read_lenstr(vf, &len);
-        unsafe { tok.idToVocab[i] = string_from(s); }
+        unsafe { tok.idToVocab[i] = String::from(s); }
         int idVal = (int)i;
         unsafe { tok.vocabToId.insert(s, idVal); }
         unsafe { free((void*)s); }
         i = i + 1UL;
     }
-    unsafe { file_close(vf); }
+    vf.close();
 
     ?&File mfq;
-    unsafe { mfq = file_open(mergesBinPath, "rb"); }
+    unsafe { mfq = File::open(mergesBinPath, "rb"); }
     if (mfq.is_null()) {
         printf("gemma4_tokenizer: could not open merges file %s\n", mergesBinPath);
         return tok;
@@ -132,7 +132,7 @@ struct Gemma4Tokenizer gemma4_tok_load(const char* vocabBinPath, const char* mer
         }
         m = m + 1UL;
     }
-    unsafe { file_close(mf); }
+    mf.close();
 
     return tok;
 }
@@ -157,7 +157,7 @@ static unsigned long __g4t_utf8_char_len(unsigned char c) {
 }
 
 static struct String __g4t_byte_fallback_token(unsigned char b) {
-    struct String s = string_from("<0x");
+    struct String s = String::from("<0x");
     char hex[3];
     const char* digits = "0123456789ABCDEF";
     unsafe {
@@ -190,7 +190,7 @@ struct Vec<int> gemma4_tok_encode(&Gemma4Tokenizer tok, const char* text) {
     // 1. Normalize: literal ' ' -> the 3-byte UTF-8 encoding of ▁ (U+2581:
     // 0xE2 0x96 0x81). Pre-tokenizer step is a no-op given this (see header
     // comment), so no further splitting happens here.
-    struct String normalized = string_new();
+    struct String normalized = String::new();
     unsigned long tlen;
     unsafe { tlen = (unsigned long)strlen(text); }
     unsigned long ti = 0UL;
@@ -207,7 +207,7 @@ struct Vec<int> gemma4_tok_encode(&Gemma4Tokenizer tok, const char* text) {
 
     // 2. Segment into initial symbols: one per UTF-8 character if that
     // character is a direct vocab entry, else per-byte via <0xXX> fallback.
-    struct Vec<int> symbols = vec_new();
+    struct Vec<int> symbols = Vec::new();
     const char* nb = normalized.as_ptr();
     unsigned long nlen = normalized.length();
     unsigned long pos = 0UL;
@@ -269,7 +269,7 @@ struct Vec<int> gemma4_tok_encode(&Gemma4Tokenizer tok, const char* text) {
         }
         if (bestRank < 0) { break; }
 
-        struct String mergedStr = string_new();
+        struct String mergedStr = String::new();
         unsafe {
             mergedStr.push(tok.idToVocab[bestLeft].as_ptr());
             mergedStr.push(tok.idToVocab[bestRight].as_ptr());
@@ -286,7 +286,7 @@ struct Vec<int> gemma4_tok_encode(&Gemma4Tokenizer tok, const char* text) {
             break;
         }
 
-        struct Vec<int> next = vec_new();
+        struct Vec<int> next = Vec::new();
         unsigned long j = 0UL;
         while (j < n) {
             if (j == bestPos) {
@@ -308,7 +308,7 @@ struct String gemma4_tok_decode(&Gemma4Tokenizer tok, const int* ids, unsigned l
     // Fuse every piece's text first (raw, still containing ▁ markers and
     // any <0xXX> byte-fallback placeholders), then do the two text-level
     // fixups in a single pass over the fused bytes.
-    struct String fused = string_new();
+    struct String fused = String::new();
     unsigned long i = 0UL;
     while (i < count) {
         int id;
@@ -319,7 +319,7 @@ struct String gemma4_tok_decode(&Gemma4Tokenizer tok, const int* ids, unsigned l
         i = i + 1UL;
     }
 
-    struct String out = string_new();
+    struct String out = String::new();
     const char* fb = fused.as_ptr();
     unsigned long flen = fused.length();
     unsigned long p = 0UL;

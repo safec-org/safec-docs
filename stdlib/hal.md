@@ -2,11 +2,12 @@
 
 `std/hal/` wraps common embedded peripherals as methods on a struct
 instance holding the peripheral's MMIO base address — construct one with
-the matching `*_init()` function, then call methods on it. Each driver is
-generic over a *chip type* that knows that peripheral's registers, picked
-at compile time from the variable's type (the same pattern as
-`BST<K, V, C>`'s ordering), so the calls compile down to direct register
-accesses. Every module is freestanding-safe (no libc dependency) and works
+its [static](/reference/functions#static-methods) `new()` (`GpioPin::new(...)`,
+`Uart::new(...)`), then call methods on it. Each driver is generic over a
+*chip type* that knows that peripheral's registers, picked at compile time
+from the variable's type (the same pattern as `BST<K, V, C>`'s ordering)
+and checked against a [chip trait](#chip-traits), so the calls compile
+down to direct register accesses. Every module is freestanding-safe (no libc dependency) and works
 with plain `--target` cross-compilation as well as `--freestanding`.
 
 ```c
@@ -14,10 +15,10 @@ with plain `--target` cross-compilation as well as `--freestanding`.
 #include <std/hal/uart.h>
 
 void blink(&volatile unsigned int gpioa, &volatile unsigned int usart2) {
-    struct GpioPin<Stm32F4Gpio> led = std::gpio_init(gpioa, 5, GPIO_OUTPUT);
+    struct GpioPin<Stm32F4Gpio> led = std::GpioPin::new(gpioa, 5, GPIO_OUTPUT);
     led.write(1);
     led.toggle();
-    struct Uart<Stm32F4Usart> con = std::uart_init(usart2, 115200u, 42000000u);
+    struct Uart<Stm32F4Usart> con = std::Uart::new(usart2, 115200u, 42000000u);
     con.write_str("blink\n");
 }
 ```
@@ -32,25 +33,27 @@ address once, inside `unsafe` — the compiler can't know the address is valid:
 }
 ```
 
-Remember that struct *types* aren't namespaced even though the
-constructor functions are — `struct GpioPin`, not `struct std::GpioPin`
-(see [Namespaces](/reference/namespaces#what-gets-namespaced)).
+Remember that struct *types* aren't namespaced even though their static
+methods are called through the namespace — `struct GpioPin`, but
+`std::GpioPin::new(...)` from outside `namespace std` (see
+[Namespaces](/reference/namespaces#what-gets-namespaced)). The chip type
+comes from the declared variable, so `new` takes no type argument.
 
 ## Drivers and Chips {#generic-peripherals}
 
 | Module | Header | Type | Description |
 |---|---|---|---|
-| GPIO | `hal/gpio.h` | `GpioPin<C>` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus<C>` | `i2c_init(base, speed, clock_hz)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
-| SPI | `hal/spi.h` | `SpiDevice<C>` | `spi_init(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
-| UART | `hal/uart.h` | `Uart<C>` | `uart_init(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
-| Timer | `hal/timer.h` | `Timer<C>` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
-| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `watchdog_init(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
+| GPIO | `hal/gpio.h` | `GpioPin<C>` | `GpioPin::new(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
+| I2C | `hal/i2c.h` | `I2cBus<C>` | `I2cBus::new(base, speed, clock_hz)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
+| SPI | `hal/spi.h` | `SpiDevice<C>` | `SpiDevice::new(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
+| UART | `hal/uart.h` | `Uart<C>` | `Uart::new(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
+| Timer | `hal/timer.h` | `Timer<C>` | `Timer::new(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
+| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `Watchdog::new(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
 
 Constants: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C results `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3` (CPOL/CPHA = 00, 01, 10, 11).
 
 `clock_hz` is the peripheral's input clock, used to compute the baud-rate
-or bus-speed divider; `uart_init` with `clock_hz = 0` keeps the rate the
+or bus-speed divider; `Uart::new` with `clock_hz = 0` keeps the rate the
 boot firmware set.
 
 ### Chip Types {#hal-chips}
@@ -68,14 +71,77 @@ boot firmware set.
 | `Stm32F4Iwdg` | STM32 independent watchdog: `timeout` is the 12-bit reload value counted at LSI / 256 (about 8 ms per unit at 32 kHz); `caused_reset` reads `RCC_CSR.IWDGRSTF` at the STM32F4 RCC address |
 
 A chip type is a struct whose methods take the peripheral's base address
-and do the register work — `init`, `put`/`get`, `transfer`, `write`/`read`
-and so on, as declared in each header — so another part is supported by
-writing one more such struct.
+and do the register work, as the matching [chip trait](#chip-traits)
+lists them, so another part is supported by writing one more such struct.
 
 The `Pl011`, `Ns16550`, `Stm32F4Usart`, `Stm32F4Tim` and `Stm32F4Spi` chips
 run against QEMU's models of those peripherals in
 `tests/stdlib/baremetal/qemu/run.sh`, and every chip's register sequence is
 checked against RAM-backed registers in the hosted tests.
+
+### Chip Traits {#chip-traits}
+
+Each driver's chip parameter is bounded by a
+[trait](/reference/generics#bounded-generic-structs) that lists the
+register operations the driver calls. Every method takes the
+peripheral's base address as an `unsigned long` and is `const`: a chip
+type holds no state of its own (the `std` chips have a single unused
+`int` field).
+
+| Trait | Requires | Bounds | Satisfied by |
+|---|---|---|---|
+| `GpioChip` | `set_direction(base, pin, direction)`, `write(base, pin, value)`, `read(base, pin)`, `toggle(base, pin)`, `set_pull(base, pin, pull)` | `GpioPin<C: GpioChip>` | `GpioGeneric`, `Stm32F4Gpio` |
+| `UartChip` | `init(base, baud, clock_hz)`, `tx_ready(base)`, `rx_ready(base)`, `put(base, c)`, `get(base)` | `Uart<C: UartChip>` | `UartGeneric`, `Pl011`, `Ns16550`, `Stm32F4Usart` |
+| `I2cChip` | `init(base, speed, clock_hz)`, `write(base, addr, data, len)`, `read(base, addr, data, len)`, `probe(base, addr)` (the `I2C_*` results) | `I2cBus<C: I2cChip>` | `I2cGeneric`, `Stm32F4I2c` |
+| `SpiChip` | `init(base, mode)`, `transfer(base, tx)`, `cs(base, asserted)` | `SpiDevice<C: SpiChip>` | `SpiGeneric`, `Stm32F4Spi` |
+| `TimerChip` | `init(base, prescaler)`, `set_period(base, period)`, `run(base, on)`, `count(base)`, `flag(base)`, `clear_flag(base)` | `Timer<C: TimerChip>` | `TimerGeneric`, `Stm32F4Tim` |
+| `WatchdogChip` | `init(base, timeout)`, `enable(base)`, `feed(base)`, `caused_reset(base)` | `Watchdog<C: WatchdogChip>` | `WatchdogGeneric`, `Stm32F4Iwdg` |
+
+Naming a driver with a chip that lacks one of the methods is an error at
+the declaration, not deep inside the driver:
+
+```text
+struct Uart<Stm32F4Gpio> con = Uart::new(base, 115200u, 0u);
+error: type 'Stm32F4Gpio' does not satisfy constraint 'UartChip' for generic
+       parameter 'C' of struct 'Uart' (no method 'init')
+```
+
+A part of your own conforms by having the methods; nothing is declared
+against the trait. Code written over the trait works for every chip:
+
+```c
+#include <std/hal/uart.h>
+
+// A debug port with one write-only data register at base + 0.
+struct DebugPort {
+    int           unused_;
+    void          init(unsigned long base, unsigned int baud, unsigned int clock_hz) const;
+    int           tx_ready(unsigned long base) const;
+    int           rx_ready(unsigned long base) const;
+    void          put(unsigned long base, unsigned char c) const;
+    unsigned char get(unsigned long base) const;
+};
+void DebugPort::init(unsigned long base, unsigned int baud, unsigned int clock_hz) const { }
+int  DebugPort::tx_ready(unsigned long base) const { return 1; }
+int  DebugPort::rx_ready(unsigned long base) const { return 0; }
+void DebugPort::put(unsigned long base, unsigned char c) const {
+    unsafe { *(&volatile unsigned int)base = (unsigned int)c; }
+}
+unsigned char DebugPort::get(unsigned long base) const { return (unsigned char)0; }
+
+// Written once, for every UART chip.
+generic<C: UartChip>
+void banner(&Uart<C> con) {
+    con.write_str("boot\n");
+}
+
+int main() {
+    unsigned int reg = 0u;
+    struct Uart<DebugPort> con = Uart::new(&reg, 0u, 0u);
+    banner(&con);
+    return reg == 10u ? 0 : 1;   // the last byte written was '\n'
+}
+```
 
 ### Reference Layouts {#hal-generic-layouts}
 

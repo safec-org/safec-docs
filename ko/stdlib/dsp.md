@@ -1,10 +1,12 @@
 # DSP 및 실시간 유틸리티
 
-`std/dsp/`는 결정론적 고정소수점 산술, 스펙트럼 변환(DFT/FFT/DCT/STFT/CQT/CWT), 필터(FIR/IIR/biquad/comb), 컨볼루션, 리샘플링, 최소 위상 재구성, 일반적인 라플라스-Z(쌍선형) 변환 도구, 2D/이미징 프리미티브, 오디오 버퍼링, 실시간 타이머 스케줄링을 아우릅니다 — 총 20개의 모듈입니다.
+`std/dsp/`는 결정론적 고정소수점 산술, 스펙트럼 변환(DFT/FFT/DCT/STFT/CQT/CWT), 필터(FIR/IIR/biquad/comb), 컨볼루션, 리샘플링, 최소 위상 재구성, 일반적인 라플라스-Z(쌍선형) 변환 도구, 2D/이미징 프리미티브, 오디오 버퍼링, 실시간 타이머 스케줄링을 아우릅니다 — 총 20개의 모듈이며, 모든 필터와 생성기가 만족하는 [스트리밍 트레이트](#sample-filter-traits)도 함께 제공합니다.
 
 ```c
 #include <std/dsp/dsp_all.h>  // master header: pulls in every module below
 ```
+
+타입은 [정적 메서드](/ko/reference/functions#static-methods)로 만들고(`Biquad::lowpass(...)`, `FirFilter::new(...)`, `Complex::new(...)`; `namespace std` 밖에서는 `std::Biquad::lowpass(...)`), 그 타입에 대한 연산은 메서드입니다(`f.process_block(in, out, n)`).
 
 의미 있는 고정소수점 형태를 갖는 모든 변환/필터는 **두 가지** 구현을 제공합니다 — `double` 정밀도 경로와, 이에 대응하는 Q8.24(`Fixed`) 경로(함수/타입 이름에 `f` 접두어가 붙습니다, 예: `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — 하나의 일관된 설계를 따릅니다: 한 번만 계산하면 되는 계수(FFT 트위들 팩터, 필터 계수)는 항상 `std/math.h`의 실제 초월함수를 사용해 `double` 정밀도로 유도된 다음 한 번에 `Fixed`로 양자화되고, 실제 샘플 단위 신호 처리 루프는 전부 Q8.24 산술로 실행됩니다. 이는 표준적인 관행입니다 — 하드웨어 FFT 가속기조차도 트위들 테이블을 오프라인에서 부동소수점으로 미리 계산합니다. 몇몇 더 새롭고 특수한 변환(STFT, CQT, CWT, 최소 위상, 이미징)은 `double` 전용입니다: 가우시안 윈도우 웨이블릿 커널이나 준동형 켑스트럼에는 자연스러운 고정소수점 형태가 없습니다 — 고정소수점 `sin()`이 없는 것과 마찬가지입니다.
 
@@ -17,16 +19,19 @@
 FFT, 필터, 컨볼루션, 윈도우, STFT, 리샘플링, DCT/DFT, 이미징은 `float` 데이터도 받습니다. 함수 이름에는 `_f32`, 타입 이름에는 `32`가 붙습니다(`Complex32`, `FirFilter32`, `Biquad32`). 각 함수의 동작 규약은 `double` 버전과 같습니다. float는 메모리 트래픽이 절반이고, 벡터 레지스터 하나에 두 배의 값이 들어갑니다. 유효 숫자는 약 16자리 대신 약 7자리(상대 오차 약 1e-6)입니다.
 
 - **두 정밀도에 하나의 구현.** FFT, 컨볼루션, 리샘플링, 2D 코드는 내부 코어 헤더(`fft_core.h`, `conv_core.h`, `resample_core.h`, `imaging_core.h`)에 한 번만 작성되어 있습니다. 각 코어는 `fft.sc`와 `fft_f32.sc` 등에서 정밀도마다 한 번씩, 두 번 컴파일됩니다. 따라서 float FFT도 radix-4 패스, 16점 코드렛, 캐시 블로킹, 스레드, ISA별 빌드를 그대로 갖습니다. oneMKL이 링크되면 DFTI의 단정밀도 변환을 사용합니다.
-- **정밀도가 필요한 곳은 double.** 트위들 팩터와 윈도우 값은 `double`로 계산한 뒤 float로 한 번 반올림합니다. 필터 계수는 `double`로 설계하고(`biquad_lowpass` 등) `biquad_to_f32`로 변환합니다. O(n²)인 `dct2_f32`/`dft_f32`와 `resample_sinc_f32`의 sinc 커널은 `double`로 합산하므로, 입력과 출력만 float입니다.
+- **정밀도가 필요한 곳은 double.** 트위들 팩터와 윈도우 값은 `double`로 계산한 뒤 float로 한 번 반올림합니다. 필터 계수는 `double`로 설계하고(`Biquad::lowpass` 등) `Biquad32::from`으로 변환합니다. O(n²)인 `dct2_f32`/`dft_f32`와 `resample_sinc_f32`의 sinc 커널은 `double`로 합산하므로, 입력과 출력만 float입니다.
 - **실시간.** `fft_serial_f32`/`ifft_serial_f32`는 double 버전과 마찬가지로 메모리 할당이나 잠금을 하지 않습니다. 4096점까지는 컴파일 타임 float 트위들 테이블을 읽고, 그보다 긴 길이는 `fft_prepare_f32(maxN)`을 먼저 호출합니다. `fft_prepare`는 double 테이블만 채웁니다.
 
 ```c
 // complex_dsp.h
-struct Complex32 { float re; float im; /* + - * / neg abs arg conj, as Complex */ };
-Complex32 complex32_new(float re, float im);
-Complex32 complex32_from_polar(float magnitude, float theta);
-Complex32 complex_to_f32(Complex c);      // round each part to float
-Complex   complex_from_f32(Complex32 c);
+struct Complex32 {
+    float re; float im;
+    /* + - * / neg abs arg conj, as Complex */
+    static Complex32 new(float re, float im);
+    static Complex32 polar(float magnitude, float theta);
+    static Complex32 from(Complex c);     // round each part to float
+    Complex          to_complex() const;  // back to double (exact)
+};
 
 // fft.h
 int fft_f32(&Complex32 data, unsigned long n);
@@ -42,18 +47,16 @@ int fft_real_half_batch_f32(const &float in, &Complex32 out, unsigned long n, un
 // dsp.h
 float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
 
-// filter.h, biquad.h, comb.h
-struct FirFilter32 fir_init_f32(const &float coeffs, unsigned long numTaps, &float history);
-void fir_process_block_f32(&FirFilter32 f, const &float in, &float out, unsigned long n);
-struct IirFilter32 iir_init_f32(const &float b, unsigned long numB, const &float a, unsigned long numA,
-                                &float xHistory, &float yHistory);
-void iir_process_block_f32(&IirFilter32 f, const &float in, &float out, unsigned long n);
-struct Biquad32 biquad_new_f32(float b0, float b1, float b2, float a1, float a2);
-struct Biquad32 biquad_to_f32(struct Biquad bq);   // a double design, rounded once
-void biquad_process_block_f32(&Biquad32 bq, const &float in, &float out, unsigned long n);
-struct CombFF32 comb_ff_init_f32(&float history, unsigned long delay, float gain);
-struct CombFB32 comb_fb_init_f32(&float history, unsigned long delay, float gain);
-struct KarplusStrong32 ks_init_f32(&float buffer, unsigned long length, float damping);
+// filter.h, biquad.h, comb.h: each filter has process(x), reset() and
+// process_block(in, out, n) on float samples, as its double counterpart
+static struct FirFilter32 FirFilter32::new(const &float coeffs, unsigned long numTaps, &float history);
+static struct IirFilter32 IirFilter32::new(const &float b, unsigned long numB, const &float a, unsigned long numA,
+                                           &float xHistory, &float yHistory);
+static struct Biquad32 Biquad32::new(float b0, float b1, float b2, float a1, float a2);
+static struct Biquad32 Biquad32::from(struct Biquad bq);   // a double design, rounded once
+static struct CombFF32 CombFF32::new(&float history, unsigned long delay, float gain);
+static struct CombFB32 CombFB32::new(&float history, unsigned long delay, float gain);
+static struct KarplusStrong32 KarplusStrong32::new(&float buffer, unsigned long length, float damping);   // next(), pluck()
 
 // convolution.h, window.h, stft.h, resample.h
 void conv_direct_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
@@ -79,7 +82,7 @@ void fft2d_f32(&Complex32 img, unsigned long h, unsigned long w);    // and ifft
 분석 전용 모듈(CQT, CWT, 최소 위상, z-변환 설계)은 `double`만 지원합니다.
 
 ::: warning float에서의 고차 IIR
-`IirFilter32`는 직접형 필터라서, 차수가 높을수록 계수의 float 반올림 오차가 커집니다. 2차보다 가파른 필터는 `Biquad32` 섹션을 직렬로 연결합니다.
+`IirFilter32`는 직접형 필터라서, 차수가 높을수록 계수의 float 반올림 오차가 커집니다. 2차보다 가파른 필터는 `Biquad32` 섹션을 [`FilterChain`](#filter-chain)으로 직렬 연결합니다.
 :::
 
 ---
@@ -177,7 +180,7 @@ void dsp_sliding_dot_f32(const &float a, const &float x, &float out, unsigned lo
 ::: tip
 이전 버전의 이 모듈에 있던 `dsp_moving_avg`/`dsp_iir_lp`는 제거되었습니다 —
 `filter.h`의 범용 스트리밍 `FirFilter`/`IirFilter`(1탭 이동 평균은 그저
-`numTaps=1`인 `fir_init`이고, 1차 IIR 저역통과는 1극 `a[]`를 가진 `iir_init`입니다)와
+`numTaps=1`인 `FirFilter::new`이고, 1차 IIR 저역통과는 1극 `a[]`를 가진 `IirFilter::new`입니다)와
 `biquad.h`의 쿡북 설계 함수들로 대체되었으며, 둘 다 이전의 장난감 수준
 구현이 아니라 실제로 검증된 DSP 구현입니다.
 :::
@@ -203,9 +206,10 @@ struct Complex {
     double  abs() const;    // sqrt(re^2 + im^2)
     double  arg() const;    // atan2(im, re)
     Complex conj() const;   // (re, -im)
+
+    static Complex new(double re, double im);
+    static Complex polar(double magnitude, double theta);  // (mag*cos(theta), mag*sin(theta))
 };
-Complex complex_new(double re, double im);
-Complex complex_from_polar(double magnitude, double theta);  // (mag*cos(theta), mag*sin(theta))
 
 struct FComplex {   // Q8.24 대응 버전 -- Fixed re/im, operator/를 제외하면 형태 동일
     Fixed re; Fixed im;
@@ -215,13 +219,14 @@ struct FComplex {   // Q8.24 대응 버전 -- Fixed re/im, operator/를 제외�
     FComplex neg() const;
     Fixed     abs() const;
     FComplex  conj() const;
+
+    static FComplex new(Fixed re, Fixed im);
+    static FComplex from(Complex c);   // 설계 시점의 double 결과를 Q8.24로 양자화
+    Complex         to_complex() const;
 };
-FComplex fcomplex_new(Fixed re, Fixed im);
-FComplex complex_to_fixed(Complex c);   // 설계 시점의 double 결과를 Q8.24로 양자화
-Complex  fcomplex_to_float(FComplex c);
 ```
 
-`a * b + c`는 이름 붙은 지역 변수들로 잘 동작하며, 임시값에 연산자 호출을 바로 체이닝하는 것도 마찬가지입니다 — `complex_new(x,0.0) * zInv`는 컴파일되어 올바르게 평가됩니다; 그 임시값은 이름 붙은 변수에 먼저 바인딩할 필요 없이 호출을 위해 숨겨진 스택 슬롯에 만들어집니다.
+`a * b + c`는 이름 붙은 지역 변수들로 잘 동작하며, 임시값에 연산자 호출을 바로 체이닝하는 것도 마찬가지입니다 — `Complex::new(x, 0.0) * zInv`는 컴파일되어 올바르게 평가됩니다; 그 임시값은 이름 붙은 변수에 먼저 바인딩할 필요 없이 호출을 위해 숨겨진 스택 슬롯에 만들어집니다.
 
 ---
 
@@ -261,7 +266,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 - **실수 입력.** `fft_real`은 n/2점 복소 변환 하나로 n점 전체 스펙트럼을 계산합니다. 분리 단계는 양 끝에서 빈 두 개씩 벡터로 처리합니다. `fft_real_half` / `fft_real_half_batch`는 FFTW나 NumPy처럼 중복되지 않는 n/2 + 1개 빈만 돌려주므로, 배치가 쓰는 양이 절반이 됩니다.
 - **SIMD 수준.** 버터플라이는 [CPU SIMD 수준](/ko/stdlib/simd#cpu-levels)별로 빌드됩니다. AVX2에서는 복소 곱셈에 FMA가 더해지고, AVX-512에서는 폭이 두 배가 됩니다.
 - **벤더 FFT.** oneMKL이 링크되어 있으면([`[build] blas`](/ko/advanced/safeguard#linking-external-libraries-and-library-output)의 Intel 선택), 65,536점 미만의 `fft`/`ifft`/`fft_real`, `fft_batch`/`fft_real_batch`의 모든 행, `fft2d`를 그 DFTI 변환이 실행합니다. 이 페이지의 7800X3D에서 `fft2d`와 배치 변환이 절반으로 줄어듭니다. `fft_vendor()`로 확인할 수 있습니다. FFTW 기반 라이브러리는 AOCL-FFTW를 포함해 GPL이므로 쓰지 않습니다.
-- **Apple: FIR은 vDSP, FFT는 자체 구현.** macOS에서 Accelerate를 링크한 프로그램(그곳에서 safeguard의 기본값)은 `dsp_sliding_dot_f64`/`_f32`를 — 따라서 그 위에 만든 `fir_process_block`, `conv_direct` 등 FIR 경로도 — `vDSP_convD`/`vDSP_conv`로 실행합니다. M1 Pro에서 std의 NEON 커널보다 스레드 유무와 관계없이 1.2–1.4배 빨랐습니다([벤치마크](/ko/benchmarks#dsp)). vDSP의 컨볼루션은 메모리를 할당하거나 락을 잡거나 스레드를 띄우지 않으므로 `fir_process_block`의 실시간 특성은 그대로입니다. FFT는 std 자체 변환을 씁니다: oneMKL은 Apple Silicon용이 없고, std의 FFT가 vDSP보다 빠르며 vDSP의 스레드 double 배치만 예외입니다. Accelerate가 없으면 std 커널이 돕니다(Apple 링커는 약한 참조도 링크 시점에 해석하므로 safeguard가 `-U`를 넘깁니다).
+- **Apple: FIR은 vDSP, FFT는 자체 구현.** macOS에서 Accelerate를 링크한 프로그램(그곳에서 safeguard의 기본값)은 `dsp_sliding_dot_f64`/`_f32`를 — 따라서 그 위에 만든 `FirFilter::process_block`, `conv_direct` 등 FIR 경로도 — `vDSP_convD`/`vDSP_conv`로 실행합니다. M1 Pro에서 std의 NEON 커널보다 스레드 유무와 관계없이 1.2–1.4배 빨랐습니다([벤치마크](/ko/benchmarks#dsp)). vDSP의 컨볼루션은 메모리를 할당하거나 락을 잡거나 스레드를 띄우지 않으므로 `FirFilter::process_block`의 실시간 특성은 그대로입니다. FFT는 std 자체 변환을 씁니다: oneMKL은 Apple Silicon용이 없고, std의 FFT가 vDSP보다 빠르며 vDSP의 스레드 double 배치만 예외입니다. Accelerate가 없으면 std 커널이 돕니다(Apple 링커는 약한 참조도 링크 시점에 해석하므로 safeguard가 `-U`를 넘깁니다).
 
 ::: tip 실시간 사용
 오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 씁니다. 이들은 메모리 할당, 락, 스레드 풀 사용, 벤더 라이브러리 호출을 전혀 하지 않습니다. oneMKL이 링크되어 있으면 `fft`/`ifft`는 실시간 코드용이 아닙니다: 길이마다 첫 호출이 DFTI 디스크립터를 만듭니다.
@@ -297,7 +302,7 @@ int fifft(&FComplex data, unsigned long n);                   // Q8.24 역변환
 
 int main() {
     struct Complex data[8];
-    for (int i = 0; i < 8; i++) data[i] = complex_new((double)i, 0.0);
+    for (int i = 0; i < 8; i++) data[i] = Complex::new((double)i, 0.0);
 
     fft(data, 8);     // in-place forward transform
     ifft(data, 8);    // in-place inverse — round-trips back to the original signal
@@ -362,7 +367,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 #include <std/dsp/filter.h>
 ```
 
-한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다. 메모리 할당이나 스레드를 전혀 쓰지 않습니다. `FirFilter::process`는 링 버퍼를 탭마다 나머지 연산을 하지 않고 두 개의 연속 구간으로, 네 개의 부분합으로 순회합니다. `fir_process_block`(256탭까지)은 이력과 새 샘플 최대 512개를 스택의 창으로 복사하고 그 위에서 `dsp_sliding_dot_f64`를 실행합니다. 출력마다 내적을 하나씩 하는 대신 벡터 하나에 여러 출력을 계산합니다.
+한 번에 한 샘플씩 처리하는 차분 방정식 필터로, 자체 이력/상태를 내부에 유지하므로 호출자가 (예를 들어 `std::Reactor` 태스크 안에서) `convolution.h`처럼 전체 신호를 메모리에 담아둘 필요 없이 실시간 샘플을 하나씩 넣어줄 수 있습니다. 메모리 할당이나 스레드를 전혀 쓰지 않습니다. `FirFilter::process`는 링 버퍼를 탭마다 나머지 연산을 하지 않고 두 개의 연속 구간으로, 네 개의 부분합으로 순회합니다. `FirFilter::process_block`(256탭까지)은 이력과 새 샘플 최대 512개를 스택의 창으로 복사하고 그 위에서 `dsp_sliding_dot_f64`를 실행합니다. 출력마다 내적을 하나씩 하는 대신 벡터 하나에 여러 출력을 계산합니다.
 
 ```
 FIR ("피드포워드"): y[n] = sum_{k=0}^{M-1} b[k]*x[n-k]
@@ -378,26 +383,28 @@ struct FirFilter {
 
     double process(double x);
     void   reset();          // zeros the history
+    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+
+    static struct FirFilter new(const &double coeffs, unsigned long numTaps, &double history);
 };
-struct FirFilter fir_init(const &double coeffs, unsigned long numTaps, &double history);
-void fir_process_block(&FirFilter f, const &double in, &double out, unsigned long n);
 
 struct IirFilter {           // general-order, direct form I
     const &double b; unsigned long numB;   // feedforward
     const &double a; unsigned long numA;   // feedback, a[0] assumed 1
-    &double xHistory; &double yHistory;
+    &double xHistory; &double yHistory;    // numB / numA elements, zeroed
     unsigned long xPos; unsigned long yPos;
 
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);
+
+    static struct IirFilter new(const &double b, unsigned long numB,
+                                const &double a, unsigned long numA,
+                                &double xHistory, &double yHistory);
 };
-struct IirFilter iir_init(const &double b, unsigned long numB,
-                           const &double a, unsigned long numA,
-                           &double xHistory, &double yHistory);
-void iir_process_block(&IirFilter f, const &double in, &double out, unsigned long n);
 ```
 
-`struct FFirFilter`/`ffir_init`/`ffir_process_block`과 `struct FIirFilter`/`fiir_init`/`fiir_process_block`은 `&double` 대신 `&Fixed`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다.
+`FFirFilter`와 `FIirFilter`(`FFirFilter::new` / `FIirFilter::new`로 만듭니다)는 `&double` 대신 `&Fixed`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다. 모두 [`SampleFilter`](#sample-filter-traits)입니다.
 
 ### 예제 — 3탭 이동 평균 {#example-3-tap-moving-average}
 
@@ -408,11 +415,11 @@ void iir_process_block(&IirFilter f, const &double in, &double out, unsigned lon
 int main() {
     double coeffs[3] = { 0.333333, 0.333333, 0.333333 };
     double history[3] = { 0.0, 0.0, 0.0 };
-    struct FirFilter mavg = fir_init(&coeffs[0], 3UL, &history[0]);
+    struct FirFilter mavg = FirFilter::new(&coeffs[0], 3UL, &history[0]);
 
     double step[6] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
     double out[6];
-    fir_process_block(&mavg, &step[0], &out[0], 6UL);
+    mavg.process_block(&step[0], &out[0], 6UL);
     // out ~= [0.333, 0.667, 1, 1, 1, 1]
     println_float(out[2]);
     return 0;
@@ -435,50 +442,55 @@ z1'  = b1*x[n] - a1*y[n] + z2
 z2'  = b2*x[n] - a2*y[n]
 ```
 
-더 높은 차수의 필터를 만들려면 여러 개를 종속 연결(cascade)합니다 — 각각에 대해 순서대로 `process()`를 호출하면 됩니다.
+더 높은 차수의 필터를 만들려면 여러 개를 [`FilterChain`](#filter-chain)으로 종속 연결(cascade)합니다. 체인은 블록 전체에 대해 각 섹션의 `process_block`을 차례로 실행합니다.
 
 ```c
 struct Biquad {
     double b0, b1, b2, a1, a2, z1, z2;
     double process(double x);
     void   reset();
-};
-struct Biquad biquad_new(double b0, double b1, double b2, double a1, double a2);
-// 블록 단위 process(), 상태는 레지스터에 유지; in == out 허용, 실시간 안전.
-// 분산 룩어헤드(scattered look-ahead, Parhi & Messerschmitt)를 쓴 직접형 I:
-// y[i] = q[i] + (a1^2 - 2 a2) y[i-2] - a2^2 y[i-4] (q는 입력만으로 계산)이므로
-// 짝수와 홀수 출력이 서로 독립인 두 사슬이 되고, 2레인 벡터 하나로 함께
-// 계산합니다. 추가되는 극점은 필터 자신의 극점을 뒤집은 것(반지름이 같음)이라
-// 안정성이 유지됩니다. process()와는 반올림 차이만 납니다.
-void biquad_process_block(&Biquad bq, const &double in, &double out, unsigned long n);
+    // 블록 단위 process(), 상태는 레지스터에 유지; in == out 허용, 실시간 안전.
+    // 분산 룩어헤드(scattered look-ahead, Parhi & Messerschmitt)를 쓴 직접형 I:
+    // y[i] = q[i] + (a1^2 - 2 a2) y[i-2] - a2^2 y[i-4] (q는 입력만으로 계산)이므로
+    // 짝수와 홀수 출력이 서로 독립인 두 사슬이 되고, 2레인 벡터 하나로 함께
+    // 계산합니다. 추가되는 극점은 필터 자신의 극점을 뒤집은 것(반지름이 같음)이라
+    // 안정성이 유지됩니다. process()와는 반올림 차이만 납니다.
+    void   process_block(const &double in, &double out, unsigned long n);
 
-// Robert Bristow-Johnson의 "Audio EQ Cookbook" 공식. fs = 샘플레이트,
-// f0 = 컷오프/중심 주파수, q = Q 계수 (높을수록 더 좁고 공진이 강함).
-struct Biquad biquad_lowpass(double fs, double f0, double q);
-struct Biquad biquad_highpass(double fs, double f0, double q);
-struct Biquad biquad_bandpass(double fs, double f0, double q);   // 0dB 피크 게인 일정
-struct Biquad biquad_notch(double fs, double f0, double q);
-struct Biquad biquad_allpass(double fs, double f0, double q);
-struct Biquad biquad_peaking(double fs, double f0, double q, double dbGain);
-struct Biquad biquad_lowshelf(double fs, double f0, double s, double dbGain);   // s = 셸프 기울기, 기본값 1.0
-struct Biquad biquad_highshelf(double fs, double f0, double s, double dbGain);
+    // freqHz에서의 Z영역 주파수 응답: 크기(선형)와 위상(라디안).
+    double response_mag(double fs, double freqHz) const;
+    double response_phase(double fs, double freqHz) const;
 
-// 쌍선형 변환을 통한 범용 아날로그-디지털 2차 섹션 변환:
-// H(s) = (B2 s^2 + B1 s + B0) / (A2 s^2 + A1 s + A0) -> 대응하는 디지털 biquad로.
-struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
+    static struct Biquad new(double b0, double b1, double b2, double a1, double a2);
+
+    // Robert Bristow-Johnson의 "Audio EQ Cookbook" 공식. fs = 샘플레이트,
+    // f0 = 컷오프/중심 주파수, q = Q 계수 (높을수록 더 좁고 공진이 강함).
+    static struct Biquad lowpass(double fs, double f0, double q);
+    static struct Biquad highpass(double fs, double f0, double q);
+    static struct Biquad bandpass(double fs, double f0, double q);   // 0dB 피크 게인 일정
+    static struct Biquad notch(double fs, double f0, double q);
+    static struct Biquad allpass(double fs, double f0, double q);
+    static struct Biquad peaking(double fs, double f0, double q, double dbGain);
+    static struct Biquad lowshelf(double fs, double f0, double s, double dbGain);   // s = 셸프 기울기, 기본값 1.0
+    static struct Biquad highshelf(double fs, double f0, double s, double dbGain);
+
+    // 쌍선형 변환을 통한 범용 아날로그-디지털 2차 섹션 변환:
+    // H(s) = (B2 s^2 + B1 s + B0) / (A2 s^2 + A1 s + A0) -> 대응하는 디지털 biquad로.
+    static struct Biquad bilinear(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
-
-// freqHz에서의 Z영역 주파수 응답: 크기(선형)와 위상(라디안).
-double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
+};
 
 struct FBiquad {   // Q8.24 대응 버전
     Fixed b0, b1, b2, a1, a2, z1, z2;
     Fixed process(Fixed x);
     void  reset();
+    void  process_block(const &Fixed in, &Fixed out, unsigned long n);
+
+    static struct FBiquad from(struct Biquad bq);   // double로 설계된 biquad를 한 번 양자화
 };
-struct FBiquad biquad_to_fixed(struct Biquad bq);   // double로 설계된 biquad를 한 번 양자화
 ```
+
+`Biquad32`(float)는 같은 메서드에 더해 `Biquad32::new`와 `Biquad32::from(bq)`를 가집니다. [단정밀도](#single-precision-float)를 참고하십시오.
 
 ### 예제 {#example-2}
 
@@ -487,16 +499,19 @@ struct FBiquad biquad_to_fixed(struct Biquad bq);   // double로 설계된 biqua
 #include <std/io.h>
 
 int main() {
-    struct Biquad lp = biquad_lowpass(48000.0, 1000.0, 0.707);
+    struct Biquad lp = Biquad::lowpass(48000.0, 1000.0, 0.707);
 
     // Unity DC gain — the standard invariant a lowpass must satisfy.
     print("|H(0)| (expect 1.0): ");
-    println_float(biquad_response_mag(&lp, 48000.0, 0.0));
+    println_float(lp.response_mag(48000.0, 0.0));
 
     double y = 0.0;
     for (int i = 0; i < 200; i++) y = lp.process(1.0);
     print("settled output for constant input 1.0 (expect ~1.0): ");
     println_float(y);
+
+    struct Biquad32 lp32 = Biquad32::from(lp);   // 같은 설계를 float로 한 번 반올림
+    struct FBiquad  lpq  = FBiquad::from(lp);    // ... 또는 Q8.24로 한 번 양자화
     return 0;
 }
 ```
@@ -597,12 +612,12 @@ void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned
 #include <std/dsp/ztransform.h>
 ```
 
-`biquad.h`의 `bilinear_2nd_order`/`biquad_response_*`를 임의 차수로 일반화한 것입니다 — biquad들의 종속 연결이 아니라 더 높은 차수의 IIR 섹션 하나를 직접 설계/분석할 때 사용합니다. 다항식 근 찾기 기능은 포함되어 있지 않습니다(별도의 반복적인 고유값/Durand-Kerner 알고리즘이 필요합니다); 대신 계수 배열을 직접 다룹니다.
+`biquad.h`의 `Biquad::bilinear` / `Biquad::response_mag` / `response_phase`를 임의 차수로 일반화한 것입니다 — biquad들의 종속 연결이 아니라 더 높은 차수의 IIR 섹션 하나를 직접 설계/분석할 때 사용합니다. 다항식 근 찾기 기능은 포함되어 있지 않습니다(별도의 반복적인 고유값/Durand-Kerner 알고리즘이 필요합니다); 대신 계수 배열을 직접 다룹니다.
 
 ```c
 // B, A: order+1개의 아날로그(s영역) 계수, s의 오름차순 거듭제곱.
 // bOut, aOut: 음의 z 거듭제곱 표기법(aOut[0] = 1)에서의 order+1개
-// 디지털 계수 -- filter.h의 iir_init에 그대로 넣으면 된다.
+// 디지털 계수 -- filter.h의 IirFilter::new에 그대로 넣으면 된다.
 void bilinear_nth_order(const &double B, const &double A, unsigned long order,
                          double fs, &double bOut, &double aOut);
 
@@ -627,17 +642,22 @@ struct CombFF {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+
+    // 'history' is the caller's ring buffer of 'delay' samples, zeroed.
+    static struct CombFF new(&double history, unsigned long delay, double gain);
 };
 struct CombFB {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);
+
+    static struct CombFB new(&double history, unsigned long delay, double gain);
 };
-struct CombFF comb_ff_init(&double history, unsigned long delay, double gain);
-struct CombFB comb_fb_init(&double history, unsigned long delay, double gain);
 ```
 
-`KarplusStrong`은 고전적인 발현(plucked-string)/타악기 합성 알고리즘입니다(Karplus & Strong, 1983): 피드백 경로가 단순 스칼라 게인이 아니라 2탭 평균 저역통과인 피드백 콤입니다 — 이 평균화가 루프를 돌 때마다 고주파 에너지를 점진적으로 제거하여, 현악기 특유의 밝게 시작했다가 감쇠하는 음색을 만들어냅니다.
+`KarplusStrong`은 고전적인 발현(plucked-string)/타악기 합성 알고리즘입니다(Karplus & Strong, 1983): 피드백 경로가 단순 스칼라 게인이 아니라 2탭 평균 저역통과인 피드백 콤입니다 — 이 평균화가 루프를 돌 때마다 고주파 에너지를 점진적으로 제거하여, 현악기 특유의 밝게 시작했다가 감쇠하는 음색을 만들어냅니다. 입력을 받지 않으므로 필터가 아니라 [`SampleGenerator`](#sample-filter-traits)입니다: 메서드는 `process()`와 `reset()`이 아니라 `next()`와 `pluck()`입니다.
 
 ```c
 struct KarplusStrong {
@@ -645,13 +665,18 @@ struct KarplusStrong {
     unsigned long length; unsigned long pos;
     double damping;         // 0..1, closer to 1 = slower decay (typical 0.99-0.999)
 
-    double process();       // no input — self-sustaining pluck
-    void   reset(const &double excitation, unsigned long n);  // seed with a new pluck
+    double next();          // the next output sample: no input, self-sustaining
+    // Refill the delay line with a new excitation (n samples copied in; size
+    // it to 'length' for a fresh pluck, the rest keeps its old contents).
+    void   pluck(const &double excitation, unsigned long n);
+
+    // 'buffer' is the caller's delay line of 'length' samples; seed it (or
+    // call pluck) before next().
+    static struct KarplusStrong new(&double buffer, unsigned long length, double damping);
 };
-struct KarplusStrong ks_init(&double buffer, unsigned long length, double damping);
 ```
 
-`struct FCombFF`/`FCombFB`/`FKarplusStrong`과 `comb_ff_init_fixed`/`comb_fb_init_fixed`/`ks_init_fixed`는 Q8.24 대응 버전입니다.
+`FCombFF`, `FCombFB`, `FKarplusStrong`은 Q8.24 대응 버전이고 `CombFF32`, `CombFB32`, `KarplusStrong32`은 float 대응 버전이며, 각각 자신의 `::new`로 만듭니다.
 
 ### 예제 — 발현 현악기 {#example-plucked-string}
 
@@ -662,13 +687,137 @@ struct KarplusStrong ks_init(&double buffer, unsigned long length, double dampin
 int main() {
     double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // noise burst
     double buf[8];
-    struct KarplusStrong ks = ks_init(&buf[0], 8UL, 0.995);
-    ks.reset(&excitation[0], 8UL);
+    struct KarplusStrong ks = KarplusStrong::new(&buf[0], 8UL, 0.995);
+    ks.pluck(&excitation[0], 8UL);
 
     for (int i = 0; i < 16; i++) {
-        double sample = ks.process();
+        double sample = ks.next();
         println_float(sample);   // decaying, self-sustained "pluck"
     }
+
+    double block[32];
+    generate_block(&ks, &block[0], 32UL);   // 다음 32샘플: 모든 SampleGenerator에 동작
+    return 0;
+}
+```
+
+---
+
+## 스트리밍 트레이트: 모든 필터에 대한 하나의 인터페이스 {#sample-filter-traits}
+
+```c
+#include <std/dsp/sample_filter.h>   // filter.h, biquad.h, comb.h도 포함합니다
+```
+
+위의 스트리밍 필터들은 같은 형태를 공유합니다: `process()`는 샘플 하나, `process_block()`은 버퍼 하나(out은 in과 겹쳐도 됩니다), `reset()`은 상태를 무음으로 되돌립니다. `sample_filter.h`는 각 기능을 하나씩 작은 [트레이트](/ko/reference/generics#composing-traits)으로 이름 붙이고, 제네릭 코드가 요구하는 역할로 합성합니다. 표 다음의 헬퍼들은 한 번만 작성되고, 사용하는 것만 요구하며, 컴파일 타임에 해석되므로 손으로 튜닝한 `process_block`을 감싸는 제네릭 래퍼도 실행 시간 비용이 없습니다.
+
+| 트레이트 | 구성 | 만족하는 타입 |
+|---|---|---|
+| `SampleProcessor` | `process(x)`: 샘플 하나 입력, 하나 출력 | 아래의 모든 필터 |
+| `BlockProcessor` | `process_block(in, out, n)` | 아래의 모든 필터 |
+| `Resettable` | `reset()`: 무음 상태로 | 아래의 모든 필터 |
+| `SampleFilter` | `SampleProcessor + BlockProcessor + Resettable` | `double`: `FirFilter`, `IirFilter`, `Biquad`, `CombFF`, `CombFB`; `float`: `FirFilter32`, `IirFilter32`, `Biquad32`, `CombFF32`, `CombFB32`; Q8.24: `FFirFilter`, `FIirFilter`, `FBiquad`, `FCombFF`, `FCombFB`; 그리고 [`FilterChain<S, A, B>`](#filter-chain) |
+| `SampleGenerator` | `next()`: 입력 없이 샘플 하나 출력 | `KarplusStrong`, `KarplusStrong32`, `FKarplusStrong` |
+
+하나의 트레이트 집합이 세 가지 샘플 타입을 모두 다룹니다. 트레이트는 메서드 이름으로 만족되므로 `float`나 `Fixed` 필터도 `double` 필터와 같은 방식으로 부합합니다. 헬퍼는 샘플 타입 `S`를 자신의 타입 매개변수로 받으며, 버퍼로부터 추론됩니다.
+
+| 함수 | 바운드 | 하는 일 |
+|---|---|---|
+| `filter_process_each(&f, in, out, n)` | `SampleProcessor` | `out[i] = f.process(in[i])`: 더 빠른 블록 형태가 없는 필터의 `process_block` |
+| `filter_impulse_response(&f, out, n)` | `SampleProcessor + Resettable` | 리셋 상태에서 1, 0, 0, ...에 대한 응답의 처음 `n`샘플; `f`는 리셋된 상태로 남습니다. FIR의 임펄스 응답은 그 탭입니다 |
+| `filter_step_response(&f, out, n)` | `SampleProcessor + Resettable` | 1, 1, 1, ...에 대해 같은 것 |
+| `generate_block(&g, out, n)` | `SampleGenerator` | `out[i] = g.next()` |
+| `sample_one()` | | `S` 타입 샘플로서의 `1.0`(`Fixed`이면 `FIXED_ONE`) |
+
+직접 만든 필터는 세 메서드를 가지면 부합합니다. 그러면 위의 헬퍼, `FilterChain`, 그리고 모든 `generic<F: SampleFilter>` 코드와 함께 동작합니다:
+
+```c
+#include <std/dsp/filter.h>
+#include <std/io.h>
+
+// 1극 DC 차단기: y[n] = x[n] - x[n-1] + r*y[n-1].
+struct DcBlocker {
+    double r; double x1; double y1;
+    double process(double x);
+    void   process_block(const &double in, &double out, unsigned long n);
+    void   reset();
+};
+double DcBlocker::process(double x) {
+    double y = x - self.x1 + self.r * self.y1;
+    self.x1 = x;
+    self.y1 = y;
+    return y;
+}
+void DcBlocker::process_block(const &double in, &double out, unsigned long n) {
+    filter_process_each(self, in, out, n);
+}
+void DcBlocker::reset() { self.x1 = 0.0; self.y1 = 0.0; }
+
+// 모든 SampleFilter: 단위 계단 입력 n샘플 뒤의 출력.
+generic<F: SampleFilter>
+double settled(&F f) {
+    double s[256];
+    filter_step_response(f, &s[0], 256UL);
+    return s[255];
+}
+
+int main() {
+    struct DcBlocker dc;
+    dc.r = 0.995;
+    dc.reset();
+
+    double taps[3] = { 0.25, 0.5, 0.25 };
+    double hist[3] = { 0.0, 0.0, 0.0 };
+    struct FirFilter fir = FirFilter::new(&taps[0], 3UL, &hist[0]);
+
+    println_float(settled(&dc));    // ~0.28이며 계속 감소: DC 차단기는 DC를 제거합니다
+    println_float(settled(&fir));   // 1.0: 탭의 합
+    return 0;
+}
+```
+
+### FilterChain: 필터의 직렬 연결 {#filter-chain}
+
+```c
+generic<S, A: SampleFilter, B: SampleFilter>
+struct FilterChain {
+    A first;
+    B second;
+
+    S    process(S x);     // second.process(first.process(x))
+    void reset();          // 두 단 모두
+    // 각 단이 자신의 process_block으로 블록 전체를 처리하고(각자의 빠른 경로 유지),
+    // 'out'을 중간 버퍼로 씁니다: 별도 스크래치 없음, out은 in과 겹쳐도 됨.
+    void process_block(const &S in, &S out, unsigned long n);
+
+    static struct FilterChain<S, A, B> of(A first, B second);
+};
+```
+
+`FilterChain`은 [바운드가 있는 제네릭 구조체](/ko/reference/generics#bounded-generic-structs)입니다: `S`는 샘플 타입(`double`, `float`, `Fixed`)이고 두 단은 서로 다른 필터 타입이어도 됩니다. 세 메서드를 가지므로 체인 자체가 `SampleFilter`이고, 체인은 중첩됩니다: 단이 몇 개이든 체인의 체인으로 만들 수 있습니다. `of()`는 단들을 체인 안으로 복사하며, `.first`와 `.second`로 접근합니다. 이력을 호출자의 버퍼에 두는 단(FIR, IIR, comb)은 여전히 그 버퍼를 쓰므로, 원본을 체인의 복사본과 동시에 실행하지 마십시오.
+
+```c
+#include <std/dsp/biquad.h>
+#include <std/dsp/filter.h>
+#include <std/io.h>
+
+int main() {
+    // 80 Hz - 8 kHz 대역: biquad 두 개로 만든 4차 응답.
+    struct Biquad hp = Biquad::highpass(48000.0, 80.0, 0.7071);
+    struct Biquad lp = Biquad::lowpass(48000.0, 8000.0, 0.7071);
+    struct FilterChain<double, struct Biquad, struct Biquad> band = FilterChain::of(hp, lp);
+
+    // 체인은 SampleFilter이므로 다른 체인의 한 단이 될 수 있습니다.
+    double taps[3] = { 0.25, 0.5, 0.25 };
+    double hist[3] = { 0.0, 0.0, 0.0 };
+    struct FirFilter smooth = FirFilter::new(&taps[0], 3UL, &hist[0]);
+    struct FilterChain<double, struct FilterChain<double, struct Biquad, struct Biquad>, struct FirFilter> eq =
+        FilterChain::of(band, smooth);
+
+    double buf[256];
+    for (int i = 0; i < 256; i++) buf[i] = (i % 32 < 16) ? 1.0 : -1.0;   // 사각파
+    eq.process_block(&buf[0], &buf[0], 256UL);                              // 제자리 처리
+    println_float(buf[255]);
     return 0;
 }
 ```
@@ -784,9 +933,10 @@ struct AudioBuffer {
     void          clear();
     int           is_empty() const;
     int           is_full() const;
-};
 
-struct AudioBuffer audio_buf_init(unsigned long channels);
+    // 'channels'개 채널의 비어 있고 0으로 채운 버퍼 (AUDIO_BUF_FRAMES 프레임).
+    static struct AudioBuffer new(unsigned long channels);
+};
 ```
 
 ### 예제 — 생산자 / 소비자 {#example-producer-consumer}
@@ -798,7 +948,7 @@ struct AudioBuffer audio_buf_init(unsigned long channels);
 static struct AudioBuffer g_ab;
 
 int main() {
-    g_ab = std::audio_buf_init(2UL);          // stereo
+    g_ab = std::AudioBuffer::new(2UL);        // stereo
 
     Fixed frame[2];
     unsafe {
@@ -831,7 +981,7 @@ int main() {
 #include <std/dsp/timer_wheel.h>
 ```
 
-최대 `WHEEL_TIMERS`(64)개의 동시 타이머를 지원하는 타이머 스케줄러입니다. `tick()`은 시계를 1만큼 진행시키고 새 tick에 만료되는 모든 타이머를 실행합니다. 하나의 휠은 멀티테넌트이므로 — 서로 무관한 하위 시스템이 서로 다른 컨텍스트 타입으로 공유합니다 — 각 슬롯은 콜백을 타입 소거된 형태로 저장합니다. 제네릭 진입점 `timer_add`/`timer_add_periodic`은 짝이 맞는 `fn void(?&T)` / `?&T` 쌍을 받으므로 호출은 항상 타입이 올바릅니다.
+최대 `WHEEL_TIMERS`(64)개의 동시 타이머를 지원하는 타이머 스케줄러입니다. `tick()`은 시계를 1만큼 진행시키고 새 tick에 만료되는 모든 타이머를 실행합니다. 하나의 휠은 멀티테넌트이므로 — 서로 무관한 하위 시스템이 서로 다른 컨텍스트 타입으로 공유합니다 — 각 슬롯은 콜백을 타입 소거된 형태로 저장합니다. `add`와 `add_periodic`은 짝이 맞는 `fn void(?&T)` / `?&T` 쌍을 받는 [자기 타입 매개변수를 가진 메서드](/ko/reference/generics#methods-with-their-own-type-parameters)이므로 호출은 항상 타입이 올바릅니다.
 
 ### API {#api}
 
@@ -843,18 +993,17 @@ struct TimerWheel {
     struct WheelTimer timers[WHEEL_TIMERS];
     unsigned long     current_tick;
 
+    void          init();            // in place: all slots free, tick 0. Call before anything else.
+
+    // One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
+    generic<T> int add(unsigned long tick, fn void(?&T) cb, ?&T ctx);
+    // Every `period` ticks, first at now() + period. Returns the id or 0 if full.
+    generic<T> int add_periodic(unsigned long period, fn void(?&T) cb, ?&T ctx);
+
     void          cancel(int id);    // ignores invalid ids
     int           tick();            // advance one tick; returns how many timers fired
     unsigned long now() const;
 };
-
-void timer_wheel_init(&TimerWheel tw);
-
-// One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
-generic<T> int timer_add(&TimerWheel tw, unsigned long tick, fn void(?&T) cb, ?&T ctx);
-
-// Every `period` ticks, first at now() + period. Returns the id or 0 if full.
-generic<T> int timer_add_periodic(&TimerWheel tw, unsigned long period, fn void(?&T) cb, ?&T ctx);
 ```
 
 ### 예제 {#example-3}
@@ -874,11 +1023,11 @@ static void stop(?&int unused) { g_done = 1; }
 static struct TimerWheel g_tw;   // ~2 KB of slots: keep it off small stacks
 
 int main() {
-    std::timer_wheel_init(&g_tw);
+    g_tw.init();
     struct Led led;
     led.toggles = 0;
-    unsafe { std::timer_add_periodic(&g_tw, 10UL, blink, (?&Led)&led); }  // every 10 ticks
-    std::timer_add(&g_tw, 55UL, stop, null);                               // once, at tick 55
+    unsafe { g_tw.add_periodic(10UL, blink, (?&Led)&led); }  // every 10 ticks
+    g_tw.add(55UL, stop, null);                               // once, at tick 55
     while (!g_done) { g_tw.tick(); }
     std::print("blinks: ");
     std::println_int(led.toggles);   // 5 (ticks 10, 20, 30, 40, 50)

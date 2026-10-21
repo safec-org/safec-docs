@@ -2309,7 +2309,7 @@ int train_step(&FloatTensor w, const &FloatTensor x, const &FloatTensor target, 
 
     int finite = scaler.unscale(w);
     if (finite) {
-        struct Slice<float> g = std::slice_of(w.grad, w.size);
+        struct Slice<float> g = std::Slice::of(w.grad, w.size);
         for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
             w.set1(i, w.at1(i) - lr * *g.at(i));
         }

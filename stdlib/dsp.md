@@ -1,10 +1,12 @@
 # DSP & Real-Time Utilities
 
-`std/dsp/` covers deterministic fixed-point arithmetic, spectral transforms (DFT/FFT/DCT/STFT/CQT/CWT), filters (FIR/IIR/biquad/comb), convolution, resampling, minimum-phase reconstruction, general Laplace-to-Z (bilinear) transform tooling, 2D/imaging primitives, audio buffering, and real-time timer scheduling — twenty modules in total.
+`std/dsp/` covers deterministic fixed-point arithmetic, spectral transforms (DFT/FFT/DCT/STFT/CQT/CWT), filters (FIR/IIR/biquad/comb), convolution, resampling, minimum-phase reconstruction, general Laplace-to-Z (bilinear) transform tooling, 2D/imaging primitives, audio buffering, and real-time timer scheduling — twenty modules in total, plus the [streaming traits](#sample-filter-traits) that every filter and generator satisfies.
 
 ```c
 #include <std/dsp/dsp_all.h>  // master header: pulls in every module below
 ```
+
+Types are built with [static methods](/reference/functions#static-methods) (`Biquad::lowpass(...)`, `FirFilter::new(...)`, `Complex::new(...)`; write `std::Biquad::lowpass(...)` outside `namespace std`), and the operations on them are methods (`f.process_block(in, out, n)`).
 
 Every transform/filter that has a meaningful fixed-point form ships **two** implementations — a `double`-precision path and a parallel Q8.24 (`Fixed`) path (function/type names prefixed with `f`, e.g. `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — following one consistent design: coefficients that only need to be computed once (FFT twiddle factors, filter coefficients) are always derived in `double` precision using the real transcendental functions in `std/math.h`, then quantized to `Fixed` a single time; the actual per-sample signal-processing loop runs entirely in Q8.24 arithmetic. Standard practice — even hardware FFT accelerators precompute twiddle tables offline in floating point. A few of the newer, more specialized transforms (STFT, CQT, CWT, minimum-phase, imaging) are `double`-only: there's no natural fixed-point form for a Gaussian-windowed wavelet kernel or a homomorphic cepstrum, the same way there's no fixed-point `sin()`.
 
@@ -17,16 +19,19 @@ The signal paths also come in single precision (`float`), described in [Single p
 The FFT, filters, convolution, windows, STFT, resampling, DCT/DFT and imaging also take `float` data. These functions have an `_f32` suffix, and the types a `32` suffix (`Complex32`, `FirFilter32`, `Biquad32`). Each one has the same contract as its `double` version. Float halves the memory traffic and fits twice as many values in each vector register. It keeps about 7 significant digits (relative error around 1e-6) instead of about 16.
 
 - **One implementation for both precisions.** The FFT, convolution, resampling and 2D code is written once, in internal core headers (`fft_core.h`, `conv_core.h`, `resample_core.h`, `imaging_core.h`). Each core is compiled twice, once per precision, from `fft.sc` and `fft_f32.sc` and so on. The float FFT therefore has the same radix-4 passes, 16-point codelet, cache blocking, threading and per-ISA builds. With oneMKL linked it uses DFTI's single-precision transforms.
-- **Precision where it matters.** Twiddle factors and window values are computed in `double` and rounded to float once. Filter coefficients are designed in `double` (`biquad_lowpass`, ...) and then converted with `biquad_to_f32`. The O(n²) `dct2_f32`/`dft_f32` and the sinc kernel in `resample_sinc_f32` sum in `double`, so only their inputs and outputs are float.
+- **Precision where it matters.** Twiddle factors and window values are computed in `double` and rounded to float once. Filter coefficients are designed in `double` (`Biquad::lowpass`, ...) and then converted with `Biquad32::from`. The O(n²) `dct2_f32`/`dft_f32` and the sinc kernel in `resample_sinc_f32` sum in `double`, so only their inputs and outputs are float.
 - **Real time.** `fft_serial_f32`/`ifft_serial_f32` never allocate or lock, the same as the double versions. Up to 4096 points they read a compile-time float twiddle table; call `fft_prepare_f32(maxN)` for longer ones. `fft_prepare` fills only the double table.
 
 ```c
 // complex_dsp.h
-struct Complex32 { float re; float im; /* + - * / neg abs arg conj, as Complex */ };
-Complex32 complex32_new(float re, float im);
-Complex32 complex32_from_polar(float magnitude, float theta);
-Complex32 complex_to_f32(Complex c);      // round each part to float
-Complex   complex_from_f32(Complex32 c);
+struct Complex32 {
+    float re; float im;
+    /* + - * / neg abs arg conj, as Complex */
+    static Complex32 new(float re, float im);
+    static Complex32 polar(float magnitude, float theta);
+    static Complex32 from(Complex c);     // round each part to float
+    Complex          to_complex() const;  // back to double (exact)
+};
 
 // fft.h
 int fft_f32(&Complex32 data, unsigned long n);
@@ -42,18 +47,16 @@ int fft_real_half_batch_f32(const &float in, &Complex32 out, unsigned long n, un
 // dsp.h
 float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
 
-// filter.h, biquad.h, comb.h
-struct FirFilter32 fir_init_f32(const &float coeffs, unsigned long numTaps, &float history);
-void fir_process_block_f32(&FirFilter32 f, const &float in, &float out, unsigned long n);
-struct IirFilter32 iir_init_f32(const &float b, unsigned long numB, const &float a, unsigned long numA,
-                                &float xHistory, &float yHistory);
-void iir_process_block_f32(&IirFilter32 f, const &float in, &float out, unsigned long n);
-struct Biquad32 biquad_new_f32(float b0, float b1, float b2, float a1, float a2);
-struct Biquad32 biquad_to_f32(struct Biquad bq);   // a double design, rounded once
-void biquad_process_block_f32(&Biquad32 bq, const &float in, &float out, unsigned long n);
-struct CombFF32 comb_ff_init_f32(&float history, unsigned long delay, float gain);
-struct CombFB32 comb_fb_init_f32(&float history, unsigned long delay, float gain);
-struct KarplusStrong32 ks_init_f32(&float buffer, unsigned long length, float damping);
+// filter.h, biquad.h, comb.h: each filter has process(x), reset() and
+// process_block(in, out, n) on float samples, as its double counterpart
+static struct FirFilter32 FirFilter32::new(const &float coeffs, unsigned long numTaps, &float history);
+static struct IirFilter32 IirFilter32::new(const &float b, unsigned long numB, const &float a, unsigned long numA,
+                                           &float xHistory, &float yHistory);
+static struct Biquad32 Biquad32::new(float b0, float b1, float b2, float a1, float a2);
+static struct Biquad32 Biquad32::from(struct Biquad bq);   // a double design, rounded once
+static struct CombFF32 CombFF32::new(&float history, unsigned long delay, float gain);
+static struct CombFB32 CombFB32::new(&float history, unsigned long delay, float gain);
+static struct KarplusStrong32 KarplusStrong32::new(&float buffer, unsigned long length, float damping);   // next(), pluck()
 
 // convolution.h, window.h, stft.h, resample.h
 void conv_direct_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
@@ -79,7 +82,7 @@ void fft2d_f32(&Complex32 img, unsigned long h, unsigned long w);    // and ifft
 The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `double`.
 
 ::: warning High-order IIR in float
-`IirFilter32` is a direct-form filter, and float rounding in its coefficients grows with the order. For anything steeper than second order, cascade `Biquad32` sections.
+`IirFilter32` is a direct-form filter, and float rounding in its coefficients grows with the order. For anything steeper than second order, cascade `Biquad32` sections with a [`FilterChain`](#filter-chain).
 :::
 
 ---
@@ -175,7 +178,7 @@ void dsp_sliding_dot_f32(const &float a, const &float x, &float out, unsigned lo
 ```
 
 ::: tip
-`dsp_moving_avg`/`dsp_iir_lp` from earlier versions of this module were removed — they were superseded by `filter.h`'s general streaming `FirFilter`/`IirFilter` (a 1-tap moving average is just `fir_init` with `numTaps=1`, and a first-order IIR low-pass is `iir_init` with a 1-pole `a[]`) and `biquad.h`'s cookbook designers, both of which are real, verified DSP implementations rather than the earlier toy versions.
+`dsp_moving_avg`/`dsp_iir_lp` from earlier versions of this module were removed — they were superseded by `filter.h`'s general streaming `FirFilter`/`IirFilter` (a 1-tap moving average is just `FirFilter::new` with `numTaps=1`, and a first-order IIR low-pass is `IirFilter::new` with a 1-pole `a[]`) and `biquad.h`'s cookbook designers, both of which are real, verified DSP implementations rather than the earlier toy versions.
 :::
 
 ---
@@ -199,9 +202,10 @@ struct Complex {
     double  abs() const;    // sqrt(re^2 + im^2)
     double  arg() const;    // atan2(im, re)
     Complex conj() const;   // (re, -im)
+
+    static Complex new(double re, double im);
+    static Complex polar(double magnitude, double theta);  // (mag*cos(theta), mag*sin(theta))
 };
-Complex complex_new(double re, double im);
-Complex complex_from_polar(double magnitude, double theta);  // (mag*cos(theta), mag*sin(theta))
 
 struct FComplex {   // Q8.24 counterpart — Fixed re/im, same shape minus operator/
     Fixed re; Fixed im;
@@ -211,13 +215,14 @@ struct FComplex {   // Q8.24 counterpart — Fixed re/im, same shape minus opera
     FComplex neg() const;
     Fixed     abs() const;
     FComplex  conj() const;
+
+    static FComplex new(Fixed re, Fixed im);
+    static FComplex from(Complex c);   // quantize a design-time double result to Q8.24
+    Complex         to_complex() const;
 };
-FComplex fcomplex_new(Fixed re, Fixed im);
-FComplex complex_to_fixed(Complex c);   // quantize a design-time double result to Q8.24
-Complex  fcomplex_to_float(FComplex c);
 ```
 
-`a * b + c` works with named locals, and so does chaining an operator call directly onto a temporary — `complex_new(x,0.0) * zInv` compiles and evaluates correctly; the temporary is materialized into a hidden stack slot for the call, no need to bind it to a named variable first.
+`a * b + c` works with named locals, and so does chaining an operator call directly onto a temporary — `Complex::new(x, 0.0) * zInv` compiles and evaluates correctly; the temporary is materialized into a hidden stack slot for the call, no need to bind it to a named variable first.
 
 ---
 
@@ -257,7 +262,7 @@ How it runs:
 - **Real input.** `fft_real` computes the full n-point spectrum from one n/2-point complex transform; the split is vectorized two bins at a time from both ends. `fft_real_half` / `fft_real_half_batch` return only the n/2 + 1 non-redundant bins, as FFTW and NumPy do, which halves what a batch writes.
 - **SIMD level.** The butterflies are built per [CPU SIMD level](/stdlib/simd#cpu-levels): AVX2 adds FMA to the complex multiply, and AVX-512 doubles the width.
 - **Vendor FFT.** With oneMKL linked (the Intel choice of [`[build] blas`](/advanced/safeguard#linking-external-libraries-and-library-output)), its DFTI transforms run `fft`/`ifft`/`fft_real` below 65,536 points, every row of `fft_batch`/`fft_real_batch`, and `fft2d`. On this page's 7800X3D that halves `fft2d` and the batched transforms. `fft_vendor()` reports it. FFTW-based libraries, AOCL-FFTW included, are GPL and are not used.
-- **Apple: vDSP for FIR, built-in FFT.** On macOS a program that links Accelerate (safeguard's default there) runs `dsp_sliding_dot_f64`/`_f32` — and so `fir_process_block`, `conv_direct` and the other FIR paths built on it — through `vDSP_convD`/`vDSP_conv`, which measured 1.2–1.4× faster than std's NEON kernel on an M1 Pro, with and without threads ([benchmarks](/benchmarks#dsp)). vDSP's convolution doesn't allocate, lock or start threads, so `fir_process_block` keeps its real-time properties. The FFT stays on std's own transform: oneMKL doesn't exist for Apple Silicon, and std's FFT is faster than vDSP's except for vDSP's threaded double batch. Without Accelerate, std's kernels run (safeguard passes `-U` for the weak references, since Apple's linker resolves even weak references at link time).
+- **Apple: vDSP for FIR, built-in FFT.** On macOS a program that links Accelerate (safeguard's default there) runs `dsp_sliding_dot_f64`/`_f32` — and so `FirFilter::process_block`, `conv_direct` and the other FIR paths built on it — through `vDSP_convD`/`vDSP_conv`, which measured 1.2–1.4× faster than std's NEON kernel on an M1 Pro, with and without threads ([benchmarks](/benchmarks#dsp)). vDSP's convolution doesn't allocate, lock or start threads, so `FirFilter::process_block` keeps its real-time properties. The FFT stays on std's own transform: oneMKL doesn't exist for Apple Silicon, and std's FFT is faster than vDSP's except for vDSP's threaded double batch. Without Accelerate, std's kernels run (safeguard passes `-U` for the weak references, since Apple's linker resolves even weak references at link time).
 
 ::: tip Real-time use
 In an audio callback, call `fft_prepare(maxN)` once beforehand, then use `fft_serial`/`ifft_serial`. They never allocate, lock, touch the thread pool or call a vendor library. `fft`/`ifft` are not for real-time code when oneMKL is linked: the first call for each length creates a DFTI descriptor.
@@ -293,7 +298,7 @@ int fifft(&FComplex data, unsigned long n);                   // Q8.24 inverse
 
 int main() {
     struct Complex data[8];
-    for (int i = 0; i < 8; i++) data[i] = complex_new((double)i, 0.0);
+    for (int i = 0; i < 8; i++) data[i] = Complex::new((double)i, 0.0);
 
     fft(data, 8);     // in-place forward transform
     ifft(data, 8);    // in-place inverse — round-trips back to the original signal
@@ -359,7 +364,7 @@ void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i]
 #include <std/dsp/filter.h>
 ```
 
-One-sample-at-a-time difference-equation filters, keeping their own history/state internally so a caller can feed real-time samples one at a time (e.g. inside a `std::Reactor` task) rather than needing the whole signal in memory the way `convolution.h` does. They never allocate or use threads. `FirFilter::process` walks its ring buffer as two contiguous runs with four partial sums, without a per-tap modulo. `fir_process_block` (up to 256 taps) copies the history and up to 512 new samples into a window on the stack and runs `dsp_sliding_dot_f64` over it: many outputs per vector instead of one dot product each.
+One-sample-at-a-time difference-equation filters, keeping their own history/state internally so a caller can feed real-time samples one at a time (e.g. inside a `std::Reactor` task) rather than needing the whole signal in memory the way `convolution.h` does. They never allocate or use threads. `FirFilter::process` walks its ring buffer as two contiguous runs with four partial sums, without a per-tap modulo. `FirFilter::process_block` (up to 256 taps) copies the history and up to 512 new samples into a window on the stack and runs `dsp_sliding_dot_f64` over it: many outputs per vector instead of one dot product each.
 
 ```
 FIR ("feedforward"): y[n] = sum_{k=0}^{M-1} b[k]*x[n-k]
@@ -375,26 +380,28 @@ struct FirFilter {
 
     double process(double x);
     void   reset();          // zeros the history
+    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+
+    static struct FirFilter new(const &double coeffs, unsigned long numTaps, &double history);
 };
-struct FirFilter fir_init(const &double coeffs, unsigned long numTaps, &double history);
-void fir_process_block(&FirFilter f, const &double in, &double out, unsigned long n);
 
 struct IirFilter {           // general-order, direct form I
     const &double b; unsigned long numB;   // feedforward
     const &double a; unsigned long numA;   // feedback, a[0] assumed 1
-    &double xHistory; &double yHistory;
+    &double xHistory; &double yHistory;    // numB / numA elements, zeroed
     unsigned long xPos; unsigned long yPos;
 
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);
+
+    static struct IirFilter new(const &double b, unsigned long numB,
+                                const &double a, unsigned long numA,
+                                &double xHistory, &double yHistory);
 };
-struct IirFilter iir_init(const &double b, unsigned long numB,
-                           const &double a, unsigned long numA,
-                           &double xHistory, &double yHistory);
-void iir_process_block(&IirFilter f, const &double in, &double out, unsigned long n);
 ```
 
-`struct FFirFilter`/`ffir_init`/`ffir_process_block` and `struct FIirFilter`/`fiir_init`/`fiir_process_block` are the Q8.24 counterparts, same shape with `&Fixed` in place of `&double`.
+`FFirFilter` and `FIirFilter` (built with `FFirFilter::new` / `FIirFilter::new`) are the Q8.24 counterparts, same shape with `&Fixed` in place of `&double`. All of them are [`SampleFilter`s](#sample-filter-traits).
 
 ### Example — 3-tap moving average {#example-3-tap-moving-average}
 
@@ -405,11 +412,11 @@ void iir_process_block(&IirFilter f, const &double in, &double out, unsigned lon
 int main() {
     double coeffs[3] = { 0.333333, 0.333333, 0.333333 };
     double history[3] = { 0.0, 0.0, 0.0 };
-    struct FirFilter mavg = fir_init(&coeffs[0], 3UL, &history[0]);
+    struct FirFilter mavg = FirFilter::new(&coeffs[0], 3UL, &history[0]);
 
     double step[6] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
     double out[6];
-    fir_process_block(&mavg, &step[0], &out[0], 6UL);
+    mavg.process_block(&step[0], &out[0], 6UL);
     // out ~= [0.333, 0.667, 1, 1, 1, 1]
     println_float(out[2]);
     return 0;
@@ -432,50 +439,55 @@ z1'  = b1*x[n] - a1*y[n] + z2
 z2'  = b2*x[n] - a2*y[n]
 ```
 
-Cascade several for a higher-order filter — call `process()` on each in sequence.
+Cascade several for a higher-order filter with a [`FilterChain`](#filter-chain), which runs each section's own `process_block` over the block.
 
 ```c
 struct Biquad {
     double b0, b1, b2, a1, a2, z1, z2;
     double process(double x);
     void   reset();
-};
-struct Biquad biquad_new(double b0, double b1, double b2, double a1, double a2);
-// process() over a block with the state kept in registers; in == out allowed, real-time safe.
-// Runs direct form I with scattered look-ahead (Parhi & Messerschmitt):
-// y[i] = q[i] + (a1^2 - 2 a2) y[i-2] - a2^2 y[i-4], q from the inputs only,
-// so the even and odd outputs are two independent chains, computed together
-// in one 2-lane vector. The added poles mirror the filter's own (same
-// radius), so it stays stable. Matches process() to rounding.
-void biquad_process_block(&Biquad bq, const &double in, &double out, unsigned long n);
+    // process() over a block with the state kept in registers; in == out allowed, real-time safe.
+    // Runs direct form I with scattered look-ahead (Parhi & Messerschmitt):
+    // y[i] = q[i] + (a1^2 - 2 a2) y[i-2] - a2^2 y[i-4], q from the inputs only,
+    // so the even and odd outputs are two independent chains, computed together
+    // in one 2-lane vector. The added poles mirror the filter's own (same
+    // radius), so it stays stable. Matches process() to rounding.
+    void   process_block(const &double in, &double out, unsigned long n);
 
-// Robert Bristow-Johnson's "Audio EQ Cookbook" formulas. fs = sample rate,
-// f0 = cutoff/center frequency, q = Q factor (higher = narrower/more resonant).
-struct Biquad biquad_lowpass(double fs, double f0, double q);
-struct Biquad biquad_highpass(double fs, double f0, double q);
-struct Biquad biquad_bandpass(double fs, double f0, double q);   // constant 0dB peak gain
-struct Biquad biquad_notch(double fs, double f0, double q);
-struct Biquad biquad_allpass(double fs, double f0, double q);
-struct Biquad biquad_peaking(double fs, double f0, double q, double dbGain);
-struct Biquad biquad_lowshelf(double fs, double f0, double s, double dbGain);   // s = shelf slope, 1.0 = default
-struct Biquad biquad_highshelf(double fs, double f0, double s, double dbGain);
+    // Z-domain frequency response at freqHz: magnitude (linear) and phase (radians).
+    double response_mag(double fs, double freqHz) const;
+    double response_phase(double fs, double freqHz) const;
 
-// General analog-to-digital 2nd order section via the bilinear transform:
-// H(s) = (B2 s^2 + B1 s + B0) / (A2 s^2 + A1 s + A0) -> matching digital biquad.
-struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
+    static struct Biquad new(double b0, double b1, double b2, double a1, double a2);
+
+    // Robert Bristow-Johnson's "Audio EQ Cookbook" formulas. fs = sample rate,
+    // f0 = cutoff/center frequency, q = Q factor (higher = narrower/more resonant).
+    static struct Biquad lowpass(double fs, double f0, double q);
+    static struct Biquad highpass(double fs, double f0, double q);
+    static struct Biquad bandpass(double fs, double f0, double q);   // constant 0dB peak gain
+    static struct Biquad notch(double fs, double f0, double q);
+    static struct Biquad allpass(double fs, double f0, double q);
+    static struct Biquad peaking(double fs, double f0, double q, double dbGain);
+    static struct Biquad lowshelf(double fs, double f0, double s, double dbGain);   // s = shelf slope, 1.0 = default
+    static struct Biquad highshelf(double fs, double f0, double s, double dbGain);
+
+    // General analog-to-digital 2nd order section via the bilinear transform:
+    // H(s) = (B2 s^2 + B1 s + B0) / (A2 s^2 + A1 s + A0) -> matching digital biquad.
+    static struct Biquad bilinear(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
-
-// Z-domain frequency response at freqHz: magnitude (linear) and phase (radians).
-double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
+};
 
 struct FBiquad {   // Q8.24 counterpart
     Fixed b0, b1, b2, a1, a2, z1, z2;
     Fixed process(Fixed x);
     void  reset();
+    void  process_block(const &Fixed in, &Fixed out, unsigned long n);
+
+    static struct FBiquad from(struct Biquad bq);   // quantize a designed-in-double biquad once
 };
-struct FBiquad biquad_to_fixed(struct Biquad bq);   // quantize a designed-in-double biquad once
 ```
+
+`Biquad32` (float) has the same methods plus `Biquad32::new` and `Biquad32::from(bq)`; see [Single precision](#single-precision-float).
 
 ### Example {#example-2}
 
@@ -484,16 +496,19 @@ struct FBiquad biquad_to_fixed(struct Biquad bq);   // quantize a designed-in-do
 #include <std/io.h>
 
 int main() {
-    struct Biquad lp = biquad_lowpass(48000.0, 1000.0, 0.707);
+    struct Biquad lp = Biquad::lowpass(48000.0, 1000.0, 0.707);
 
     // Unity DC gain — the standard invariant a lowpass must satisfy.
     print("|H(0)| (expect 1.0): ");
-    println_float(biquad_response_mag(&lp, 48000.0, 0.0));
+    println_float(lp.response_mag(48000.0, 0.0));
 
     double y = 0.0;
     for (int i = 0; i < 200; i++) y = lp.process(1.0);
     print("settled output for constant input 1.0 (expect ~1.0): ");
     println_float(y);
+
+    struct Biquad32 lp32 = Biquad32::from(lp);   // the same design, rounded to float once
+    struct FBiquad  lpq  = FBiquad::from(lp);    // ... or quantized to Q8.24 once
     return 0;
 }
 ```
@@ -594,12 +609,12 @@ void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned
 #include <std/dsp/ztransform.h>
 ```
 
-`biquad.h`'s `bilinear_2nd_order`/`biquad_response_*` generalized to arbitrary order — for designing/analyzing a single higher-order IIR section directly instead of as a cascade of biquads. No polynomial root-finder is included (that needs a separate iterative eigenvalue/Durand-Kerner algorithm); this works directly on coefficient arrays.
+`biquad.h`'s `Biquad::bilinear` / `Biquad::response_mag` / `response_phase` generalized to arbitrary order — for designing/analyzing a single higher-order IIR section directly instead of as a cascade of biquads. No polynomial root-finder is included (that needs a separate iterative eigenvalue/Durand-Kerner algorithm); this works directly on coefficient arrays.
 
 ```c
 // B, A: order+1 analog (s-domain) coefficients, ascending powers of s.
 // bOut, aOut: order+1 digital coefficients in the negative-power-of-z
-// convention (aOut[0] = 1) — feed straight into filter.h's iir_init.
+// convention (aOut[0] = 1) — feed straight into filter.h's IirFilter::new.
 void bilinear_nth_order(const &double B, const &double A, unsigned long order,
                          double fs, &double bOut, &double aOut);
 
@@ -624,17 +639,22 @@ struct CombFF {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+
+    // 'history' is the caller's ring buffer of 'delay' samples, zeroed.
+    static struct CombFF new(&double history, unsigned long delay, double gain);
 };
 struct CombFB {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
+    void   process_block(const &double in, &double out, unsigned long n);
+
+    static struct CombFB new(&double history, unsigned long delay, double gain);
 };
-struct CombFF comb_ff_init(&double history, unsigned long delay, double gain);
-struct CombFB comb_fb_init(&double history, unsigned long delay, double gain);
 ```
 
-`KarplusStrong` is the classic plucked-string/percussion synthesis algorithm (Karplus & Strong, 1983): a feedback comb whose feedback path is a 2-tap averaging lowpass instead of a plain scalar gain — the averaging progressively removes high-frequency energy each time around the loop, producing a string's characteristic brighten-then-decay timbre.
+`KarplusStrong` is the classic plucked-string/percussion synthesis algorithm (Karplus & Strong, 1983): a feedback comb whose feedback path is a 2-tap averaging lowpass instead of a plain scalar gain — the averaging progressively removes high-frequency energy each time around the loop, producing a string's characteristic brighten-then-decay timbre. It takes no input, so it is a [`SampleGenerator`](#sample-filter-traits), not a filter: its methods are `next()` and `pluck()`, not `process()` and `reset()`.
 
 ```c
 struct KarplusStrong {
@@ -642,13 +662,18 @@ struct KarplusStrong {
     unsigned long length; unsigned long pos;
     double damping;         // 0..1, closer to 1 = slower decay (typical 0.99-0.999)
 
-    double process();       // no input — self-sustaining pluck
-    void   reset(const &double excitation, unsigned long n);  // seed with a new pluck
+    double next();          // the next output sample: no input, self-sustaining
+    // Refill the delay line with a new excitation (n samples copied in; size
+    // it to 'length' for a fresh pluck, the rest keeps its old contents).
+    void   pluck(const &double excitation, unsigned long n);
+
+    // 'buffer' is the caller's delay line of 'length' samples; seed it (or
+    // call pluck) before next().
+    static struct KarplusStrong new(&double buffer, unsigned long length, double damping);
 };
-struct KarplusStrong ks_init(&double buffer, unsigned long length, double damping);
 ```
 
-`struct FCombFF`/`FCombFB`/`FKarplusStrong` plus `comb_ff_init_fixed`/`comb_fb_init_fixed`/`ks_init_fixed` are the Q8.24 counterparts.
+`FCombFF`, `FCombFB` and `FKarplusStrong` are the Q8.24 counterparts, and `CombFF32`, `CombFB32` and `KarplusStrong32` the float ones, each built with its own `::new`.
 
 ### Example — plucked string {#example-plucked-string}
 
@@ -659,13 +684,137 @@ struct KarplusStrong ks_init(&double buffer, unsigned long length, double dampin
 int main() {
     double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // noise burst
     double buf[8];
-    struct KarplusStrong ks = ks_init(&buf[0], 8UL, 0.995);
-    ks.reset(&excitation[0], 8UL);
+    struct KarplusStrong ks = KarplusStrong::new(&buf[0], 8UL, 0.995);
+    ks.pluck(&excitation[0], 8UL);
 
     for (int i = 0; i < 16; i++) {
-        double sample = ks.process();
+        double sample = ks.next();
         println_float(sample);   // decaying, self-sustained "pluck"
     }
+
+    double block[32];
+    generate_block(&ks, &block[0], 32UL);   // the next 32 samples: works for any SampleGenerator
+    return 0;
+}
+```
+
+---
+
+## Streaming traits: one interface over every filter {#sample-filter-traits}
+
+```c
+#include <std/dsp/sample_filter.h>   // also included by filter.h, biquad.h and comb.h
+```
+
+The streaming filters above share one shape: `process()` one sample, `process_block()` a buffer (out may alias in), `reset()` the state to silence. `sample_filter.h` names each capability as its own small [trait](/reference/generics#composing-traits) and composes them into the roles generic code asks for. The helpers after the table are written once, ask only for what they use, and are resolved at compile time, so a generic wrapper around a hand-tuned `process_block` costs nothing at run time.
+
+| Trait | Composed of | Satisfied by |
+|---|---|---|
+| `SampleProcessor` | `process(x)`: one sample in, one out | every filter below |
+| `BlockProcessor` | `process_block(in, out, n)` | every filter below |
+| `Resettable` | `reset()`: back to silence | every filter below |
+| `SampleFilter` | `SampleProcessor + BlockProcessor + Resettable` | `double`: `FirFilter`, `IirFilter`, `Biquad`, `CombFF`, `CombFB`; `float`: `FirFilter32`, `IirFilter32`, `Biquad32`, `CombFF32`, `CombFB32`; Q8.24: `FFirFilter`, `FIirFilter`, `FBiquad`, `FCombFF`, `FCombFB`; and [`FilterChain<S, A, B>`](#filter-chain) |
+| `SampleGenerator` | `next()`: one sample out, no input | `KarplusStrong`, `KarplusStrong32`, `FKarplusStrong` |
+
+One set of traits covers all three sample types. A trait is satisfied by method name, so a `float` or `Fixed` filter conforms the same way a `double` one does; the helpers take the sample type `S` as a type parameter of their own, inferred from the buffers.
+
+| Function | Bound | Does |
+|---|---|---|
+| `filter_process_each(&f, in, out, n)` | `SampleProcessor` | `out[i] = f.process(in[i])`: the `process_block` of a filter with no faster block form |
+| `filter_impulse_response(&f, out, n)` | `SampleProcessor + Resettable` | the first `n` samples of the response to 1, 0, 0, ... from a reset state; `f` is left reset. A FIR's impulse response is its taps |
+| `filter_step_response(&f, out, n)` | `SampleProcessor + Resettable` | the same for 1, 1, 1, ... |
+| `generate_block(&g, out, n)` | `SampleGenerator` | `out[i] = g.next()` |
+| `sample_one()` | | `1.0` as a sample of type `S` (`FIXED_ONE` for `Fixed`) |
+
+A filter of your own conforms by having the three methods; it then works with the helpers above, with `FilterChain` and with any `generic<F: SampleFilter>` code:
+
+```c
+#include <std/dsp/filter.h>
+#include <std/io.h>
+
+// One-pole DC blocker: y[n] = x[n] - x[n-1] + r*y[n-1].
+struct DcBlocker {
+    double r; double x1; double y1;
+    double process(double x);
+    void   process_block(const &double in, &double out, unsigned long n);
+    void   reset();
+};
+double DcBlocker::process(double x) {
+    double y = x - self.x1 + self.r * self.y1;
+    self.x1 = x;
+    self.y1 = y;
+    return y;
+}
+void DcBlocker::process_block(const &double in, &double out, unsigned long n) {
+    filter_process_each(self, in, out, n);
+}
+void DcBlocker::reset() { self.x1 = 0.0; self.y1 = 0.0; }
+
+// Any SampleFilter: the output after n samples of a unit step.
+generic<F: SampleFilter>
+double settled(&F f) {
+    double s[256];
+    filter_step_response(f, &s[0], 256UL);
+    return s[255];
+}
+
+int main() {
+    struct DcBlocker dc;
+    dc.r = 0.995;
+    dc.reset();
+
+    double taps[3] = { 0.25, 0.5, 0.25 };
+    double hist[3] = { 0.0, 0.0, 0.0 };
+    struct FirFilter fir = FirFilter::new(&taps[0], 3UL, &hist[0]);
+
+    println_float(settled(&dc));    // ~0.28 and falling: a DC blocker removes DC
+    println_float(settled(&fir));   // 1.0: the sum of the taps
+    return 0;
+}
+```
+
+### FilterChain: filters in series {#filter-chain}
+
+```c
+generic<S, A: SampleFilter, B: SampleFilter>
+struct FilterChain {
+    A first;
+    B second;
+
+    S    process(S x);     // second.process(first.process(x))
+    void reset();          // both stages
+    // Each stage over the whole block with its own process_block (so each keeps
+    // its fast path), with 'out' as the intermediate buffer: no scratch, out may alias in.
+    void process_block(const &S in, &S out, unsigned long n);
+
+    static struct FilterChain<S, A, B> of(A first, B second);
+};
+```
+
+`FilterChain` is a [bounded generic struct](/reference/generics#bounded-generic-structs): `S` is the sample type (`double`, `float` or `Fixed`) and the two stages may be different filter types. It has the three methods, so a chain is itself a `SampleFilter` and chains nest: any number of stages is a chain of chains. `of()` copies the stages into the chain; reach them as `.first` and `.second`. A stage that keeps its history in your buffer (FIR, IIR, comb) still uses that buffer, so don't run the original alongside the chain's copy.
+
+```c
+#include <std/dsp/biquad.h>
+#include <std/dsp/filter.h>
+#include <std/io.h>
+
+int main() {
+    // 80 Hz - 8 kHz band: a 4th-order response from two biquads.
+    struct Biquad hp = Biquad::highpass(48000.0, 80.0, 0.7071);
+    struct Biquad lp = Biquad::lowpass(48000.0, 8000.0, 0.7071);
+    struct FilterChain<double, struct Biquad, struct Biquad> band = FilterChain::of(hp, lp);
+
+    // A chain is a SampleFilter, so it can be a stage of another chain.
+    double taps[3] = { 0.25, 0.5, 0.25 };
+    double hist[3] = { 0.0, 0.0, 0.0 };
+    struct FirFilter smooth = FirFilter::new(&taps[0], 3UL, &hist[0]);
+    struct FilterChain<double, struct FilterChain<double, struct Biquad, struct Biquad>, struct FirFilter> eq =
+        FilterChain::of(band, smooth);
+
+    double buf[256];
+    for (int i = 0; i < 256; i++) buf[i] = (i % 32 < 16) ? 1.0 : -1.0;   // square wave
+    eq.process_block(&buf[0], &buf[0], 256UL);                              // in place
+    println_float(buf[255]);
     return 0;
 }
 ```
@@ -781,9 +930,10 @@ struct AudioBuffer {
     void          clear();
     int           is_empty() const;
     int           is_full() const;
-};
 
-struct AudioBuffer audio_buf_init(unsigned long channels);
+    // An empty, zeroed buffer of 'channels' channels (AUDIO_BUF_FRAMES frames).
+    static struct AudioBuffer new(unsigned long channels);
+};
 ```
 
 ### Example — producer / consumer {#example-producer-consumer}
@@ -795,7 +945,7 @@ struct AudioBuffer audio_buf_init(unsigned long channels);
 static struct AudioBuffer g_ab;
 
 int main() {
-    g_ab = std::audio_buf_init(2UL);          // stereo
+    g_ab = std::AudioBuffer::new(2UL);        // stereo
 
     Fixed frame[2];
     unsafe {
@@ -828,7 +978,7 @@ int main() {
 #include <std/dsp/timer_wheel.h>
 ```
 
-A timer scheduler with up to `WHEEL_TIMERS` (64) concurrent timers. `tick()` advances the clock by one and fires every timer due at the new tick. One wheel is multi-tenant — unrelated subsystems share it with different context types — so each slot stores its callback type-erased; the generic `timer_add`/`timer_add_periodic` entry points take a matching `fn void(?&T)` / `?&T` pair, so the call is always well-typed.
+A timer scheduler with up to `WHEEL_TIMERS` (64) concurrent timers. `tick()` advances the clock by one and fires every timer due at the new tick. One wheel is multi-tenant — unrelated subsystems share it with different context types — so each slot stores its callback type-erased; `add` and `add_periodic` are [methods with their own type parameter](/reference/generics#methods-with-their-own-type-parameters) that take a matching `fn void(?&T)` / `?&T` pair, so the call is always well-typed.
 
 ### API {#api}
 
@@ -840,18 +990,17 @@ struct TimerWheel {
     struct WheelTimer timers[WHEEL_TIMERS];
     unsigned long     current_tick;
 
+    void          init();            // in place: all slots free, tick 0. Call before anything else.
+
+    // One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
+    generic<T> int add(unsigned long tick, fn void(?&T) cb, ?&T ctx);
+    // Every `period` ticks, first at now() + period. Returns the id or 0 if full.
+    generic<T> int add_periodic(unsigned long period, fn void(?&T) cb, ?&T ctx);
+
     void          cancel(int id);    // ignores invalid ids
     int           tick();            // advance one tick; returns how many timers fired
     unsigned long now() const;
 };
-
-void timer_wheel_init(&TimerWheel tw);
-
-// One-shot at absolute tick `tick`. Returns the timer id (1-based) or 0 if full.
-generic<T> int timer_add(&TimerWheel tw, unsigned long tick, fn void(?&T) cb, ?&T ctx);
-
-// Every `period` ticks, first at now() + period. Returns the id or 0 if full.
-generic<T> int timer_add_periodic(&TimerWheel tw, unsigned long period, fn void(?&T) cb, ?&T ctx);
 ```
 
 ### Example {#example-3}
@@ -871,11 +1020,11 @@ static void stop(?&int unused) { g_done = 1; }
 static struct TimerWheel g_tw;   // ~2 KB of slots: keep it off small stacks
 
 int main() {
-    std::timer_wheel_init(&g_tw);
+    g_tw.init();
     struct Led led;
     led.toggles = 0;
-    unsafe { std::timer_add_periodic(&g_tw, 10UL, blink, (?&Led)&led); }  // every 10 ticks
-    std::timer_add(&g_tw, 55UL, stop, null);                               // once, at tick 55
+    unsafe { g_tw.add_periodic(10UL, blink, (?&Led)&led); }  // every 10 ticks
+    g_tw.add(55UL, stop, null);                               // once, at tick 55
     while (!g_done) { g_tw.tick(); }
     std::print("blinks: ");
     std::println_int(led.toggles);   // 5 (ticks 10, 20, 30, 40, 50)

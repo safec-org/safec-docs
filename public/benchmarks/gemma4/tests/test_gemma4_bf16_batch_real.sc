@@ -31,7 +31,7 @@ static void batch_stream_token(void* ctxRaw, unsigned long seqIdx, int tokenId) 
 }
 
 int main() {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
     std::sys_srand(7U);
 
     struct Gemma4Tokenizer tok = std::gemma4_tok_load(

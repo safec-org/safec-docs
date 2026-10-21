@@ -46,6 +46,7 @@ struct Reactor {
     struct Vec sigfds;    // reactor_epoll.sc's signum -> signalfd table
     struct Vec watched;   // reactor_win32.sc's registered (fd, filter) table
 
+    static struct Reactor new();                             // no OS queue yet (kq = -1); call init() next
     int  init();                                             // opens/initializes the backend; 0 ok, -1 fail
     void add(int fd, int filter);                             // registers persistent, level-triggered interest
     void remove(int fd, int filter);
@@ -56,8 +57,6 @@ struct Reactor {
         // several tasks await the same fd).
     void close_();
 }
-
-struct Reactor reactor_init();
 ```
 
 ## `reactor_run` — the scheduler itself {#reactor_run-the-scheduler-itself}
@@ -94,15 +93,15 @@ static int echo_conn(?&Conn c, int resume_point) {
 }
 
 int main() {
-    g_sched = std::task_sched_init();
-    struct Reactor reactor = std::reactor_init();
+    g_sched = std::TaskScheduler::new();
+    struct Reactor reactor = std::Reactor::new();
     reactor.init();
 
     int listenfd = std::tcp_listen_nb(8080);
     reactor.add(listenfd, SCHED_READ);
 
     // ... an accept task spawns echo_conn per connection:
-    //     std::task_spawn(&g_sched, echo_conn, conn_ref);
+    //     g_sched.spawn(echo_conn, conn_ref);
 
     std::reactor_run(&g_sched, &reactor);
     reactor.close_();

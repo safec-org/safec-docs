@@ -1,6 +1,8 @@
 # Security & Cryptography
 
-SafeC provides a security library in `std/crypto/` with symmetric encryption, hashing, random number generation, certificate parsing, and TLS record-layer framing.
+SafeC provides a security library in `std/crypto/` with symmetric encryption, hashing, HMAC, random number generation, certificate parsing, and TLS record-layer framing.
+
+Each algorithm's state is a struct: you get one from a [static constructor](/reference/functions#static-methods) such as `AesCtx::new_128` or `Sha256Ctx::new` and call its methods. The hash contexts share the [`Hasher` / `BlockHash` traits](#hash-traits), so HMAC and one-shot hashing are written once over every hash.
 
 ```c
 #include <std/crypto/crypto.h>  // master header: pulls in all modules
@@ -35,6 +37,10 @@ struct AesCtx {
     int           rounds;             // 10 (AES-128) or 14 (AES-256)
     unsigned char iv[16];             // CBC initialisation vector
 
+    // Constructors (IV zeroed)
+    static struct AesCtx new_128(const &unsigned char key);   // key: 16 bytes
+    static struct AesCtx new_256(const &unsigned char key);   // key: 32 bytes
+
     // ECB — encrypt/decrypt one 16-byte block in-place
     void encrypt_block(&unsigned char block);
     void decrypt_block(&unsigned char block);
@@ -59,10 +65,6 @@ struct AesCtx {
     // Wipe the key schedule and IV (volatile stores) when done.
     void destroy();
 }
-
-// Constructors
-struct AesCtx aes128_init(const &unsigned char key);  // key: 16 bytes
-struct AesCtx aes256_init(const &unsigned char key);  // key: 32 bytes
 ```
 
 ::: info
@@ -86,12 +88,13 @@ int main() {
         while (i < 32) { buf[i] = (unsigned char)text[i]; i = i + 1; }
     }
 
-    struct AesCtx ctx = std::aes128_init(&key[0]);
+    struct AesCtx ctx = std::AesCtx::new_128(&key[0]);
     ctx.set_iv(&iv[0]);
     ctx.cbc_encrypt(&buf[0], 32UL);   // buf is now ciphertext
 
     ctx.set_iv(&iv[0]);               // reset the IV and decrypt back
     ctx.cbc_decrypt(&buf[0], 32UL);   // buf holds the plaintext again
+    ctx.destroy();                    // wipe the key schedule
     unsafe { return buf[0] == (unsigned char)'H' ? 0 : 1; }
 }
 ```
@@ -104,7 +107,7 @@ int main() {
 #include <std/crypto/sha256.h>
 ```
 
-SHA-256 and SHA-224 with streaming (update) and one-shot interfaces.
+SHA-256 and SHA-224 with streaming (update) and one-shot interfaces. `Sha256Ctx` is a [`BlockHash`](#hash-traits).
 
 ```c
 struct Sha256Ctx {
@@ -113,16 +116,18 @@ struct Sha256Ctx {
     unsigned long total_bytes;    // total bytes processed
     int           is224;          // 1 = SHA-224 variant
 
+    static struct Sha256Ctx new();       // SHA-256
+    static struct Sha256Ctx new_224();   // SHA-224
+
     // Feed bytes into the hash (streaming)
     void update(const &unsigned char data, unsigned long len);
 
     // Finalise and write digest: 32 bytes for SHA-256, 28 for SHA-224
     void finish(&unsigned char digest);
-}
 
-// Constructors
-struct Sha256Ctx sha256_init();   // SHA-256
-struct Sha256Ctx sha224_init();   // SHA-224
+    unsigned long digest_size() const;   // 32 or 28
+    unsigned long block_size() const;    // SHA256_BLOCK_SIZE
+}
 
 // One-shot convenience
 void sha256(const &unsigned char data, unsigned long len,
@@ -146,7 +151,7 @@ int main() {
 
     std::sha256(&msg[0], 5UL, &a[0]);              // one-shot
 
-    struct Sha256Ctx ctx = std::sha256_init();     // streaming, two chunks
+    struct Sha256Ctx ctx = std::Sha256Ctx::new();  // streaming, two chunks
     ctx.update(&msg[0], 3UL);
     unsafe { ctx.update(&msg[3], 2UL); }
     ctx.finish(&b[0]);                             // same digest as the one-shot
@@ -165,7 +170,7 @@ int main() {
 #include <std/crypto/sha512.h>
 ```
 
-Same interface as SHA-256, with 64-bit words and a 128-byte block.
+Same interface as SHA-256, with 64-bit words and a 128-byte block. `Sha512Ctx` is a [`BlockHash`](#hash-traits).
 
 ```c
 #define SHA512_DIGEST_SIZE  64   // bytes
@@ -178,12 +183,14 @@ struct Sha512Ctx {
     unsigned long long total_bytes;   // 64-bit count; the high half of the 128-bit length is written as 0
     int                is384;         // 1 = SHA-384
 
+    static struct Sha512Ctx new();       // SHA-512
+    static struct Sha512Ctx new_384();   // SHA-384
+
     void update(const &unsigned char data, unsigned long len);
     void finish(&unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
+    unsigned long digest_size() const;   // 64 or 48
+    unsigned long block_size() const;    // SHA512_BLOCK_SIZE
 };
-
-struct Sha512Ctx sha512_init();
-struct Sha512Ctx sha384_init();
 
 void sha512(const &unsigned char data, unsigned long len, &unsigned char digest);
 void sha384(const &unsigned char data, unsigned long len, &unsigned char digest);
@@ -210,42 +217,158 @@ struct Sha1Ctx {
     unsigned char buf[SHA1_BLOCK_SIZE];
     unsigned long total_bytes;
 
+    static struct Sha1Ctx new();
+
     void update(const &unsigned char data, unsigned long len);
     void finish(&unsigned char digest);   // 20 bytes
+    unsigned long digest_size() const;    // SHA1_DIGEST_SIZE
+    unsigned long block_size() const;     // SHA1_BLOCK_SIZE
 };
 
-struct Sha1Ctx sha1_init();
 void sha1(const &unsigned char data, unsigned long len, &unsigned char digest);
 ```
 
 ---
 
-## HMAC-SHA256 {#hmac-sha256}
+## Hash traits {#hash-traits}
+
+```c
+#include <std/crypto/hash.h>   // crypto.h includes it
+```
+
+Every hash context streams the same way: `update` feeds bytes, `finish` writes the digest. `hash.h` names that shape as two [traits](/reference/generics#composing-traits), so code that works over any hash is written once. Each call is resolved at compile time; there is no dispatch at run time.
+
+| Trait | Requires | Satisfied by |
+|---|---|---|
+| `Hasher` | `update(data, len)`, `finish(digest)` (the context is spent after), `digest_size() const` | `Sha1Ctx`, `Sha256Ctx` (SHA-256 or SHA-224), `Sha512Ctx` (SHA-512 or SHA-384), `Hmac<H>` |
+| `BlockHash` | `Hasher` + `block_size() const`: the compression-function block, which HMAC pads its key to | `Sha1Ctx`, `Sha256Ctx`, `Sha512Ctx` |
+
+| Generic code | Bound | Does |
+|---|---|---|
+| `hash_bytes(h, data, len, &digest)` | `Hasher` | the digest of `len` bytes with a fresh context `h`, taken by value: `hash_bytes(Sha512Ctx::new_384(), msg, n, &d[0])` |
+| [`Hmac<H>`](#hmac-sha256) | `BlockHash` | HMAC over that hash |
+
+A type of your own is a `Hasher` once it has the three methods; nothing else declares it. Below, one generic function prints the digest for two std hashes and for a non-cryptographic FNV-1a checksum. FNV-1a has no `block_size`, so it is a `Hasher` but not a `BlockHash`, and `Hmac<Fnv1a>` is rejected where it is named.
+
+```c
+#include <std/crypto/crypto.h>
+#include <std/str.h>
+#include <std/io.h>
+
+// The digest of a string, in hex, with any Hasher.
+generic<H: Hasher>
+void print_digest(H h, const &char msg) {
+    unsigned char d[64];
+    unsafe { std::hash_bytes(h, (const &unsigned char)msg, std::str_len(msg), &d[0]); }
+    const &char hex = "0123456789abcdef";
+    unsigned long i = 0UL;
+    while (i < h.digest_size()) {
+        unsafe { std::print_char((int)hex[d[i] >> 4]); std::print_char((int)hex[d[i] & 15]); }
+        i = i + 1UL;
+    }
+    std::println("");
+}
+
+// FNV-1a: not a cryptographic hash, but it has the three methods,
+// so it is a Hasher (not a BlockHash: it has no block_size).
+struct Fnv1a {
+    unsigned int h;
+    static struct Fnv1a new();
+    void update(const &unsigned char data, unsigned long len);
+    void finish(&unsigned char digest);
+    unsigned long digest_size() const;
+};
+struct Fnv1a Fnv1a::new() { struct Fnv1a f; f.h = 2166136261U; return f; }
+void Fnv1a::update(const &unsigned char data, unsigned long len) {
+    unsigned long i = 0UL;
+    while (i < len) {
+        unsafe { self.h = (self.h ^ (unsigned int)data[i]) * 16777619U; }
+        i = i + 1UL;
+    }
+}
+void Fnv1a::finish(&unsigned char digest) {
+    unsafe {
+        digest[0] = (unsigned char)(self.h >> 24); digest[1] = (unsigned char)(self.h >> 16);
+        digest[2] = (unsigned char)(self.h >> 8);  digest[3] = (unsigned char)self.h;
+    }
+}
+unsigned long Fnv1a::digest_size() const { return 4UL; }
+
+int main() {
+    print_digest(std::Sha256Ctx::new(), "abc");       // 32 bytes
+    print_digest(std::Sha512Ctx::new_384(), "abc");   // 48 bytes
+    print_digest(Fnv1a::new(), "abc");                 // 4 bytes
+    return 0;
+}
+```
+
+```
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7
+1a47e90b
+```
+
+---
+
+## HMAC {#hmac-sha256}
 
 ```c
 #include <std/crypto/hmac.h>
 ```
 
-HMAC (RFC 2104) over SHA-256. Used by [JWT](/stdlib/http#jwt) signing.
+HMAC (RFC 2104) written once over any [`BlockHash`](#hash-traits): HMAC-SHA1, -SHA224, -SHA256, -SHA384 and -SHA512 are the same code with a different hash context. [JWT](/stdlib/http#jwt) signing uses HMAC-SHA256.
 
 ```c
 #define HMAC_SHA256_SIZE 32   // bytes
 
-// Writes the 32-byte MAC of data[0..dataLen) under key[0..keyLen) to out.
+generic<H: BlockHash>
+struct Hmac {
+    H inner;   // H((key ^ ipad) || message)
+    H outer;   // H((key ^ opad) || inner digest), fed by finish()
+
+    // Keyed by key[0..keyLen) over `fresh`, a new context of the hash to use
+    // (Sha256Ctx::new(), Sha512Ctx::new_384(), ...). A key longer than the
+    // hash's block is hashed first (RFC 2104).
+    static struct Hmac<H> new(H fresh, const &unsigned char key, unsigned long keyLen);
+    void          update(const &unsigned char data, unsigned long len);
+    void          finish(&unsigned char mac);   // digest_size() bytes; spent after
+    unsigned long digest_size() const;          // the hash's digest size
+};
+
+// One-shot HMAC-SHA256: the 32-byte MAC of data[0..dataLen) under key[0..keyLen).
 void hmac_sha256(const &unsigned char key, unsigned long keyLen,
                  const &unsigned char data, unsigned long dataLen,
                  &unsigned char out);
 ```
 
+`Hmac<H>` streams like a hash and is a `Hasher` itself, so `hash_bytes` and any `generic<H: Hasher>` code take it. The type argument is inferred from the target, as in `struct Hmac<Sha256Ctx> mac = Hmac::new(Sha256Ctx::new(), ...)`. The implementation is checked against the RFC 2202 and RFC 4231 test vectors for every std hash.
+
 ```c
 #include <std/crypto/hmac.h>
+#include <std/crypto/sha256.h>
+#include <std/crypto/sha512.h>
 
 int main() {
-    unsigned char key[3]  = { 'k', 'e', 'y' };
-    unsigned char msg[5]  = { 'h', 'e', 'l', 'l', 'o' };
-    unsigned char mac[HMAC_SHA256_SIZE];
-    std::hmac_sha256(&key[0], 3UL, &msg[0], 5UL, &mac[0]);
-    return 0;
+    unsigned char key[3] = { 'k', 'e', 'y' };
+    unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
+
+    unsigned char a[HMAC_SHA256_SIZE];
+    std::hmac_sha256(&key[0], 3UL, &msg[0], 5UL, &a[0]);          // one-shot
+
+    struct Hmac<Sha256Ctx> mac = std::Hmac::new(std::Sha256Ctx::new(), &key[0], 3UL);
+    mac.update(&msg[0], 2UL);                                       // streaming
+    unsafe { mac.update(&msg[2], 3UL); }
+    unsigned char b[HMAC_SHA256_SIZE];
+    mac.finish(&b[0]);                                              // same as a
+
+    unsigned char tag[SHA512_DIGEST_SIZE];                          // HMAC-SHA512
+    struct Hmac<Sha512Ctx> mac512 = std::Hmac::new(std::Sha512Ctx::new(), &key[0], 3UL);
+    mac512.update(&msg[0], 5UL);
+    mac512.finish(&tag[0]);
+
+    int same = 1;
+    unsafe { int i = 0; while (i < 32) { if (a[i] != b[i]) same = 0; i = i + 1; } }
+    return same ? 0 : 1;
 }
 ```
 
@@ -261,19 +384,19 @@ A cryptographically secure pseudo-random number generator based on ChaCha20. Out
 
 ```c
 struct RngCtx {
+    // Seed in place from rdrand (x86-64) or /dev/urandom. Returns 1; aborts
+    // with a diagnostic if neither exists (e.g. bare metal): use init_seed
+    // with your own entropy source there.
+    int           init();
+
+    // Deterministic seed in place (tests, reproducible simulations).
+    void          init_seed(const unsigned char seed[32]);
+
     void          fill(&unsigned char out, unsigned long len);   // len random bytes
     unsigned int  rand32();
     unsigned long long rand64();
     unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
 };
-
-// Seed from rdrand (x86-64) or /dev/urandom. Returns 1; aborts with a
-// diagnostic if neither exists (e.g. bare metal) — use rng_init_seed with
-// your own entropy source there.
-int  rng_init(&RngCtx ctx);
-
-// Deterministic seed (tests, reproducible simulations).
-void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 ```
 
 ### Example {#example-2}
@@ -284,7 +407,7 @@ void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 
 int main() {
     struct RngCtx rng;
-    std::rng_init(&rng);   // aborts if there is no entropy source
+    rng.init();   // aborts if there is no entropy source
 
     std::print("dice: ");
     std::println_int((long long)rng.rand_range(6UL) + 1LL);
@@ -311,13 +434,38 @@ Fixed-size slots also mean no size metadata can leak.
 struct SecureAllocator {
     struct SlabAllocator slab;
 
-    &heap void    alloc();               // one slot; null when full
+    // count slots of obj_size bytes each (heap-backed, SlabAllocator::new)
+    static struct SecureAllocator new(unsigned long obj_size, unsigned long count);
+
+    // One slot for size bytes aligned to align; null when every slot is in
+    // use, size > obj_size, or align is above slab.max_align() (at most 8).
+    ?&heap void   alloc(unsigned long size, unsigned long align);
     void          dealloc(?&heap void ptr);  // zeroes the slot, then frees it; null is a no-op
     unsigned long available() const;
-    void          destroy();             // zeroes everything, frees the backing buffer
+    void          destroy();             // zeroes every slot, frees the backing buffer
 };
+```
 
-struct SecureAllocator secure_alloc_new(unsigned long obj_size, unsigned long count);
+`SecureAllocator` is an [`Allocator`](/stdlib/allocators#allocator-traits), so the typed `alloc_t` / `dealloc_t` work over it (and `dealloc_t` zeroes the slot too), as does any `generic<A: Allocator>` code:
+
+```c
+#include <std/crypto/secure_alloc.h>
+
+struct Key { unsigned char bytes[32]; };
+
+int main() {
+    struct SecureAllocator sa = std::SecureAllocator::new(sizeof(struct Key), 4UL);
+    ?&heap Key k = std::alloc_t(&sa);   // null when full
+    match (k) {
+        case some(x): {
+            x.bytes[0] = (unsigned char)7;
+            std::dealloc_t(&sa, x);      // zeroed, then back on the free list
+        }
+        case null: { }
+    }
+    sa.destroy();                        // zeroes every slot, frees the buffer
+    return 0;
+}
 ```
 
 ---
@@ -366,22 +514,20 @@ struct X509Cert {
     int is_valid_at(unsigned long long unix_time) const;
     int matches_hostname(const &char host) const;  // DNS SANs (CN only without SANs); wildcard *.domain
     int is_ca_cert() const;
+
+    // Parse a DER-encoded certificate into this struct (zeroed first).
+    // Returns 0 on success, negative on error.
+    int init(const &unsigned char der, unsigned long len);
+
+    // 1 if issuer_cert's subject matches this certificate's issuer name.
+    // Structural check only: does NOT verify the signature.
+    int verify_chain(const &X509Cert issuer_cert) const;
 }
 ```
 
-### API {#api-1}
+### Parsing and chain checks {#api-1}
 
-```c
-// Parse a DER-encoded certificate.
-// Returns 0 on success, negative on error.
-int x509_parse_der(const &unsigned char der, unsigned long len,
-                   &X509Cert out);
-
-// Structural issuer/subject name match only.
-// Does NOT verify cryptographic signature.
-int x509_verify_chain(const &X509Cert cert,
-                      const &X509Cert ca);
-```
+A certificate is parsed in place: declare a `struct X509Cert` and call `cert.init(der, len)`. `cert.verify_chain(&ca)` only compares names; cryptographic signature verification needs RSA/ECDSA, which std doesn't have yet.
 
 ### Example {#example-3}
 
@@ -393,19 +539,19 @@ void check_cert(const &unsigned char der, unsigned long len,
                 unsigned long long now) {
     struct X509Cert cert;
 
-    if (x509_parse_der(der, len, &cert) != 0) {
-        println("parse error");
+    if (cert.init(der, len) != 0) {
+        std::println("parse error");
         return;
     }
     if (!cert.is_valid_at(now)) {
-        println("certificate expired");
+        std::println("certificate expired");
         return;
     }
     if (cert.matches_hostname("api.example.com")) {
-        println("hostname: OK");
+        std::println("hostname: OK");
     }
     if (cert.is_ca_cert()) {
-        println("is CA certificate");
+        std::println("is CA certificate");
     }
 }
 ```
@@ -467,6 +613,9 @@ struct TlsSession {
     int                handshake_done;
     struct TlsTranscript transcript;
 
+    // A fresh session: zero keys, seq = 0, handshake_done = 0.
+    static struct TlsSession new();
+
     // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
     // after install_keys: TLSInnerPlaintext (payload || content type) sealed
     // with AES-256-GCM, outer type application_data, 16-byte tag. Returns
@@ -495,8 +644,6 @@ struct TlsSession {
                       const unsigned char read_iv[TLS_IV_LEN]);
     int  is_established() const;
 };
-
-struct TlsSession tls_session_init();
 ```
 
 ### Nonce derivation {#nonce-derivation}
@@ -519,7 +666,7 @@ void TlsSession::compute_nonce(unsigned char nonce[TLS_IV_LEN], int is_write) co
 #include <std/crypto/tls.h>
 
 int main() {
-    struct TlsSession session = std::tls_session_init();
+    struct TlsSession session = std::TlsSession::new();
     // ... after the handshake: session.install_keys(wk, wi, rk, ri);
 
     const &char msg = "GET / HTTP/1.1\r\n";

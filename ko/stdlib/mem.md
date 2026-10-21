@@ -142,7 +142,7 @@ unsigned long checked_add_size(unsigned long a, unsigned long b);
 - 캐시에 들어가지 못하는 더 큰 블록은 위에서 설명한 격리(quarantine)를 거쳐 `malloc`으로 돌아갑니다.
 - 프리스탠딩 타깃에는 캐시가 없습니다(스레드 로컬 저장소와 테이블 메모리가 필요하기 때문). 모든 요청은 런타임의 `malloc`으로 갑니다.
 
-각 블록에는 여전히 16바이트 헤더가 붙으며, 이는 아주 작은 객체에서 가장 큰 영향을 줍니다: 24바이트 노드는 40바이트 요청을 차지합니다. 그래서 노드 기반 컨테이너는 노드마다 할당하지 않습니다 — `List`와 `BST`는 컨테이너별 [`NodePool`](/ko/stdlib/collections#node-pool)(프리 리스트를 갖춘 청크 단위 범프 할당)에서 노드를 가져오며, 이는 노드마다 C의 `malloc`/`free`를 쓰는 것보다 약 2배 빠릅니다([벤치마크](/ko/benchmarks#collections) 참고). 직접 만든 고정 크기 객체에는 `std/alloc/slab.h`의 `slab_alloc_t<T>`와 아레나 리전(`new<R> T`)이 같은 효과를 줍니다.
+각 블록에는 여전히 16바이트 헤더가 붙으며, 이는 아주 작은 객체에서 가장 큰 영향을 줍니다: 24바이트 노드는 40바이트 요청을 차지합니다. 그래서 노드 기반 컨테이너는 노드마다 할당하지 않습니다 — `List`와 `BST`는 컨테이너별 [`NodePool`](/ko/stdlib/collections#node-pool)(프리 리스트를 갖춘 청크 단위 범프 할당)에서 노드를 가져오며, 이는 노드마다 C의 `malloc`/`free`를 쓰는 것보다 약 2배 빠릅니다([벤치마크](/ko/benchmarks#collections) 참고). 직접 만든 고정 크기 객체에는 `std/alloc/slab.h`의 `SlabAllocator`와 [`alloc_t`](/ko/stdlib/allocators#typed), 그리고 아레나 리전(`new<R> T`)이 같은 효과를 줍니다.
 
 ## 메모리 연산 {#memory-operations}
 
@@ -215,7 +215,7 @@ int main() {
         case null:     { return 1; }               // out of memory
         case some(buf): {
             std::safe_memset(buf, 0, 10UL * sizeof(int));
-            struct Slice<int> s = std::slice_of(buf, 10UL);   // bounds-checked view
+            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view
             s.set(0UL, 42);
             s.set(1UL, 99);
 
@@ -224,7 +224,7 @@ int main() {
             match (copy) {
                 case some(c): {
                     std::safe_memcpy(c, buf, 10UL * sizeof(int));
-                    std::println_int(*std::slice_of(c, 10UL).at(0UL));   // 42
+                    std::println_int(*std::Slice::of(c, 10UL).at(0UL));   // 42
                 }
                 case null: { }
             }

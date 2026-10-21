@@ -110,7 +110,7 @@ void gemma4_bf16_model_free(&Gemma4Bf16Model model);
 // being cheap, once-per-call operations with no real
 // throughput benefit (see gemma4_bf16.h's header comment on this same
 // tradeoff elsewhere).
-&Tensor gemma4_bf16_model_forward(&Gemma4Bf16Model model, const int* tokenIds, unsigned long count, struct Gemma4Bf16KvCache* cache);
+&FloatTensor gemma4_bf16_model_forward(&Gemma4Bf16Model model, const int* tokenIds, unsigned long count, struct Gemma4Bf16KvCache* cache);
 
 // Batched single-token decode step: 'tokenIds' holds exactly one NEW
 // token id per sequence (tokenIds[b] is the token for caches[b]), and
@@ -133,6 +133,6 @@ void gemma4_bf16_model_free(&Gemma4Bf16Model model);
 // to lose out on by not merging it), just one Vec-indexed loop instead
 // of a single call. Returns [batchSize, vocabSize] F32 logits (row b for
 // sequence b); increments every caches[b]->cachedLen by 1 on return.
-&Tensor gemma4_bf16_model_forward_batch(&Gemma4Bf16Model model, const int* tokenIds, unsigned long batchSize, struct Gemma4Bf16KvCache** caches);
+&FloatTensor gemma4_bf16_model_forward_batch(&Gemma4Bf16Model model, const int* tokenIds, unsigned long batchSize, struct Gemma4Bf16KvCache** caches);
 
 } // namespace std

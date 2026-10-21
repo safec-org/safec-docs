@@ -27,6 +27,12 @@ alongside `fs.h`, the same way the examples below do.
 └────────────────────────────────┘
 ```
 
+Each layer talks to the one below through a small [trait](/reference/generics#composing-traits):
+a filesystem driver is anything with the [`FsRead`/`FsWrite`](#fs-traits)
+methods, and a block driver anything with the [`BlockDriver`](#block-driver)
+methods. Neither writes a function table: `Vfs::mount` and
+`BlockDevice::new` build one from the driver's methods at compile time.
+
 ---
 
 ## BlockDevice {#blockdevice}
@@ -35,46 +41,65 @@ alongside `fs.h`, the same way the examples below do.
 #include <std/fs/block.h>
 ```
 
-Driver interface for any block storage (SD card, flash, RAM disk, …). Build one with `block_device_new`, which takes your driver context and two callbacks typed against it; the device stores them type-erased (one VFS can mount devices from different drivers), and `block_device_new` is the only way they get set, so the pairing is checked at compile time.
+Device interface for any block storage (SD card, flash, RAM disk, …). Build one with `BlockDevice::new` from a [`BlockDriver`](#block-driver): the device stores the driver's methods type-erased (one VFS can mount devices from different drivers), and `BlockDevice::new` is the only way they get set, so the pairing is checked at compile time.
 
 ```c
 struct BlockDevice {
     unsigned long  sector_count;
     unsigned long  sector_size;   // typically 512
 
+    // A device whose read()/write() call drv.read(...)/drv.write(...).
+    // drv must outlive it.
+    generic<T: BlockDriver>
+    static struct BlockDevice new(&T drv, unsigned long sector_count, unsigned long sector_size);
+
     int  read(unsigned long lba, &unsigned char buf, unsigned long count);         // 0 on success
     int  write(unsigned long lba, const &unsigned char buf, unsigned long count);
     int  valid() const;
-};
-
-generic<T>
-struct BlockDevice block_device_new(&T ctx, unsigned long sector_count, unsigned long sector_size,
-                                    fn int(&T, unsigned long, &unsigned char, unsigned long) read,
-                                    fn int(&T, unsigned long, const &unsigned char, unsigned long) write);
+}
 ```
+
+`BLOCK_SIZE` is 512 bytes per sector.
+
+### BlockDriver {#block-driver}
+
+| Trait | Requires | Satisfied by |
+|---|---|---|
+| `BlockDriver` | `read(lba, buf, count)` and `write(lba, buf, count)`: sectors of the device's `sector_size`, 0 on success | `BlockDevice` itself, and your driver |
+
+`BlockDevice::new` is a [method with its own type parameter](/reference/generics#methods-with-their-own-type-parameters)
+bounded by `BlockDriver`; `FatCtx::init`, `Ext2Ctx::init` and
+`PartTable::read` take the resulting `BlockDevice`. A driver conforms by
+having the two methods — there is nothing to declare. A RAM disk:
 
 ```c
 #include <std/fs/block.h>
 #include <std/mem.h>
 
-struct RamDisk { unsigned char bytes[64 * 512]; };
+// A BlockDriver: any type with these two methods.
+struct RamDisk {
+    unsigned char bytes[64 * 512];
 
-static int ram_read(&RamDisk d, unsigned long lba, &unsigned char buf, unsigned long count) {
+    int read(unsigned long lba, &unsigned char buf, unsigned long count);
+    int write(unsigned long lba, const &unsigned char buf, unsigned long count);
+};
+
+int RamDisk::read(unsigned long lba, &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    std::safe_memcpy(buf, &d.bytes[lba * 512UL], count * 512UL);
+    std::safe_memcpy(buf, &self.bytes[lba * 512UL], count * 512UL);
     return 0;
 }
 
-static int ram_write(&RamDisk d, unsigned long lba, const &unsigned char buf, unsigned long count) {
+int RamDisk::write(unsigned long lba, const &unsigned char buf, unsigned long count) {
     if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    std::safe_memcpy(&d.bytes[lba * 512UL], buf, count * 512UL);
+    std::safe_memcpy(&self.bytes[lba * 512UL], buf, count * 512UL);
     return 0;
 }
 
 static struct RamDisk g_disk;
 
 int main() {
-    struct BlockDevice dev = std::block_device_new(&g_disk, 64UL, 512UL, ram_read, ram_write);
+    struct BlockDevice dev = std::BlockDevice::new(&g_disk, 64UL, 512UL);
     unsigned char sector[512];
     unsafe { sector[0] = 0x55; }
     dev.write(3UL, &sector[0], 1UL);
@@ -84,9 +109,11 @@ int main() {
 }
 ```
 
----
+A type missing either method is rejected at the `BlockDevice::new` call.
+Network interfaces follow the same pattern with
+[`NetDriver` and `NetIf::new`](/stdlib/net#net-driver).
 
-`BLOCK_SIZE` is 512 bytes per sector.
+---
 
 ## Partition Table (MBR) {#partition-table-mbr}
 
@@ -112,10 +139,11 @@ struct PartTable {
     // check entry.type != PART_TYPE_EMPTY too, for a valid index that just
     // has no partition recorded there.
     const ?&PartEntry get(int idx) const;
-}
 
-// Read MBR at LBA 0; validates 0x55/0xAA boot signature
-int partition_read(&BlockDevice dev, &PartTable table_out);
+    // Read the MBR at LBA 0 of `dev` into this table; validates the
+    // 0x55/0xAA boot signature. 0 on success, -1 on error.
+    int read(&BlockDevice dev);
+}
 ```
 
 `get()` returns a nullable reference — unwrap it with `match` (or `.is_null()`/`.default()`) rather than chaining straight into a field:
@@ -138,16 +166,145 @@ Constants: `PART_MAX` (4 primary entries); partition types `PART_TYPE_EMPTY` (0x
 #include <std/fs/vfs.h>
 ```
 
-The VFS layer routes paths to registered filesystem drivers using longest-prefix matching (e.g. `/mnt/sd/foo` routes to `/mnt/sd` if both `/mnt/sd` and `/mnt` are mounted).
+The VFS layer routes paths to mounted filesystem drivers using longest-prefix matching (e.g. `/mnt/sd/foo` routes to `/mnt/sd` if both `/mnt/sd` and `/mnt` are mounted). Paths a driver sees are relative to its mountpoint (`/` for the mount's root).
+
+### Filesystem traits {#fs-traits}
+
+A filesystem driver is a context struct with methods. `vfs.h` names them as
+two single-capability [traits](/reference/generics#composing-traits) and
+composes them into the role a writable mount needs:
+
+| Trait | Requires | Satisfied by |
+|---|---|---|
+| `FsRead` | `open(path, flags, &node_out)`: look up `path` (with `VFS_O_CREATE`, create a missing file) and fill the node's name, type, size and inode, 0 on success; `read(inode, offset, buf, len)`: bytes read; `readdir(inode, cb, user)`: `cb(entry, user)` per child, the entry count or −1 | `FatCtx`, `Ext2Ctx`, `TmpfsCtx` |
+| `FsWrite` | `write(inode, offset, buf, len)`: bytes written; `unlink(path)`, `mkdir(path)`: 0 on success | `TmpfsCtx` |
+| `FileSystem` | `FsRead + FsWrite` | `TmpfsCtx` |
+
+They bound the two mount methods on `Vfs` ([methods with their own type
+parameters](/reference/generics#methods-with-their-own-type-parameters)):
+
+```c
+generic<F: FileSystem> int Vfs::mount(const &char mountpoint, &F fs);     // read-write
+generic<F: FsRead>     int Vfs::mount_ro(const &char mountpoint, &F fs);  // read-only
+```
+
+Each builds the mount's [`VfsOps`](#vfsops-driver-interface) table from
+`F`'s methods at compile time — one thunk per method, instantiated for the
+driver's type — so a driver writes no table of its own. A read-only mount
+leaves the write entries empty: `write`, `unlink` and `mkdir` through it
+fail. Mounting a read-only driver with `mount` is a compile error where it
+is named (`type 'FatCtx' does not satisfy constraint 'FileSystem' ... (no
+method 'write', from 'FsWrite')`).
+
+Generic code over a driver is bounded by the smallest trait it uses: a
+function over `FsRead` runs on FAT32, ext2 and tmpfs alike. A driver of
+your own conforms by having the methods. This one serves a single
+read-only file, mounts next to tmpfs, and is listed through the VFS:
+
+```c
+#include <std/fs/vfs.h>
+#include <std/fs/tmpfs.h>
+#include <std/str.h>
+
+// A one-file read-only filesystem: "/" holds "version" (inode 1).
+// Having open, read and readdir makes it an FsRead.
+struct VersionFs {
+    int unused_;
+
+    int           open(const &char path, int flags, &VfsNode node_out);
+    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
+};
+
+static void fill_file_(&VfsNode n) {
+    n.name[0] = 'v'; n.name[1] = '\0';
+    n.type = VFS_TYPE_FILE;
+    n.size = 6UL;
+    n.inode = 1UL;
+}
+
+int VersionFs::open(const &char path, int flags, &VfsNode node_out) {
+    if ((flags & (VFS_O_WRITE | VFS_O_CREATE)) != 0) return -1;
+    if (std::str_eq(path, "/")) {
+        node_out.name[0] = '\0';
+        node_out.type = VFS_TYPE_DIR;
+        node_out.size = 0UL;
+        node_out.inode = 0UL;
+        return 0;
+    }
+    if (std::str_eq(path, "/version")) { fill_file_(node_out); return 0; }
+    return -1;
+}
+
+unsigned long VersionFs::read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len) {
+    if (inode != 1UL || offset >= 6UL) return 0UL;
+    unsigned long n = 6UL - offset;
+    if (n > len) n = len;
+    const &char text = "1.4.2\n";
+    unsigned long i = 0UL;
+    while (i < n) {
+        unsafe { buf[i] = (unsigned char)text[offset + i]; }
+        i = i + 1UL;
+    }
+    return n;
+}
+
+int VersionFs::readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user) {
+    if (inode != 0UL) return -1;
+    struct VfsNode e;
+    fill_file_(&e);
+    cb(&e, user);
+    return 1;
+}
+
+// Generic over any FsRead: the size of a file, straight on the driver.
+generic<F: FsRead>
+long long file_size(&F fs, const &char path) {
+    struct VfsNode n;
+    if (fs.open(path, VFS_O_READ, &n) != 0) return -1LL;
+    return (long long)n.size;
+}
+
+static void count_entry(&VfsNode n, &int seen) { *seen = *seen + 1; }
+
+static struct VersionFs g_ver;
+static struct TmpfsCtx  g_tmp;
+
+int main() {
+    std::vfs_init();
+    g_tmp.init();
+    std::vfs_root.mount("/tmp", &g_tmp);       // TmpfsCtx: a FileSystem
+    std::vfs_root.mount_ro("/etc", &g_ver);    // VersionFs: FsRead only
+
+    if (file_size(&g_ver, "/version") != 6LL) return 1;
+    if (file_size(&g_tmp, "/") != 0LL) return 2;   // the same function over tmpfs
+
+    struct VfsNode f;
+    if (std::vfs_root.open("/etc/version", VFS_O_READ, &f) != 0) return 3;
+    unsigned char buf[8];
+    if (f.read(0UL, buf, 8UL) != 6UL) return 4;
+    if (std::vfs_root.mkdir("/etc/x") == 0) return 5;   // read-only mount refuses
+
+    struct VfsNode dir;
+    std::vfs_root.open("/etc", VFS_O_READ, &dir);
+    int seen = 0;
+    dir.readdir(count_entry, &seen);
+    return seen == 1 ? 0 : 6;
+}
+```
+
+A driver need not set `VfsNode.fs_ctx`: the VFS fills it in, on opened
+nodes and on the entries it hands to a `readdir` callback alike, so an
+entry can be `read()` straight from the callback.
+`tests/stdlib/tests/test_fs.sc` runs one generic `FsRead` check over
+`TmpfsCtx`, `FatCtx` and `Ext2Ctx`.
 
 ### VfsOps — driver interface {#vfsops-driver-interface}
 
-The table a filesystem driver fills in (`tmpfs_ops()`, `fat_ops()`, `ext2_ops()` return ready-made ones). It is driver-internal: `ctx` is that driver's own context, stored type-erased because one `Vfs` mounts drivers with different context types. Application code never calls these directly — it goes through `vfs_mount`, `Vfs::open` and the `VfsNode` methods.
+The type-erased table a mount calls through. `Vfs::mount` / `mount_ro` build it from the driver's methods ([above](#fs-traits)); `ctx` is the driver's own context, stored type-erased because one `Vfs` mounts drivers with different context types. A null entry (a read-only mount's `write`/`unlink`/`mkdir`) makes that call fail. Application code never calls these directly — it goes through `Vfs::open` and the `VfsNode` methods.
 
 ```c
 struct VfsOps {
-    fn int(?&void ctx, unsigned long size) mount;
-    fn int(?&void ctx) unmount;
     fn int(?&void ctx, const &char path, int flags, &VfsNode node_out) open;
     fn int(?&void ctx, const &char path) unlink;
     fn int(?&void ctx, const &char path) mkdir;
@@ -172,26 +329,28 @@ struct VfsNode {
 
     unsigned long read(unsigned long offset, &unsigned char buf, unsigned long len);
     unsigned long write(unsigned long offset, const &unsigned char buf, unsigned long len);
-}
 
-// Calls cb(entry, user) for each child of directory `dir`; returns the count, -1 on error.
-generic<T> int vfs_readdir(&VfsNode dir, fn void(&VfsNode, &T) cb, &T user);
+    // Calls cb(entry, user) for each child of this directory; returns the
+    // count, -1 on error. T is the type of your user data.
+    generic<T> int readdir(fn void(&VfsNode, &T) cb, &T user);
+}
 ```
 
 ### Vfs global {#vfs-global}
 
-Mount with `vfs_mount`, passing the driver's context as a typed reference; open/unlink/mkdir are methods on the global `vfs_root`:
+Mount a driver with `mount` (a [`FileSystem`](#fs-traits)) or `mount_ro` (any [`FsRead`](#fs-traits)), passing its context by reference; open/unlink/mkdir go through the same global `vfs_root`:
 
 ```c
 extern struct Vfs vfs_root;  // global VFS instance
 void vfs_init();             // zero it out; call once before any mount
 
-// ctx is the context the driver's ops expect (TmpfsCtx, FatCtx, Ext2Ctx, ...)
-generic<T> int vfs_mount(&Vfs v, const &char mountpoint, struct VfsOps ops, &T ctx);
-
 struct Vfs {
+    // 0 on success, -1 if every mount slot is taken. fs must outlive the mount.
+    generic<F: FileSystem> int mount(const &char mountpoint, &F fs);
+    generic<F: FsRead>     int mount_ro(const &char mountpoint, &F fs);
+
     int  unmount(const &char mountpoint);
-    int  open(const &char path, int flags, &VfsNode node_out);
+    int  open(const &char path, int flags, &VfsNode node_out);   // 0 on success
     int  unlink(const &char path);
     int  mkdir(const &char path);
 }
@@ -227,25 +386,28 @@ struct FatCtx {
     unsigned long  root_cluster;       // cluster of root directory
     unsigned long  bytes_per_cluster;
 
+    // Initialise this context in place from a block device partition
+    // starting at `lba` (the device is copied into `dev`). 0 on success.
+    int init(&BlockDevice dev, unsigned long lba);
+
     // Read a cluster into `buf` (must be >= bytes_per_cluster bytes).
     int read_cluster(unsigned long cluster, &unsigned char buf);
 
     // Follow the FAT chain to the cluster at position `idx` from `start_cluster`.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
+
+    // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
+    int           open(const &char path, int flags, &VfsNode node_out);
+    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
 }
-
-// Initialise FAT32 context from a block device partition starting at `lba`.
-int fat_init(&FatCtx ctx, &BlockDevice dev, unsigned long lba);
-
-// VfsOps for the FAT32 driver — 'ctx' passed to Vfs::mount must be a FatCtx*.
-struct VfsOps fat_ops();
 ```
 
-`fat_ops()` provides: **open** (8.3 path walk from root cluster), **read** (cluster chain traversal), **readdir**. Write and unlink return `-1` (read-only). Compile-verified only — mounting and reading a real FAT32 volume needs an actual formatted disk image, not available in this environment.
+`FatCtx` is an [`FsRead`](#fs-traits): **open** (8.3 path walk from the root cluster; names match case-insensitively), **read** (cluster chain traversal), **readdir**. It has no write methods, so it mounts with `mount_ro`. `tests/stdlib/tests/test_fs.sc` reads a FAT32 image built by `mkfs.vfat` (skipped when the tool is missing).
 
 ---
 
-Limits: directory walks go at most `FAT_MAX_DEPTH` (8) levels deep, and `fat_init` rejects clusters larger than `FAT_MAX_CLUSTER` (4096 bytes).
+Limits: directory walks go at most `FAT_MAX_DEPTH` (8) levels deep, and `FatCtx::init` rejects clusters larger than `FAT_MAX_CLUSTER` (4096 bytes).
 
 ## ext2 Driver {#ext2-driver}
 
@@ -289,6 +451,11 @@ struct Ext2Ctx {
     unsigned long      blocks_per_group;
     unsigned long      group_count;
 
+    // Initialise this context in place from a block device (copied into
+    // `dev`): reads the superblock at byte offset 1024 from the device's
+    // LBA 0 and validates EXT2_SUPER_MAGIC. 0 on success.
+    int  init(&BlockDevice dev);
+
     // Read block `block_no` into `buf` (must be >= block_size bytes).
     int  read_block(unsigned long block_no, &unsigned char buf);
 
@@ -298,21 +465,19 @@ struct Ext2Ctx {
     // Read file data for inode `ino` at byte `offset` into `buf` for `len` bytes.
     unsigned long read_file(unsigned long ino, unsigned long offset,
                              &unsigned char buf, unsigned long len);
+
+    // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
+    int           open(const &char path, int flags, &VfsNode node_out);
+    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
 }
-
-// Initialise ext2 context from a block device (reads the superblock at
-// byte offset 1024 from the device's LBA 0; validates EXT2_SUPER_MAGIC).
-int ext2_init(&Ext2Ctx ctx, &BlockDevice dev);
-
-// VfsOps for the ext2 driver — 'ctx' passed to Vfs::mount must be an Ext2Ctx*.
-struct VfsOps ext2_ops();
 ```
 
-`ext2_ops()` provides: **open** (path tokenisation, walks from root inode 2), **read** (direct blocks only — files > 48 KB with 4 KiB blocks need indirect-block support this driver doesn't have), **readdir**. Read-only. Compile-verified only — same real-disk-image caveat as FAT32 above.
+`Ext2Ctx` is an [`FsRead`](#fs-traits): **open** (path tokenisation, walks from root inode 2), **read** (direct blocks only — files > 48 KB with 4 KiB blocks need indirect-block support this driver doesn't have), **readdir**. Read-only, so it mounts with `mount_ro`. `test_fs.sc` reads an ext2 image built by `mke2fs -d` (skipped when the tool is missing).
 
 ---
 
-Constants: `EXT2_SUPER_MAGIC` (0xEF53), `EXT2_ROOT_INODE` (2), `EXT2_BLOCK_SIZE_BASE` (1024); `ext2_init` rejects blocks larger than `EXT2_MAX_BLOCK_SIZE` (4096). Inode mode bits `EXT2_S_IFREG` (0x8000) and `EXT2_S_IFDIR` (0x4000) tell files from directories.
+Constants: `EXT2_SUPER_MAGIC` (0xEF53), `EXT2_ROOT_INODE` (2), `EXT2_BLOCK_SIZE_BASE` (1024); `Ext2Ctx::init` rejects blocks larger than `EXT2_MAX_BLOCK_SIZE` (4096). Inode mode bits `EXT2_S_IFREG` (0x8000) and `EXT2_S_IFDIR` (0x4000) tell files from directories.
 
 ## tmpfs — In-Memory Filesystem {#tmpfs-in-memory-filesystem}
 
@@ -337,16 +502,21 @@ struct TmpfsCtx {
     unsigned char  data[65536];     // TMPFS_MAX_DATA
     unsigned long  data_used;
     int            inode_count;
+
+    // Initialise this context in place (zero-fills, creates the root).
+    void init();
+
+    // FileSystem: mount with vfs_root.mount(mountpoint, &ctx)
+    int           open(const &char path, int flags, &VfsNode node_out);
+    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
+    unsigned long write(unsigned long inode, unsigned long offset, const &unsigned char buf, unsigned long len);
+    int           unlink(const &char path);
+    int           mkdir(const &char path);
 }
-
-// Initialise a tmpfs context (zero-fills).
-void tmpfs_init(&TmpfsCtx ctx);
-
-// VfsOps for the tmpfs driver — 'ctx' passed to Vfs::mount must be a TmpfsCtx*.
-struct VfsOps tmpfs_ops();
 ```
 
-`tmpfs_ops()` provides full **open**, **read**, **write**, **unlink**, **mkdir**, **readdir**.
+`TmpfsCtx` is a full [`FileSystem`](#fs-traits): **open**, **read**, **write**, **unlink**, **mkdir**, **readdir**. It can also be mounted read-only with `mount_ro`.
 
 ---
 
@@ -358,12 +528,13 @@ Mounting tmpfs and doing a real write/read round-trip — verified against a rea
 #include <std/fs/vfs.h>
 #include <std/fs/tmpfs.h>
 
+static struct TmpfsCtx tmp;   // 64 KiB data pool: keep it static
+
 int main() {
     std::vfs_init();
 
-    struct TmpfsCtx tmp;
-    std::tmpfs_init(&tmp);
-    std::vfs_mount(&std::vfs_root, "/tmp", std::tmpfs_ops(), &tmp);
+    tmp.init();
+    std::vfs_root.mount("/tmp", &tmp);
 
     // Write
     struct VfsNode node;
@@ -380,29 +551,30 @@ int main() {
     unsigned long n = node2.read(0, buf, 8UL);
     // buf[0..n] == "boot ok\n"
 
-    return 0;
+    return n == 8UL ? 0 : 1;
 }
 ```
 
-Mounting a real block device follows the same shape — parse the partition table, `fat_init`/`ext2_init` the driver context from the partition's starting LBA, then `mount()` its `VfsOps` alongside tmpfs (type-checked against the current signatures above; not run here since it needs a real formatted disk image):
+Mounting a real block device follows the same shape — wrap the driver in a `BlockDevice`, parse the partition table, `init()` the filesystem context (`FatCtx`/`Ext2Ctx`) from the partition's starting LBA, then `mount_ro()` it alongside tmpfs (type-checked against the current signatures above; not run here since it needs SD-card hardware):
 
 ```c
 #include <std/fs/fs.h>
 
-// The board HAL's SD driver: context type + two callbacks typed against it.
-struct SdCard { int spi_bus; };
-int sd_read(&SdCard sd, unsigned long lba, &unsigned char buf, unsigned long count);
-int sd_write(&SdCard sd, unsigned long lba, const &unsigned char buf, unsigned long count);
+// The board HAL's SD driver: a BlockDriver (read and write sectors).
+struct SdCard {
+    int spi_bus;
+    int read(unsigned long lba, &unsigned char buf, unsigned long count);
+    int write(unsigned long lba, const &unsigned char buf, unsigned long count);
+};
 
 static struct SdCard g_card;
 static struct FatCtx g_fat;      // FAT context holds a cluster buffer: keep it static
 
 int mount_sd() {
     std::vfs_init();
-    struct BlockDevice sd = std::block_device_new(&g_card, 16UL * 1024UL * 1024UL / 512UL, 512UL,
-                                                  sd_read, sd_write);
+    struct BlockDevice sd = std::BlockDevice::new(&g_card, 16UL * 1024UL * 1024UL / 512UL, 512UL);
     struct PartTable parts;
-    if (std::partition_read(&sd, &parts) != 0) return -1;
+    if (parts.read(&sd) != 0) return -1;
 
     unsigned long part0_lba = 0UL;
     match (parts.get(0)) {
@@ -410,8 +582,8 @@ int mount_sd() {
         case some(e): part0_lba = e.lba_start;
     }
 
-    if (std::fat_init(&g_fat, &sd, part0_lba) != 0) return -1;
-    std::vfs_mount(&std::vfs_root, "/sd", std::fat_ops(), &g_fat);
+    if (g_fat.init(&sd, part0_lba) != 0) return -1;   // copies the device
+    std::vfs_root.mount_ro("/sd", &g_fat);            // FatCtx is FsRead only
 
     struct VfsNode node;
     if (std::vfs_root.open("/sd/config.txt", VFS_O_READ, &node) == 0) {

@@ -62,8 +62,8 @@ void gemma4_bf16_free(&Gemma4Bf16Tensor t);
 // float32 Tensor of activation size gets materialized on the CPU side
 // (transiently, for ops that reuse existing F32 math -- see header
 // comment). bf16->f32 is exact; f32->bf16 is a real rounding step.
-struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &Tensor t);
-struct Tensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t);
+struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &FloatTensor t);
+FloatTensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t);
 
 // y = x @ w^T, real bf16 GPU compute (mps_matmul_abt_bf16_persistent --
 // bfloat multiply, float32 accumulate, bfloat output, weight uploaded

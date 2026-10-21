@@ -253,7 +253,7 @@ Every server completed every request. On the two Linux machines the compiled ser
 
 [`std/dsp`](/stdlib/dsp) against SciPy, KFR 7, and for the float biquad the Q and madronalib audio libraries, and dasp for resampling. Each workload runs on 1,048,576 random samples (a 1024×1024 image for `conv2d`), ms per call after one warm-up call, best of 3. "SafeC + oneMKL" links oneMKL's FFT and BLAS (not available on the M1 Pro, where SafeC uses Accelerate's vDSP for the FIR instead).
 
-- `fir stream`: a 127-tap streaming FIR that keeps its state between calls (SafeC `fir_process_block`, SciPy `lfilter`, KFR `fir_filter`); the real-time path, no allocation, no threads.
+- `fir stream`: a 127-tap streaming FIR that keeps its state between calls (SafeC `FirFilter::process_block`, SciPy `lfilter`, KFR `fir_filter`); the real-time path, no allocation, no threads.
 - `fir block`: the same filter as one convolution (`conv_direct`, `np.convolve`).
 - `fftconv`: a 4,096-tap kernel (`conv_fft`, `fftconvolve`, KFR `convolve_filter`).
 - `biquad`: one RBJ low-pass section (48 kHz, f0 1 kHz, Q 0.7071), single-threaded as a real-time filter would be.

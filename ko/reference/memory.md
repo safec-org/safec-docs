@@ -321,7 +321,7 @@ LLVM 레벨에서 각 아레나는 전역 구조체 `{ptr, i64 used, i64 cap}`�
 | 힙 | `&heap int h = new int[n];` | 임의의 런타임 `n`; `std::dealloc(h)`로 해제 |
 | 아레나 | `&arena<R> int a = new<R> int[n];` | 임의의 런타임 `n`이지만 `R`의 남은 용량에 들어가야 함 — 그렇지 않으면 프로그램이 중단됨 |
 
-`new`는 첫 원소에 대한 참조를 반환합니다. 참조에는 길이가 없고 인덱싱할 수 없으므로, 배열은 경계 검사가 있는 [`Slice<T>`](/ko/stdlib/collections#slice)(`std::slice_of(first, n)`)나 `[]T` 슬라이스로 넘기고 순회하십시오. 참조의 배열도 마찬가지입니다 — 스택에서는 `&T items[N]`, 함수 경계를 넘을 때는 `Slice<&T>` — 이것이 C의 `T**` "포인터 배열"을 대신합니다:
+`new`는 첫 원소에 대한 참조를 반환합니다. 참조에는 길이가 없고 인덱싱할 수 없으므로, 배열은 경계 검사가 있는 [`Slice<T>`](/ko/stdlib/collections#slice)(`std::Slice::of(first, n)`)나 `[]T` 슬라이스로 넘기고 순회하십시오. 참조의 배열도 마찬가지입니다 — 스택에서는 `&T items[N]`, 함수 경계를 넘을 때는 `Slice<&T>` — 이것이 C의 `T**` "포인터 배열"을 대신합니다:
 
 ```c
 #include <std/collections/slice.h>
@@ -340,10 +340,10 @@ int arrays(unsigned long n) {
     &heap int h = new int[n];                // heap: runtime size
     &arena<Frame> int a = new<Frame> int[n]; // arena: runtime size, within Frame's 4096 bytes
 
-    fill(std::slice_of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
-    fill(std::slice_of(h, n), 2);
-    fill(std::slice_of(a, n), 3);
-    int t = local[7] + *std::slice_of(h, n).at(n - 1UL) + *std::slice_of(a, n).at(0UL) + g_table[0];
+    fill(std::Slice::of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
+    fill(std::Slice::of(h, n), 2);
+    fill(std::Slice::of(a, n), 3);
+    int t = local[7] + *std::Slice::of(h, n).at(n - 1UL) + *std::Slice::of(a, n).at(0UL) + g_table[0];
 
     std::dealloc(h);
     arena_reset<Frame>();
@@ -357,7 +357,7 @@ int main() {
     struct Sample a; a.v = 1;
     struct Sample b; b.v = 2;
     &Sample fixed[2] = { &a, &b };           // stack array of references
-    int c = count_live(std::slice_of(&fixed[0], 2UL));
+    int c = count_live(std::Slice::of(&fixed[0], 2UL));
     return arrays(4UL) == 6 && c == 2 ? 0 : 1;
 }
 ```

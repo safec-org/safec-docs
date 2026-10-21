@@ -38,7 +38,7 @@ bench("fir block n=1048576 taps=127", lambda: np.convolve(x, h))
 k = rng.uniform(-1, 1, 4096)
 bench("fftconv n=1048576 taps=4096", lambda: sg.fftconvolve(x, k))
 
-# RBJ low-pass, fs 48 kHz, f0 1 kHz, Q 0.7071 (same coefficients as biquad_lowpass)
+# RBJ low-pass, fs 48 kHz, f0 1 kHz, Q 0.7071 (same coefficients as SafeC's Biquad::lowpass)
 fs, f0, q = 48000.0, 1000.0, 0.7071
 w0 = 2 * np.pi * f0 / fs
 alpha = np.sin(w0) / (2 * q)

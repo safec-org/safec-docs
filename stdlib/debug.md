@@ -41,6 +41,8 @@ struct PerfCounter {
     unsigned long long end_val;
     unsigned long long freq_hz;  // CPU cycles per second
 
+    static struct PerfCounter new();    // zeroed, freq_hz detected (see below)
+
     void               start();
     void               stop();
     unsigned long long ticks() const;   // end_val - start_val
@@ -51,7 +53,7 @@ struct PerfCounter {
 ### Constructor {#constructor}
 
 ```c
-PerfCounter perf_counter_init();
+struct PerfCounter pc = std::PerfCounter::new();   // a static method
 ```
 
 **Hosted**: calibrates `freq_hz` by spinning ~10 ms on `POSIX clock()` and counting CPU cycles over that interval.
@@ -74,15 +76,15 @@ unsigned long long perf_read_ns();      // hosted: time_mono_ns(); 0 on freestan
 #include <std/io.h>
 
 int main() {
-    struct PerfCounter pc = perf_counter_init();
+    struct PerfCounter pc = std::PerfCounter::new();
 
     pc.start();
     // Work to measure
     for (int i = 0; i < 1000000; i++) {}
     pc.stop();
 
-    print("ticks: "); println_int(pc.ticks());
-    print("ns:    "); println_int(pc.ns());
+    std::print("ticks: "); std::println_int((long long)pc.ticks());
+    std::print("ns:    "); std::println_int((long long)pc.ns());
     return 0;
 }
 ```

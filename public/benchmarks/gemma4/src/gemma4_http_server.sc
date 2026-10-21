@@ -63,7 +63,7 @@ static void __g4h_write_chunk(int fd, const char* data, unsigned long len) {
     char hexBuf[20];
     int hexLen;
     unsafe { hexLen = fmt_hex(hexBuf, 20UL, (unsigned long long)len); }
-    struct String frame = string_new();
+    struct String frame = String::new();
     unsafe { frame.push_n(hexBuf, (unsigned long)hexLen); }
     frame.push("\r\n");
     if (len > 0UL) { unsafe { frame.push_n(data, len); } }
@@ -82,7 +82,7 @@ static int __g4h_hex_digit(char c) {
 // Decodes a URL-encoded query-parameter value: '+' -> space, "%XX" -> the
 // raw byte, everything else copied through as-is.
 static struct String __g4h_percent_decode(const char* raw, unsigned long len) {
-    struct String out = string_new();
+    struct String out = String::new();
     unsigned long i = 0UL;
     unsafe {
         while (i < len) {
@@ -113,7 +113,7 @@ static struct String __g4h_percent_decode(const char* raw, unsigned long len) {
 // decoded prompt value, or an empty String if the request line doesn't
 // have one (caller checks .length()==0).
 static struct String __g4h_extract_prompt(const char* reqLine, unsigned long len) {
-    struct String empty = string_new();
+    struct String empty = String::new();
     unsigned long sp1 = 0UL;
     unsafe {
         while (sp1 < len && reqLine[sp1] != ' ') { sp1 = sp1 + 1UL; }
@@ -207,7 +207,7 @@ int gemma4_http_serve_stream_bf16(unsigned short port, &Gemma4Bf16Model model, &
 
         if (prompt.length() == 0UL) {
             const char* body = "Missing ?prompt= query parameter\n";
-            struct String resp = string_new();
+            struct String resp = String::new();
             resp.push("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: ");
             unsafe { resp.push_uint((unsigned long long)str_len(body)); }
             resp.push("\r\n\r\n");
@@ -236,7 +236,7 @@ int gemma4_http_serve_stream_bf16(unsigned short port, &Gemma4Bf16Model model, &
         }
         encoded.free();
 
-        struct String headers = string_new();
+        struct String headers = String::new();
         headers.push("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
                      "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
         __g4h_write_all(clientFd, headers.as_ptr(), headers.length());

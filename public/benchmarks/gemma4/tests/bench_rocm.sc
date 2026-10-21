@@ -65,7 +65,7 @@ static void top5_(const float* lg, unsigned long n, int* best) {
 }
 
 int main(int argc, char** argv) {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
     if (argc < 2) { printf("usage: bench_rocm <model-dir> [newTokens] [nograph] [ids]\n"); return 1; }
     unsigned long newTokens = 64UL;
     int runs = 2;

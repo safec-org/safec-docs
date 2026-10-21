@@ -10,7 +10,7 @@ drivers in [`std::hal`](/stdlib/hal). All freestanding-safe.
 #include <std/interrupt/bitfield.h>
 
 void configure_uart(&volatile unsigned int uart_base) {
-    struct MmioReg ctrl = std::mmio_reg(uart_base);
+    struct MmioReg ctrl = std::MmioReg::at(uart_base);
     unsigned int baud_field = ctrl.read_field(0, 15);
     ctrl.write_field(0, 15, baud_field | 1u);
 
@@ -25,7 +25,7 @@ Register addresses are `&volatile` references (`&volatile unsigned int` for
 [HAL](/stdlib/hal) for the pattern.
 
 Two equivalent APIs over the same operations: a `MmioReg` struct
-(`mmio_reg(addr)` to construct, then methods) for grouping several
+(`MmioReg::at(addr)` to construct, then methods) for grouping several
 accesses to one register, and free functions for one-off access.
 
 | `MmioReg` method | Equivalent free function |
@@ -52,7 +52,7 @@ A software dispatch table distinct from the hardware vector table below —
 ```c
 static void uart_rx_isr() { /* ... */ }
 
-struct IsrTable table = std::isr_init();
+struct IsrTable table = std::IsrTable::new();
 table.register_(3, uart_rx_isr);   // trailing underscore: 'register' is a C keyword
 // re-registering an IRQ replaces its handler
 ...
@@ -89,6 +89,6 @@ calls the current default.
 
 ## Clock Configuration (`interrupt/clock.h`) {#clock-configuration-interruptclockh}
 
-`ClockConfig` (via `clock_init(base)`) — `set_source()` (`CLK_SRC_HSI`/
+`ClockConfig` (via `ClockConfig::new(base)`) — `set_source()` (`CLK_SRC_HSI`/
 `CLK_SRC_HSE`/`CLK_SRC_PLL`), `configure_pll(mul, div)`, `set_ahb_div`/
 `set_apb1_div`/`set_apb2_div` (bus prescalers), `get_freq()`.

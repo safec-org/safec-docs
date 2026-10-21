@@ -32,10 +32,10 @@ static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 static double time_case(&Vec<float> host, unsigned long heads, unsigned long s, unsigned long d,
                         int causal, int lin, int warm, int iters) {
     unsigned long n = heads * s * d;
-    struct RocmBuf q = std::rocm_upload(host.at(0UL), n);
-    struct RocmBuf k = std::rocm_upload(host.at(n), n);
-    struct RocmBuf v = std::rocm_upload(host.at(2UL * n), n);
-    struct RocmBuf o = std::rocm_alloc(n);
+    struct RocmBuf q = RocmBuf::upload(host.at(0UL), n);
+    struct RocmBuf k = RocmBuf::upload(host.at(n), n);
+    struct RocmBuf v = RocmBuf::upload(host.at(2UL * n), n);
+    struct RocmBuf o = RocmBuf::alloc(n);
     double ms = -1.0;
     int ok = 1;
     int i = 0;
@@ -47,7 +47,7 @@ static double time_case(&Vec<float> host, unsigned long heads, unsigned long s, 
     }
     std::rocm_sync();
     ms = ok ? (now_ms() - ms) / (double)iters : -1.0;
-    std::rocm_free(&q); std::rocm_free(&k); std::rocm_free(&v); std::rocm_free(&o);
+    q.free(); k.free(); v.free(); o.free();
     return ms;
 }
 
@@ -74,7 +74,7 @@ int main() {
     unsafe { printf("device: %s\n", std::rocm_device_name()); }
     // One host buffer large enough for q, k and v of the largest case.
     unsigned long maxn = BATCH * HEADS * 16384UL * 64UL;
-    struct Vec<float> host = std::vec_with_cap(3UL * maxn);
+    struct Vec<float> host = std::Vec::with_cap(3UL * maxn);
     unsigned long x = 88172645463325252UL;
     unsigned long i = 0UL;
     while (i < 3UL * maxn) {

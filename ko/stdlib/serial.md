@@ -23,6 +23,15 @@
 struct Value {
     int kind;   // one of the VAL_* constants above
 
+    // Construction.
+    static struct Value null();
+    static struct Value from_bool(int v);
+    static struct Value from_int(long long v);
+    static struct Value from_float(double v);
+    static struct Value from_str(const &char s);   // copies s
+    static struct Value array();                   // empty; grow with v.array_push
+    static struct Value object();                  // empty; grow with v.object_set
+
     int kind_of() const;
     int is_null() const;
     int as_bool() const;
@@ -39,25 +48,23 @@ struct Value {
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
     ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
+
+    // Building and lifetime.
+    void            array_push(struct Value v);                    // takes ownership of v
+    void            object_set(const &char key, struct Value v);   // takes ownership of v
+    struct Value    clone() const;                                 // deep copy
+    void            free();                                        // releases the whole tree
+
+    // Text formats (any Format, see below).
+    generic<F: Format> struct String encode(F f) const;                                  // a fresh String
+    generic<F: Format> static struct Value decode(F f, const &char text, ?&int ok);    // *ok: 1, or 0
 }
-
-struct Value value_null();
-struct Value value_bool(int v);
-struct Value value_int(long long v);
-struct Value value_float(double v);
-struct Value value_string(const &char s);   // copies s
-struct Value value_array();                 // empty; grow with value_array_push
-struct Value value_object();                // empty; grow with value_object_set
-
-void value_array_push(&Value arr, struct Value v);
-void value_object_set(&Value obj, const &char key, struct Value v);
-
-struct Value value_clone(const &Value v);
-void value_free(&Value v);
 ```
 
+`namespace std` 밖에서는 생성자를 `std::Value::object()`, `std::Value::from_str("...")`처럼 호출합니다. 각 포맷 모듈은 자체 자유 함수(`json_write` / `value_to_json` / `json_parse`, `xml_parse`, `yaml_parse`, `csv_parse`, `html_parse`)도 그대로 유지하며, `encode` / `decode`는 [`Format`](#format) 트레이트를 통해 같은 코드에 도달합니다.
+
 ::: warning 소유권
-`value_array_push`/`value_object_set`은 전달받은 `Value`의 **소유권을 가져갑니다** — 그 이후에는 직접 해제하면 안 됩니다. 자신만의 복사본이 여전히 필요하다면 먼저 `value_clone()`을 호출합니다. `value_free()`는 트리 전체(문자열, 배열 요소, 객체 항목)를 재귀적으로 해제합니다.
+`array_push`/`object_set`은 전달받은 `Value`의 **소유권을 가져갑니다** — 그 이후에는 직접 해제하면 안 됩니다. 자신만의 복사본이 여전히 필요하다면 먼저 `.clone()`을 호출합니다. `.free()`는 트리 전체(문자열, 배열 요소, 객체 항목)를 재귀적으로 해제합니다.
 :::
 
 `object_get`은 *널이 될 수 있는* 참조를 반환합니다 — 필드나 메서드로 바로 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑합니다. 이는 SafeC의 모든 `?&T`에 적용되는 것과 동일한 규칙입니다([안전성](/ko/reference/safety#nullability-enforcement) 참고).
@@ -85,9 +92,9 @@ extern int printf(const char* fmt, ...);
 struct Point { double x; double y; struct Value to_value() const; };
 
 struct Value Point::to_value() const {
-    struct Value v = value_object();
-    value_object_set(&v, "x", value_float(self.x));
-    value_object_set(&v, "y", value_float(self.y));
+    struct Value v = Value::object();
+    v.object_set("x", Value::from_float(self.x));
+    v.object_set("y", Value::from_float(self.y));
     return v;
 }
 
@@ -99,12 +106,76 @@ int main() {
     unsafe { printf("%s\n", json.as_ptr()); }   // {"x":1.5,"y":2.5}
 
     json.free();
-    value_free(&pv);
+    pv.free();
     return 0;
 }
 ```
 
 `from_value(const &Value)` 메서드는 동일한 방식으로 디코딩 방향을 담당합니다 — `object_get`/`array_at`/`as_int`/등을 사용해 필드를 다시 읽어냅니다.
+
+## 트레이트로서의 포맷 {#format}
+
+모든 텍스트 백엔드는 해당 포맷의 작성기와 파서를 두 메서드로 가진 작은 구조체이기도 하며, `value.h`의 `Format` 트레이트가 그 형태에 이름을 붙입니다:
+
+```c
+trait Format {
+    void         write(const &Value v, &String out) const;   // appends v's text to out
+    struct Value parse(const &char text, ?&int ok) const;    // *ok: 1, or 0 on malformed input
+}
+```
+
+| 백엔드 | 헤더 | 생성 | 동등한 함수 |
+|---|---|---|---|
+| `Json` | `json.h` | `Json::new()` | `json_write` / `json_parse` |
+| `Yaml` | `yaml.h` | `Yaml::new()` | `yaml_write` / `yaml_parse` |
+| `Csv` | `csv.h` | `Csv::new()` | `csv_write` / `csv_parse` |
+| `Xml` | `xml.h` | `Xml::new("root")` | `xml_write(v, root, out)` / `xml_parse`; 루트 요소의 태그를 담으며, 태그 문자열은 `Xml`보다 오래 살아야 합니다 |
+| `Html` | `html.h` | `Html::new()` | `html_write` / `html_parse` |
+
+`v.encode(f)`는 트리를 포맷 `f`로 담은 새 `String`을 반환하고, `Value::decode(f, text, &ok)`는 그것을 파싱합니다. 둘 다 `Format`으로 바운드된 [자기 타입 매개변수를 가진 메서드](/ko/reference/generics#methods-with-their-own-type-parameters)이므로, 포맷은 컴파일 타임에 정해지고 호출은 직접 호출입니다 — 함수 포인터 테이블이 없습니다. 제네릭 코드도 같은 방식으로 포맷을 받으며, 이런 형태의 `write`와 `parse` 메서드를 가진 직접 만든 구조체도 `Format`이 됩니다:
+
+```c
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/serial/yaml.h>
+#include <std/serial/xml.h>
+#include <std/io.h>
+
+// Written once, works for every format: encode, then decode the text back.
+generic<F: Format>
+long long round_trip_age(F f, const &Value v) {
+    struct String text = v.encode(f);
+    int ok = 0;
+    struct Value back = std::Value::decode(f, text.as_ptr(), &ok);
+    long long age = -1LL;
+    match (back.object_get("age")) {
+        case some(a): age = a.as_int();
+        case null:    { }
+    }
+    back.free();
+    text.free();
+    return ok ? age : -1LL;
+}
+
+int main() {
+    struct Value v = std::Value::object();
+    v.object_set("name", std::Value::from_str("Ada"));
+    v.object_set("age", std::Value::from_int(36LL));
+
+    struct String json = v.encode(std::Json::new());
+    std::println(json.as_ptr());                               // {"name":"Ada","age":36}
+
+    long long a1 = round_trip_age(std::Json::new(), &v);
+    long long a2 = round_trip_age(std::Yaml::new(), &v);
+    long long a3 = round_trip_age(std::Xml::new("person"), &v);
+
+    json.free();
+    v.free();
+    return a1 == 36LL && a2 == 36LL && a3 == 36LL ? 0 : 1;
+}
+```
+
+Markdown과 Protobuf는 `Format`이 아닙니다: Markdown은 `Value` 트리 대신 자체 AST를 가지며, Protobuf는 스키마에 맞춰 필드 단위로 작성하는 바이너리 인코딩입니다.
 
 ## JSON {#json}
 
@@ -113,16 +184,16 @@ void json_write(const &Value v, &String out);   // 추가만 함; 'out'을 먼�
 struct String value_to_json(const &Value v);      // 편의 함수: 새 String 반환
 
 struct Value json_parse(const &char text, ?&int ok);
-    // 성공하면 *ok = 1과 파싱된 트리; 실패하면 *ok = 0과 value_null().
+    // 성공하면 *ok = 1과 파싱된 트리; 실패하면 *ok = 0과 Value::null().
     // 첫 완전한 값 이후의 후행 내용은 무시됩니다.
 ```
 
 JSON은 다섯 가지 형식 중 구조적 모호함이 없는 유일한 형식입니다 — 문법이 타입을 명시적으로 표시하므로, 숫자처럼 보이는 문자열이나 빈 문자열을 포함해 정확히 왕복 변환됩니다.
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada"));
+v.object_set("age", Value::from_int(36));
 
 struct String json = value_to_json(&v);
 printf("%s\n", json.as_ptr());   // {"name":"Ada","age":36}
@@ -136,8 +207,8 @@ match (parsed.object_get("age")) {
 }
 
 json.free();
-value_free(&v);
-value_free(&parsed);
+v.free();
+parsed.free();
 ```
 
 ## XML {#xml}
@@ -159,9 +230,9 @@ struct Value xml_parse(const &char text, ?&int ok);   // 루트 태그 자체는
 | `VAL_NULL` | `<T/>` |
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada <Countess>"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada <Countess>"));
+v.object_set("age", Value::from_int(36));
 
 struct String xml = value_to_xml(&v, "person");
 printf("%s\n", xml.as_ptr());
@@ -172,8 +243,8 @@ struct Value parsed = xml_parse(xml.as_ptr(), &ok);
 // parsed.object_get("age")를 위 JSON 예제와 같은 방식으로 언래핑
 
 xml.free();
-value_free(&v);
-value_free(&parsed);
+v.free();
+parsed.free();
 ```
 
 `xml_parse`/`json_parse`는 이 모듈 자체가 만들어낸 출력 형태만 이해합니다 — 속성도, CDATA도, `xml_write`가 내보내는 5개(`&amp; &lt; &gt; &quot; &apos;`) 외의 엔터티도 없습니다.
@@ -198,15 +269,15 @@ JSON/XML과 달리 HTML은 데이터 교환 형식이 아닙니다 — `html_wri
 | `VAL_NULL` | `<em>null</em>` |
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "comment", value_string("<script>alert(1)</script>"));
+struct Value v = Value::object();
+v.object_set("comment", Value::from_str("<script>alert(1)</script>"));
 
 struct String html = value_to_html(&v);
 printf("%s\n", html.as_ptr());
 // <dl><dt>comment</dt><dd>&lt;script&gt;alert(1)&lt;/script&gt;</dd></dl>
 
 html.free();
-value_free(&v);
+v.free();
 ```
 
 `html_parse`는 이와 동일한 `<dl>`/`<ul>`/`<em>null</em>`/맨 텍스트 형태를 다시 `Value` 트리로 읽어들입니다 — 이는 범용 HTML 파서가 아니며, (`xml_parse`와 마찬가지로) 임의의 HTML 문서가 아니라 이 모듈 자체의 출력을 왕복시키기 위한 것입니다.
@@ -235,7 +306,7 @@ struct Value rows = csv_parse("name,age\nAda,36\n", &ok);
 &Value name = row0.array_at(0);   // VAL_STRING "name"
 printf("%s\n", name.as_string());
 
-value_free(&rows);
+rows.free();
 ```
 
 ## YAML {#yaml}
@@ -259,9 +330,9 @@ struct Value yaml_parse(const &char text, ?&int ok);
 ```
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada"));
+v.object_set("age", Value::from_int(36));
 
 struct String yaml = value_to_yaml(&v);
 printf("%s", yaml.as_ptr());
@@ -269,7 +340,7 @@ printf("%s", yaml.as_ptr());
 // age: 36
 
 yaml.free();
-value_free(&v);
+v.free();
 ```
 
 ## Markdown {#markdown}
@@ -303,12 +374,13 @@ struct MdNode {
     int ordered;                        // MD_LIST
     struct String text;
     struct Vec<&heap MdNode> children;
-};
 
-&heap MdNode  md_parse(const &char text);                  // MD_DOC root; free with md_free()
-struct String md_render_html(const &heap MdNode doc);      // text is HTML-escaped
-struct String md_render_markdown(const &heap MdNode doc);  // canonical form, e.g. *b* -> **b**
-void          md_free(&heap MdNode node);
+    static &heap MdNode parse(const &char text);   // MD_DOC root; release with doc.free()
+
+    struct String render_html() const;       // text is HTML-escaped
+    struct String render_markdown() const;   // canonical form, e.g. *b* -> **b**
+    void          free();                    // frees the subtree and the node itself
+};
 ```
 
 ```c
@@ -316,11 +388,11 @@ void          md_free(&heap MdNode node);
 #include <std/io.h>
 
 int main() {
-    &heap MdNode doc = std::md_parse("# Title\n\nSome **bold** text.\n");
-    struct String html = std::md_render_html(doc);
+    &heap MdNode doc = std::MdNode::parse("# Title\n\nSome **bold** text.\n");
+    struct String html = doc.render_html();
     std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
     html.free();
-    std::md_free(doc);
+    doc.free();
     return 0;
 }
 ```
@@ -357,26 +429,29 @@ struct PbReader {
     const &unsigned char data;
     unsigned long        len;
     unsigned long        pos;
+
+    static struct PbReader new(const &unsigned char data, unsigned long len);   // at data[0]
+
+    int has_more() const;
+
+    // Each returns 1 on success, 0 on truncated or malformed input.
+    int read_varint(&unsigned long long out);
+    int read_tag(&int field_num, &int wire_type);
+    int read_int64(&long long out);
+    int read_uint64(&unsigned long long out);
+    int read_sint64(&long long out);
+    int read_bool(&int out);
+    int read_double(&double out);
+    int read_float(&float out);
+    // *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
+    int read_length_delimited(&&const unsigned char dataOut, &unsigned long lenOut);
+    int skip_field(int wire_type);   // skip an unknown field (forward compatibility)
 };
-
-struct PbReader pb_reader_new(const &unsigned char data, unsigned long len);
-int pb_reader_has_more(const &PbReader r);
-
-// Each returns 1 on success, 0 on truncated or malformed input.
-int pb_read_varint(&PbReader r, &unsigned long long out);
-int pb_read_tag(&PbReader r, &int field_num, &int wire_type);
-int pb_read_int64(&PbReader r, &long long out);
-int pb_read_uint64(&PbReader r, &unsigned long long out);
-int pb_read_sint64(&PbReader r, &long long out);
-int pb_read_bool(&PbReader r, &int out);
-int pb_read_double(&PbReader r, &double out);
-int pb_read_float(&PbReader r, &float out);
-// *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
-int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsigned long lenOut);
-int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
 ```
 
-`pb_read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사합니다.
+쓰기 함수들은 자유 함수로 남아 있습니다: 어떤 `String`에든 덧붙이므로, 메서드를 둘 protobuf 전용 구조체가 없기 때문입니다.
+
+`read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사합니다.
 
 ```c
 #include <std/serial/protobuf.h>
@@ -385,7 +460,7 @@ int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forwa
 struct Point { int x; int y; };
 
 int main() {
-    struct String buf = std::string_new();
+    struct String buf = std::String::new();
     std::pb_write_int64_field(&buf, 1, 3LL);
     std::pb_write_int64_field(&buf, 2, -4LL);
 
@@ -393,15 +468,15 @@ int main() {
     p.x = 0; p.y = 0;
     struct PbReader r;
     // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::pb_reader_new((const &unsigned char)buf.as_ptr(), buf.length()); }
-    while (std::pb_reader_has_more(&r)) {
+    unsafe { r = std::PbReader::new((const &unsigned char)buf.as_ptr(), buf.length()); }
+    while (r.has_more()) {
         int field = 0; int wire = 0;
-        if (!std::pb_read_tag(&r, &field, &wire)) break;
+        if (!r.read_tag(&field, &wire)) break;
         long long v = 0LL;
-        if (wire == PB_WIRE_VARINT && std::pb_read_int64(&r, &v)) {
+        if (wire == PB_WIRE_VARINT && r.read_int64(&v)) {
             if (field == 1) p.x = (int)v;
             if (field == 2) p.y = (int)v;
-        } else if (!std::pb_skip_field(&r, wire)) break;
+        } else if (!r.skip_field(wire)) break;
     }
     buf.free();
     return (p.x == 3 && p.y == -4) ? 0 : 1;

@@ -273,7 +273,7 @@ int main() {
 }
 ```
 
-This is real runtime polymorphism — the loop doesn't know or care whether `shapes[i]` is backed by a `Circle` or a `Square`. The erased fields and the single cast that undoes them live in two short functions, and the generic constructor is what makes that cast sound. It is the pattern the standard library uses wherever one table holds callbacks with different context types: `timer_add` (`std/dsp/timer_wheel.h`), `widget_on_click`, `vfs_mount`, `task_spawn`.
+This is real runtime polymorphism — the loop doesn't know or care whether `shapes[i]` is backed by a `Circle` or a `Square`. The erased fields and the single cast that undoes them live in two short functions, and the generic constructor is what makes that cast sound. It is the pattern the standard library uses wherever one table holds callbacks with different context types: `TimerWheel::add` (`std/dsp/timer_wheel.h`), `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — each a [method with its own type parameter](/reference/generics#methods-with-their-own-type-parameters).
 
 ## Quick Reference {#quick-reference}
 

@@ -10,7 +10,7 @@
 #include <std/interrupt/bitfield.h>
 
 void configure_uart(&volatile unsigned int uart_base) {
-    struct MmioReg ctrl = std::mmio_reg(uart_base);
+    struct MmioReg ctrl = std::MmioReg::at(uart_base);
     unsigned int baud_field = ctrl.read_field(0, 15);
     ctrl.write_field(0, 15, baud_field | 1u);
 
@@ -25,7 +25,7 @@ void configure_uart(&volatile unsigned int uart_base) {
 [HAL](/ko/stdlib/hal)을 참고하십시오.
 
 동일한 연산을 두 가지 방식으로 동등하게 제공합니다: 한 레지스터에 대해
-여러 접근을 묶을 때 쓰는 `MmioReg` 구조체(`mmio_reg(addr)`로 생성한 뒤
+여러 접근을 묶을 때 쓰는 `MmioReg` 구조체(`MmioReg::at(addr)`로 생성한 뒤
 메서드 호출)와, 일회성 접근을 위한 자유 함수.
 
 | `MmioReg` 메서드 | 대응하는 자유 함수 |
@@ -52,7 +52,7 @@ void configure_uart(&volatile unsigned int uart_base) {
 ```c
 static void uart_rx_isr() { /* ... */ }
 
-struct IsrTable table = std::isr_init();
+struct IsrTable table = std::IsrTable::new();
 table.register_(3, uart_rx_isr);   // trailing underscore: 'register' is a C keyword
 // re-registering an IRQ replaces its handler
 ...
@@ -88,6 +88,6 @@ IRQ를 막고 풉니다: `cpsid i`/`cpsie i`(ARM), `msr daifset/daifclr, #2`
 
 ## 클럭 설정 (`interrupt/clock.h`) {#clock-configuration-interruptclockh}
 
-`ClockConfig`(`clock_init(base)`로 생성) — `set_source()`(`CLK_SRC_HSI`/
+`ClockConfig`(`ClockConfig::new(base)`로 생성) — `set_source()`(`CLK_SRC_HSI`/
 `CLK_SRC_HSE`/`CLK_SRC_PLL`), `configure_pll(mul, div)`, `set_ahb_div`/
 `set_apb1_div`/`set_apb2_div`(버스 프리스케일러), `get_freq()`.

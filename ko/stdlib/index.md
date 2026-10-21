@@ -19,6 +19,8 @@ int main() {
 |--------|--------|-------------|
 | [mem](/ko/stdlib/mem) | `mem.h` | 할당, 해제, 안전한 memcpy/memmove/memset/memcmp; 캐시라인 헬퍼, 정렬 유틸리티 |
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
+| [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
+| [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
 | [math](/ko/stdlib/math) | `math.h` | 상수(PI, E 등), float/double 수학, 분류 |
 | [thread](/ko/stdlib/thread) | `thread.h` | 스레드, 뮤텍스, 조건 변수, 읽기-쓰기 락 |
@@ -28,7 +30,7 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| value | `serial/value.h` | 형식에 구애받지 않는 `Value` 트리 (Null/Bool/Int/Float/String/Array/Object) |
+| value | `serial/value.h` | 형식에 구애받지 않는 `Value` 트리 (Null/Bool/Int/Float/String/Array/Object); `v.encode(f)` / `Value::decode(f, ...)`의 바탕인 `Format` 트레이트 |
 | json | `serial/json.h` | JSON 작성기 + 파서, 정확한 왕복 변환 |
 | xml | `serial/xml.h` | XML 작성기 + 파서 (자체 문법 왕복) |
 | html | `serial/html.h` | HTML 조각 작성기 + 파서 (`<dl>`/`<ul>` 형태) |
@@ -49,11 +51,13 @@ int main() {
 | ringbuffer | `collections/ringbuffer.h` | SPSC 락-프리 2의 거듭제곱 바이트 링 |
 | node_pool | `collections/node_pool.h` | `NodePool<N>` 컨테이너별 노드 아레나 |
 | static_vec | `collections/static_vec.h` | 호출자 저장 공간 위의 `StaticVec<T>` / `StaticMap<V>` (힙 사용 없음) |
+| traits | `collections/traits.h` | 컨테이너 기능 트레이트(`Len`, `Push`, `Enqueue`, …)와 이를 합성한 `Sequence` / `Lifo` / `Fifo` / `CountedFifo` / `Map`; `push_all`, `enqueue_all`, `drain_into` |
 
 ### [얼로케이터](/ko/stdlib/allocators) {#allocators}
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
+| allocator | `alloc/allocator.h` | `Allocate` / `Deallocate` 트레이트와 이를 합성한 `Allocator` / `ArenaAllocator`; 모든 할당자에 대한 `alloc_t` / `alloc_array_t` / `dealloc_t`와 `CountingAllocator<A>` |
 | bump | `alloc/bump.h` | 선형 범프-포인터 아레나; O(1) 할당, 리셋 전용 해제 |
 | slab | `alloc/slab.h` | 고정 크기 객체용 프리리스트 슬랩; O(1) 할당/해제 |
 | pool | `alloc/pool.h` | 병합(coalescing)을 지원하는 가변 크기 first-fit 풀 |
@@ -67,7 +71,7 @@ int main() {
 | lockfree | `sync/lockfree.h` | `LFQueue<T>` 락-프리 SPSC 링 버퍼 |
 | channel | `sync/channel.h` | `Chan<T>`: `chan_*` 내장 함수 위의 타입 지정 바운디드 블로킹 MPMC 채널 |
 | mpsc | `sync/mpsc.h` | `MpscQueue<T>` 스핀락으로 보호되는 MPSC 링, 논블로킹 |
-| task | `sync/task.h` | 협조적 스케줄러; 타입 지정 `task_spawn` |
+| task | `sync/task.h` | 협조적 스케줄러; 타입 지정 `TaskScheduler::spawn`; `TaskRunner` 트레이트 + `run_rounds` |
 | thread_bare | `sync/thread_bare.h` | 우선순위 기반 프리스탠딩 스레드 (OS 없음) |
 | bare_spawn | `sync/bare_spawn.sc` | 프리스탠딩 타깃에서 `spawn`/`join` 언어 키워드를 위한 참조 "훅" 백엔드 |
 
@@ -150,6 +154,7 @@ int main() {
 | fft | `dsp/fft.h` | 제자리 radix-2 Cooley-Tukey FFT/IFFT, O(n log n), 2의 거듭제곱 길이 (float + Q8.24) |
 | convolution | `dsp/convolution.h` | 선형 컨볼루션 — 직접 O(len_x·len_h) (SIMD 가속) 및 FFT 기반 O(n log n) |
 | window | `dsp/window.h` | 사각/Hann/Hamming/Blackman 분석 윈도우 |
+| sample_filter | `dsp/sample_filter.h` | `SampleProcessor` / `BlockProcessor` / `Resettable` 트레이트와 이를 합성한 `SampleFilter`(15개 필터 모두); `FilterChain`, 제네릭 임펄스/스텝 응답 |
 | filter | `dsp/filter.h` | 일반 스트리밍 FIR/IIR (피드포워드/피드백) 차분 방정식 필터 (float + Q8.24) |
 | biquad | `dsp/biquad.h` | 2차 IIR 섹션 + RBJ "Audio EQ Cookbook" 설계기 + 일반 쌍선형 변환 |
 | dct | `dsp/dct.h` | DCT-II/DCT-III (JPEG/MPEG 스타일 이산 코사인 변환), float + Q8.24 |
@@ -170,10 +175,12 @@ int main() {
 |--------|--------|-------------|
 | aes | `crypto/aes.h` | AES-128/256 ECB + CBC; 완전한 S-box + 키 확장 |
 | sha256 | `crypto/sha256.h` | SHA-256/224; 스트리밍 및 원샷 API |
+| hash | `crypto/hash.h` | `Hasher` / `BlockHash` 트레이트; 모든 해시에 대한 `hash_bytes` |
+| hmac | `crypto/hmac.h` | 임의의 `BlockHash` 위의 `Hmac<H>`; 원샷 `hmac_sha256` |
 | rng | `crypto/rng.h` | ChaCha20 CSPRNG; `rdrand`/`/dev/urandom` 시딩 |
 | secure_alloc | `crypto/secure_alloc.h` | 해제 시 제로화를 수행하는 슬랩 얼로케이터 |
 | x509 | `crypto/x509.h` | X.509 DER/ASN.1 파서; SAN, 와일드카드 호스트네임, 유효성 |
-| tls | `crypto/tls.h` | TLS 1.3 레코드 레이어; AES-CBC + PKCS#7 + 논스 XOR 시퀀스 |
+| tls | `crypto/tls.h` | TLS 1.3 레코드 레이어; AES-256-GCM 레코드 보호(RFC 8446 §5.2), 논스 XOR 시퀀스 |
 
 ### [디버깅 & 프로파일링](/ko/stdlib/debug) {#debugging-profiling}
 
@@ -248,13 +255,15 @@ int main() {
 | 헤더 | 설명 |
 |--------|-------------|
 | `bit.h` | 비트 조작 (C23 `<stdbit.h>` + popcount/clz/ctz/bswap 내장 함수) |
+| `cmp.h` | 컴파일 타임 순서 관계: `Order` 트레이트, `Less` / `Greater` / `FnOrder` ([순서 관계](/ko/stdlib/collections#orderings) 참고) |
+| `traits.h` | 여러 모듈이 공유하는 기능 트레이트: `Resettable`(아레나 할당자, DSP 필터) |
 | `convert.h` | 문자열 ↔ 숫자 파싱 (C11/C17), 실패 시 `*ok` 성공 플래그 |
 | `dma.h` | 캐시 일관성 DMA 버퍼 디스크립터 (64바이트 정렬) |
 | `fmt.h` | 호출자가 제공한 버퍼로 서식화하는 안전한 `snprintf` 기반 서식화 |
 | `heap.h` | 통합 힙: TLSF 기반 정적 버퍼(프리스탠딩) 또는 malloc/free/realloc(호스티드) |
 | `log.h` | 구성 가능한 로깅, `LOG_LEVEL`이 0이면 오버헤드 없음 |
 | `panic.h` | 옵트인 패닉 핸들러 — 기본값으로 무한 루프(프리스탠딩) 또는 `abort()`(호스티드) |
-| `result.h` | 명시적 `Result` 오류 전파 타입 (힙 할당, `?T` 옵셔널을 반영) |
+| `result.h` | `Result<T, E>`: 값 또는 오류를 인라인으로 저장 (`Result::new_ok` / `Result::new_err`) |
 | `sys.h` | 프로세스 제어 상수 (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG 상수 |
 | `complex.h` | 복소수 (C99 `<complex.h>`), `[real, imag]` float/double 쌍 |
 
@@ -285,7 +294,7 @@ int main() {
 #include <std/collections/vec.h>
 
 int main() {
-    struct Vec<int> v = std::vec_new();
+    struct Vec<int> v = std::Vec::new();
     v.push(42);
     v.push(100);
     match (v.get(0UL)) {
@@ -298,7 +307,7 @@ int main() {
 }
 ```
 
-컨테이너가 *서로 다른* 컨텍스트 타입의 콜백을 동시에 담아야 하는 경우(타이머 휠, 위젯 트리, 여러 드라이버를 마운트하는 VFS), 슬롯은 그 쌍을 타입 소거된 형태로 저장하지만, 그것을 채우는 유일한 방법은 짝이 맞는 `fn(?&T)`와 `?&T`를 받는 제네릭 함수 — `timer_add`, `widget_on_click`, `vfs_mount`, `task_spawn` — 이므로 모든 호출은 여전히 컴파일 타임에 검사됩니다. `std/`에 남아 있는 `void*` 선언은 C ABI 경계입니다: libc/OS extern, `mem.h`의 원시 바이트 할당자, MMIO 기본 주소, GPU/WASM 외부 인터페이스.
+컨테이너가 *서로 다른* 컨텍스트 타입의 콜백을 동시에 담아야 하는 경우(타이머 휠, 위젯 트리, 여러 드라이버를 마운트하는 VFS), 슬롯은 그 쌍을 타입 소거된 형태로 저장하지만, 그것을 채우는 유일한 방법은 짝이 맞는 `fn(?&T)`와 `?&T`를 받는 제네릭 메서드 — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — 이므로 모든 호출은 여전히 컴파일 타임에 검사됩니다. `std/`에 남아 있는 `void*` 선언은 C ABI 경계입니다: libc/OS extern, `mem.h`의 원시 바이트 할당자, MMIO 기본 주소, GPU/WASM 외부 인터페이스.
 
 ## 표준 라이브러리 포함하기 {#including-the-standard-library}
 

@@ -42,7 +42,7 @@ struct PacketBuf {
 }
 ```
 
-**NetIf** — 추상 네트워크 인터페이스입니다. 자체 `rx`/`tx` 버퍼를 갖지 않습니다: 각 프레임을 여러분 자신의 `struct PacketBuf`에 만들고(아래의 `udp_frame`/`eth_build`/… 사용) 그것을 `tx()`에 전달합니다. `netif_new`로 생성하며, 이 함수는 드라이버 컨텍스트와 그에 대해 타입이 지정된 송신 콜백을 받습니다. 인터페이스는 둘 다 타입 소거된 형태로 저장하지만(하나의 스택이 서로 다른 드라이버의 인터페이스를 운용할 수 있도록), 이를 기록하는 것은 `netif_new`뿐이므로 짝이 맞는지는 컴파일 타임에 검사됩니다.
+**NetIf** — 추상 네트워크 인터페이스입니다. 자체 `rx`/`tx` 버퍼를 갖지 않습니다: 각 프레임을 여러분 자신의 `struct PacketBuf`에 만들고(아래의 `udp_frame`/`eth_build`/… 사용) 그것을 `tx()`에 전달합니다. `transmit` 메서드를 가진 드라이버 타입([`NetDriver`](#net-driver)) 위에 `NetIf::new`로 생성한 다음 `mac`과 주소를 채웁니다.
 
 ```c
 struct NetIf {
@@ -51,26 +51,42 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    int  tx(&PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
-};
+    // An interface whose tx() calls drv.transmit(frame, len); drv must outlive it.
+    generic<T: NetDriver>
+    static struct NetIf new(&T drv);
 
-generic<T>
-struct NetIf netif_new(&T ctx, fn int(&T, const &unsigned char, unsigned long) tx);
+    int  tx(&PacketBuf pkt);   // the driver's transmit(pkt.data, pkt.len); 0 on success
+};
 ```
 
-```c
-struct Enc28j60 { int cs_pin; unsigned long sent; };
+### 네트워크 드라이버: `NetDriver` {#net-driver}
 
-static int enc_tx(&Enc28j60 nic, const &unsigned char frame, unsigned long len) {
+`NetIf::new`는 단일 기능 [트레이트](/ko/reference/generics#composing-traits) 하나로 바운드됩니다:
+
+| 트레이트 | 요구 사항 | 사용처 |
+|---|---|---|
+| `NetDriver` | `int transmit(const &unsigned char frame, unsigned long len)`: 프레임 하나를 보내며 성공 시 0 | `NetIf::new` |
+
+std에는 드라이버가 포함되어 있지 않습니다. 타입은 별도 선언 없이 이 메서드를 가지기만 하면 준수합니다. `NetIf::new<T>`는 컴파일 타임에 `T::transmit`로 인터페이스의 송신 항목을 만들고 드라이버를 타입 소거된 형태로 저장하므로, 하나의 스택이 서로 다른 드라이버 위의 인터페이스를 운용할 수 있습니다. `transmit`이 없는 타입을 넘기면 `NetIf::new` 호출 지점에서 오류가 납니다. (블록 장치도 [`BlockDriver`](/ko/stdlib/fs#block-driver)로 같은 방식을 따릅니다.)
+
+```c
+struct Enc28j60 {
+    int           cs_pin;
+    unsigned long sent;
+
+    int transmit(const &unsigned char frame, unsigned long len);
+};
+
+int Enc28j60::transmit(const &unsigned char frame, unsigned long len) {
     // ... push `len` bytes of `frame` to the chip over SPI ...
-    nic.sent = nic.sent + 1UL;
+    self.sent = self.sent + 1UL;
     return 0;
 }
 
 static struct Enc28j60 g_nic;
 
 void net_setup() {
-    struct NetIf eth0 = std::netif_new(&g_nic, enc_tx);
+    struct NetIf eth0 = std::NetIf::new(&g_nic);
     eth0.ip4 = std::net_ip4(192, 168, 1, 50);
 }
 ```
@@ -480,10 +496,14 @@ extern int printf(const char* fmt, ...);
 
 // A real driver would hand these bytes to hardware/a socket; this one just
 // reports how many bytes it was asked to send.
-struct LoopbackNic { unsigned long frames; };
+struct LoopbackNic {
+    unsigned long frames;
 
-static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long len) {
-    nic.frames = nic.frames + 1UL;
+    int transmit(const &unsigned char frame, unsigned long len);   // NetDriver
+};
+
+int LoopbackNic::transmit(const &unsigned char frame, unsigned long len) {
+    self.frames = self.frames + 1UL;
     unsafe { printf("driver: sending %lu bytes\n", len); }
     return 0;
 }
@@ -491,7 +511,7 @@ static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long
 static struct LoopbackNic g_nic;
 
 int main() {
-    struct NetIf iface = std::netif_new(&g_nic, loop_send);
+    struct NetIf iface = std::NetIf::new(&g_nic);
     unsafe {
         iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
         iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;

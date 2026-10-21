@@ -12,7 +12,7 @@ extern void srand48(long seed);
 #define LR 0.001
 #define STEPS 50
 
-void sgd_update(&Tensor w) {
+void sgd_update(&FloatTensor w) {
     unsafe {
         unsigned long i = 0UL;
         while (i < w->size) {
@@ -38,11 +38,11 @@ int main() {
     i = 0UL;
     while (i < BATCH * OUT_DIM) { tbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
 
-    &Tensor X = std::tensor_from_2d(xbuf, BATCH, IN_DIM, 0);
-    &Tensor target = std::tensor_from_2d(tbuf, BATCH, OUT_DIM, 0);
+    &FloatTensor X = FloatTensor::from_2d(xbuf, BATCH, IN_DIM, 0);
+    &FloatTensor target = FloatTensor::from_2d(tbuf, BATCH, OUT_DIM, 0);
 
-    &Tensor W1 = std::tensor_new_2d(IN_DIM, HIDDEN, 1);
-    &Tensor W2 = std::tensor_new_2d(HIDDEN, OUT_DIM, 1);
+    &FloatTensor W1 = FloatTensor::new_2d(IN_DIM, HIDDEN, 1);
+    &FloatTensor W2 = FloatTensor::new_2d(HIDDEN, OUT_DIM, 1);
     i = 0UL;
     while (i < IN_DIM * HIDDEN) { unsafe { float* d = (float*)W1->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
     i = 0UL;
@@ -51,28 +51,28 @@ int main() {
     // Each step's temporaries live in a TensorArena that is reset after the
     // step, so ops reuse memory that is already mapped instead of a fresh
     // malloc each (PyTorch's caching allocator does the same).
-    struct TensorArena stepArena = std::tensor_arena_new(0UL);
+    struct TensorArena stepArena = TensorArena::new(0UL);
     double t0 = now_ms();
     int step = 0;
     double lastLoss = 0.0;
     while (step < STEPS) {
-        std::tensor_arena_begin(&stepArena);
-        std::tensor_zero_grad(W1);
-        std::tensor_zero_grad(W2);
+        stepArena.begin();
+        W1.zero_grad();
+        W2.zero_grad();
 
-        &Tensor H = std::tensor_relu(std::tensor_matmul(X, W1));
-        &Tensor Y = std::tensor_matmul(H, W2);
-        &Tensor diff = std::tensor_sub(Y, target);
-        &Tensor sq = std::tensor_mul(diff, diff);
-        &Tensor loss = std::tensor_sum(sq);
+        &FloatTensor H = std::tensor_matmul(X, W1).relu();
+        &FloatTensor Y = std::tensor_matmul(H, W2);
+        &FloatTensor diff = std::tensor_sub(Y, target);
+        &FloatTensor sq = std::tensor_mul(diff, diff);
+        &FloatTensor loss = sq.sum();
 
-        std::tensor_backward(loss);
+        loss.backward();
         sgd_update(W1);
         sgd_update(W2);
 
         unsafe { lastLoss = (double)loss->data[0]; }
         std::tensor_arena_end();
-        std::tensor_arena_reset(&stepArena);
+        stepArena.reset();
         step = step + 1;
     }
     double t1 = now_ms();
@@ -85,12 +85,12 @@ int main() {
     int inf = 0;
     double checksum = 0.0;
     while (inf < 200) {
-        std::tensor_arena_begin(&stepArena);
-        &Tensor H2 = std::tensor_relu(std::tensor_matmul(X, W1));
-        &Tensor Y2 = std::tensor_matmul(H2, W2);
+        stepArena.begin();
+        &FloatTensor H2 = std::tensor_matmul(X, W1).relu();
+        &FloatTensor Y2 = std::tensor_matmul(H2, W2);
         unsafe { checksum = checksum + (double)Y2->data[0]; }
         std::tensor_arena_end();
-        std::tensor_arena_reset(&stepArena);
+        stepArena.reset();
         inf = inf + 1;
     }
     double t3 = now_ms();

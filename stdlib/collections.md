@@ -4,13 +4,14 @@
 
 - element access returns `?&T`, a nullable reference that you must narrow before use — with `match`, `.default(x)`, `.is_null()`, or `std::expect_ref` (see [Nullable references](/reference/types#reading-a-nullable-value));
 - removal returns `?T` (an optional value: `null` when there was nothing to remove);
-- callbacks are typed `fn` values, and orderings are compile-time types (see [Orderings](#orderings)).
+- callbacks are typed `fn` values, and orderings are compile-time types (see [Orderings](#orderings));
+- containers that share a capability spell it with the same method names, and [`traits.h`](#traits) names each capability as a trait, so generic code written once (`push_all`, `enqueue_all`, `drain_into`, or your own) takes every container that has it.
 
 Each container is header-only: `#include <std/collections/vec.h>` is all you need, and every method is monomorphized for your element type, so element access inlines to plain loads and stores. Type arguments are written on the variable and inferred by the constructor from that target type:
 
 ```c
-struct Vec<int> v = std::vec_new();                 // T = int, from the declaration
-struct HashMap<int, long long> m = std::map_new();  // K, V from the declaration
+struct Vec<int> v = std::Vec::new();                 // T = int, from the declaration
+struct HashMap<int, long long> m = std::HashMap::new();  // K, V from the declaration
 ```
 
 ::: tip References into a container are short-lived
@@ -33,6 +34,7 @@ A `?&T` returned by `get()`/`front()`/`find()` points into the container's stora
 | `string.h` | `String` | heap, NUL-terminated | 40+ methods |
 | `ringbuffer.h` | `RingBuffer` | caller-provided static bytes | SPSC, lock-free |
 | `node_pool.h` | `NodePool<N>` | chunked arena + free list | the node allocator behind `List`/`BST` |
+| `traits.h` | capability traits | — | `Sequence`, `Lifo`, `Fifo`, `CountedFifo`, `Map`; generic helpers over them |
 
 ## Orderings {#orderings}
 
@@ -40,19 +42,147 @@ A `?&T` returned by `get()`/`front()`/`find()` points into the container's stora
 #include <std/cmp.h>
 ```
 
-An *ordering* is any struct with `int cmp(const &T a, const &T b) const` returning `<0`, `0` or `>0`. Ordered containers and algorithms take the ordering as a **type parameter**, so after monomorphization each comparison is a direct call that the optimizer inlines — there is no function pointer on the hot path.
+An *ordering* is any struct with `int cmp(const &T a, const &T b) const` returning `<0`, `0` or `>0` — the `Order` trait. Ordered containers and algorithms take the ordering as a **type parameter bounded by `Order`** (`BST<K, V, C: Order>`, `vec_sort_by<T, C: Order>`), so a type without `cmp` is rejected where it is named, and after monomorphization each comparison is a direct call that the optimizer inlines — there is no function pointer on the hot path.
 
 ```c
+trait Order {
+    int cmp(const &Elem_ a, const &Elem_ b) const;   // <0: a first, 0: equivalent, >0: b first
+}
+
 generic<T> struct Less    { int cmp(const &T a, const &T b) const; };   // ascending, by < / >
 generic<T> struct Greater { int cmp(const &T a, const &T b) const; };   // descending
 generic<T> struct FnOrder { fn int(const &T, const &T) f; int cmp(...) const; };  // run-time comparator
 
-generic<T> struct Less<T>    order_less();
-generic<T> struct Greater<T> order_greater();
-generic<T> struct FnOrder<T> order_fn(fn int(const &T, const &T) f);
+// Values, when one is needed (stateless orderings are usually just a type argument):
+static struct Less<T>    Less::new();
+static struct Greater<T> Greater::new();
+static struct FnOrder<T> FnOrder::of(fn int(const &T, const &T) f);
 ```
 
-Write your own ordering as a struct with a `cmp` method — for example to order records by one field — and it gets the same inlining. Use `FnOrder` only when the comparator is chosen at run time.
+`Elem_` stands for "the element type": a trait fixes each method's name, static-ness and parameter count, and the parameter types are each ordering's own (they are checked where the generic body is instantiated). Write your own ordering as a struct with a `cmp` method — for example to order records by one field — and it is an `Order` with the same inlining. Use `FnOrder` only when the comparator is chosen at run time.
+
+```c
+#include <std/collections/vec.h>
+#include <std/collections/bst.h>
+
+struct Job { int priority; int id; };
+
+// An Order of your own: higher priority first. No function pointer anywhere.
+struct ByPriority {
+    int unused_;
+    int cmp(const &Job a, const &Job b) const;
+};
+int ByPriority::cmp(const &Job a, const &Job b) const { return b.priority - a.priority; }
+
+int main() {
+    struct Vec<struct Job> jobs = std::Vec::new();
+    struct Job j;
+    j.priority = 1; j.id = 10; jobs.push(j);
+    j.priority = 5; j.id = 11; jobs.push(j);
+    j.priority = 3; j.id = 12; jobs.push(j);
+
+    struct ByPriority ord;
+    ord.unused_ = 0;
+    std::vec_sort_by(&jobs, ord);                   // ids 11, 12, 10
+
+    struct BST<int, int, Greater<int>> desc = std::BST::new();   // largest key first
+    desc.insert(1, 100); desc.insert(7, 700);
+    int top = desc.min_key().default(0);            // 7: "min" under Greater
+
+    int ok = jobs.at(0UL).id == 11 && top == 7;
+    desc.free();
+    jobs.free();
+    return ok ? 0 : 1;
+}
+```
+
+## Capability traits {#traits}
+
+```c
+#include <std/collections/traits.h>
+```
+
+The containers spell what they have in common with the same method names. `traits.h` names each of those capabilities as a [trait](/reference/generics#composing-traits), one capability each, and composes them into the roles generic code asks for. A container conforms by having the methods — there is nothing to declare — and generic code bounded by a trait takes every conforming container, each call resolved at compile time.
+
+| Trait | Requires | Satisfied by |
+|---|---|---|
+| `Len` | `length()`, `is_empty()` | every container on this page except `NodePool`, plus `MpscQueue` and `LFQueue` |
+| `Clear` | `clear()` | `Vec`, `Stack`, `Queue`, `List`, `HashMap`, `StrMap`, `BST`, `BTree`, `StaticVec`, `StaticMap`, `RingBuffer`, `String` |
+| `Get` | `get(i) -> ?&T` (maps: `get(key)`), null when absent | |
+| `Push` | `push(x)`: 1, or 0 when full / out of memory | |
+| `Pop` | `pop() -> ?T`, null when empty | |
+| `Enqueue` | `enqueue(x)`: 1, or 0 when full (`Chan`: blocks; 0 once closed) | |
+| `Dequeue` | `dequeue() -> ?T`, null when empty (`Chan`: blocks; null once closed and drained) | |
+| `Insert`, `Contains`, `Remove` | `insert(k, v)`, `contains(k)`, `remove(k) -> ?V` | |
+| `Sequence` | `Len + Get + Push` | `Vec`, `StaticVec` |
+| `Lifo` | `Len + Push + Pop` | `Vec`, `Stack`, `StaticVec` |
+| `Fifo` | `Enqueue + Dequeue` | `Queue`, `RingBuffer` (one byte at a time), and from [`std/sync`](/stdlib/sync): `Chan`, `MpscQueue`, `LFQueue` |
+| `CountedFifo` | `Fifo + Len` | `Queue`, `RingBuffer`, `MpscQueue`, `LFQueue` |
+| `Map` | `Len + Insert + Get + Contains + Remove` | `HashMap`, `StrMap`, `BST`, `BTree` (`StaticMap` has no `remove`: it is `Len + Insert + Get + Contains`) |
+
+Every map's `insert` returns nonzero on success and 0 when it is full or out of memory.
+
+The helpers ask only for the capability they use:
+
+| Function | Bound | Does |
+|---|---|---|
+| `push_all(&s, items, n)` | `S: Push` | pushes `items[0..n)` in order, stopping at the first one refused; returns how many went in |
+| `enqueue_all(&q, items, n)` | `Q: Enqueue` | the same with `enqueue` (stops when full, or once a `Chan` is closed) |
+| `drain_into(&q, &out)` | `Q: Dequeue`, `S: Push` | dequeues until `q` is empty (a `Chan`: closed and drained) and pushes each element onto `out`, in order; returns how many moved. Meant for a growable `out` such as a `Vec` |
+
+```c
+#include <std/collections/traits.h>
+#include <std/collections/vec.h>
+#include <std/collections/stack.h>
+#include <std/collections/queue.h>
+#include <std/collections/map.h>
+#include <std/collections/bst.h>
+#include <std/sync/lockfree.h>
+
+// Any FIFO with a length: Queue, MpscQueue, LFQueue, RingBuffer.
+generic<Q: CountedFifo>
+unsigned long backlog_after(&Q q, const &int items, unsigned long n) {
+    std::enqueue_all(q, items, n);
+    q.dequeue();                       // one consumed
+    return q.length();
+}
+
+// Any map: HashMap, StrMap, BST, BTree.
+generic<M: Map>
+int squares(&M m) {
+    int i = 0;
+    while (i < 10) { m.insert(i, i * i); i = i + 1; }
+    m.remove(3);
+    return m.contains(3) ? -1 : (int)m.length();
+}
+
+int main() {
+    int xs[4] = {1, 2, 3, 4};
+
+    struct Queue<int> q = std::Queue::new();
+    struct LFQueue<int> lf = std::LFQueue::new(8UL);
+    unsigned long b1 = backlog_after(&q, &xs[0], 4UL);    // 3
+    unsigned long b2 = backlog_after(&lf, &xs[0], 4UL);   // 3
+
+    struct Vec<int> got = std::Vec::new();
+    unsigned long moved = std::drain_into(&q, &got);       // 3: q -> got, in order
+
+    struct Stack<int> st = std::Stack::new();
+    std::push_all(&st, &xs[0], 4UL);                       // a Lifo: pop() gives 4 first
+
+    struct HashMap<int, int> hm = std::HashMap::new();
+    struct BST<int, int, Less<int>> t = std::BST::new();
+    int n1 = squares(&hm);                                 // 9
+    int n2 = squares(&t);                                  // 9
+
+    int ok = b1 == 3UL && b2 == 3UL && moved == 3UL && got.get(0UL).default(0) == 2
+          && st.pop().default(0) == 4 && n1 == 9 && n2 == 9;
+    t.free(); hm.free(); st.free(); got.free(); lf.destroy(); q.free();
+    return ok ? 0 : 1;
+}
+```
+
+A trait checks each method's name, static-ness and parameter count; the parameter types are checked where a generic body is instantiated. So `Vec`'s `contains(key, cmp)` (two parameters) keeps `Vec` out of `Contains` and `Map`, while `String`'s `push(cstr)` still counts as `Push` — `push_all` over a `String` fails where it passes a `char`. Iteration is not a trait: `foreach` exists on most containers, but its callback shape differs per container (`Vec`: `(&T, index)`, `List`: `(&T)`, maps: `(const &K, &V)`).
 
 
 
@@ -68,6 +198,10 @@ struct Vec {
     ?&heap T      data;   // null while cap == 0
     unsigned long len;
     unsigned long cap;
+
+    static struct Vec<T> new();                                        // empty, no allocation
+    static struct Vec<T> with_cap(unsigned long cap);
+    static struct Vec<T> from_arr(const &T items, unsigned long len);  // copies len elements
 
     int           reserve(unsigned long new_cap);    // 0 on OOM
     void          shrink();                           // cap := len
@@ -98,12 +232,9 @@ struct Vec {
     void          free();
 };
 
-generic<T>    struct Vec<T> vec_new();
-generic<T>    struct Vec<T> vec_with_cap(unsigned long cap);
-generic<T>    struct Vec<T> vec_from_arr(const &T items, unsigned long len);
 generic<T, U> struct Vec<U> vec_map(const &Vec<T> v, fn U(const &T) f);
 
-generic<T, C> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, inlined
+generic<T, C: Order> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, inlined
 generic<T>    void vec_sort(&Vec<T> v);              // vec_sort_by(v, Less<T>)
 ```
 
@@ -116,7 +247,7 @@ extern int printf(const char* fmt, ...);
 static int is_even(const &int x) { return *x % 2 == 0; }
 
 int main() {
-    struct Vec<int> v = std::vec_new();
+    struct Vec<int> v = std::Vec::new();
     int i = 0;
     while (i < 10) { v.push(9 - i); i = i + 1; }
     std::vec_sort(&v);                          // 0 1 2 ... 9
@@ -148,6 +279,9 @@ Open addressing with linear probing; the table grows at a 0.75 load factor, and 
 ```c
 generic<K, V>
 struct HashMap {
+    static struct HashMap<K, V> new();                        // empty, no allocation
+    static struct HashMap<K, V> with_cap(unsigned long cap);  // room for cap entries
+
     int           insert(K key, V val);      // insert or overwrite; 0 on OOM
     ?&V           get(K key) const;          // null if missing
     int           contains(K key) const;
@@ -159,9 +293,6 @@ struct HashMap {
     int           reserve(unsigned long n);  // room for n entries without resizing
     void          free();
 };
-
-generic<K, V> struct HashMap<K, V> map_new();
-generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 ```
 
 Keys are hashed and compared **by their bytes**, so `K` must be fully described by its bytes: integers, enums, pointers, padding-free structs. For 1-, 2-, 4- and 8-byte keys the map reads the key as one word, hashes it with murmur3's 64-bit finalizer and compares with a single integer compare — the size test is an `if const`, resolved at compile time per instantiation. Other sizes use FNV-1a and a byte compare. Use `StrMap` for text keys.
@@ -171,6 +302,7 @@ Keys are hashed and compared **by their bytes**, so `K` must be fully described 
 ```c
 generic<V>
 struct StrMap {
+    static struct StrMap<V> new();
     int           insert(const &char key, V val);   // copies the key
     ?&V           get(const &char key) const;
     int           contains(const &char key) const;
@@ -181,8 +313,6 @@ struct StrMap {
     void          foreach(fn void(const &char, &V) func);
     void          free();
 };
-
-generic<V> struct StrMap<V> str_map_new();
 ```
 
 ```c
@@ -190,7 +320,7 @@ generic<V> struct StrMap<V> str_map_new();
 extern int printf(const char* fmt, ...);
 
 int main() {
-    struct HashMap<int, long long> sq = std::map_new();
+    struct HashMap<int, long long> sq = std::HashMap::new();
     int i = 0;
     while (i < 1000) { sq.insert(i, (long long)i * (long long)i); i = i + 1; }
     match (sq.get(12)) {
@@ -199,7 +329,7 @@ int main() {
     }
     long long gone = sq.remove(3).default(-1LL);   // 9
 
-    struct StrMap<int> ages = std::str_map_new();
+    struct StrMap<int> ages = std::StrMap::new();
     ages.insert("ada", 36);
     unsafe { printf("%lld %lld %d\n", sq.get(12).default(0LL), gone, ages.get("ada").default(0)); }
     ages.free();
@@ -219,6 +349,7 @@ int main() {
 ```c
 generic<T>
 struct List {
+    static struct List<T> new();
     int           push_front(T value);
     int           push_back(T value);
     ?T            pop_front();
@@ -235,8 +366,6 @@ struct List {
     void          clear();
     void          free();
 };
-
-generic<T> struct List<T> list_new();
 ```
 
 Nodes come from the list's own [`NodePool`](#node-pool): pushing doesn't call the allocator per element, popped nodes are recycled, and `free()` releases whole chunks instead of walking the list. A push-then-pop of 1,000,000 elements runs about 2× faster than a C `malloc`/`free`-per-node list.
@@ -253,27 +382,25 @@ Nodes come from the list's own [`NodePool`](#node-pool): pushing doesn't call th
 ```c
 generic<T>
 struct Stack {
+    static struct Stack<T> new();  static struct Stack<T> with_cap(unsigned long cap);
     int push(T value);  ?T pop();  ?&T peek() const;
     unsigned long length() const;  int is_empty() const;
     void clear();  int reserve(unsigned long n);  void free();
 };
-generic<T> struct Stack<T> stack_new();
-generic<T> struct Stack<T> stack_with_cap(unsigned long cap);
 
 generic<T>
 struct Queue {
+    static struct Queue<T> new();  static struct Queue<T> with_cap(unsigned long cap);
     int enqueue(T value);  ?T dequeue();  ?&T front() const;  ?&T back() const;
     unsigned long length() const;  int is_empty() const;
     void clear();  int reserve(unsigned long n);  void free();
 };
-generic<T> struct Queue<T> queue_new();
-generic<T> struct Queue<T> queue_with_cap(unsigned long cap);
 ```
 
 `Queue` is a power-of-two ring buffer: indices wrap with a mask, and growing re-lays the elements out linearly.
 
 ```c
-struct Queue<int> q = std::queue_new();
+struct Queue<int> q = std::Queue::new();
 q.enqueue(1); q.enqueue(2);
 int first = q.dequeue().default(0);    // 1
 q.free();
@@ -288,8 +415,11 @@ q.free();
 ```
 
 ```c
-generic<K, V, C>          // C: an ordering type, see #orderings
+generic<K, V, C: Order>   // C: an ordering type, see #orderings
 struct BST {
+    static struct BST<K, V, C> new();            // stateless C (Less, Greater)
+    static struct BST<K, V, C> new_with(C ord);  // e.g. FnOrder::of(my_cmp)
+
     int           insert(K key, V val);    // insert or overwrite
     ?&V           get(K key) const;
     int           contains(K key) const;
@@ -302,9 +432,6 @@ struct BST {
     void          clear();
     void          free();
 };
-
-generic<K, V, C> struct BST<K, V, C> bst_new();             // stateless C (Less, Greater)
-generic<K, V, C> struct BST<K, V, C> bst_new_with(C ord);   // e.g. order_fn(my_cmp)
 ```
 
 Unbalanced, but every operation is **iterative**: a degenerate (sorted-insert) tree costs O(n) per lookup yet never overflows a small bare-metal stack. In-order traversal is Morris traversal (O(1) extra space, the tree is restored afterwards). Nodes come from a per-tree [`NodePool`](#node-pool).
@@ -316,7 +443,7 @@ extern int printf(const char* fmt, ...);
 static void show(const &int k, &int v) { unsafe { printf("%d=%d ", *k, *v); } }
 
 int main() {
-    struct BST<int, int, Less<int>> t = std::bst_new();
+    struct BST<int, int, Less<int>> t = std::BST::new();
     t.insert(50, 5); t.insert(30, 3); t.insert(70, 7);
     t.foreach_inorder(show);                       // 30=3 50=5 70=7
     unsafe { printf("\nmin=%d removed=%d\n", t.min_key().default(0), t.remove(50).default(0)); }
@@ -338,16 +465,16 @@ A B-tree (minimum degree `BTREE_ORDER` = 4, up to 7 keys per node) keyed by `uns
 ```c
 generic<V>
 struct BTree {
-    int           insert(unsigned long key, V val);   // 0 ok, -1 if the pool is full
+    void          init();   // empty tree, in place (scalar fields only, no pool copy)
+    int           insert(unsigned long key, V val);   // insert or overwrite; 0 if the pool is full
     ?&V           get(unsigned long key) const;
     int           contains(unsigned long key) const;
     ?V            remove(unsigned long key);
-    unsigned long len() const;
+    unsigned long length() const;
+    int           is_empty() const;
     void          foreach(fn void(unsigned long, &V) cb);   // ascending
     void          clear();
 };
-
-generic<V> void btree_init(&BTree<V> t);
 ```
 
 The pool makes a `BTree` large (tens of KB), so keep it in static storage or allocate it, rather than putting it on the stack:
@@ -356,7 +483,7 @@ The pool makes a `BTree` large (tens of KB), so keep it in static storage or all
 static struct BTree<int> g_index;
 
 void setup() {
-    std::btree_init(&g_index);
+    g_index.init();
     g_index.insert(42UL, 7);
     int v = g_index.get(42UL).default(0);
 }
@@ -376,6 +503,9 @@ struct Slice {
     ?&T           ptr;   // first element; null for an empty slice
     unsigned long len;
 
+    static struct Slice<T> of(&T first, unsigned long len);   // a view
+    static struct Slice<T> alloc(unsigned long len);          // zeroed heap slice
+
     int             in_bounds(unsigned long idx) const;
     ?&T             get(unsigned long idx) const;
     &T              at(unsigned long idx) const;          // panics if out of range
@@ -383,11 +513,8 @@ struct Slice {
     struct Slice<T> sub(unsigned long start, unsigned long end) const;  // [start, end)
     unsigned long   length() const;
     int             is_empty() const;
-    void            free();                                // only for slice_alloc()
+    void            free();                                // only for Slice::alloc()
 };
-
-generic<T> struct Slice<T> slice_of(&T first, unsigned long len);
-generic<T> struct Slice<T> slice_alloc(unsigned long len);    // zeroed heap slice
 
 // The same checks on a bare (first element, length) pair:
 generic<T> ?&T  arr_at(&T first, unsigned long len, unsigned long idx);
@@ -401,7 +528,7 @@ generic<T> void arr_reverse(&T first, unsigned long len);
 
 ```c
 int arr[8];
-struct Slice<int> s = std::slice_of(&arr[0], 8UL);
+struct Slice<int> s = std::Slice::of(&arr[0], 8UL);
 struct Slice<int> mid = s.sub(2UL, 5UL);   // elements 2, 3, 4
 int x = mid.get(0UL).default(0);
 ```
@@ -419,19 +546,19 @@ Fixed-capacity containers over storage you provide (a static or stack array), so
 ```c
 generic<T>
 struct StaticVec {
+    static struct StaticVec<T> over(&T storage, unsigned long cap);
     int push(T val);  ?T pop();  ?&T top() const;  ?&T get(unsigned long idx) const;
     unsigned long length() const;  int is_empty() const;  int is_full() const;  void clear();
 };
-generic<T> struct StaticVec<T> static_vec_init(&T storage, unsigned long cap);
 
 generic<V> struct StaticMapSlot { unsigned long key; V val; int used; };
 generic<V>
 struct StaticMap {
+    static struct StaticMap<V> over(&StaticMapSlot<V> storage, unsigned long cap);
     int insert(unsigned long key, V val);   // 0 if full
     ?&V get(unsigned long key) const;  int contains(unsigned long key) const;
-    unsigned long length() const;  void clear();
+    unsigned long length() const;  int is_empty() const;  void clear();
 };
-generic<V> struct StaticMap<V> static_map_init(&StaticMapSlot<V> storage, unsigned long cap);
 ```
 
 ```c
@@ -439,9 +566,9 @@ static int g_buf[32];
 static struct StaticMapSlot<int> g_slots[64];
 
 void demo() {
-    struct StaticVec<int> v = std::static_vec_init(&g_buf[0], 32UL);
+    struct StaticVec<int> v = std::StaticVec::over(&g_buf[0], 32UL);
     v.push(42);
-    struct StaticMap<int> m = std::static_map_init(&g_slots[0], 64UL);
+    struct StaticMap<int> m = std::StaticMap::over(&g_slots[0], 64UL);
     m.insert(5UL, 100);
     int hundred = m.get(5UL).default(0);
 }
@@ -462,11 +589,11 @@ The container keeps a region-less reference to the storage, so the array must ou
 ```c
 generic<N>
 struct NodePool {
+    static struct NodePool<N> new();
     ?&heap N take();              // an uninitialised node; null on OOM
     void     give(&heap N node);  // recycle a node
     void     free_all();
 };
-generic<N> struct NodePool<N> node_pool_new();
 ```
 
 Compared with one `std::alloc` per node, this drops the allocator's 16-byte safety header and size-class padding per node and makes tearing down a container O(chunks). A node handed back with `give()` is reused by the next `take()`: a reference kept to a removed element dangles exactly as it would after `dealloc()`.
@@ -577,12 +704,14 @@ struct String {
 ### Constructors {#constructors}
 
 ```c
-struct String string_new();
-struct String string_from(const &char s);
-struct String string_from_n(const &char s, unsigned long n);
-struct String string_with_cap(unsigned long cap);
-struct String string_repeat(const &char s, unsigned long n);
-struct String string_join(const &char sep, &String parts, unsigned long count);
+// static methods of String: String::new(), std::String::from("x") from outside namespace std
+static struct String String::new();
+static struct String String::from(const &char s);
+static struct String String::from_n(const &char s, unsigned long n);
+static struct String String::with_cap(unsigned long cap);
+static struct String String::repeat_str(const &char s, unsigned long n);   // s repeated n times
+// parts[0..count) concatenated with sep between each (null sep: none)
+static struct String String::join(const &char sep, &String parts, unsigned long count);
 ```
 
 ### Example {#example}
@@ -594,7 +723,7 @@ Verified against a real compile/run:
 extern int printf(const char* fmt, ...);
 
 int main() {
-    struct String s = std::string_from("Hello");
+    struct String s = std::String::from("Hello");
     s.push(", SafeC!");
     printf("%s\n", s.as_ptr());              // Hello, SafeC!
     printf("contains=%d\n", s.contains("SafeC"));  // 1
@@ -602,7 +731,7 @@ int main() {
     struct String upper = s.to_upper();
     printf("%s\n", upper.as_ptr());          // HELLO, SAFEC!
 
-    struct String num = std::string_new();
+    struct String num = std::String::new();
     num.push("value = ");
     num.push_int(42LL);
     printf("%s\n", num.as_ptr());            // value = 42
@@ -636,7 +765,11 @@ struct RingBuffer {
     volatile unsigned long head; // write position (producer)
     volatile unsigned long tail; // read position (consumer)
 
-    unsigned long readable() const;          // bytes available to read
+    // Initialise over an existing static-lifetime backing store;
+    // `cap` is rounded down to a power of two.
+    static struct RingBuffer over(&static unsigned char buf, unsigned long cap);
+
+    unsigned long length() const;            // bytes available to read
     unsigned long writable() const;          // bytes that can be written
     int           is_empty() const;
     int           is_full() const;
@@ -644,13 +777,14 @@ struct RingBuffer {
     unsigned long write(const &unsigned char data, unsigned long len);
     unsigned long read(&unsigned char out, unsigned long len);
     unsigned long peek(&unsigned char out, unsigned long len) const;
+
+    // One byte at a time (the Fifo protocol, see #traits)
+    int            enqueue(unsigned char b);   // 1, or 0 if full
+    ?unsigned char dequeue();                  // null if empty
+
     unsigned long discard(unsigned long len);
     void          clear();
 };
-
-// Initialise with an existing static-lifetime backing store.
-// `cap` must be a power of two.
-struct RingBuffer ring_init(&static unsigned char buf, unsigned long cap);
 ```
 
 ### Example {#example-1}
@@ -662,11 +796,11 @@ extern int printf(const char* fmt, ...);
 static unsigned char g_storage[128];        // static backing store, no heap
 
 int main() {
-    struct RingBuffer rb = std::ring_init(&g_storage[0], 128UL);
+    struct RingBuffer rb = std::RingBuffer::over(&g_storage[0], 128UL);
     unsigned char tx[5];
     unsafe { tx[0] = 'H'; tx[1] = 'e'; tx[2] = 'l'; tx[3] = 'l'; tx[4] = 'o'; }
     rb.write(&tx[0], 5UL);
-    unsafe { printf("readable: %lu\n", rb.readable()); }   // 5
+    unsafe { printf("readable: %lu\n", rb.length()); }     // 5
 
     unsigned char rx[5];
     rb.read(&rx[0], 5UL);

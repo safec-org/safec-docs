@@ -40,7 +40,7 @@ void gemma4_bf16_free(&Gemma4Bf16Tensor t) {
     t.shape0 = 0UL; t.shape1 = 0UL; t.ndim = 0UL; t.size = 0UL;
 }
 
-struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &Tensor t) {
+struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &FloatTensor t) {
     unsigned long s0; unsigned long s1; unsigned long nd;
     unsafe {
         s0 = t->shape[0];
@@ -53,9 +53,9 @@ struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &Tensor t) {
     return out;
 }
 
-struct Tensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t) {
-    struct Tensor* out;
-    if (t.ndim > 1UL) { out = tensor_new_2d(t.shape0, t.shape1, 0); } else { out = tensor_new_1d(t.shape0, 0); }
+FloatTensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t) {
+    FloatTensor* out;
+    if (t.ndim > 1UL) { out = FloatTensor::new_2d(t.shape0, t.shape1, 0); } else { out = FloatTensor::new_1d(t.shape0, 0); }
     unsafe { bf16_to_f32_bulk(t.data, (float*)out->data, t.size); }
     return out;
 }
@@ -81,7 +81,7 @@ static int __g4bf16_weightBufCacheInit = 0;
 
 static void __g4bf16_ensure_weight_cache() {
     if (!__g4bf16_weightBufCacheInit) {
-        __g4bf16_weightBufCache = map_new();
+        __g4bf16_weightBufCache = HashMap::new();
         __g4bf16_weightBufCacheInit = 1;
     }
 }
@@ -144,7 +144,7 @@ extern void cblas_sgemm(int order, int transA, int transB,
 // trick std/ml/tensor_blas.sc's own backward pass uses), narrow the f32
 // result back to bf16.
 // CPU path for a few rows (decode; speculative verification; a short
-// prompt's prefill): one std::half_gemv_batch over the bf16 weight as stored
+// prompt's prefill): one BF16Tensor::gemv_batch over the bf16 weight as stored
 // -- no float32 copy of the matrix, which __g4bf16_linear_cpu_blas makes on
 // every call (1.6 GB for the tied LM head) -- reading the weights once for
 // all the rows.
@@ -152,15 +152,18 @@ extern void cblas_sgemm(int order, int transA, int transB,
 static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_gemv(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor w,
                                                           unsigned long rows, unsigned long inF, unsigned long outF) {
     struct Gemma4Bf16Tensor result = gemma4_bf16_new_2d(rows, outF);
-    struct HalfTensor wv;
+    // A BF16Tensor view of w's storage (gemv reads only data/shape/ndim).
+    BF16Tensor wv;
+    unsigned long wvShape[2];
     float* xF; float* yF;
     unsafe {
-        wv.data = (&heap unsigned short)w.data;
-        wv.shape[0] = outF; wv.shape[1] = inF; wv.ndim = 2UL; wv.size = outF * inF; wv.dtype = TENSOR_BF16;
+        wvShape[0] = outF; wvShape[1] = inF;
+        wv.data = (&heap BF16)w.data;
+        wv.shape = (&heap unsigned long)&wvShape[0]; wv.ndim = 2UL; wv.size = outF * inF;
         xF = (float*)malloc(sizeof(float) * inF * rows);
         yF = (float*)malloc(sizeof(float) * outF * rows);
         bf16_to_f32_bulk(&x.data[0], xF, inF * rows);
-        half_gemv_batch(&wv, (const &float)xF, rows, (&float)yF);
+        wv.gemv_batch((const &float)xF, rows, (&float)yF);
         f32_to_bf16_bulk((const float*)yF, &result.data[0], outF * rows);
         free((void*)xF); free((void*)yF);
     }
@@ -231,7 +234,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_linear(const &Gemma4Bf16Tensor x, const &Gem
 // passes over the row, narrows back to bf16 only for the final write,
 // same "widen at the point of use, narrow at the point of storage"
 // discipline as everywhere else in this file, just element-at-a-time
-// instead of through a temporary whole-row F32 Tensor.
+// instead of through a temporary whole-row FloatTensor.
 struct Gemma4Bf16Tensor gemma4_bf16_rmsnorm_rows(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor weight, float eps) {
     unsigned long rows = x.shape0; unsigned long cols = x.shape1;
     struct Gemma4Bf16Tensor out = gemma4_bf16_new_2d(rows, cols);
@@ -289,11 +292,11 @@ struct Gemma4Bf16Tensor gemma4_bf16_rmsnorm_rows_noscale(const &Gemma4Bf16Tensor
 }
 
 struct Gemma4Bf16Tensor gemma4_bf16_add(const &Gemma4Bf16Tensor a, const &Gemma4Bf16Tensor b) {
-    struct Tensor* aF = gemma4_bf16_to_f32(a);
-    struct Tensor* bF = gemma4_bf16_to_f32(b);
+    FloatTensor* aF = gemma4_bf16_to_f32(a);
+    FloatTensor* bF = gemma4_bf16_to_f32(b);
     struct Gemma4Bf16Tensor result;
     unsafe {
-        &Tensor outF = tensor_add(aF, bF);
+        &FloatTensor outF = tensor_add(aF, bF);
         aF->free(); bF->free();
         result = gemma4_bf16_from_f32(outF);
         outF.free();
@@ -302,11 +305,11 @@ struct Gemma4Bf16Tensor gemma4_bf16_add(const &Gemma4Bf16Tensor a, const &Gemma4
 }
 
 struct Gemma4Bf16Tensor gemma4_bf16_mul(const &Gemma4Bf16Tensor a, const &Gemma4Bf16Tensor b) {
-    struct Tensor* aF = gemma4_bf16_to_f32(a);
-    struct Tensor* bF = gemma4_bf16_to_f32(b);
+    FloatTensor* aF = gemma4_bf16_to_f32(a);
+    FloatTensor* bF = gemma4_bf16_to_f32(b);
     struct Gemma4Bf16Tensor result;
     unsafe {
-        &Tensor outF = tensor_mul(aF, bF);
+        &FloatTensor outF = tensor_mul(aF, bF);
         aF->free(); bF->free();
         result = gemma4_bf16_from_f32(outF);
         outF.free();
@@ -315,10 +318,10 @@ struct Gemma4Bf16Tensor gemma4_bf16_mul(const &Gemma4Bf16Tensor a, const &Gemma4
 }
 
 struct Gemma4Bf16Tensor gemma4_bf16_scale(const &Gemma4Bf16Tensor x, float k) {
-    struct Tensor* xF = gemma4_bf16_to_f32(x);
+    FloatTensor* xF = gemma4_bf16_to_f32(x);
     struct Gemma4Bf16Tensor result;
     unsafe {
-        &Tensor outF = tensor_scale(xF, k);
+        &FloatTensor outF = xF->scale(k);
         xF->free();
         result = gemma4_bf16_from_f32(outF);
         outF.free();

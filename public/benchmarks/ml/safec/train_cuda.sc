@@ -42,7 +42,7 @@ extern void srand48(long seed);
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 static struct Vec<float> random_vec(unsigned long n, double scale) {
-    struct Vec<float> v = std::vec_with_cap(n);
+    struct Vec<float> v = std::Vec::with_cap(n);
     unsigned long i = 0UL;
     while (i < n) { unsafe { v.push((float)((drand48() - 0.5) * scale)); } i = i + 1UL; }
     return v;
@@ -64,24 +64,24 @@ static struct Mlp mlp_new(unsigned long B, unsigned long I, unsigned long H, uns
     struct Vec<float> t = random_vec(B * O, 1.0);
     struct Vec<float> w1 = random_vec(I * H, 0.1);
     struct Vec<float> w2 = random_vec(H * O, 0.1);
-    m.X = std::cuda_upload(x.at(0UL), B * I);
-    m.T = std::cuda_upload(t.at(0UL), B * O);
-    m.W1 = std::cuda_upload(w1.at(0UL), I * H);
-    m.W2 = std::cuda_upload(w2.at(0UL), H * O);
+    m.X = CudaBuf::upload(x.at(0UL), B * I);
+    m.T = CudaBuf::upload(t.at(0UL), B * O);
+    m.W1 = CudaBuf::upload(w1.at(0UL), I * H);
+    m.W2 = CudaBuf::upload(w2.at(0UL), H * O);
     x.free(); t.free(); w1.free(); w2.free();
-    m.Z1 = std::cuda_alloc(B * H);  m.Hh = std::cuda_alloc(B * H);
-    m.Y = std::cuda_alloc(B * O);   m.dY = std::cuda_alloc(B * O);
-    m.dW2 = std::cuda_alloc(H * O); m.dH = std::cuda_alloc(B * H);
-    m.dZ1 = std::cuda_alloc(B * H); m.dW1 = std::cuda_alloc(I * H);
-    m.loss = std::cuda_alloc(1UL);
+    m.Z1 = CudaBuf::alloc(B * H);  m.Hh = CudaBuf::alloc(B * H);
+    m.Y = CudaBuf::alloc(B * O);   m.dY = CudaBuf::alloc(B * O);
+    m.dW2 = CudaBuf::alloc(H * O); m.dH = CudaBuf::alloc(B * H);
+    m.dZ1 = CudaBuf::alloc(B * H); m.dW1 = CudaBuf::alloc(I * H);
+    m.loss = CudaBuf::alloc(1UL);
     return m;
 }
 
 static void mlp_free(&Mlp m) {
-    std::cuda_free(&m.X); std::cuda_free(&m.T); std::cuda_free(&m.W1); std::cuda_free(&m.W2);
-    std::cuda_free(&m.Z1); std::cuda_free(&m.Hh); std::cuda_free(&m.Y); std::cuda_free(&m.dY);
-    std::cuda_free(&m.dW2); std::cuda_free(&m.dH); std::cuda_free(&m.dZ1); std::cuda_free(&m.dW1);
-    std::cuda_free(&m.loss);
+    m.X.free(); m.T.free(); m.W1.free(); m.W2.free();
+    m.Z1.free(); m.Hh.free(); m.Y.free(); m.dY.free();
+    m.dW2.free(); m.dH.free(); m.dZ1.free(); m.dW1.free();
+    m.loss.free();
 }
 
 static void forward(&Mlp m, int fused) {
@@ -169,8 +169,8 @@ static void run(const char* label, unsigned long B, unsigned long I, unsigned lo
                label, modeName, t1 - t0, (double)lossHost[0],
                (double)(steps * B) / ((t1 - t0) / 1000.0), passes, t2 - t1, checksum);
     }
-    std::cuda_graph_free(&stepGraph);
-    std::cuda_graph_free(&fwdGraph);
+    stepGraph.free();
+    fwdGraph.free();
     mlp_free(&m);
 }
 
@@ -192,24 +192,24 @@ static struct HalfMlp half_new(unsigned long B, unsigned long I, unsigned long H
     struct Vec<float> t = random_vec(B * O, 1.0);
     struct Vec<float> w1 = random_vec(I * H, 0.1);
     struct Vec<float> w2 = random_vec(H * O, 0.1);
-    m.X = std::cuda_half_upload(x.at(0UL), B * I, dt);
-    m.T = std::cuda_half_upload(t.at(0UL), B * O, dt);
-    m.W1 = std::cuda_half_upload(w1.at(0UL), I * H, dt);
-    m.W2 = std::cuda_half_upload(w2.at(0UL), H * O, dt);
+    m.X = CudaHalfBuf::upload(x.at(0UL), B * I, dt);
+    m.T = CudaHalfBuf::upload(t.at(0UL), B * O, dt);
+    m.W1 = CudaHalfBuf::upload(w1.at(0UL), I * H, dt);
+    m.W2 = CudaHalfBuf::upload(w2.at(0UL), H * O, dt);
     x.free(); t.free(); w1.free(); w2.free();
-    m.Hh = std::cuda_half_alloc(B * H, dt);  m.Y = std::cuda_half_alloc(B * O, dt);
-    m.dY = std::cuda_half_alloc(B * O, dt);  m.dW2 = std::cuda_half_alloc(H * O, dt);
-    m.dH = std::cuda_half_alloc(B * H, dt);  m.dZ1 = std::cuda_half_alloc(B * H, dt);
-    m.dW1 = std::cuda_half_alloc(I * H, dt);
-    m.loss = std::cuda_alloc(1UL);
+    m.Hh = CudaHalfBuf::alloc(B * H, dt);  m.Y = CudaHalfBuf::alloc(B * O, dt);
+    m.dY = CudaHalfBuf::alloc(B * O, dt);  m.dW2 = CudaHalfBuf::alloc(H * O, dt);
+    m.dH = CudaHalfBuf::alloc(B * H, dt);  m.dZ1 = CudaHalfBuf::alloc(B * H, dt);
+    m.dW1 = CudaHalfBuf::alloc(I * H, dt);
+    m.loss = CudaBuf::alloc(1UL);
     return m;
 }
 
 static void half_free(&HalfMlp m) {
-    std::cuda_half_free(&m.X); std::cuda_half_free(&m.T); std::cuda_half_free(&m.W1); std::cuda_half_free(&m.W2);
-    std::cuda_half_free(&m.Hh); std::cuda_half_free(&m.Y); std::cuda_half_free(&m.dY);
-    std::cuda_half_free(&m.dW2); std::cuda_half_free(&m.dH); std::cuda_half_free(&m.dZ1);
-    std::cuda_half_free(&m.dW1); std::cuda_free(&m.loss);
+    m.X.free(); m.T.free(); m.W1.free(); m.W2.free();
+    m.Hh.free(); m.Y.free(); m.dY.free();
+    m.dW2.free(); m.dH.free(); m.dZ1.free();
+    m.dW1.free(); m.loss.free();
 }
 
 static void half_forward(&HalfMlp m) {
@@ -270,8 +270,8 @@ static void run_half(const char* label, unsigned long B, unsigned long I, unsign
                label, dt == CUDA_BF16 ? "bf16" : "fp16", t1 - t0, (double)lossHost[0],
                (double)(steps * B) / ((t1 - t0) / 1000.0), passes, t2 - t1, checksum);
     }
-    std::cuda_graph_free(&stepGraph);
-    std::cuda_graph_free(&fwdGraph);
+    stepGraph.free();
+    fwdGraph.free();
     half_free(&m);
 }
 

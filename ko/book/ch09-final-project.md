@@ -39,7 +39,7 @@ struct Store {
 
 ```c
 void Store::init() {
-    self.entries = std::str_map_new();
+    self.entries = std::StrMap::new();
 }
 
 void Store::set(const &char key, const &char value) {
@@ -47,7 +47,7 @@ void Store::set(const &char key, const &char value) {
         case some(old): old.free();
         case none:      { }
     }
-    self.entries.insert(key, std::string_from(value));
+    self.entries.insert(key, std::String::from(value));
 }
 ```
 

@@ -21,7 +21,7 @@ static int cmp_int(const &int a, const &int b) { return *a < *b ? -1 : (*a > *b 
 
 int main() {
     // Deterministic shuffle (xorshift64) so both versions see identical keys.
-    struct Vec<int> keys = std::vec_with_cap(N);
+    struct Vec<int> keys = std::Vec::with_cap(N);
     unsigned long i = 0UL;
     while (i < N) { keys.push((int)i); i = i + 1UL; }
     unsigned long long s = 88172645463325252ULL;
@@ -35,7 +35,7 @@ int main() {
 
     // Vec: push + sort
     double t0 = now_ms();
-    struct Vec<int> v = std::vec_new();
+    struct Vec<int> v = std::Vec::new();
     i = 0UL;
     while (i < N) { v.push(*keys.at(i)); i = i + 1UL; }
     double t1 = now_ms();
@@ -46,7 +46,7 @@ int main() {
     v.free();
 
     // HashMap<int,int>: insert, get
-    struct HashMap<int, int> m = std::map_new();
+    struct HashMap<int, int> m = std::HashMap::new();
     double t3 = now_ms();
     i = 0UL;
     while (i < N) { int k = *keys.at(i); m.insert(k, k); i = i + 1UL; }
@@ -60,7 +60,7 @@ int main() {
     m.free();
 
     // List<int>: push_back + pop_front
-    struct List<int> l = std::list_new();
+    struct List<int> l = std::List::new();
     double t6 = now_ms();
     i = 0UL;
     while (i < N) { l.push_back(*keys.at(i)); i = i + 1UL; }
@@ -70,7 +70,7 @@ int main() {
     report("list push+pop", t7 - t6, sum);
 
     // Queue<int>: enqueue + dequeue
-    struct Queue<int> q = std::queue_new();
+    struct Queue<int> q = std::Queue::new();
     double t8 = now_ms();
     i = 0UL;
     while (i < N) { q.enqueue(*keys.at(i)); i = i + 1UL; }
@@ -81,7 +81,7 @@ int main() {
     q.free();
 
     // BST<int,int>: insert (shuffled, so not degenerate), then get
-    struct BST<int, int, Less<int>> t = std::bst_new();
+    struct BST<int, int, Less<int>> t = std::BST::new();
     double ta = now_ms();
     i = 0UL;
     while (i < N) { int k = *keys.at(i); t.insert(k, k); i = i + 1UL; }

@@ -49,10 +49,10 @@ static double time_case(&Vec<float> host, struct CudaAttnShape a, int dtype, int
     unsigned long kn = a.batch * a.kvHeads * a.kvLen * a.headDim;
     double ms = -1.0;
     if (dtype == 0) {
-        struct CudaBuf q = std::cuda_upload(host.at(0UL), qn);
-        struct CudaBuf k = std::cuda_upload(host.at(qn), kn);
-        struct CudaBuf v = std::cuda_upload(host.at(qn + kn), kn);
-        struct CudaBuf o = std::cuda_alloc(qn);
+        struct CudaBuf q = CudaBuf::upload(host.at(0UL), qn);
+        struct CudaBuf k = CudaBuf::upload(host.at(qn), kn);
+        struct CudaBuf v = CudaBuf::upload(host.at(qn + kn), kn);
+        struct CudaBuf o = CudaBuf::alloc(qn);
         int ok = 1;
         int i = 0;
         while (i < warm + iters && ok) {
@@ -63,12 +63,12 @@ static double time_case(&Vec<float> host, struct CudaAttnShape a, int dtype, int
         }
         ok = ok && std::cuda_sync();
         ms = ok ? (now_ms() - ms) / (double)iters : -1.0;
-        std::cuda_free(&q); std::cuda_free(&k); std::cuda_free(&v); std::cuda_free(&o);
+        q.free(); k.free(); v.free(); o.free();
     } else {
-        struct CudaHalfBuf q = std::cuda_half_upload(host.at(0UL), qn, dtype);
-        struct CudaHalfBuf k = std::cuda_half_upload(host.at(qn), kn, dtype);
-        struct CudaHalfBuf v = std::cuda_half_upload(host.at(qn + kn), kn, dtype);
-        struct CudaHalfBuf o = std::cuda_half_alloc(qn, dtype);
+        struct CudaHalfBuf q = CudaHalfBuf::upload(host.at(0UL), qn, dtype);
+        struct CudaHalfBuf k = CudaHalfBuf::upload(host.at(qn), kn, dtype);
+        struct CudaHalfBuf v = CudaHalfBuf::upload(host.at(qn + kn), kn, dtype);
+        struct CudaHalfBuf o = CudaHalfBuf::alloc(qn, dtype);
         int ok = 1;
         int i = 0;
         while (i < warm + iters && ok) {
@@ -79,7 +79,7 @@ static double time_case(&Vec<float> host, struct CudaAttnShape a, int dtype, int
         }
         ok = ok && std::cuda_sync();
         ms = ok ? (now_ms() - ms) / (double)iters : -1.0;
-        std::cuda_half_free(&q); std::cuda_half_free(&k); std::cuda_half_free(&v); std::cuda_half_free(&o);
+        q.free(); k.free(); v.free(); o.free();
     }
     return ms;
 }
@@ -109,7 +109,7 @@ int main() {
     unsafe { printf("device: %s\n", std::cuda_device_name()); }
     // One host buffer large enough for q, k and v of the largest case.
     unsigned long maxn = BATCH * HEADS * 16384UL * 64UL;   // = 4 x 32 x 4096 x 128, the GQA query
-    struct Vec<float> host = std::vec_with_cap(3UL * maxn);
+    struct Vec<float> host = std::Vec::with_cap(3UL * maxn);
     unsigned long x = 88172645463325252UL;
     unsigned long i = 0UL;
     while (i < 3UL * maxn) {

@@ -23,6 +23,15 @@
 struct Value {
     int kind;   // one of the VAL_* constants above
 
+    // Construction.
+    static struct Value null();
+    static struct Value from_bool(int v);
+    static struct Value from_int(long long v);
+    static struct Value from_float(double v);
+    static struct Value from_str(const &char s);   // copies s
+    static struct Value array();                   // empty; grow with v.array_push
+    static struct Value object();                  // empty; grow with v.object_set
+
     int kind_of() const;
     int is_null() const;
     int as_bool() const;
@@ -39,25 +48,23 @@ struct Value {
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
     ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
+
+    // Building and lifetime.
+    void            array_push(struct Value v);                    // takes ownership of v
+    void            object_set(const &char key, struct Value v);   // takes ownership of v
+    struct Value    clone() const;                                 // deep copy
+    void            free();                                        // releases the whole tree
+
+    // Text formats (any Format, see below).
+    generic<F: Format> struct String encode(F f) const;                                  // a fresh String
+    generic<F: Format> static struct Value decode(F f, const &char text, ?&int ok);    // *ok: 1, or 0
 }
-
-struct Value value_null();
-struct Value value_bool(int v);
-struct Value value_int(long long v);
-struct Value value_float(double v);
-struct Value value_string(const &char s);   // copies s
-struct Value value_array();                 // empty; grow with value_array_push
-struct Value value_object();                // empty; grow with value_object_set
-
-void value_array_push(&Value arr, struct Value v);
-void value_object_set(&Value obj, const &char key, struct Value v);
-
-struct Value value_clone(const &Value v);
-void value_free(&Value v);
 ```
 
+From outside `namespace std` the constructors are `std::Value::object()`, `std::Value::from_str("...")`, and so on. Each format module also keeps its own free functions (`json_write` / `value_to_json` / `json_parse`, `xml_parse`, `yaml_parse`, `csv_parse`, `html_parse`); `encode` / `decode` reach the same code through the [`Format`](#format) trait.
+
 ::: warning Ownership
-`value_array_push`/`value_object_set` **take ownership** of the `Value` you pass — don't free it yourself afterward, and call `value_clone()` first if you still need your own copy. `value_free()` recursively releases an entire tree (strings, array elements, object entries).
+`array_push`/`object_set` **take ownership** of the `Value` you pass — don't free it yourself afterward, and call `.clone()` first if you still need your own copy. `.free()` recursively releases an entire tree (strings, array elements, object entries).
 :::
 
 `object_get` returns a *nullable* reference — unwrap it with `match` (or `.is_null()`/`.default()`) rather than chaining straight into a field or method, the same rule that applies to every `?&T` in SafeC (see [Safety](/reference/safety#nullability-enforcement)):
@@ -85,9 +92,9 @@ extern int printf(const char* fmt, ...);
 struct Point { double x; double y; struct Value to_value() const; };
 
 struct Value Point::to_value() const {
-    struct Value v = value_object();
-    value_object_set(&v, "x", value_float(self.x));
-    value_object_set(&v, "y", value_float(self.y));
+    struct Value v = Value::object();
+    v.object_set("x", Value::from_float(self.x));
+    v.object_set("y", Value::from_float(self.y));
     return v;
 }
 
@@ -99,12 +106,76 @@ int main() {
     unsafe { printf("%s\n", json.as_ptr()); }   // {"x":1.5,"y":2.5}
 
     json.free();
-    value_free(&pv);
+    pv.free();
     return 0;
 }
 ```
 
 A `from_value(const &Value)` method covers the decode direction the same way — read fields back out with `object_get`/`array_at`/`as_int`/etc.
+
+## Formats as a Trait {#format}
+
+Every text backend is also a small struct whose two methods are that format's writer and parser, and the `Format` trait in `value.h` names that shape:
+
+```c
+trait Format {
+    void         write(const &Value v, &String out) const;   // appends v's text to out
+    struct Value parse(const &char text, ?&int ok) const;    // *ok: 1, or 0 on malformed input
+}
+```
+
+| Backend | Header | Construct | Same as |
+|---|---|---|---|
+| `Json` | `json.h` | `Json::new()` | `json_write` / `json_parse` |
+| `Yaml` | `yaml.h` | `Yaml::new()` | `yaml_write` / `yaml_parse` |
+| `Csv` | `csv.h` | `Csv::new()` | `csv_write` / `csv_parse` |
+| `Xml` | `xml.h` | `Xml::new("root")` | `xml_write(v, root, out)` / `xml_parse`; carries the root element's tag, which must outlive it |
+| `Html` | `html.h` | `Html::new()` | `html_write` / `html_parse` |
+
+`v.encode(f)` returns a fresh `String` holding the tree in format `f`; `Value::decode(f, text, &ok)` parses it. Both are [methods with their own type parameter](/reference/generics#methods-with-their-own-type-parameters) bounded by `Format`, so the format is chosen at compile time and the call is direct — no table of function pointers. Generic code takes a format the same way, and any struct of your own with `write` and `parse` methods of these shapes is a `Format` too:
+
+```c
+#include <std/serial/value.h>
+#include <std/serial/json.h>
+#include <std/serial/yaml.h>
+#include <std/serial/xml.h>
+#include <std/io.h>
+
+// Written once, works for every format: encode, then decode the text back.
+generic<F: Format>
+long long round_trip_age(F f, const &Value v) {
+    struct String text = v.encode(f);
+    int ok = 0;
+    struct Value back = std::Value::decode(f, text.as_ptr(), &ok);
+    long long age = -1LL;
+    match (back.object_get("age")) {
+        case some(a): age = a.as_int();
+        case null:    { }
+    }
+    back.free();
+    text.free();
+    return ok ? age : -1LL;
+}
+
+int main() {
+    struct Value v = std::Value::object();
+    v.object_set("name", std::Value::from_str("Ada"));
+    v.object_set("age", std::Value::from_int(36LL));
+
+    struct String json = v.encode(std::Json::new());
+    std::println(json.as_ptr());                               // {"name":"Ada","age":36}
+
+    long long a1 = round_trip_age(std::Json::new(), &v);
+    long long a2 = round_trip_age(std::Yaml::new(), &v);
+    long long a3 = round_trip_age(std::Xml::new("person"), &v);
+
+    json.free();
+    v.free();
+    return a1 == 36LL && a2 == 36LL && a3 == 36LL ? 0 : 1;
+}
+```
+
+Markdown and Protobuf are not `Format`s: Markdown has its own AST rather than a `Value` tree, and Protobuf is a binary encoding written field by field against a schema.
 
 ## JSON {#json}
 
@@ -113,16 +184,16 @@ void json_write(const &Value v, &String out);   // appends; doesn't clear 'out' 
 struct String value_to_json(const &Value v);      // convenience: fresh String
 
 struct Value json_parse(const &char text, ?&int ok);
-    // *ok = 1 and the parsed tree on success; *ok = 0 and value_null() on
+    // *ok = 1 and the parsed tree on success; *ok = 0 and Value::null() on
     // failure. Ignores trailing content after the first complete value.
 ```
 
 JSON is the only one of the five formats with no structural ambiguity — its syntax marks type explicitly, so it round-trips exactly, including numeric-looking or empty strings.
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada"));
+v.object_set("age", Value::from_int(36));
 
 struct String json = value_to_json(&v);
 printf("%s\n", json.as_ptr());   // {"name":"Ada","age":36}
@@ -136,8 +207,8 @@ match (parsed.object_get("age")) {
 }
 
 json.free();
-value_free(&v);
-value_free(&parsed);
+v.free();
+parsed.free();
 ```
 
 ## XML {#xml}
@@ -159,9 +230,9 @@ Mapping:
 | `VAL_NULL` | `<T/>` |
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada <Countess>"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada <Countess>"));
+v.object_set("age", Value::from_int(36));
 
 struct String xml = value_to_xml(&v, "person");
 printf("%s\n", xml.as_ptr());
@@ -172,8 +243,8 @@ struct Value parsed = xml_parse(xml.as_ptr(), &ok);
 // unwrap parsed.object_get("age") the same way as the JSON example above
 
 xml.free();
-value_free(&v);
-value_free(&parsed);
+v.free();
+parsed.free();
 ```
 
 `xml_parse`/`json_parse` only understand this module's own output shape — no attributes, no CDATA, no entities beyond the 5 `xml_write` emits (`&amp; &lt; &gt; &quot; &apos;`).
@@ -198,15 +269,15 @@ Unlike JSON/XML, HTML isn't a data-interchange format — `html_write` renders a
 | `VAL_NULL` | `<em>null</em>` |
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "comment", value_string("<script>alert(1)</script>"));
+struct Value v = Value::object();
+v.object_set("comment", Value::from_str("<script>alert(1)</script>"));
 
 struct String html = value_to_html(&v);
 printf("%s\n", html.as_ptr());
 // <dl><dt>comment</dt><dd>&lt;script&gt;alert(1)&lt;/script&gt;</dd></dl>
 
 html.free();
-value_free(&v);
+v.free();
 ```
 
 `html_parse` reads this same `<dl>`/`<ul>`/`<em>null</em>`/bare-text shape back into a `Value` tree — it is not a general HTML parser, and (like `xml_parse`) is meant for round-tripping this module's own output, not arbitrary HTML documents.
@@ -235,7 +306,7 @@ struct Value rows = csv_parse("name,age\nAda,36\n", &ok);
 &Value name = row0.array_at(0);   // VAL_STRING "name"
 printf("%s\n", name.as_string());
 
-value_free(&rows);
+rows.free();
 ```
 
 ## YAML {#yaml}
@@ -260,9 +331,9 @@ struct Value yaml_parse(const &char text, ?&int ok);
 ```
 
 ```c
-struct Value v = value_object();
-value_object_set(&v, "name", value_string("Ada"));
-value_object_set(&v, "age", value_int(36));
+struct Value v = Value::object();
+v.object_set("name", Value::from_str("Ada"));
+v.object_set("age", Value::from_int(36));
 
 struct String yaml = value_to_yaml(&v);
 printf("%s", yaml.as_ptr());
@@ -270,7 +341,7 @@ printf("%s", yaml.as_ptr());
 // age: 36
 
 yaml.free();
-value_free(&v);
+v.free();
 ```
 
 ## Markdown {#markdown}
@@ -304,12 +375,13 @@ struct MdNode {
     int ordered;                        // MD_LIST
     struct String text;
     struct Vec<&heap MdNode> children;
-};
 
-&heap MdNode  md_parse(const &char text);                  // MD_DOC root; free with md_free()
-struct String md_render_html(const &heap MdNode doc);      // text is HTML-escaped
-struct String md_render_markdown(const &heap MdNode doc);  // canonical form, e.g. *b* -> **b**
-void          md_free(&heap MdNode node);
+    static &heap MdNode parse(const &char text);   // MD_DOC root; release with doc.free()
+
+    struct String render_html() const;       // text is HTML-escaped
+    struct String render_markdown() const;   // canonical form, e.g. *b* -> **b**
+    void          free();                    // frees the subtree and the node itself
+};
 ```
 
 ```c
@@ -317,11 +389,11 @@ void          md_free(&heap MdNode node);
 #include <std/io.h>
 
 int main() {
-    &heap MdNode doc = std::md_parse("# Title\n\nSome **bold** text.\n");
-    struct String html = std::md_render_html(doc);
+    &heap MdNode doc = std::MdNode::parse("# Title\n\nSome **bold** text.\n");
+    struct String html = doc.render_html();
     std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
     html.free();
-    std::md_free(doc);
+    doc.free();
     return 0;
 }
 ```
@@ -358,26 +430,29 @@ struct PbReader {
     const &unsigned char data;
     unsigned long        len;
     unsigned long        pos;
+
+    static struct PbReader new(const &unsigned char data, unsigned long len);   // at data[0]
+
+    int has_more() const;
+
+    // Each returns 1 on success, 0 on truncated or malformed input.
+    int read_varint(&unsigned long long out);
+    int read_tag(&int field_num, &int wire_type);
+    int read_int64(&long long out);
+    int read_uint64(&unsigned long long out);
+    int read_sint64(&long long out);
+    int read_bool(&int out);
+    int read_double(&double out);
+    int read_float(&float out);
+    // *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
+    int read_length_delimited(&&const unsigned char dataOut, &unsigned long lenOut);
+    int skip_field(int wire_type);   // skip an unknown field (forward compatibility)
 };
-
-struct PbReader pb_reader_new(const &unsigned char data, unsigned long len);
-int pb_reader_has_more(const &PbReader r);
-
-// Each returns 1 on success, 0 on truncated or malformed input.
-int pb_read_varint(&PbReader r, &unsigned long long out);
-int pb_read_tag(&PbReader r, &int field_num, &int wire_type);
-int pb_read_int64(&PbReader r, &long long out);
-int pb_read_uint64(&PbReader r, &unsigned long long out);
-int pb_read_sint64(&PbReader r, &long long out);
-int pb_read_bool(&PbReader r, &int out);
-int pb_read_double(&PbReader r, &double out);
-int pb_read_float(&PbReader r, &float out);
-// *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
-int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsigned long lenOut);
-int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
 ```
 
-`pb_read_length_delimited` writes a reference into the reader's own buffer through `dataOut` (a reference to a reference) — it aliases the buffer, so copy the bytes if they must outlive it.
+The writers stay free functions: they append to any `String`, so there is no protobuf-specific struct for them to be methods of.
+
+`read_length_delimited` writes a reference into the reader's own buffer through `dataOut` (a reference to a reference) — it aliases the buffer, so copy the bytes if they must outlive it.
 
 ```c
 #include <std/serial/protobuf.h>
@@ -386,7 +461,7 @@ int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forwa
 struct Point { int x; int y; };
 
 int main() {
-    struct String buf = std::string_new();
+    struct String buf = std::String::new();
     std::pb_write_int64_field(&buf, 1, 3LL);
     std::pb_write_int64_field(&buf, 2, -4LL);
 
@@ -394,15 +469,15 @@ int main() {
     p.x = 0; p.y = 0;
     struct PbReader r;
     // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::pb_reader_new((const &unsigned char)buf.as_ptr(), buf.length()); }
-    while (std::pb_reader_has_more(&r)) {
+    unsafe { r = std::PbReader::new((const &unsigned char)buf.as_ptr(), buf.length()); }
+    while (r.has_more()) {
         int field = 0; int wire = 0;
-        if (!std::pb_read_tag(&r, &field, &wire)) break;
+        if (!r.read_tag(&field, &wire)) break;
         long long v = 0LL;
-        if (wire == PB_WIRE_VARINT && std::pb_read_int64(&r, &v)) {
+        if (wire == PB_WIRE_VARINT && r.read_int64(&v)) {
             if (field == 1) p.x = (int)v;
             if (field == 2) p.y = (int)v;
-        } else if (!std::pb_skip_field(&r, wire)) break;
+        } else if (!r.skip_field(wire)) break;
     }
     buf.free();
     return (p.x == 3 && p.y == -4) ? 0 : 1;

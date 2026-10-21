@@ -273,7 +273,7 @@ int main() {
 }
 ```
 
-이것은 진짜 런타임 다형성입니다 — 루프는 `shapes[i]`가 `Circle`인지 `Square`인지 알지도 신경 쓰지도 않습니다. 소거된 필드와 그것을 되돌리는 단 하나의 캐스트는 두 개의 짧은 함수 안에 있으며, 그 캐스트를 건전하게 만드는 것은 제네릭 생성자입니다. 이는 하나의 테이블이 서로 다른 컨텍스트 타입의 콜백을 담는 곳이면 어디서든 표준 라이브러리가 쓰는 패턴입니다: `timer_add`(`std/dsp/timer_wheel.h`), `widget_on_click`, `vfs_mount`, `task_spawn`.
+이것은 진짜 런타임 다형성입니다 — 루프는 `shapes[i]`가 `Circle`인지 `Square`인지 알지도 신경 쓰지도 않습니다. 소거된 필드와 그것을 되돌리는 단 하나의 캐스트는 두 개의 짧은 함수 안에 있으며, 그 캐스트를 건전하게 만드는 것은 제네릭 생성자입니다. 이는 하나의 테이블이 서로 다른 컨텍스트 타입의 콜백을 담는 곳이면 어디서든 표준 라이브러리가 쓰는 패턴입니다: `TimerWheel::add`(`std/dsp/timer_wheel.h`), `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — 모두 [자기 타입 매개변수를 가진 메서드](/ko/reference/generics#methods-with-their-own-type-parameters)입니다.
 
 ## 빠른 참고표 {#quick-reference}
 

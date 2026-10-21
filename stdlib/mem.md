@@ -85,7 +85,7 @@ On hosted targets `alloc` keeps a per-thread cache of freed blocks, bucketed by 
 - Larger blocks that don't fit the cache go through the quarantine described above, then back to `malloc`.
 - Freestanding targets have no cache or slabs (they need thread-local storage and the table's memory); every request goes to the runtime's `malloc`. Windows and wasm keep the cache without slabs.
 
-Each block still carries the 16-byte header, which matters most for very small objects: a 24-byte node occupies a 40-byte request. Node-based containers therefore don't allocate per node — `List` and `BST` take nodes from a per-container [`NodePool`](/stdlib/collections#node-pool) (chunked bump allocation with a free list), which is about 2× faster than C's `malloc`/`free` per node (see [Benchmarks](/benchmarks#collections)). For your own fixed-size objects, `std/alloc/slab.h`'s `slab_alloc_t<T>` and the arena regions (`new<R> T`) give the same effect.
+Each block still carries the 16-byte header, which matters most for very small objects: a 24-byte node occupies a 40-byte request. Node-based containers therefore don't allocate per node — `List` and `BST` take nodes from a per-container [`NodePool`](/stdlib/collections#node-pool) (chunked bump allocation with a free list), which is about 2× faster than C's `malloc`/`free` per node (see [Benchmarks](/benchmarks#collections)). For your own fixed-size objects, a `std/alloc/slab.h` `SlabAllocator` with [`alloc_t`](/stdlib/allocators#typed) and the arena regions (`new<R> T`) give the same effect.
 
 ## Memory Operations {#memory-operations}
 
@@ -157,7 +157,7 @@ int main() {
         case null:     { return 1; }               // out of memory
         case some(buf): {
             std::safe_memset(buf, 0, 10UL * sizeof(int));
-            struct Slice<int> s = std::slice_of(buf, 10UL);   // bounds-checked view
+            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view
             s.set(0UL, 42);
             s.set(1UL, 99);
 
@@ -166,7 +166,7 @@ int main() {
             match (copy) {
                 case some(c): {
                     std::safe_memcpy(c, buf, 10UL * sizeof(int));
-                    std::println_int(*std::slice_of(c, 10UL).at(0UL));   // 42
+                    std::println_int(*std::Slice::of(c, 10UL).at(0UL));   // 42
                 }
                 case null: { }
             }

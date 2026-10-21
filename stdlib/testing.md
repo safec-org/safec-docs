@@ -19,7 +19,7 @@ void addition_works() {
 }
 
 int main(void) {
-    struct TestSuite t = std::test_suite_init();
+    struct TestSuite t = std::TestSuite::new();
     t.add("addition works", addition_works);
     t.run();
     return t.all_passed() ? 0 : 1;
@@ -28,7 +28,7 @@ int main(void) {
 
 ## Unit Testing (`test/test.h`) {#unit-testing-testtesth}
 
-`TestSuite` (via `test_suite_init()`, capacity `TEST_MAX` = 256 cases):
+`TestSuite` (via `TestSuite::new()`, capacity `TEST_MAX` = 256 cases):
 `add(name, func)` (`func`: `fn void()`), `run()` (executes every
 registered test, printing each result), `print_summary()` (`"N passed, M
 failed."`), `all_passed()`. `test_run_and_exit(&suite)` runs, prints
@@ -53,10 +53,12 @@ Test names are truncated to `TEST_NAME_MAX` (64) characters.
 
 ## Benchmarking (`test/bench.h`) {#benchmarking-testbenchh}
 
-`BenchSuite` (via `bench_suite_init()`, capacity `BENCH_MAX` = 64 cases):
-`bench_add(&suite, name, func, arg, iters)` registers a case — `func` is
+`BenchSuite` (via `BenchSuite::new()`, capacity `BENCH_MAX` = 64 cases):
+`suite.add(name, func, arg, iters)` registers a case — `func` is
 `fn void(?&T)` and `arg` a matching `?&T` (or `null`), called `iters`
-times per run; `run()` executes every case and records
+times per run (`add` is a [method with its own type
+parameter](/reference/generics#methods-with-their-own-type-parameters):
+`T` comes from `func`, so a mismatched `arg` is a compile error); `run()` executes every case and records
 `elapsed_s`/`ops_per_s` on each `BenchCase`, `print_results()` prints the
 table.
 
@@ -66,9 +68,9 @@ static void push_pop(?&Stack<int> s) {
 }
 
 void bench() {
-    struct Stack<int> st = std::stack_new();
-    struct BenchSuite b = std::bench_suite_init();
-    unsafe { std::bench_add(&b, "stack push/pop", push_pop, (?&Stack<int>)&st, 1000000UL); }
+    struct Stack<int> st = std::Stack::new();
+    struct BenchSuite b = std::BenchSuite::new();
+    unsafe { b.add("stack push/pop", push_pop, (?&Stack<int>)&st, 1000000UL); }
     b.run();
     b.print_results();
     st.free();
@@ -79,7 +81,7 @@ Benchmark names are truncated to `BENCH_NAME_MAX` (64) characters.
 
 ## Fuzzing (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
-`FuzzTarget` (via `fuzz_target_init(func, iters)`, `func`:
+`FuzzTarget` (via `FuzzTarget::new(func, iters)`, `func`:
 `fn void(const &unsigned char data, unsigned long size)`) — a
 lightweight, structure-*un*aware, in-process mutator: `run(corpus,
 corpus_size)` starts from a seed corpus and applies `iters` random

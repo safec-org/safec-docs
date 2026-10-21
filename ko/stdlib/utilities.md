@@ -266,15 +266,15 @@ struct Result {
     E   error;   // valid when is_ok == 0
     int is_ok;
 
+    static struct Result<T, E> new_ok(T val);    // Result::new_ok(v)
+    static struct Result<T, E> new_err(E err);   // Result::new_err(e)
+
     int ok() const;
     int err() const;
     ?&T get_ok();              // null for an error
     ?&E get_err();             // null for a success
     T   unwrap_or(T fallback) const;
 };
-
-generic<T, E> struct Result<T, E> result_ok(T val);
-generic<T, E> struct Result<T, E> result_err(E err);
 ```
 
 인자가 주지 못하는 타입 매개변수는 변수의 타입이 정합니다:
@@ -283,10 +283,10 @@ generic<T, E> struct Result<T, E> result_err(E err);
 #include <std/result.h>
 
 int main() {
-    struct Result<int, long long> r = std::result_ok(42);
+    struct Result<int, long long> r = std::Result::new_ok(42);
     int v = r.get_ok().default(0);                // 42
 
-    struct Result<int, long long> e = std::result_err(7LL);
+    struct Result<int, long long> e = std::Result::new_err(7LL);
     long long code = e.get_err().default(0LL);    // 7
     int fallback = e.unwrap_or(-1);               // -1
 
@@ -483,9 +483,10 @@ struct DmaBuffer {
     void          to_cpu();           // invalidate cache after the transfer, hand back
     int           cpu_accessible() const;
     unsigned long phys_at(unsigned long offset) const;
-};
 
-struct DmaBuffer dma_buf_wrap(&unsigned char virt, unsigned long phys, unsigned long size);
+    // Wraps an existing allocation; phys 0 = identity-mapped.
+    static struct DmaBuffer wrap(&unsigned char virt, unsigned long phys, unsigned long size);
+};
 
 // One driver owns a channel, so its callback context is typed.
 generic<T> struct DmaChannel {
@@ -499,12 +500,12 @@ generic<T> struct DmaChannel {
     int start(unsigned long src_phys, unsigned long dst_phys, unsigned long len); // -1 if busy
     int wait(unsigned int max_polls);   // 0 when idle, -1 on timeout
     int is_busy() const;
-};
 
-generic<T>
-struct DmaChannel<T> dma_channel_new(unsigned int id,
-                                     fn int(?&T, unsigned long, unsigned long, unsigned long) start_fn,
-                                     fn int(?&T) poll_fn, ?&T ctx);
+    // T is inferred from the callbacks: DmaChannel::new(1U, start, poll, ctx)
+    static struct DmaChannel<T> new(unsigned int id,
+                                    fn int(?&T, unsigned long, unsigned long, unsigned long) start_fn,
+                                    fn int(?&T) poll_fn, ?&T ctx);
+};
 
 // Scatter-gather list, up to DMA_SG_MAX (16) entries.
 struct DmaSgEntry { unsigned long phys; unsigned long len; };
