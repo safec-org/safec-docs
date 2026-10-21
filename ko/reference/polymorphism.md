@@ -83,6 +83,8 @@ render(circle);   // OK: Circle에 일치하는 draw() const가 있음
 
 만족 여부는 단형화가 일어나는 호출 지점에서 검사됩니다 — 제네릭 함수 본문이 정의된 위치가 아닙니다. 그래서 메서드가 빠져 있으면 호출 지점에서 바로 에러가 나며, 라이브러리 내부 깊숙한 곳에서 혼란스러운 실패가 나는 일이 없습니다. 내장 구조적 트레이트: `Numeric`, `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`(연산자 기반)와, 사용자 정의 메서드가 아니라 타입 시스템 자체가 충족시키는 `Indexed`(`[]`로 접근 가능한 모든 것)와 `Pointer`(raw 포인터/참조 타입)가 있습니다. [제네릭](/ko/reference/generics#traits-and-constrained-generics)을 참고하십시오.
 
+트레이트는 합성됩니다. `generic<T: A + B>`는 둘을 모두 요구하고, `trait C : A + B { ... }`는 다른 트레이트(상위 트레이트)로 만든 트레이트에 이름을 붙이며, 제네릭 구조체의 매개변수도 같은 바운드를 받습니다(`generic<T: Shape> struct Holder { T item; }`). 트레이트를 하나의 능력씩 유지하고 역할을 그것들로 합성하면, 각 제네릭 함수가 자신이 쓰는 것만 정확히 요구할 수 있습니다 — [트레이트 합성하기](/ko/reference/generics#composing-traits)를 참고하십시오.
+
 이것이 SafeC에서 인터페이스/추상 기반 클래스에 가장 가까운 대응물입니다 — 트레이트 바운드는 "이 메서드들을 가진 임의의 `T`"라고 말할 뿐이며, 컴파일 타임에 검사되고 여전히 단형화됩니다(여전히 런타임 디스패치는 없습니다 — `generic<T: Drawable>` 본문의 모든 호출은 해당 인스턴스의 구체적인 `draw`에 대한 직접 호출입니다).
 
 ## vtable 없는 동적 디스패치: `fn_eval` {#vtable-free-dynamic-dispatch-fn-eval}

@@ -60,8 +60,11 @@ trait Drawable {
 ```
 
 SafeC의 트레이트는 명목적(nominal)이 아니라 **구조적**("덕 타이핑")입니다
-— `impl Trait for Type` 블록이 없습니다. 구조체는 이름과 시그니처가
-일치하는 메서드를 정의하는 즉시 자동으로 트레이트를 만족시킵니다:
+— `impl Trait for Type` 블록이 없습니다. 구조체는 트레이트의 메서드
+이름을 가진 메서드를 정의하는 즉시 자동으로 트레이트를 만족시킵니다.
+(검사는 이름으로 합니다. 시그니처가 맞지 않는 메서드는 제네릭 본문이
+그것을 호출하는 곳에서 오류가 납니다. `const` 메서드는 `const`가 아닌
+요구도 만족시킵니다.)
 
 ```c
 struct Circle {
@@ -95,6 +98,53 @@ render(circle);   // OK: Circle이 일치하는 draw() const를 가짐
 두 가지 트레이트는 사용자 정의 메서드가 아니라 타입 시스템 자체에
 의해 구조적으로 만족됩니다: `Indexed`(배열, 슬라이스, `vec<T,N>` 타입 —
 `[]`로 사용 가능한 모든 것)와 `Pointer`(원시 포인터와 참조 타입).
+
+정수, 부동소수점 같은 기본 산술 타입은 위의 연산자 트레이트만
+만족시킵니다. 사용자 트레이트의 메서드는 갖고 있지 않으므로 사용자
+트레이트는 만족시키지 않습니다.
+
+### 바운드 결합하기 {#combining-bounds}
+
+타입 매개변수에는 `+`로 이은 여러 트레이트를 붙일 수 있습니다. 제약은
+그 모두의 논리곱입니다. 구체 타입은 하나하나를 모두 만족시켜야 하며,
+만족시키지 못한 것은 각각 보고됩니다.
+
+```c
+trait Sized { int size() const; }
+trait Named { int name_len() const; }
+
+generic<T: Sized + Named>
+int label(const &T s) { return s.name_len() * s.size(); }
+```
+
+### 트레이트 합성하기 {#composing-traits}
+
+트레이트는 다른 트레이트, 즉 **상위 트레이트(supertrait)** 로부터 만들 수
+있습니다. `:` 뒤에 나열하고 `+`로 잇습니다. 타입은 그 트레이트 자신의
+메서드를 갖고 *또한* 모든 상위 트레이트를 (전이적으로) 만족시킬 때
+합성된 트레이트를 만족시킵니다. 본문이 비어 있는 트레이트는 순수한
+조합입니다.
+
+```c
+trait Shape : Sized + Named { int area() const; }   // size, name_len, area
+trait Solid : Shape { int volume() const; }         // 두 단계: 네 메서드 모두
+trait Labeled : Sized + Named {}                     // 조합만
+
+generic<T: Solid>
+int describe(const &T s) { return s.size() + s.name_len() + s.area() + s.volume(); }
+```
+
+이렇게 하면 트레이트를 하나의 능력씩 작게 유지하면서도, 제네릭 코드에는
+역할 하나에 이름 하나를 줄 수 있습니다. 제네릭 함수는 자신이 쓰는 것만
+요구하면 됩니다. 넓이가 필요한 함수는 `generic<T: Shape>`, 크기만 필요한
+함수는 `generic<T: Sized>`를 쓰고, `Solid`는 둘 다 만족시킵니다. 표준
+라이브러리의 ML 모델이 이렇게 구성되어 있습니다:
+`trait Module : Parameterized + Forward {}`([머신러닝](/ko/stdlib/ml#modules) 참고).
+
+상위 트레이트는 사용자 트레이트일 수도, 내장 트레이트일 수도
+있습니다(`trait Scalar : Numeric + Ord {}`). 알 수 없는 상위 트레이트나,
+순환을 통해 자기 자신을 상위 트레이트로 갖는 트레이트는 그 트레이트의
+선언 위치에서 컴파일 오류입니다.
 
 ## 가변 인자 제네릭 {#variadic-generics}
 
@@ -215,6 +265,33 @@ void Container::set(T new_value) {
     self.value = new_value;
 }
 ```
+
+### 바운드가 있는 제네릭 구조체 {#bounded-generic-structs}
+
+제네릭 구조체의 타입 매개변수에도 제네릭 함수와 똑같이 트레이트
+바운드를 붙일 수 있으며, `+`와 합성된 트레이트도 쓸 수 있습니다.
+바운드는 구조체가 인스턴스화되는 곳(`struct Holder<struct Box> h;`)에서
+검사되고, 구조체의 메서드는 `T` 타입 필드에서 바운드의 모든 메서드를
+호출할 수 있습니다.
+
+```c
+generic<T: Shape + Sized>
+struct Holder {
+    T item;
+    int total() const;
+};
+
+generic<T: Shape + Sized>
+int Holder::total() const { return self.item.area() + self.item.size(); }
+
+struct Holder<struct Box> h;       // Box가 Shape(따라서 Sized도)를 만족시키면 OK
+// struct Holder<struct Flat> f;   // 오류: type 'Flat' does not satisfy constraint 'Shape' ...
+```
+
+바깥에서 정의하는 각 메서드의 `generic<...>` 줄에도 바운드를 다시
+적습니다. 바운드가 있는 제네릭 구조체는 그 자체로 트레이트를 만족시킬
+수도 있습니다. 메서드를 `T` 필드로 넘기는 구조체는 같은 역할의 새
+구현이 되며, 제네릭 코드는 다른 구현처럼 받아들입니다.
 
 ### 타입 인자는 대상으로부터 추론됩니다 {#type-arguments-are-inferred-from-the-target}
 

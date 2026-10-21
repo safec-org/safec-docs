@@ -83,6 +83,8 @@ render(circle);   // OK: Circle has a matching draw() const
 
 Conformance is checked at the monomorphization call site, not where the generic function's body is defined — a missing method produces an error at the call, not a confusing failure deep inside library internals. Built-in structural traits: `Numeric`, `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div` (operator-backed), plus `Indexed` (anything usable with `[]`) and `Pointer` (raw pointer/reference types), satisfied by the type system itself rather than user-defined methods. See [Generics](/reference/generics#traits-and-constrained-generics).
 
+Traits compose: `generic<T: A + B>` requires both, `trait C : A + B { ... }` names a trait built from others (its supertraits), and a generic struct's parameters take the same bounds (`generic<T: Shape> struct Holder { T item; }`). Keeping each trait to one capability and composing roles from them lets every generic function ask for exactly what it uses — see [Composing traits](/reference/generics#composing-traits).
+
 This is SafeC's closest equivalent to an interface/abstract base class — a trait bound says "any `T` with these methods," checked at compile time, still monomorphized (still no runtime dispatch — every call in a `generic<T: Drawable>` body is a direct call to that instantiation's concrete `draw`).
 
 ## Vtable-Free Dynamic Dispatch: `fn_eval` {#vtable-free-dynamic-dispatch-fn-eval}

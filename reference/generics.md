@@ -50,7 +50,7 @@ trait Drawable {
 }
 ```
 
-Traits in SafeC are **structural** ("duck-typed"), not nominal — there's no `impl Trait for Type` block. A struct satisfies a trait automatically as soon as it defines methods with matching names and signatures:
+Traits in SafeC are **structural** ("duck-typed"), not nominal — there's no `impl Trait for Type` block. A struct satisfies a trait automatically as soon as it defines methods with the trait's method names. (The check is by name; a method whose signature doesn't fit fails where the generic body calls it. A `const` method satisfies a non-`const` requirement.)
 
 ```c
 struct Circle {
@@ -78,6 +78,37 @@ Conformance is checked at the call site during monomorphization: if the concrete
 | `Div` | `/` only |
 
 Two further traits are satisfied structurally by the type system itself rather than by user-defined methods: `Indexed` (array, slice, and `vec<T,N>` types — anything usable with `[]`) and `Pointer` (raw pointer and reference types).
+
+Primitive arithmetic types (`int`, `float`, …) satisfy the operator traits above and nothing else: they don't satisfy a user trait, since they have none of its methods.
+
+### Combining bounds {#combining-bounds}
+
+A type parameter can carry several traits joined with `+`. The constraint is their conjunction: the concrete type must satisfy every one, and each unmet one is reported.
+
+```c
+trait Sized { int size() const; }
+trait Named { int name_len() const; }
+
+generic<T: Sized + Named>
+int label(const &T s) { return s.name_len() * s.size(); }
+```
+
+### Composing traits {#composing-traits}
+
+A trait can be built from other traits — its **supertraits** — listed after a `:` and joined with `+`. A type satisfies the composed trait when it has the trait's own methods *and* satisfies every supertrait, transitively. A trait with an empty body is a pure combination:
+
+```c
+trait Shape : Sized + Named { int area() const; }   // size, name_len and area
+trait Solid : Shape { int volume() const; }         // two levels: all four
+trait Labeled : Sized + Named {}                     // just the combination
+
+generic<T: Solid>
+int describe(const &T s) { return s.size() + s.name_len() + s.area() + s.volume(); }
+```
+
+This is how to keep traits small — one capability each — and still give generic code a single name for a role. A generic function can then ask for exactly what it uses: `generic<T: Shape>` for one that needs areas, `generic<T: Sized>` for one that only needs sizes, and a `Solid` satisfies both. The standard library's ML models are organized this way: `trait Module : Parameterized + Forward {}` (see [Machine Learning](/stdlib/ml#modules)).
+
+A supertrait can be a user trait or a built-in one (`trait Scalar : Numeric + Ord {}`). An unknown supertrait, or a trait that is its own supertrait through a cycle, is a compile error at the trait's declaration.
 
 ## Variadic Generics {#variadic-generics}
 
@@ -184,6 +215,26 @@ void Container::set(T new_value) {
     self.value = new_value;
 }
 ```
+
+### Bounded generic structs {#bounded-generic-structs}
+
+A generic struct's type parameters take trait bounds exactly like a generic function's, including `+` and composed traits. The bound is checked where the struct is instantiated (`struct Holder<struct Box> h;`), and the struct's methods may call every bound method on fields of type `T`:
+
+```c
+generic<T: Shape + Sized>
+struct Holder {
+    T item;
+    int total() const;
+};
+
+generic<T: Shape + Sized>
+int Holder::total() const { return self.item.area() + self.item.size(); }
+
+struct Holder<struct Box> h;       // OK when Box satisfies Shape (and so Sized)
+// struct Holder<struct Flat> f;   // error: type 'Flat' does not satisfy constraint 'Shape' ...
+```
+
+Repeat the bound on each out-of-line method's `generic<...>` line. A bounded generic struct can itself satisfy a trait: a struct whose methods forward to its `T` fields is a new implementation of the same role, and generic code accepts it like any other.
 
 ### Type arguments are inferred from the target {#type-arguments-are-inferred-from-the-target}
 

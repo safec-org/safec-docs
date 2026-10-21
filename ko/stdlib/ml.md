@@ -25,12 +25,16 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 
 상태를 가진 타입(모델, 레이어, 옵티마이저, 데이터 로더, 에이전트,
 디바이스 신경망과 버퍼)은 [메서드](/ko/reference/functions#struct-methods)로
-씁니다: `net.forward(x)`, `net.add_params(&opt)`, `opt.step()`,
-`buf.free()`. SafeC에는 정적 메서드가 없으므로 생성자는 `*_new`(다른
-타입에서 만들 때는 `*_from_*` / `*_upload`)라는 이름의 함수입니다. 텐서
-연산은 함수로 남고(`tensor_matmul(a, b)`), `trainer_fit` /
-`rocm_trainer_fit`에 값으로 넘기는 손실 함수와 단계 함수(`vae_loss`,
-`rocm_net_ce_step`)도 마찬가지입니다.
+씁니다: `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
+SafeC에는 정적 메서드가 없으므로 생성자는 `*_new`(다른 타입에서 만들
+때는 `*_from_*` / `*_upload`)라는 이름의 함수입니다. 모든 모델이 할 수
+있는 일 — 파라미터를 옵티마이저에 추가하고, 세고, 저장하고 불러오고,
+복사하고, 내장 손실로 학습하는 일 — 은 모델들이 만족시키는
+[트레이트](#modules)를 대상으로 한 제네릭 함수로 한 번만 작성됩니다:
+`model_add_params(&net, &opt)`, `model_save_file(&net, path)`,
+`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. 텐서 연산은 함수로
+남고(`tensor_matmul(a, b)`), `rocm_trainer_fit`에 값으로 넘기는 단계
+함수(`rocm_net_ce_step`)도 마찬가지입니다.
 
 ---
 
@@ -235,17 +239,28 @@ flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼
 갖춘 멀티헤드 형태로 실행됩니다 — [MPS 어텐션과 트랜스포머
 연산](#mps-attention)을 참고하세요.
 
+**`MultiHeadAttention`** 은 자체 프로젝션을 가진 셀프 어텐션 레이어로,
+`mha_forward(X Wq, X Wk, X Wv, numHeads) Wo`를 계산합니다. 위의 연산들처럼
+순전파 전용이며, [`Module`](#modules)입니다.
+
+```c
+struct MultiHeadAttention mha_new(unsigned long dModel, unsigned long numHeads, &Rng rng);
+&Tensor MultiHeadAttention::forward(const &Tensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
+void    MultiHeadAttention::free();
+```
+
 ## 고급 어텐션 {#advanced-attention}
 
 ```c
 #include <std/ml/attention_advanced.h>
 ```
 
-- **`mla_forward`/`eg_mla_forward`** — Multi-head Latent Attention
-  (DeepSeek-V2): K/V를 공유된 저차원(low-rank) 잠재 표현으로 압축한 뒤
-  전체 폭으로 다시 업프로젝션하여 KV 캐시 메모리를 절약합니다.
-  `eg_mla_forward`는 하나의 잠재 표현을 독립적인 그룹별 업프로젝션들이
-  공유합니다(그룹드 쿼리 어텐션의 KV 공유를 MLA의 압축 위에 얹은 형태).
+- **`Mla`/`EgMla`** — Multi-head Latent Attention (DeepSeek-V2): K/V를
+  공유된 저차원(low-rank) 잠재 표현으로 압축한 뒤 전체 폭으로 다시
+  업프로젝션하여 KV 캐시 메모리를 절약합니다. `EgMla`는 하나의 잠재 표현을
+  독립적인 그룹별 업프로젝션들이 공유합니다(그룹드 쿼리 어텐션의 KV 공유를
+  MLA의 압축 위에 얹은 형태). 둘 다 가중치를 가진 레이어이며
+  [`Module`](#modules)입니다.
 - **`windowed_attention_forward`** — 1D 시퀀스에 맞게 적용한 Shifted-
   Window(Swin) 어텐션: 고정 크기의 로컬 윈도우로 분할하되, 순환
   시프트(`shift` 파라미터)를 적용해 다음 레이어의 윈도우가 이 레이어의
@@ -259,11 +274,15 @@ flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼
 DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되었습니다.
 
 ```c
-&Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                    const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
-&Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                       struct Slice<&Tensor> WukGroups, struct Slice<&Tensor> WuvGroups,  // one per group
-                       unsigned long headsPerGroup);
+struct Mla { &Tensor Wq; &Tensor Wdkv; &Tensor Wuk; &Tensor Wuv; unsigned long numHeads; };
+struct Mla mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
+&Tensor Mla::forward(const &Tensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
+
+struct EgMla { &Tensor Wq; &Tensor Wdkv; struct Vec<&Tensor> Wuk; struct Vec<&Tensor> Wuv;  // 그룹마다 하나
+               unsigned long headsPerGroup; };
+struct EgMla eg_mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups,
+                        unsigned long headsPerGroup, &Rng rng);
+&Tensor EgMla::forward(const &Tensor X) const;
 &Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
                                    unsigned long windowSize, unsigned long shift);
 
@@ -273,7 +292,7 @@ struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyD
 void    GatedDeltaNet::free();
 ```
 
-`eg_mla_forward`는 그룹별 업프로젝션을 텐서 참조의 [`Slice`](/ko/stdlib/collections#slice)로 받습니다 — 길이가 그룹 수인, 경계 검사가 있는 배열입니다. 고정 크기 스택이나 정적 배열(`&Tensor groups[4]`)로, 개수가 런타임에만 정해지면 힙이나 아레나 할당으로 뒷받침합니다.
+가중치는 공개 필드입니다. 사전 학습된 가중치를 쓰려면 필드에 대입합니다(`EgMla`의 그룹별 업프로젝션은 길이가 그룹 수인 `Vec`입니다). `free()`가 가중치를 해제합니다.
 
 ## RNN 계열 {#rnn-family}
 
@@ -515,7 +534,7 @@ void UNet::free();
 - **`ddim_sampler_step`** — 결정론적 DDIM(eta=0).
 - **`dpm_solver_1_step`/`dpm_solver_2_step`** — DPM-Solver(Lu 외 2022),
   eps 예측 지수 적분기, 1차 및 중점(midpoint) 2차 변형
-  (`dpm_solver_2_step`은 호출자가 제공한 모델 콜백을 받아, 로그
+  (`dpm_solver_2_step`은 `DenoiseModel`을 만족시키는 모델을 받아, 로그
   SNR 중점에서 두 번째로 평가합니다).
 - **`dpm_solver_pp_1_step`/`dpm_solver_pp_2_step`** — DPM-Solver++
   (Lu 외 2022b), 데이터(x0) 예측 재구성. 1차는 `ddim_sampler_step`과
@@ -540,19 +559,20 @@ void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd
 &Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
-// Order-2 solvers call your model again at the midpoint.
-// model(x, sigma, userData) -> predicted noise (eps) or clean sample (x0).
-generic<T>
-&Tensor dpm_solver_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
-                          const &Tensor x_cur, const &Tensor epsPred,
+// 2차 솔버는 중점에서 모델을 다시 호출합니다: 예측한 노이즈(eps)나
+// 깨끗한 샘플(x0)을 반환하는 predict 메서드를 가진 구조체면 됩니다.
+trait DenoiseModel {
+    &Tensor predict(const &Tensor x, float sigma);
+}
+generic<M: DenoiseModel>
+&Tensor dpm_solver_2_step(&M model, const &Tensor x_cur, const &Tensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-generic<T>
-&Tensor dpm_solver_pp_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
-                             const &Tensor x_cur, const &Tensor x0Pred,
+generic<M: DenoiseModel>
+&Tensor dpm_solver_pp_2_step(&M model, const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
-`userData`는 모델 자신의 상태(예: 가중치)이며, 그 타입은 컴파일 타임에 콜백과 대조해 검사됩니다.
+모델은 가중치를 가진 직접 만든 구조체입니다. 솔버는 그 `predict` 메서드를 직접 호출하며, 콜백이나 타입이 지워진 컨텍스트는 없습니다.
 
 ## 트랜스포머 (DiT / JiT) {#transformer-dit-jit}
 
@@ -565,7 +585,7 @@ generic<T>
   FFN 서브레이어 각각에 대한 시프트/스케일/게이트). 게이트=0일 때
   정확히 항등이 되는지 검사(게이트가 0이면 블록의 출력이 입력과
   정확히 같아야 함)와 완전한 자기 일관성 검사를 통해 검증되었습니다.
-- **`JiTBlock`/`jit_forward`** — 컨디셔닝을 (DiT의 레이어별 적응적
+- **`JiTBlock`/`JiT`** — 컨디셔닝을 (DiT의 레이어별 적응적
   변조와 달리) 토큰 임베딩에 처음 한 번만 더하는, 평범한 pre-LN
   트랜스포머입니다 — 이 구현이 둘 사이에 두는 아키텍처적 구분입니다.
 
@@ -578,9 +598,12 @@ void    DiTBlock::free();
 struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
 &Tensor JiTBlock::forward(const &Tensor x) const;
 void    JiTBlock::free();
-// Patch embedding + conditioning, then numBlocks blocks.
-&Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                    struct Slice<JiTBlock> blocks);
+// 모델: 패치 임베딩 + 컨디셔닝, 그다음 블록들.
+struct JiT { &Tensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
+struct JiT jit_new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden,
+                   unsigned long numHeads, unsigned long depth);
+&Tensor JiT::forward(const &Tensor patches, const &Tensor cond) const;   // cond: [1, dModel]
+void    JiT::free();
 ```
 
 ## 학습: 레이어, 손실, 옵티마이저 {#training}
@@ -618,8 +641,8 @@ void    JiTBlock::free();
 - **`Mlp`**는 완전 연결 레이어의 스택입니다. `inDim → hidden × hiddenLayers →
   outDim`이며, 레이어 사이에 `ACT_RELU`, `ACT_LEAKY`, `ACT_TANH`,
   `ACT_SIGMOID`, `ACT_GELU`, `ACT_SILU` 중 하나를 씁니다. PyTorch `nn.Linear`처럼
-  초기화하며 가중치는 `[in, out]`으로 저장합니다. `Mlp::copy` /
-  `Mlp::soft_update`는 타깃 네트워크를 동기화합니다.
+  초기화하며 가중치는 `[in, out]`으로 저장합니다. `model_copy` /
+  `model_soft_update`는 타깃 네트워크를 동기화합니다.
 - **`Optimizer`**는 파라미터 목록을 갖고 다음 종류를 제공합니다.
 
   | 종류 | 갱신 |
@@ -638,7 +661,7 @@ void    JiTBlock::free();
 
 - **저장과 불러오기.** `tensors_save` / `tensors_load`는 텐서 목록(형상과
   float32 값)을 파일에 쓰고, 같은 형상의 텐서에 다시 읽어 들입니다.
-  `Mlp::save_file` / `Mlp::load_file`은 `Mlp`에 대해 같은 일을 합니다. 파일이
+  `model_save_file` / `model_load_file`은 `Mlp`에 대해 같은 일을 합니다. 파일이
   없거나 맞지 않으면 아무것도 바꾸지 않고 0을 반환합니다.
 
 `trainer_fit`은 모델 타입에 대해 제네릭이라 순전파와 손실이 컴파일 시간에
@@ -657,7 +680,7 @@ struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
 struct DatasetSplit sp = data.split((float)0.25, &rng);
 struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
-net.add_params(&opt);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = train_config_default();     // 10 에폭, 배치 32
 cfg.epochs = 60UL;
 struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
@@ -688,6 +711,84 @@ AMD GPU에서는 [`nn_rocm.h`](#rocm-training)가 이 모델들(그리고 아래
 학습 코드를 한 번만 작성하고 백엔드는 빌드할 때 고르려면
 [`train.h`](#train-traits)를 쓰십시오.
 
+## 트레이트로서의 모델: 모든 모델에 쓰는 제네릭 함수 {#modules}
+
+```c
+#include <std/ml/module.h>
+```
+
+모든 모델은 메서드를 가진 구조체입니다. `module.h`는 모델이 할 수 있는
+일을 하나의 능력씩 작은 [트레이트](/ko/reference/generics#composing-traits)로
+이름 붙이고, 제네릭 코드가 요구하는 역할로 합성합니다. 표 아래의 함수들은
+한 번만 작성되며 그 능력을 가진 모든 모델에 쓰입니다. 각 호출은 컴파일
+시간에 결정됩니다.
+
+| 트레이트 | 구성 | 만족시키는 타입 |
+|---|---|---|
+| `Parameterized` | `collect_params(&out)`(학습되는 텐서), `collect_state(&out)`(그 텐서와 학습되지 않는 버퍼: 실행 통계, 스펙트럴 정규화의 `u`) | 아래의 모든 모델, 그리고 `Gan`, `Dcgan`, `Dqn`, `PolicyAgent`, `DiTBlock`, `GatedDeltaNet`, `LSTMCell`, `XLSTMCell` |
+| `Forward` | `forward(x)` | |
+| `Objective` | `loss(x, y)`: 모델 자체의 학습 손실 | |
+| `Module` | `Parameterized + Forward` | `Mlp`, `ConvNet`, `LoraMlp`, `QLoraMlp`, `LayerNorm`, `MultiHeadAttention`, `Mla`, `EgMla`, `JiTBlock`, `Mamba` |
+| `LossModel` | `Parameterized + Objective` | `Autoencoder`, `Vae`, `VqVae`, `ConvAutoencoder`, `ConvVae` |
+| `CondModule` | `Parameterized` + `forward(x, c)` | `DiTBlock`, `JiT` |
+| `Recurrent` | `Parameterized` + `forward(x_t, h)` | `RNNCell`, `GRUCell` |
+| `Generative` | `sample(n, labels)` | `Gan`, `Dcgan`, `Vae`, `ConvVae` |
+| `GanModel` (`gan.h`) | `Parameterized + Generative` + `train_step`, `train` | `Gan`, `Dcgan` |
+| `DenoiseModel` (`diffusion.h`) | `predict(x, sigma)` | 직접 만든 디퓨전 모델([샘플러](#diffusion)) |
+
+| 함수 | 바운드 | 하는 일 |
+|---|---|---|
+| `model_add_params(&m, &opt)` | `Parameterized` | 학습되는 텐서를 `Optimizer`에 추가합니다 |
+| `model_param_count(&m)` | `Parameterized` | 학습되는 값의 수 |
+| `model_save_file(&m, path)` / `model_load_file(&m, path)` | `Parameterized` | `tensors_save` 형식의 상태 파일. 불러오려면 형상이 같아야 합니다 |
+| `model_copy(&dst, &src)` / `model_soft_update(&dst, &src, tau)` | `Parameterized` | 상태 전체에 대해 `dst = src` / `dst = tau·src + (1 − tau)·dst`: 타깃 네트워크, 평균 생성기 |
+| `module_fit(&m, loss, &opt, &data, &cfg)` | `Module` | 내장 손실(`TRAIN_LOSS_CE`, `TRAIN_LOSS_MSE`, `TRAIN_LOSS_BCE`)로 하는 `trainer_fit`: 손실 함수를 작성할 필요가 없습니다 |
+| `module_loss(&m, loss, x, y)`, `module_predict(&m, x)`, `module_evaluate(&m, loss, &data, batch)`, `module_accuracy(&m, &data, batch)` | `Module` | 손실 하나, 기울기 없는 순전파, 데이터셋 전체의 평균 손실과 정확도 |
+| `model_fit(&m, &opt, &data, &cfg)`, `model_evaluate(&m, &data, batch)` | `LossModel` | 모델 자체의 손실로 하는 같은 일 |
+| `recurrent_run(&cell, xs, h0)` | `Recurrent` | 셀을 시퀀스 `[T, in]` 위로 실행하고 마지막 은닉 상태를 반환합니다 |
+
+```c
+struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+model_add_params(&net, &opt);
+struct TrainReport rep = module_fit(&net, TRAIN_LOSS_CE, &opt, &train, &cfg);
+float acc = module_accuracy(&net, &test, 64UL);
+model_save_file(&net, "net.bin");
+```
+
+같은 다섯 줄로 `ConvNet`, `LoraMlp`(`collect_params`가 어댑터만 반환하므로
+어댑터만 학습되고 저장됩니다), 또는 메서드를 갖춘 직접 만든 모델을 학습할
+수 있습니다. 바운드가 있는 제네릭 구조체로 다른 모델들을 조합한 모델도
+그 자체로 `Module`입니다.
+
+```c
+generic<M: Module>
+struct Avg2 {
+    M a;
+    M b;
+    &Tensor forward(const &Tensor x);
+    void collect_params(&Vec<&Tensor> out) const;
+    void collect_state(&Vec<&Tensor> out) const;
+};
+generic<M: Module>
+&Tensor Avg2::forward(const &Tensor x) {
+    return tensor_scale(tensor_add(self.a.forward(x), self.b.forward(x)), (float)0.5);
+}
+generic<M: Module>
+void Avg2::collect_params(&Vec<&Tensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
+generic<M: Module>
+void Avg2::collect_state(&Vec<&Tensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
+
+struct Avg2<struct Mlp> pair;   // ... pair.a, pair.b = mlp_new(...)
+module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
+```
+
+직접 정의한 손실에는 `trainer_fit`을 그대로 씁니다. 손실을 모델과 배치의
+함수로 받습니다. `tests/stdlib/tests/test_ml_modules.sc`는 하나의 제네릭
+검사(순전파, 파라미터 수, 저장과 불러오기, 복사)를 열 가지 `Module`에
+실행하고, `module_fit`이 `trainer_fit`과 비트 단위까지 같은지 확인하며,
+위의 `Avg2` 쌍을 학습합니다.
+
 ## 정규화: LayerNorm과 AdaLN {#norm}
 
 ```c
@@ -712,7 +813,7 @@ AMD GPU에서는 [`nn_rocm.h`](#rocm-training)가 이 모델들(그리고 아래
 struct AdaLN ad = adaln_new(dim, condDim, 1);   // 게이트 사용
 struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
 &Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
-ad.add_params(&opt);
+model_add_params(&ad, &opt);
 ```
 
 테스트는 두 레이어의 그래디언트를 유한 차분과 비교하고, 새 AdaLN이
@@ -756,7 +857,7 @@ struct LoraConfig cfg = lora_config_default(8UL);    // 랭크 8, alpha 8
 struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + 이중 양자화
 pretrained.free();
 struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
-ft.add_params(&opt);                           // 어댑터만
+model_add_params(&ft, &opt);                   // 어댑터만
 trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 호출
 ```
 
@@ -915,16 +1016,16 @@ encode·decode·sample·generate·score는 추론 모드로 실행합니다.
 - `ConvNet::forward`는 `[batch, in_dim()]`을
   `[batch, out_dim()]`으로 바꿉니다. `outC`, `outH`, `outW` 필드가 현재
   출력 형상입니다.
-- `ConvNet::add_params`으로 파라미터를 등록합니다.
-- `ConvNet::clone`, `ConvNet::copy`, `ConvNet::soft_update`는 버퍼까지 포함해
+- `model_add_params`로 파라미터를 등록합니다(버퍼는 제외).
+- `ConvNet::clone`, `model_copy`, `model_soft_update`는 버퍼까지 포함해
   타깃 네트워크와 평균 네트워크를 다룹니다.
 - `ConvNet::fold_batchnorm`은 합성곱이나 완전 연결 레이어 바로 뒤의 배치
   정규화를 추론용으로 그 레이어의 가중치와 바이어스에 접어 넣습니다. 출력은
   그대로지만, 그 뒤로는 네트워크를 학습하지 않습니다.
-- `ConvNet::save_file` / `ConvNet::load_file`은 파라미터와 버퍼를 파일에 쓰고,
+- `model_save_file` / `model_load_file`은 파라미터와 버퍼를 파일에 쓰고,
   같은 레이어로 만든 네트워크에 다시 읽어 들입니다. 맞지 않으면 아무것도 덮어쓰지
   않고 0을 반환합니다. `nn.h`의 `tensors_save` / `tensors_load`,
-  `Mlp::save_file` / `Mlp::load_file`도 같은 형식을 씁니다.
+  `Mlp`의 파일도 같은 형식을 씁니다.
 
 ```c
 static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
@@ -942,12 +1043,12 @@ net.dropout((float)0.1, 1, &rng);
 net.global_avgpool();              // 64 x 1 x 1
 net.dense(10UL, ACT_NONE, &rng);   // 로짓
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-net.add_params(&opt);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = train_config_default();
 trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
 net.set_training(0);   // 여기부터 추론
 net.fold_batchnorm();
-net.save_file("mnist_resnet.bin");
+model_save_file(&net, "mnist_resnet.bin");
 ```
 
 테스트는 모든 연산의 입력과 파라미터 그래디언트를 중앙 차분과 비교합니다.
@@ -1019,8 +1120,8 @@ struct VaeConfig cfg = vae_config_default(4UL);   // 은닉 256, BCE, beta 1
 cfg.classes = 4UL;                               // 조건부
 struct Vae v = vae_new(100UL, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
-v.add_params(&opt);
-trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
+model_add_params(&v, &opt);
+model_fit(&v, &opt, &shapes, &tc);   // VAE 자체의 손실(Vae::loss)
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 100]
 ```
 
@@ -1066,8 +1167,8 @@ struct VaeConfig cfg = vae_config_default(16UL);
 cfg.classes = classes;
 struct ConvVae v = conv_vae_new(enc, dec, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-v.add_params(&opt);
-trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+model_add_params(&v, &opt);
+model_fit(&v, &opt, &mnist, &tc);
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
 ```
 
@@ -1105,7 +1206,7 @@ MLP 생성기와 판별기(leaky ReLU)를 번갈아 학습합니다. 목적 함�
 
 `classes > 0`이면 **조건부 GAN**으로, 레이블이 두 네트워크에 모두 들어갑니다.
 `emaDecay`는 생성기 가중치의 지수 이동 평균(Karras et al. 2018)을 유지하며,
-`Gan::generate`는 그 평균에서 샘플링합니다. 적대적 게임은 진동하고, 평균은
+`Gan::sample`는 그 평균에서 샘플링합니다. 적대적 게임은 진동하고, 평균은
 어느 한 스텝의 가중치보다 중심에 가깝습니다. GAN은 두 옵티마이저(Adam, β1 =
 0.5. WGAN은 RMSProp)와 스텝용 아레나를 직접 가집니다. `Gan::train`은 `Dataset`에
 대해 에폭을 돌리고, `Gan::train_step`은 직접 만든 배치로 한 스텝을 돌립니다.
@@ -1115,7 +1216,7 @@ struct GanConfig cfg = gan_config_default(4UL);   // 잠재 차원 4
 cfg.loss = GAN_HINGE;
 struct Gan g = gan_new(2UL, &cfg);
 g.train(&data, 80UL, 64UL);
-&Tensor fake = g.generate(1000UL, null);   // 힙 텐서, 호출자가 해제
+&Tensor fake = g.sample(1000UL, null);   // 힙 텐서, 호출자가 해제
 ```
 
 테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
@@ -1132,12 +1233,12 @@ GAN은 4개 모드 링에서 샘플의 75% 넘게를 각 레이블의 모드에 
 `classes > 0`이면 **조건부 DCGAN**입니다. G는 노이즈 뒤에 붙인 원-핫 레이블을
 받으므로 `latent + classes`개 입력을 받습니다. D는 레이블을 `classes`개의 추가
 입력 채널(클래스마다 상수 평면 하나)로 받습니다. `Dcgan::train_step`,
-`Dcgan::generate`, `Dcgan::score`는 레이블이나 `null`을 받고, `Dcgan::train`은
+`Dcgan::sample`, `Dcgan::score`는 레이블이나 `null`을 받고, `Dcgan::train`은
 데이터셋에서 레이블을 가져옵니다.
 
 DCGAN은 네트워크, 옵티마이저, 평균 생성기, 스텝 아레나를 직접 가집니다. 학습
 스텝은 네트워크를 학습 모드로 실행하므로, DCGAN 논문대로 배치 정규화가 배치
-통계를 씁니다. `Dcgan::generate`와 `Dcgan::score`는 추론 모드로 실행합니다.
+통계를 씁니다. `Dcgan::sample`와 `Dcgan::score`는 추론 모드로 실행합니다.
 
 ```c
 struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);   // 잠재 차원 16
@@ -1154,7 +1255,7 @@ disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // 점수 하나
 struct GanConfig cfg = gan_config_default(16UL);
 struct Dcgan g = dcgan_new(gen, disc, &cfg);
 g.train(&images, 20UL, 64UL);
-&Tensor fake = g.generate(64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
+&Tensor fake = g.sample(64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
 ```
 
 테스트는 8×8 도형으로 학습합니다. DCGAN은 샘플의 평균 밝기를 학습 전
@@ -1211,22 +1312,30 @@ while (1) {
 ```
 
 위의 CPU 스택과 [`nn_rocm.h`](#rocm-training)의 디바이스 상주 스택은 같은 모델을
-학습합니다. `train_traits.h`는 둘을 하나의 인터페이스 뒤에 둡니다. 역할마다
-[트레이트](/ko/reference/polymorphism#structural-polymorphism-traits)가 하나씩
+학습합니다. `train_traits.h`는 둘을 하나의 인터페이스 뒤에 둡니다. 네 가지
+작은 능력으로 [합성한 트레이트](/ko/reference/generics#composing-traits)가
 있고, 제네릭 루프는 그 트레이트를 대상으로 한 번만 작성됩니다. 트레이트는
 구조적입니다. 트레이너는 메서드를 갖추기만 하면 트레이트를 만족하고,
 만족 여부는 제네릭이 인스턴스화되는 곳에서 검사되며, 모든 호출은 그
 타입의 메서드를 직접 호출합니다. 실행 시간 디스패치는 없습니다.
 
-| 트레이트 | 역할 | 메서드 |
-|---|---|---|
-| `Trainable` | 모델과 옵티마이저를 `Dataset`의 배치로 학습합니다: 손실로 학습하는 신경망(`Mlp`, `ConvNet`), 오토인코더, VAE. | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `train_step(x, y)`(호스트 배치 하나로 한 단계), `learning_rate()` / `set_learning_rate(lr)`, `sync()`, `free()` |
-| `GanTrainable` | 두 옵티마이저를 가진 `Gan` 또는 `Dcgan`. | `train_step(real, labels)`, `train(&data, epochs, batchSize)`, `sync()`, `free()` |
-| `ValueAgent` | 가치 기반 강화 학습 에이전트(`Dqn`). | `epsilon()`, `act(obs, explore)`, `observe(obs, action, reward, next, terminal)`(기울기 단계를 실행했으면 1), `last_loss()`, `updates()`, `sync()`, `free()` |
-| `PolicyLearner` | 정책 경사 에이전트(`PolicyAgent`: REINFORCE, A2C, PPO). | `act(obs, sample)`, `record(obs, action, reward, next, terminated, truncated)`, `update()`, `sync()`, `free()` |
+| 능력 | 메서드 |
+|---|---|
+| `HostSynced` | `sync()`(트레이너의 `host` 모델을 최신 상태로), `free()` |
+| `EpochFit` | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `learning_rate()` / `set_learning_rate(lr)` |
+| `BatchStep` | `train_step(x, y)`: 호스트 배치 하나로 한 단계 |
+| `Actor` | `act(obs, explore)` |
 
-- **`train_fit(&m, &data, &cfg)`** 는 모든 `Trainable`에 대한
-  `trainer_fit`입니다. 배치, 에폭, 학습률 감소, `TrainReport`가 같습니다.
+| 역할 | 구성 | 대상 |
+|---|---|---|
+| `Trainable` | `EpochFit + BatchStep + HostSynced` | 모델과 옵티마이저를 `Dataset`의 배치로 학습: 손실로 학습하는 신경망(`Mlp`, `ConvNet`), 오토인코더, VAE |
+| `GanTrainable` | `HostSynced` + `train_step(real, labels)`, `train(&data, epochs, batchSize)` | 두 옵티마이저를 가진 `Gan` 또는 `Dcgan` |
+| `ValueAgent` | `Actor + HostSynced` + `epsilon()`, `observe(obs, action, reward, next, terminal)`(기울기 단계를 실행했으면 1), `last_loss()`, `updates()` | 가치 기반 강화 학습 에이전트(`Dqn`) |
+| `PolicyLearner` | `Actor + HostSynced` + `record(obs, action, reward, next, terminated, truncated)`, `update()` | 정책 경사 에이전트(`PolicyAgent`: REINFORCE, A2C, PPO) |
+
+- **`train_fit(&m, &data, &cfg)`** 는 `EpochFit + HostSynced`인 모든
+  트레이너(모든 `Trainable`이 그렇습니다. 바운드는 루프가 쓰는 것만
+  요구합니다)에 대한 `trainer_fit`입니다. 배치, 에폭, 학습률 감소, `TrainReport`가 같습니다.
   끝나면 호스트 모델이 동기화되어 있고, 디바이스에서 실패한 실행은
   `steps == 0`을 보고합니다.
 - **`train_gan(&g, &data, epochs, batchSize)`** 는 모든 `GanTrainable`에
@@ -1241,8 +1350,8 @@ while (1) {
 |---|---|---|---|
 | `MlpTrainer` | `mlp_trainer_new(mlp, loss, &opt, &to)` | `CpuTrainer<Mlp>` | `RocmTrainer<Mlp, RocmNet>` |
 | `ConvNetTrainer` | `convnet_trainer_new(net, loss, &opt, &to)` | `CpuTrainer<ConvNet>` | `RocmTrainer<ConvNet, RocmNet>` |
-| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
-| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
+| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuModelTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
+| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuModelTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
 | `GanTrainer` / `DcganTrainer` | `gan_trainer_new(g, &to)` / `dcgan_trainer_new` | `CpuGanTrainer<Gan>` / `<Dcgan>` | `RocmGanTrainer<Gan>` / `<Dcgan>` |
 | `DqnLearner` | `dqn_learner_new(d)` | `CpuDqnAgent` | `RocmDqnAgent` |
 | `PgLearner` | `pg_learner_new(a, &to)` | `CpuPgAgent` | `RocmPgAgent` |
@@ -1309,8 +1418,13 @@ rocm = []       # safeguard build --features rocm
 
 `ML_TRAIN_BACKEND`는 선택된 백엔드의 이름 문자열입니다(`"cpu"` 또는
 `"rocm"`). `train.h`의 각 이름은 typedef이고, 각 생성자는 백엔드 자체
-생성자(`cpu_mlp_trainer_new`, `rocm_mlp_trainer_new`, …)로 넘기는 정적
-함수입니다. 한 프로그램에서 두 백엔드를 함께 쓰려면 그 생성자들을 직접
+생성자(`cpu_module_trainer_new`, `rocm_mlp_trainer_new`, …)로 넘기는 정적
+함수입니다. CPU 트레이너는 바운드가 있는 제네릭 구조체 —
+`CpuTrainer<M: Module>`, `CpuModelTrainer<M: LossModel>`,
+`CpuGanTrainer<H: GanModel>` — 이며 제네릭 생성자로 만들므로, CPU에서는
+모든 [`Module`](#modules)이 `cpu_module_trainer_new(model, loss, &opt)`로,
+모든 `LossModel`이 `cpu_model_trainer_new(model, &opt)`로 이 인터페이스를
+통해 학습합니다. 한 프로그램에서 두 백엔드를 함께 쓰려면 그 생성자들을 직접
 호출할 수도 있습니다. 앞으로 CUDA 백엔드는 같은 트레이트를 만족하는
 타입과 `train.h`의 분기 하나를 더하게 됩니다.
 
@@ -2263,8 +2377,7 @@ enum Device {
 
 #include <std/ml/transformer_dispatch.h>
 &Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
-&Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                       struct Slice<JiTBlock> blocks, enum Device device);
+&Tensor jit_forward_on(const &JiT model, const &Tensor patches, const &Tensor cond, enum Device device);
 ```
 
 이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `tensor_sigmoid`/`tensor_relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
