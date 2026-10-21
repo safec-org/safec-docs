@@ -960,8 +960,8 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 | `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
-| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
-| `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
+| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`). 다른 플랫폼에서는 core의 SIMD 연산 |
+| `tensor_blas.h` | `tensor_matmul_blas` | `sgemm`을 거쳐: 링크된 CBLAS(Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), 없으면 내장 커널 |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 core(`sgemm`) / vDSP / BLAS 선택 |
 
 `tensor_gpu.h`는 텐서 수준에서 MPS 배칭과 영구 버퍼도 제어합니다:
@@ -1059,6 +1059,7 @@ struct HalfTensor half_scale(const &HalfTensor a, float k);
 struct HalfTensor half_relu(const &HalfTensor a);
 struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
 float             half_sum(const &HalfTensor a);                            // float32 accumulate
+int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
@@ -1076,6 +1077,8 @@ void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean s
 ```
 
 `HalfTensor`의 `data`는 GPU 반정밀도 함수들(`mps_upload_f16_persistent` 등)이 읽고 쓰는 것과 정확히 같은 배치입니다.
+
+`half_gemv`는 토큰 하나를 디코딩할 때의 행렬-벡터 곱입니다: `w`는 선형 레이어의 2D fp16/bf16 가중치(`[n][k]`), `x`와 `y`는 float32입니다. 가중치를 레지스터에서 넓히므로 행렬의 float32 사본이 없고, CPU의 SIMD 단계에 맞게 벡터화되어 스레드 풀에서 행 단위로 나뉩니다. Ryzen 7 7800X3D(16스레드)에서 bf16 24576 × 1536 곱은 1.0 ms(가중치 76 GB/s, 메모리 대역폭에 가까움)로, float32로 넓힌 가중치에 한 행짜리 `sgemm`을 쓰는 것보다 6배 빠릅니다. fp16은 넓히기를 정수 연산으로 하므로 35 GB/s입니다. [Gemma 4 E2B](/ko/benchmarks#gemma4-rocm)의 CPU 디코딩을 토큰당 4.43 s에서 0.225 s로 줄였습니다.
 
 bf16으로 저장하고 계산하기:
 

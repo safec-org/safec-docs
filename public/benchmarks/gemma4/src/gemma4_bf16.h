@@ -69,10 +69,11 @@ struct Tensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t);
 // bfloat multiply, float32 accumulate, bfloat output, weight uploaded
 // once as raw bf16 bits and cached by pointer identity) when a Metal
 // device is available and gemma4_bf16_set_force_cpu(1) hasn't been
-// called; otherwise falls back to a real Accelerate-BLAS CPU path
-// (cblas_sgemm, widen bf16->f32, narrow back -- not a naive triple
-// loop). This is the dominant FLOP cost in the model -- every other op
-// below is comparatively cheap.
+// called; otherwise runs on the CPU: up to 8 rows (decode) as one
+// std::half_gemv per row straight over the bf16 weights (no float32 copy
+// of the matrix; bound by reading it), more rows (prefill) through
+// cblas_sgemm on widened copies. This is the dominant FLOP cost in the
+// model -- every other op below is comparatively cheap.
 struct Gemma4Bf16Tensor gemma4_bf16_linear(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor w);
 
 // Forces gemma4_bf16_linear's CPU-BLAS path even when a Metal device is

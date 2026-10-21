@@ -3,6 +3,7 @@
 #pragma once
 #include "gemma4_bf16.h"
 #include <std/ml/gpu_mps.h>
+#include <std/ml/tensor_half.h>
 #include <std/collections/map.h>
 #include <std/math.h>
 
@@ -142,6 +143,33 @@ extern void cblas_sgemm(int order, int transA, int transB,
 // as its transpose without ever physically materializing w^T, the same
 // trick std/ml/tensor_blas.sc's own backward pass uses), narrow the f32
 // result back to bf16.
+// CPU path for a few rows (decode; speculative verification): each row is
+// one std::half_gemv over the bf16 weight as stored -- no float32 copy of
+// the matrix, which __g4bf16_linear_cpu_blas makes on every call (1.6 GB
+// for the tied LM head). Bound by reading the weights once per row.
+#define G4BF16_GEMV_MAX_ROWS 8UL
+static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_gemv(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor w,
+                                                          unsigned long rows, unsigned long inF, unsigned long outF) {
+    struct Gemma4Bf16Tensor result = gemma4_bf16_new_2d(rows, outF);
+    struct HalfTensor wv;
+    float* xF; float* yF;
+    unsafe {
+        wv.data = (&heap unsigned short)w.data;
+        wv.shape[0] = outF; wv.shape[1] = inF; wv.ndim = 2UL; wv.size = outF * inF; wv.dtype = TENSOR_BF16;
+        xF = (float*)malloc(sizeof(float) * inF);
+        yF = (float*)malloc(sizeof(float) * outF);
+        unsigned long r = 0UL;
+        while (r < rows) {
+            bf16_to_f32_bulk(&x.data[r * inF], xF, inF);
+            half_gemv(&wv, (const &float)xF, (&float)yF);
+            f32_to_bf16_bulk((const float*)yF, &result.data[r * outF], outF);
+            r = r + 1UL;
+        }
+        free((void*)xF); free((void*)yF);
+    }
+    return result;
+}
+
 static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_blas(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor w,
                                                           unsigned long rows, unsigned long inF, unsigned long outF) {
     float* xF; float* wF; float* outF32;
@@ -193,6 +221,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_linear(const &Gemma4Bf16Tensor x, const &Gem
         }
     }
 
+    if (rows <= G4BF16_GEMV_MAX_ROWS) return __g4bf16_linear_cpu_gemv(x, w, rows, inF, outF);
     return __g4bf16_linear_cpu_blas(x, w, rows, inF, outF);
 }
 

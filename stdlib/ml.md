@@ -982,8 +982,8 @@ Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU
 | `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
-| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`) |
-| `tensor_blas.h` | `tensor_matmul_blas` | CBLAS (Accelerate / OpenBLAS) |
+| `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`); elsewhere the core's own SIMD ops |
+| `tensor_blas.h` | `tensor_matmul_blas` | through `sgemm`: a linked CBLAS (Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), else the built-in kernel |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks core (`sgemm`) / vDSP / BLAS by size |
 
 `tensor_gpu.h` also controls MPS batching and persistence at the tensor level:
@@ -1080,6 +1080,7 @@ struct HalfTensor half_scale(const &HalfTensor a, float k);
 struct HalfTensor half_relu(const &HalfTensor a);
 struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
 float             half_sum(const &HalfTensor a);                            // float32 accumulate
+int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
@@ -1097,6 +1098,8 @@ void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean s
 ```
 
 A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
+
+`half_gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#gemma4-rocm) CPU decode from 4.43 s to 0.225 s per token.
 
 Storage and arithmetic in bf16:
 
