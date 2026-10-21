@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
 #include <thread>
@@ -22,6 +23,8 @@ void handle_conn(int fd) {
 }
 
 int main() {
+    const char *env = std::getenv("PORT");   // default 8083
+    int port = env ? std::atoi(env) : 8083;
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -29,10 +32,10 @@ int main() {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(8083);
+    addr.sin_port = htons(port);
     bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr));
     listen(listen_fd, 1024);
-    printf("C++ server listening on 8083\n");
+    printf("C++ server listening on %d\n", port);
     for (;;) {
         int conn_fd = accept(listen_fd, nullptr, nullptr);
         if (conn_fd < 0) continue;

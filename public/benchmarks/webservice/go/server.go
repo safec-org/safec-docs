@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -12,6 +13,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/", handler)
-	fmt.Println("Go server listening on 8084")
-	http.ListenAndServe(":8084", nil)
+	port := os.Getenv("PORT") // default 8084
+	if port == "" {
+		port = "8084"
+	}
+	fmt.Println("Go server listening on " + port)
+	http.ListenAndServe(":"+port, nil)
 }

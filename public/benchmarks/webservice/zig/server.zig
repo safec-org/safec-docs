@@ -6,6 +6,7 @@ const c = @cImport({
     @cInclude("pthread.h");
     @cInclude("string.h");
     @cInclude("stdio.h");
+    @cInclude("stdlib.h");
 });
 
 const BODY = "{\"message\":\"Hello, World!\"}";
@@ -26,6 +27,8 @@ fn handleConn(arg: ?*anyopaque) callconv(.c) ?*anyopaque {
 }
 
 pub fn main() void {
+    const env = c.getenv("PORT"); // default 8085
+    const port: u16 = if (env != null) @intCast(c.atoi(env)) else 8085;
     const listen_fd = c.socket(c.AF_INET, c.SOCK_STREAM, 0);
     var opt: c_int = 1;
     _ = c.setsockopt(listen_fd, c.SOL_SOCKET, c.SO_REUSEADDR, &opt, @sizeOf(c_int));
@@ -34,11 +37,11 @@ pub fn main() void {
     _ = c.memset(&addr, 0, @sizeOf(c.struct_sockaddr_in));
     addr.sin_family = @intCast(c.AF_INET);
     addr.sin_addr.s_addr = c.INADDR_ANY;
-    addr.sin_port = c.htons(8085);
+    addr.sin_port = c.htons(port);
 
     _ = c.bind(listen_fd, @ptrCast(&addr), @sizeOf(c.struct_sockaddr_in));
     _ = c.listen(listen_fd, 1024);
-    std.debug.print("Zig server listening on 8085\n", .{});
+    std.debug.print("Zig server listening on {d}\n", .{port});
 
     while (true) {
         const conn_fd = c.accept(listen_fd, null, null);
