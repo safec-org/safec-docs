@@ -682,6 +682,9 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
 테스트는 모든 연산의 그래디언트를 중앙 차분과 비교합니다. 옵티마이저가
 수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘습니다.
 
+AMD GPU에서는 [`nn_rocm.h`](#rocm-training)가 이 모델들(그리고 아래의
+합성곱 신경망, 오토인코더, GAN, 강화 학습 에이전트)을 모든 것을 GPU 메모리에
+둔 채 학습합니다. `rocm_trainer_fit`은 디바이스에서 실행되는 `trainer_fit`입니다.
 학습 코드를 한 번만 작성하고 백엔드는 빌드할 때 고르려면
 [`train.h`](#train-traits)를 쓰십시오.
 
@@ -1207,7 +1210,7 @@ while (1) {
 #include <std/ml/train_traits.h>   // 트레이트와 제네릭 루프 (train.h가 포함함)
 ```
 
-위의 CPU 스택과 ROCm의 디바이스 상주 스택(`nn_rocm.h`)은 같은 모델을
+위의 CPU 스택과 [`nn_rocm.h`](#rocm-training)의 디바이스 상주 스택은 같은 모델을
 학습합니다. `train_traits.h`는 둘을 하나의 인터페이스 뒤에 둡니다. 역할마다
 [트레이트](/ko/reference/polymorphism#structural-polymorphism-traits)가 하나씩
 있고, 제네릭 루프는 그 트레이트를 대상으로 한 번만 작성됩니다. 트레이트는
@@ -1261,7 +1264,8 @@ while (1) {
   정하며, `cfg.batchSize`는 이를 넘을 수 없고, `pg_learner_new`에서는 가장
   긴 롤아웃 길이입니다. `precision`(`TENSOR_FP16` / `TENSOR_BF16`)은
   디바이스에서 16비트 활성값을 고릅니다. ROCm에서는
-  `RocmNet::set_precision`에 해당하며, 신경망 트레이너에만 적용됩니다.
+  [`RocmNet::set_precision`](#rocm-training-mixed-precision)에 해당하며, 신경망
+  트레이너에만 적용됩니다.
 - **GPU에서 잃는 것은 없습니다.** `RocmTrainer::fit_epoch`는
   `rocm_trainer_fit`의 에폭과 같습니다. 데이터셋은 GPU에 머물고 단계는
   그래프로 재생됩니다. GAN과 강화 학습 트레이너는 `RocmGan`, `RocmDqn`,
@@ -1468,6 +1472,121 @@ MI100, 배치 4 × 헤드 16, fp32, 호출당 ms, 같은 GPU의 ROCm용 PyTorch 
 | linear | 64 | 4096 | 아니오 | 0.464 | 1.40 |
 | linear | 64 | 16384 | 예 | 2.76 | 14.6 |
 | linear | 128 | 4096 | 예 | 2.84 | 8.73 |
+
+### ROCm에서 디바이스 상주 학습 — `nn_rocm.h` {#rocm-training}
+
+```c
+#include <std/ml/nn_rocm.h>   // 링크: gpu_rocm 라이브러리, MIOpen 합성곱에는 -lMIOpen도
+```
+
+[`nn.h`](#training), [`trainer.h`](#training), [`convnet.h`](#convnet),
+[`autoencoder.h`](#autoencoders), [`gan.h`](#gans), [`rl.h`](#rl)는 CPU에서
+자동미분으로 학습합니다. `nn_rocm.h`는 같은 모델을 AMD GPU에서 학습하며,
+매개변수, 활성값, 기울기, 옵티마이저 상태, 데이터셋, 누적 손실을 모두 GPU
+메모리에 둡니다. 학습 단계 하나가 호스트와 디바이스 사이에서 아무것도
+옮기지 않습니다. 디바이스 모델은 호스트 모델에서 만들고 각자의 `download`
+메서드로 다시 복사해 오므로, 평가, 샘플링, 저장 같은 `std::ml`의 나머지
+기능을 그 결과에 그대로 쓸 수 있습니다. 같은 모델은 `RocmTrainer`,
+`RocmGanTrainer`, `RocmDqnAgent`, `RocmPgAgent`로도 감싸져 있고 이들은
+[학습 트레이트](#train-traits)를 만족하므로, `train.h`를 대상으로 작성한
+코드는 `rocm` feature로 빌드하면 여기서 실행됩니다.
+
+```c
+struct Mlp net = mlp_new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
+struct RocmNet dnet = rocm_net_from_mlp(&net, 128UL);           // 최대 128행 배치
+struct RocmOptimizer opt = rocm_optimizer_new(OPT_ADAM, (float)0.001);
+dnet.add_params(&opt);
+struct TrainReport rep = rocm_trainer_fit(&dnet, rocm_net_ce_step, &opt, &train, &cfg);
+dnet.download(&net.params);   // 호스트 Mlp로 되돌림
+```
+
+| 구성 | 함수 |
+|---|---|
+| 신경망 | `RocmNet`: `rocm_net_from_mlp`, `rocm_net_from_convnet`(모든 `ConvNet` 레이어 종류와 그 실행 통계, 학습 모드), 또는 `rocm_net_new`와 `RocmNet`의 메서드 `add_linear` / `add_conv2d(_ex)` / `add_conv_transpose2d(_ex)` / `add_maxpool` / `add_avgpool` / `add_global_pool` / `add_upsample` / `add_resize` / `add_reshape` / `add_batchnorm` / `add_groupnorm` / `add_dropout`, `spectral_norm`, 스킵 연결(`add_save` 다음에 `add_skip`(덧셈, 선택적 1×1 투영) 또는 `add_concat`) |
+| 패스 | `RocmNet`의 메서드 `forward`, `grad_output`, `backward`; `set_training`(배치 정규화 통계, 드롭아웃) |
+| 손실 | `rocm_cross_entropy`(클래스 인덱스), `rocm_bce_logits`, `rocm_mse`: 각각 기울기를 쓰고 GPU의 손실 합에 더합니다 |
+| 단계 | `rocm_net_ce_step`, `rocm_net_mse_step`, `rocm_net_bce_step`, `rocm_net_recon_bce_step`, `rocm_net_recon_mse_step`, `rocm_vae_step`, `rocm_conv_autoencoder_step`: 순전파, 손실, 역전파(`rocm_trainer_fit`에 넘길 수 있도록 함수입니다) |
+| 옵티마이저 | `RocmOptimizer`(`rocm_optimizer_new`, `Optimizer`에서 만드는 `rocm_optimizer_from`, `net.add_params(&opt)`, `opt.step()`): 모든 `OPT_*` 종류를 `Optimizer::step`과 같은 산술로, 기울기 노름 클리핑(`clipNorm`)과 가중치 클램핑(`clampWeights`) 포함 |
+| 학습 루프 | `rocm_trainer_fit(&model, step, &opt, &data, &cfg)`: 배치 순서까지 같은 `trainer_fit` |
+| 모델 | `rocm_vae_new` / `rocm_conv_vae_new`(+ 조건부), `rocm_conv_autoencoder_new`, `rocm_gan_new` / `rocm_dcgan_new`와 `RocmGan::train`(모든 GAN 손실, 기울기 페널티, 조건부 모델, 평균 생성기), `rocm_dqn_new`, `rocm_pg_new`(REINFORCE, A2C, PPO) |
+| 전송 | `RocmNet`의 메서드 `download` / `upload`(매개변수), `download_stats` / `upload_stats`(실행 통계, 스펙트럴 정규화의 `u`), `download_convnet`, `download_mlp`, 그리고 모든 디바이스 모델의 `download` |
+| 엔진, 정밀도 | `rocm_conv_engine(ROCM_CONV_AUTO \| ROCM_CONV_IM2COL)`, `net.set_precision(ROCM_FP16 \| ROCM_BF16)`, `net.set_loss_scale(s)`, `net.loss_scale()` |
+
+**한 단계가 실행되는 방식.** 모든 레이어는 직접 작성한 역전파를 가집니다.
+행렬곱은 rocBLAS로 갑니다. 바이어스, 활성화, 정규화, 풀링, 크기 조정과 그
+기울기는 처음 쓸 때 hiprtc로 컴파일하는 HIP 커널입니다. 배치는 NCHW 행이며,
+`convnet.h`의 배치 방식과 같습니다.
+
+- **학습 루프.** `rocm_trainer_fit`은 데이터셋을 한 번만 올립니다. 에폭마다
+  섞은 행 순서만 올리는데, 이는 같은 시드에서 `trainer_fit`이 쓰는 순서와
+  같습니다. 배치는 GPU에서 모읍니다. 배치 크기마다 첫 단계는 즉시
+  실행되며, 이때 rocBLAS와 MIOpen이 커널을 고릅니다. 그 뒤로는
+  `ROCM_TRAIN_CHUNK`(4)개 단계씩 `RocmGraph`에 기록해 재생합니다. 손실은
+  에폭마다 한 번만 읽어 옵니다.
+- **옵티마이저 상태.** 하이퍼파라미터와 단계 수가 GPU에 있으므로, 기록된
+  단계를 재생해도 올바르게 동작합니다.
+- **합성곱.** 프로그램이 `-lMIOpen`을 링크하면 MIOpen에서 실행되고(심볼은
+  weak입니다), 그렇지 않으면 im2col / col2im + rocBLAS 엔진에서 실행됩니다.
+  fp32 형태마다 첫 패스에서 두 엔진의 시간을 재고, im2col이 확실히 빠르면
+  그것을 씁니다. 호출당 고정 비용이 큰 MIOpen보다 작은 합성곱에서 그렇습니다.
+- **융합.** 배치 정규화는 통계를 한 번의 실행으로 구합니다. 앞선 합성곱의
+  바이어스를 흡수하고, 활성화의 기울기도 같은 패스에서 적용합니다. 스킵
+  레이어는 이웃 레이어의 버퍼를 복사하지 않고 공유합니다. 긴 가중치 기울기는
+  그 형태에서 rocBLAS보다 빠르면 split-K GEMM을 씁니다.
+- **작은 신경망.** 작은 완전 연결 신경망(예: 배치 32의 2-32-32-2)은 단계
+  전체를 커널 하나로 실행합니다. 커널 하나의 고정 비용(MI100에서 그래프 안에서도
+  약 1.3 µs)이 그 계산량보다 크기 때문입니다.
+
+**난수.** GAN, DQN, 정책 경사 에이전트는 모든 무작위 선택을 호스트 모델 자신의
+`Rng`에서 뽑으므로 CPU 버전과 단계마다 똑같이 행동합니다. VAE의
+재매개변수화 노이즈와 드롭아웃 마스크는 GPU에서 뽑으므로 CPU의 값과 다릅니다.
+
+#### 혼합 정밀도 {#rocm-training-mixed-precision}
+
+`net.set_precision(ROCM_FP16)`(또는 `ROCM_BF16`)은 `RocmNet`을 16비트
+활성값으로 바꿉니다. 마지막 레이어 뒤, `RocmNet::add_params` 전에
+호출하십시오.
+
+- **저장.** 활성값과 그 기울기는 16비트로 저장하고, 산술은 모두 fp32입니다.
+  가중치, 기울기, 옵티마이저 상태는 fp32로 남으며, 가중치는 순전파마다
+  16비트로 반올림합니다.
+- **인터페이스는 그대로.** 입력, 출력과 그 기울기는 fp32로 남으므로 손실,
+  단계 함수, `rocm_trainer_fit`은 바꿀 것이 없습니다.
+- **엔진.** 선형 레이어는 16비트 rocBLAS GEMM을 씁니다. 16비트 합성곱에는
+  MIOpen이 필요하며, 없으면 `RocmNet::set_precision`이 0을 반환합니다.
+- **fp16 손실 스케일.** fp16에는 PyTorch의 `GradScaler`처럼 GPU에 있는 동적
+  손실 스케일이 붙습니다. 65536에서 시작해 출력 기울기에 곱해지고,
+  옵티마이저가 다시 나눕니다. 기울기가 넘친 단계는 건너뛰고 스케일을 반으로
+  줄이며, 2000번 연속으로 정상 단계가 나오면 두 배로 늘립니다. 이 모든
+  과정이 GPU에서 일어나므로 재생되는 그래프 안에서도 동작합니다.
+  `RocmNet::loss_scale`로 스케일을 읽습니다.
+- **범위.** GAN, VAE, 강화 학습 모델은 fp32로 남습니다.
+
+MI100에서는 fp16이 더 빠른 16비트 타입입니다. MIOpen의 fp16 커널은 행렬
+코어를 쓰지만, bf16 합성곱은 fp32와 비슷한 속도로 실행됩니다.
+
+MI100, 학습 한 번당 ms, 같은 GPU에서 ROCm용 PyTorch 2.9.1과 비교
+([전체 워크로드](/benchmarks#ml-training-gpu), 영문):
+
+| 워크로드 | SafeC fp32 | SafeC fp16 | SafeC bf16 | PyTorch fp32 | PyTorch AMP fp16 | PyTorch AMP bf16 |
+|---|---:|---:|---:|---:|---:|---:|
+| ResNet(잔차 블록 3개), 3×32×32, 배치 128, 16단계 | 75.3 | **57.9** | 79.5 | 98.9 | 74.3 | 271 |
+| U-Net, 1×32×32, 배치 32, 32단계 | 50.5 | **44.7** | 69.8 | 146 | 154 | 277 |
+| CNN + 배치 정규화, 1×28×28, 배치 128, 32단계 | 31.2 | **29.6** | 32.5 | 60.7 | 58.3 | 94.0 |
+| MLP 784→1024→1024→10, 배치 256, 64단계 | 27.6 | 26.6 | **25.7** | 56.6 | 70.2 | 63.3 |
+| DCGAN, 28×28, 배치 64, D 32단계 + G 32단계 | **56.1** | — | — | 106 | — | — |
+| 합성곱 VAE, 28×28, 배치 64, 32단계 | **26.8** | — | — | 53.3 | — | — |
+
+::: tip 검증
+`tests/stdlib/rocm/nn_rocm_check.sc`(`tests/stdlib/rocm/run.sh`에 포함)는
+모든 레이어 종류의 기울기, 모든 옵티마이저, `rocm_trainer_fit`, 합성곱
+오토인코더, 그리고 GAN, DQN, 정책 경사 단계를 CPU 코드와 비교합니다. 두
+합성곱 엔진 모두에서 약 1e-7까지 일치합니다. VAE는 무작위 값이 다르므로 손실
+수준으로, 드롭아웃은 통계로 비교합니다. 기울기 검사는 fp16(허용 오차 2%)과
+bf16(10%)에서도 다시 실행합니다. 짧은 ResNet 학습으로 16비트 손실이 fp32를
+따라가는지 확인하고, 넘치는 손실 스케일로 시작한 fp16 실행이 회복하는지도
+확인합니다. 모두 387개 검사입니다.
+:::
 
 ### CUDA (NVIDIA) {#cuda}
 
