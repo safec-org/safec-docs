@@ -27,12 +27,16 @@ a reference of any region) converts to these implicitly, with no
 
 Stateful types (models, layers, optimizers, data loaders, agents, device
 nets and buffers) are used through [methods](/reference/functions#struct-methods):
-`net.forward(x)`, `net.add_params(&opt)`, `opt.step()`, `buf.free()`.
+`net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
 Constructors are functions named `*_new` (or `*_from_*` / `*_upload` when
-built from another type), since SafeC has no static methods. Tensor math
-stays functions (`tensor_matmul(a, b)`), and so do the loss and step
-functions that are passed to `trainer_fit` / `rocm_trainer_fit` as values
-(`vae_loss`, `rocm_net_ce_step`).
+built from another type), since SafeC has no static methods. What every
+model can do — add its parameters to an optimizer, count them, save and
+load them, copy them, train on a built-in loss — is written once as
+generic functions over [traits](#modules) the models satisfy:
+`model_add_params(&net, &opt)`, `model_save_file(&net, path)`,
+`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. Tensor math stays
+functions (`tensor_matmul(a, b)`), and so do the step functions passed to
+`rocm_trainer_fit` as values (`rocm_net_ce_step`).
 
 ---
 
@@ -237,17 +241,28 @@ cross-checked tests for the gated/linear/flash forms.
 Flash and linear attention also run on Apple GPUs, in bf16 and multi-head
 with grouped-query K/V — see [MPS attention and transformer ops](#mps-attention).
 
+**`MultiHeadAttention`** is a self-attention layer with its own
+projections, `mha_forward(X Wq, X Wk, X Wv, numHeads) Wo`, forward only
+like the ops above. It is a [`Module`](#modules).
+
+```c
+struct MultiHeadAttention mha_new(unsigned long dModel, unsigned long numHeads, &Rng rng);
+&Tensor MultiHeadAttention::forward(const &Tensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
+void    MultiHeadAttention::free();
+```
+
 ## Advanced attention
 
 ```c
 #include <std/ml/attention_advanced.h>
 ```
 
-- **`mla_forward`/`eg_mla_forward`** — Multi-head Latent Attention
-  (DeepSeek-V2): compresses K/V into a shared low-rank latent before
-  up-projecting back to full width, saving KV-cache memory. `eg_mla_forward`
-  shares one latent across independent per-group up-projections
-  (grouped-query attention's KV-sharing layered onto MLA's compression).
+- **`Mla`/`EgMla`** — Multi-head Latent Attention (DeepSeek-V2):
+  compresses K/V into a shared low-rank latent before up-projecting back
+  to full width, saving KV-cache memory. `EgMla` shares one latent across
+  independent per-group up-projections (grouped-query attention's
+  KV-sharing layered onto MLA's compression). Both are layers holding
+  their weights, and [`Module`](#modules)s.
 - **`windowed_attention_forward`** — Shifted-Window (Swin) attention
   adapted to 1D sequences: partitions into fixed-size local windows,
   with a cyclic shift (`shift` param) so the next layer's windows
@@ -262,11 +277,15 @@ reconstruction, and a hand-computed 2-step state trace for Gated
 DeltaNet.
 
 ```c
-&Tensor mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                    const &Tensor Wuk, const &Tensor Wuv, unsigned long numHeads);
-&Tensor eg_mla_forward(const &Tensor X, const &Tensor Wq, const &Tensor Wdkv,
-                       struct Slice<&Tensor> WukGroups, struct Slice<&Tensor> WuvGroups,  // one per group
-                       unsigned long headsPerGroup);
+struct Mla { &Tensor Wq; &Tensor Wdkv; &Tensor Wuk; &Tensor Wuv; unsigned long numHeads; };
+struct Mla mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
+&Tensor Mla::forward(const &Tensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
+
+struct EgMla { &Tensor Wq; &Tensor Wdkv; struct Vec<&Tensor> Wuk; struct Vec<&Tensor> Wuv;  // one per group
+               unsigned long headsPerGroup; };
+struct EgMla eg_mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups,
+                        unsigned long headsPerGroup, &Rng rng);
+&Tensor EgMla::forward(const &Tensor X) const;
 &Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
                                    unsigned long windowSize, unsigned long shift);
 
@@ -276,7 +295,7 @@ struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyD
 void    GatedDeltaNet::free();
 ```
 
-`eg_mla_forward` takes the per-group up-projections as [`Slice`](/stdlib/collections#slice)s of tensor references — bounds-checked arrays whose length is the group count. Back them with a fixed-size stack or static array (`&Tensor groups[4]`) or, for a count known only at run time, a heap or arena allocation.
+The weights are public fields: to load pretrained ones, assign them (an `EgMla`'s per-group up-projections are `Vec`s whose length is the group count). `free()` releases them.
 
 ## RNN family
 
@@ -512,7 +531,7 @@ struct FeatureMap UNet::forward(const &FeatureMap input);
 void UNet::free();
 ```
 
-## Diffusion
+## Diffusion {#diffusion}
 
 ```c
 #include <std/ml/diffusion.h>
@@ -525,8 +544,8 @@ void UNet::free();
 - **`ddim_sampler_step`** — deterministic DDIM (eta=0).
 - **`dpm_solver_1_step`/`dpm_solver_2_step`** — DPM-Solver (Lu et al.
   2022), eps-prediction exponential integrator, order 1 and a midpoint
-  order-2 variant (`dpm_solver_2_step` takes a caller-supplied model
-  callback, evaluated a second time at the log-SNR midpoint).
+  order-2 variant (`dpm_solver_2_step` takes your model, any
+  `DenoiseModel`, and evaluates it a second time at the log-SNR midpoint).
 - **`dpm_solver_pp_1_step`/`dpm_solver_pp_2_step`** — DPM-Solver++ (Lu et
   al. 2022b), the data(x0)-prediction reformulation. Order 1 is provably
   identical to `ddim_sampler_step` — verified numerically, not just by
@@ -551,19 +570,20 @@ void ddpm_linear_schedule(unsigned long numSteps, float betaStart, float betaEnd
 &Tensor dpm_solver_pp_1_step(const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 
-// Order-2 solvers call your model again at the midpoint.
-// model(x, sigma, userData) -> predicted noise (eps) or clean sample (x0).
-generic<T>
-&Tensor dpm_solver_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
-                          const &Tensor x_cur, const &Tensor epsPred,
+// Order-2 solvers call your model again at the midpoint: any struct with
+// a predict method returning the predicted noise (eps) or clean sample (x0).
+trait DenoiseModel {
+    &Tensor predict(const &Tensor x, float sigma);
+}
+generic<M: DenoiseModel>
+&Tensor dpm_solver_2_step(&M model, const &Tensor x_cur, const &Tensor epsPred,
                           float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
-generic<T>
-&Tensor dpm_solver_pp_2_step(fn &Tensor(const &Tensor, float, ?&T) model, ?&T userData,
-                             const &Tensor x_cur, const &Tensor x0Pred,
+generic<M: DenoiseModel>
+&Tensor dpm_solver_pp_2_step(&M model, const &Tensor x_cur, const &Tensor x0Pred,
                              float alpha_cur, float sigma_cur, float alpha_next, float sigma_next);
 ```
 
-`userData` is your model's own state (its weights, say); its type is checked against the callback at compile time.
+The model is your own struct, holding its weights; the solver calls its `predict` method directly, with no callback or type-erased context.
 
 ## Transformer (DiT / JiT)
 
@@ -576,7 +596,7 @@ generic<T>
   (shift/scale/gate for each of the attention and FFN sublayers).
   Verified via a gate=0 exact-identity check (with gates zeroed, the
   block's output must equal its input exactly) and full self-consistency.
-- **`JiTBlock`/`jit_forward`** — a plain pre-LN transformer with
+- **`JiTBlock`/`JiT`** — a plain pre-LN transformer with
   conditioning added once, up front, to the token embeddings (as
   opposed to DiT's per-layer adaptive modulation) — the architectural
   distinction this implementation draws between the two.
@@ -590,9 +610,12 @@ void    DiTBlock::free();
 struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
 &Tensor JiTBlock::forward(const &Tensor x) const;
 void    JiTBlock::free();
-// Patch embedding + conditioning, then numBlocks blocks.
-&Tensor jit_forward(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                    struct Slice<JiTBlock> blocks);
+// The model: patch embedding + conditioning, then the blocks.
+struct JiT { &Tensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
+struct JiT jit_new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden,
+                   unsigned long numHeads, unsigned long depth);
+&Tensor JiT::forward(const &Tensor patches, const &Tensor cond) const;   // cond: [1, dModel]
+void    JiT::free();
 ```
 
 ## Training: layers, losses, optimizers {#training}
@@ -632,7 +655,7 @@ indices stored as floats.
   hiddenLayers → outDim`, with `ACT_RELU`, `ACT_LEAKY`, `ACT_TANH`,
   `ACT_SIGMOID`, `ACT_GELU` or `ACT_SILU` between layers. It is
   initialized like PyTorch's `nn.Linear`, with weights stored `[in, out]`.
-  `Mlp::copy` / `Mlp::soft_update` keep target networks in sync.
+  `model_copy` / `model_soft_update` keep target networks in sync.
 - **`Optimizer`** holds a list of parameters and offers these kinds:
 
   | Kind | Update |
@@ -650,7 +673,7 @@ indices stored as floats.
 
 - **Saving and loading.** `tensors_save` / `tensors_load` write a list of
   tensors (shapes and float32 values) to a file and read it back into
-  tensors of the same shapes. `Mlp::save_file` / `Mlp::load_file` do this
+  tensors of the same shapes. `model_save_file` / `model_load_file` do this
   for an `Mlp`. Loading returns 0, and changes nothing, when the file is
   missing or doesn't match.
 
@@ -671,7 +694,7 @@ struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
 struct DatasetSplit sp = data.split((float)0.25, &rng);
 struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
-net.add_params(&opt);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = train_config_default();     // 10 epochs, batch 32
 cfg.epochs = 60UL;
 struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
@@ -704,6 +727,85 @@ GPU memory: `rocm_trainer_fit` is `trainer_fit` on the device. To write
 the training once and pick the backend at build time, use
 [`train.h`](#train-traits).
 
+## Models as traits: generic functions for every model {#modules}
+
+```c
+#include <std/ml/module.h>
+```
+
+Every model is a struct with methods. `module.h` names what a model can
+do as small [traits](/reference/generics#composing-traits), one capability
+each, and composes them into the roles generic code asks for. The
+functions after the table are written once and apply to every model that
+has the capability. Each call is resolved at compile time.
+
+| Trait | Composed of | Satisfied by |
+|---|---|---|
+| `Parameterized` | `collect_params(&out)` (the trained tensors), `collect_state(&out)` (those plus non-trained buffers: running statistics, spectral norms' `u`) | every model below, plus `Gan`, `Dcgan`, `Dqn`, `PolicyAgent`, `DiTBlock`, `GatedDeltaNet`, `LSTMCell`, `XLSTMCell` |
+| `Forward` | `forward(x)` | |
+| `Objective` | `loss(x, y)`: the model's own training loss | |
+| `Module` | `Parameterized + Forward` | `Mlp`, `ConvNet`, `LoraMlp`, `QLoraMlp`, `LayerNorm`, `MultiHeadAttention`, `Mla`, `EgMla`, `JiTBlock`, `Mamba` |
+| `LossModel` | `Parameterized + Objective` | `Autoencoder`, `Vae`, `VqVae`, `ConvAutoencoder`, `ConvVae` |
+| `CondModule` | `Parameterized` + `forward(x, c)` | `DiTBlock`, `JiT` |
+| `Recurrent` | `Parameterized` + `forward(x_t, h)` | `RNNCell`, `GRUCell` |
+| `Generative` | `sample(n, labels)` | `Gan`, `Dcgan`, `Vae`, `ConvVae` |
+| `GanModel` (`gan.h`) | `Parameterized + Generative` + `train_step`, `train` | `Gan`, `Dcgan` |
+| `DenoiseModel` (`diffusion.h`) | `predict(x, sigma)` | your diffusion model ([samplers](#diffusion)) |
+
+| Function | Bound | Does |
+|---|---|---|
+| `model_add_params(&m, &opt)` | `Parameterized` | adds the trained tensors to an `Optimizer` |
+| `model_param_count(&m)` | `Parameterized` | trained values |
+| `model_save_file(&m, path)` / `model_load_file(&m, path)` | `Parameterized` | the state in `tensors_save`'s format; loading needs the same shapes |
+| `model_copy(&dst, &src)` / `model_soft_update(&dst, &src, tau)` | `Parameterized` | `dst = src` / `dst = tau·src + (1 − tau)·dst` over the state: target networks, averaged generators |
+| `module_fit(&m, loss, &opt, &data, &cfg)` | `Module` | `trainer_fit` on a built-in loss (`TRAIN_LOSS_CE`, `TRAIN_LOSS_MSE`, `TRAIN_LOSS_BCE`): no loss function to write |
+| `module_loss(&m, loss, x, y)`, `module_predict(&m, x)`, `module_evaluate(&m, loss, &data, batch)`, `module_accuracy(&m, &data, batch)` | `Module` | one loss, a gradient-free forward, the mean loss and the accuracy over a dataset |
+| `model_fit(&m, &opt, &data, &cfg)`, `model_evaluate(&m, &data, batch)` | `LossModel` | the same on the model's own loss |
+| `recurrent_run(&cell, xs, h0)` | `Recurrent` | the cell over a sequence `[T, in]`, returning the last hidden state |
+
+```c
+struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+model_add_params(&net, &opt);
+struct TrainReport rep = module_fit(&net, TRAIN_LOSS_CE, &opt, &train, &cfg);
+float acc = module_accuracy(&net, &test, 64UL);
+model_save_file(&net, "net.bin");
+```
+
+The same five lines train a `ConvNet`, a `LoraMlp` (its `collect_params`
+returns only the adapters, so only they train and only they are saved)
+or a model of your own once it has the methods. A model can also be
+assembled from others with a bounded generic struct that is itself a
+`Module`:
+
+```c
+generic<M: Module>
+struct Avg2 {
+    M a;
+    M b;
+    &Tensor forward(const &Tensor x);
+    void collect_params(&Vec<&Tensor> out) const;
+    void collect_state(&Vec<&Tensor> out) const;
+};
+generic<M: Module>
+&Tensor Avg2::forward(const &Tensor x) {
+    return tensor_scale(tensor_add(self.a.forward(x), self.b.forward(x)), (float)0.5);
+}
+generic<M: Module>
+void Avg2::collect_params(&Vec<&Tensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
+generic<M: Module>
+void Avg2::collect_state(&Vec<&Tensor> out) const { self.a.collect_state(out); self.b.collect_state(out); }
+
+struct Avg2<struct Mlp> pair;   // ... pair.a, pair.b = mlp_new(...)
+module_fit(&pair, TRAIN_LOSS_CE, &opt, &train, &cfg);
+```
+
+`trainer_fit` remains for losses of your own: it takes the loss as a
+function of the model and a batch. `tests/stdlib/tests/test_ml_modules.sc`
+runs one generic check (forward, parameter count, save and load, copy)
+over ten `Module`s, checks `module_fit` against `trainer_fit` to the bit,
+and trains the `Avg2` pair above.
+
 ## Normalization: LayerNorm and AdaLN {#norm}
 
 ```c
@@ -730,7 +832,7 @@ Trainable normalization layers, with autograd, over `[batch, dim]` rows.
 struct AdaLN ad = adaln_new(dim, condDim, 1);   // gated
 struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
 &Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
-ad.add_params(&opt);
+model_add_params(&ad, &opt);
 ```
 
 The tests check both layers' gradients against finite differences, and
@@ -775,7 +877,7 @@ struct LoraConfig cfg = lora_config_default(8UL);    // rank 8, alpha 8
 struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + double quant
 pretrained.free();
 struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
-ft.add_params(&opt);                           // adapters only
+model_add_params(&ft, &opt);                   // adapters only
 trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss calls QLoraMlp::forward
 ```
 
@@ -936,7 +1038,7 @@ uses batch statistics and updates the running ones, spectral norms
 iterate, and dropout drops. Call `n.set_training(0)` for
 inference; it returns the previous mode. The models in `autoencoder.h`
 and `gan.h` switch modes themselves: their loss and training-step
-functions run in training mode, and encode, decode, sample, generate and
+functions run in training mode, and encode, decode, sample and
 score run in inference mode.
 
 Other operations on a `ConvNet`:
@@ -944,16 +1046,16 @@ Other operations on a `ConvNet`:
 - `ConvNet::forward` maps `[batch, in_dim()]` to
   `[batch, out_dim()]`. The `outC`, `outH` and `outW` fields give
   the current output geometry.
-- `ConvNet::add_params` registers the parameters.
-- `ConvNet::clone`, `ConvNet::copy` and `ConvNet::soft_update` handle target
+- `model_add_params` registers the parameters (not the buffers).
+- `ConvNet::clone`, `model_copy` and `model_soft_update` handle target
   and averaged networks, buffers included.
 - `ConvNet::fold_batchnorm` folds each batch norm that directly follows a
   convolution or dense layer into that layer's weight and bias, for
   inference. The output is unchanged, but don't train the net afterwards.
-- `ConvNet::save_file` / `ConvNet::load_file` write the parameters and
+- `model_save_file` / `model_load_file` write the parameters and
   buffers to a file and read them back into a net built with the same
   layers. Loading returns 0 on a mismatch, and nothing is overwritten.
-  `tensors_save` / `tensors_load` and `Mlp::save_file` / `Mlp::load_file`
+  `tensors_save` / `tensors_load` and an `Mlp`'s files
   in `nn.h` use the same format.
 
 ```c
@@ -972,12 +1074,12 @@ net.dropout((float)0.1, 1, &rng);
 net.global_avgpool();              // 64 x 1 x 1
 net.dense(10UL, ACT_NONE, &rng);   // logits
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-net.add_params(&opt);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = train_config_default();
 trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
 net.set_training(0);   // inference from here on
 net.fold_batchnorm();
-net.save_file("mnist_resnet.bin");
+model_save_file(&net, "mnist_resnet.bin");
 ```
 
 The tests check every op's input and parameter gradients against central
@@ -1051,8 +1153,8 @@ struct VaeConfig cfg = vae_config_default(4UL);   // 256 hidden, BCE, beta 1
 cfg.classes = 4UL;                               // conditional
 struct Vae v = vae_new(100UL, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
-v.add_params(&opt);
-trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
+model_add_params(&v, &opt);
+model_fit(&v, &opt, &shapes, &tc);   // the VAE's own loss (Vae::loss)
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 100] in (0, 1)
 ```
 
@@ -1101,8 +1203,8 @@ struct VaeConfig cfg = vae_config_default(16UL);
 cfg.classes = classes;
 struct ConvVae v = conv_vae_new(enc, dec, &cfg);
 struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
-v.add_params(&opt);
-trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+model_add_params(&v, &opt);
+model_fit(&v, &opt, &mnist, &tc);
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 784] in (0, 1)
 ```
 
@@ -1144,7 +1246,7 @@ norm are fine).
 
 `classes > 0` makes it a **conditional GAN**: the label goes to both
 networks. `emaDecay` keeps an exponential moving average of the
-generator's weights (Karras et al. 2018), and `Gan::generate` samples from
+generator's weights (Karras et al. 2018), and `Gan::sample` samples from
 it. The game oscillates, and the average sits nearer its centre than any
 single step does. The GAN owns its two optimizers (Adam with β1 = 0.5, or
 RMSProp for WGAN) and the arena for its steps. `Gan::train` runs epochs
@@ -1155,7 +1257,7 @@ struct GanConfig cfg = gan_config_default(4UL);   // latent 4
 cfg.loss = GAN_HINGE;
 struct Gan g = gan_new(2UL, &cfg);
 g.train(&data, 80UL, 64UL);
-&Tensor fake = g.generate(1000UL, null);   // heap tensor, caller frees
+&Tensor fake = g.sample(1000UL, null);   // heap tensor, caller frees
 ```
 
 In the tests, every objective learns a 2D Gaussian, with the mean within
@@ -1175,12 +1277,12 @@ one score. It reads the objective, learning rates, `nCritic`, `clip`,
 With `classes > 0`, it is a **conditional DCGAN**. G gets the one-hot label
 appended to its noise, so it takes `latent + classes` inputs. D gets the
 label as `classes` extra input channels, one constant plane per class.
-`Dcgan::train_step`, `Dcgan::generate` and `Dcgan::score` take labels or
+`Dcgan::train_step`, `Dcgan::sample` and `Dcgan::score` take labels or
 `null`, and `Dcgan::train` takes them from the dataset.
 
 The DCGAN owns the nets, the optimizers, the averaged generator and the
 step arena. Training steps run the nets in training mode, so batch norm
-uses batch statistics, as DCGAN prescribes. `Dcgan::generate` and
+uses batch statistics, as DCGAN prescribes. `Dcgan::sample` and
 `Dcgan::score` run in inference mode.
 
 ```c
@@ -1198,7 +1300,7 @@ disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // one score
 struct GanConfig cfg = gan_config_default(16UL);
 struct Dcgan g = dcgan_new(gen, disc, &cfg);
 g.train(&images, 20UL, 64UL);
-&Tensor fake = g.generate(64UL, null);   // [64, 256], heap tensor, caller frees
+&Tensor fake = g.sample(64UL, null);   // [64, 256], heap tensor, caller frees
 ```
 
 The tests train on 8×8 shapes. A DCGAN must move its samples' mean
@@ -1258,21 +1360,29 @@ The tests run each technique on its problem:
 
 The CPU stack above and [`nn_rocm.h`](#rocm-training)'s device-resident
 stack train the same models. `train_traits.h` puts both behind one
-interface: a [trait](/reference/polymorphism#structural-polymorphism-traits)
-per role, and generic loops written once against the traits. Traits are
-structural. A trainer conforms by having the methods, conformance is
-checked where a generic is instantiated, and every call is a direct call
-to that type's method, with no dispatch at run time.
+interface: [traits](/reference/generics#composing-traits) composed from
+four small capabilities, and generic loops written once against them.
+Traits are structural. A trainer conforms by having the methods,
+conformance is checked where a generic is instantiated, and every call is
+a direct call to that type's method, with no dispatch at run time.
 
-| Trait | Role | Methods |
+| Capability | Methods |
+|---|---|
+| `HostSynced` | `sync()` (make the trainer's `host` model current), `free()` |
+| `EpochFit` | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `learning_rate()` / `set_learning_rate(lr)` |
+| `BatchStep` | `train_step(x, y)`: one step on a host batch |
+| `Actor` | `act(obs, explore)` |
+
+| Role | Composed of | For |
 |---|---|---|
-| `Trainable` | A model and its optimizer, trained on a `Dataset`'s batches: nets (`Mlp`, `ConvNet`) on a loss, autoencoders, VAEs. | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `train_step(x, y)` (one step on a host batch), `learning_rate()` / `set_learning_rate(lr)`, `sync()`, `free()` |
-| `GanTrainable` | A `Gan` or `Dcgan` with its two optimizers. | `train_step(real, labels)`, `train(&data, epochs, batchSize)`, `sync()`, `free()` |
-| `ValueAgent` | A value-based RL agent (`Dqn`). | `epsilon()`, `act(obs, explore)`, `observe(obs, action, reward, next, terminal)` (1 when a gradient step ran), `last_loss()`, `updates()`, `sync()`, `free()` |
-| `PolicyLearner` | A policy-gradient agent (`PolicyAgent`: REINFORCE, A2C, PPO). | `act(obs, sample)`, `record(obs, action, reward, next, terminated, truncated)`, `update()`, `sync()`, `free()` |
+| `Trainable` | `EpochFit + BatchStep + HostSynced` | a model and its optimizer, trained on a `Dataset`'s batches: nets (`Mlp`, `ConvNet`) on a loss, autoencoders, VAEs |
+| `GanTrainable` | `HostSynced` + `train_step(real, labels)`, `train(&data, epochs, batchSize)` | a `Gan` or `Dcgan` with its two optimizers |
+| `ValueAgent` | `Actor + HostSynced` + `epsilon()`, `observe(obs, action, reward, next, terminal)` (1 when a gradient step ran), `last_loss()`, `updates()` | a value-based RL agent (`Dqn`) |
+| `PolicyLearner` | `Actor + HostSynced` + `record(obs, action, reward, next, terminated, truncated)`, `update()` | a policy-gradient agent (`PolicyAgent`: REINFORCE, A2C, PPO) |
 
-- **`train_fit(&m, &data, &cfg)`** is `trainer_fit` for any `Trainable`:
-  the same batches, epochs, lr decay and `TrainReport`. It leaves the host
+- **`train_fit(&m, &data, &cfg)`** is `trainer_fit` for any trainer that
+  is `EpochFit + HostSynced` (every `Trainable` is; the bound asks only for
+  what the loop uses): the same batches, epochs, lr decay and `TrainReport`. It leaves the host
   model synced, and reports `steps == 0` when a run fails on a device.
 - **`train_gan(&g, &data, epochs, batchSize)`** is `Gan::train` for any
   `GanTrainable`, also leaving the host model synced.
@@ -1286,8 +1396,8 @@ and picks the concrete type at compile time:
 |---|---|---|---|
 | `MlpTrainer` | `mlp_trainer_new(mlp, loss, &opt, &to)` | `CpuTrainer<Mlp>` | `RocmTrainer<Mlp, RocmNet>` |
 | `ConvNetTrainer` | `convnet_trainer_new(net, loss, &opt, &to)` | `CpuTrainer<ConvNet>` | `RocmTrainer<ConvNet, RocmNet>` |
-| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
-| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
+| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuModelTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
+| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuModelTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
 | `GanTrainer` / `DcganTrainer` | `gan_trainer_new(g, &to)` / `dcgan_trainer_new` | `CpuGanTrainer<Gan>` / `<Dcgan>` | `RocmGanTrainer<Gan>` / `<Dcgan>` |
 | `DqnLearner` | `dqn_learner_new(d)` | `CpuDqnAgent` | `RocmDqnAgent` |
 | `PgLearner` | `pg_learner_new(a, &to)` | `CpuPgAgent` | `RocmPgAgent` |
@@ -1355,8 +1465,13 @@ rocm = []       # safeguard build --features rocm
 
 `ML_TRAIN_BACKEND` is the chosen backend's name as a string (`"cpu"` or
 `"rocm"`). Each name in `train.h` is a typedef, and each constructor is a
-static function that forwards to the backend's own (`cpu_mlp_trainer_new`,
-`rocm_mlp_trainer_new`, …). Those can also be called directly to use
+static function that forwards to the backend's own (`cpu_module_trainer_new`,
+`rocm_mlp_trainer_new`, …). The CPU trainers are bounded generic structs —
+`CpuTrainer<M: Module>`, `CpuModelTrainer<M: LossModel>`,
+`CpuGanTrainer<H: GanModel>` — built by generic constructors, so on the CPU
+any [`Module`](#modules) trains through the interface with
+`cpu_module_trainer_new(model, loss, &opt)` and any `LossModel` with
+`cpu_model_trainer_new(model, &opt)`. Those can also be called directly to use
 both backends in one program. A future CUDA backend adds types that
 satisfy the same traits, plus one branch in `train.h`.
 
@@ -2334,8 +2449,7 @@ enum Device {
 
 #include <std/ml/transformer_dispatch.h>
 &Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
-&Tensor jit_forward_on(const &Tensor patches, const &Tensor WPatchEmbed, const &Tensor cond,
-                       struct Slice<JiTBlock> blocks, enum Device device);
+&Tensor jit_forward_on(const &JiT model, const &Tensor patches, const &Tensor cond, enum Device device);
 ```
 
 Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `tensor_sigmoid`/`tensor_relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
