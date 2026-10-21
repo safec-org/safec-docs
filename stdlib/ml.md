@@ -393,6 +393,9 @@ struct MambaState st = mamba_state_new(&m);
 #include <std/ml/cnn.h>
 ```
 
+These layers run forward only. To train convolutional networks, use
+[`convnet.h`](#convnet), which has the same operations on autograd tensors.
+
 `Conv2D` (stride + zero-padding, no dilation/grouped conv),
 `maxpool2d_forward`/`avgpool2d_forward`, `upsample2x_nearest` (nearest-
 neighbor 2x spatial upsample), `concat_channels` (channel-axis
@@ -639,6 +642,12 @@ indices stored as floats.
   `optimizer_clip_grad_norm` clips the global gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
   schedule can change them between steps.
 
+- **Saving and loading.** `tensors_save` / `tensors_load` write a list of
+  tensors (shapes and float32 values) to a file and read it back into
+  tensors of the same shapes. `mlp_save_file` / `mlp_load_file` do this
+  for an `Mlp`. Loading returns 0, and changes nothing, when the file is
+  missing or doesn't match.
+
 `trainer_fit` is generic over the model type, so the forward pass and loss
 are resolved at compile time. It runs epochs of shuffled mini-batches:
 loss, backward, optional clipping, step, and a per-epoch lr decay. Each
@@ -771,6 +780,243 @@ label-swapped task that the frozen base gets wrong (accuracy below 70%):
   4-bit base still scores above 95% on the original task, and the adapters
   reach more than 95% on the new one.
 
+## Convolutional networks {#convnet}
+
+```c
+#include <std/ml/convnet.h>
+```
+
+`cnn.h` runs convolutions forward on `FeatureMap`s. `convnet.h` makes them
+differentiable on `Tensor`s, so they train with `tensor_backward`, the
+optimizers and `trainer_fit` like `Mlp` does. Images are rows, as in every
+other model here: a batch is a `[batch, C*H*W]` tensor, and each row holds
+one image in CHW order. A 2D tensor doesn't carry the image geometry, so
+every op takes `C, H, W` as arguments. Each op records gradients for its
+input and its trained parameters.
+
+### Convolution and pooling
+
+`tensor_conv2d_ex` and `tensor_conv_transpose2d_ex` take a `Conv2dSpec`
+with a separate kernel size, stride, padding and dilation for each axis,
+plus `groups` and, for the transposed convolution, `outPadH` / `outPadW`.
+`conv2d_spec(kernel, stride, padding)` fills in a square kernel with
+dilation 1, one group and no output padding; change the fields you need.
+`tensor_conv2d` / `tensor_conv_transpose2d` are the common case with one
+stride and padding for both axes.
+
+| Op | Weight | Output side |
+|---|---|---|
+| `tensor_conv2d_ex` | `[outC, (inC/groups)*kH*kW]` (a PyTorch `Conv2d` weight, flattened), bias `[outC]` | `(dim + 2·pad − dil·(k − 1) − 1)/stride + 1`, rounded down |
+| `tensor_conv_transpose2d_ex` | `[inC, (outC/groups)*kH*kW]` (a PyTorch `ConvTranspose2d` weight, flattened), bias `[outC]` | `(dim − 1)·stride − 2·pad + dil·(k − 1) + outPad + 1` |
+
+`groups == inC` gives a depthwise convolution. Output padding must be
+below the stride or the dilation, as in PyTorch; it picks among the
+output sizes that the same stride maps back to one input size.
+
+Pooling takes a `Pool2dSpec`, built with `pool2d_spec(kernel, stride,
+padding)`: a separate window, stride and padding per axis, `ceilMode`,
+and, for avg pooling, `countIncludePad`.
+
+- `tensor_maxpool2d_ex` / `tensor_avgpool2d_ex` clip their windows to the
+  plane. Max pooling therefore ignores the padding, as PyTorch's
+  `MaxPool2d` does, and sends each window's gradient to its first largest
+  input.
+- With `countIncludePad`, avg pooling divides by the window's extent
+  inside the padded plane, as PyTorch's `AvgPool2d` does by default.
+  Without it, avg pooling divides by the positions inside the plane.
+- `ceilMode` rounds the output side up. As in PyTorch, the last window
+  must still start inside the input or its left padding.
+- `tensor_maxpool2d` / `tensor_avgpool2d` take a square window.
+  `tensor_global_avgpool2d` / `tensor_global_maxpool2d` reduce each
+  channel to one value, `[batch, C*H*W] → [batch, C]`.
+
+`conv_out_side_ex`, `conv_transpose_out_side_ex` and `pool_out_side`
+compute the sizes.
+
+Both convolutions use im2col + `sgemm`, per group. A 3×3, stride-1 layer
+with at least 8 input and output channels runs its forward pass through
+`cnn.h`'s Winograd F(2×2, 3×3) kernel, and a 1×1 layer through its direct
+path. A large enough batch is split across the thread pool, one chunk of
+images per thread. Weight and bias gradients are summed per chunk and
+then added up in chunk order, so the result doesn't depend on scheduling.
+Pooling, resizing and the norms split large inputs by plane, row or
+channel. Those units never share an output, so the threaded result is
+bit-for-bit the single-threaded one.
+
+### Resizing
+
+`tensor_resize2d(x, C, H, W, outH, outW, mode, alignCorners)` resizes to
+any size, up or down, as PyTorch's `interpolate(size=...)`:
+
+| `mode` | Reads |
+|---|---|
+| `RESIZE_NEAREST` | source pixel `floor(o · in / out)` (PyTorch's `nearest`) |
+| `RESIZE_BILINEAR` | the four nearest pixels |
+| `RESIZE_BICUBIC` | the sixteen nearest pixels, cubic convolution with a = −0.75 |
+
+With `alignCorners`, the corner pixels' centres map onto each other.
+Without it, pixel areas line up. Edges are clamped, and gradients scatter
+back with the same weights. `tensor_upsample_nearest` is a fast path for
+an integer factor. `tensor_upsample_bilinear` resizes by an integer
+factor without aligning corners.
+
+### Normalization and dropout
+
+- **Batch norm** (`tensor_batch_norm`; Ioffe & Szegedy 2015) normalizes
+  each channel over the batch and the plane. Pass `plane = H*W` for
+  feature maps, or 1 for `[batch, features]` rows. In training it uses the
+  batch's statistics and moves the running ones toward them by `momentum`.
+  The running variance uses the unbiased estimate, as in PyTorch. In
+  inference it uses the running statistics.
+- **Group norm** (`tensor_group_norm`; Wu & He 2018) normalizes each
+  image's channel groups over their channels and planes. It doesn't depend
+  on the batch, so it behaves the same in training and inference. One
+  group is layer norm over (C, H, W); one group per channel is instance
+  norm.
+- **Spectral norm** (`tensor_spectral_norm`; Miyato et al. 2018) divides
+  a weight by its largest singular value. It estimates that value by power
+  iteration from a vector `u` kept between calls. The gradient treats the
+  power-iteration vectors as constants, as PyTorch does.
+- **Dropout**: `tensor_dropout` zeroes each value with probability p and
+  scales the rest by 1/(1 − p) in training, and passes x unchanged in
+  inference. `tensor_dropout2d` drops whole channel planes.
+
+**Conditioning.** `tensor_label_planes` turns class indices into one
+constant plane per class: 1 in the plane of the row's label and 0
+elsewhere. `tensor_append_label_channels` adds those planes after an
+image's channels. This is how the conditional `ConvVae` and `Dcgan` pass
+the label to their image-side network.
+
+### `ConvNet`
+
+`ConvNet` is the convolutional counterpart of `Mlp`. Start it with the
+input geometry and append layers; each layer's input is the previous
+layer's output.
+
+| Builder | Layer |
+|---|---|
+| `convnet_conv(&n, outC, kernel, stride, padding, act, &rng)` / `convnet_conv_ex(&n, outC, &spec, act, &rng)` | convolution, then `act` |
+| `convnet_deconv(...)` / `convnet_deconv_ex(...)` | transposed convolution, then `act` |
+| `convnet_maxpool(&n, kernel, stride, padding)` / `convnet_maxpool_ex(&n, &spec)` | max pooling |
+| `convnet_avgpool(&n, kernel, stride, padding, countIncludePad)` / `convnet_avgpool_ex(&n, &spec)` | avg pooling |
+| `convnet_global_avgpool(&n)` / `convnet_global_maxpool(&n)` | each channel to one value; output `C × 1 × 1` |
+| `convnet_upsample(&n, factor)` / `convnet_upsample_bilinear(&n, factor)` / `convnet_resize(&n, outH, outW, mode, alignCorners)` | resizing |
+| `convnet_batchnorm(&n, act)` | batch norm (momentum 0.1, eps 1e-5), then `act` |
+| `convnet_groupnorm(&n, groups, act)` / `convnet_layernorm(&n, act)` / `convnet_instancenorm(&n, act)` | group norm (eps 1e-5), then `act` |
+| `convnet_spectral_norm(&n, &rng)` | spectrally normalizes the last convolution's or dense layer's weight, with one power iteration per training pass |
+| `convnet_dropout(&n, p, byChannel, &rng)` | dropout, with its own random stream seeded from `rng` |
+| `convnet_dense(&n, outDim, act, &rng)` | fully connected over the flattened map; output `outDim × 1 × 1` |
+| `convnet_reshape(&n, C, H, W)` | reinterprets the geometry without moving data |
+| `slot = convnet_save(&n)` | keeps the current activation for a skip |
+| `convnet_add_skip(&n, slot, act, &rng)` | adds a saved activation, then `act`; when the channels or size differ, the saved activation goes through a learned 1×1 convolution (ResNet's projection shortcut) |
+| `convnet_concat_skip(&n, slot)` | appends a saved activation's channels, which must match the current height and width (a U-Net skip) |
+| `convnet_residual_block(&n, outC, stride, batchNorm, act, &rng)` | ResNet's basic block: conv 3×3 (stride) → [batch norm] → act → conv 3×3 → [batch norm] → add the shortcut → act |
+
+Place a norm between a convolution with `ACT_NONE` and the activation.
+Weights and biases are initialized like PyTorch's, from
+U(−1/√fanIn, 1/√fanIn), and the norms start at gamma 1 and beta 0.
+`params` holds the trained tensors. `buffers` holds what the optimizer
+doesn't train: running statistics and spectral norms' `u`. Both stay on
+the heap.
+
+The `training` field is 1 from `convnet_new`. In training mode, batch norm
+uses batch statistics and updates the running ones, spectral norms
+iterate, and dropout drops. Call `convnet_set_training(&n, 0)` for
+inference; it returns the previous mode. The models in `autoencoder.h`
+and `gan.h` switch modes themselves: their loss and training-step
+functions run in training mode, and encode, decode, sample, generate and
+score run in inference mode.
+
+Other operations on a `ConvNet`:
+
+- `convnet_forward` maps `[batch, convnet_in_dim]` to
+  `[batch, convnet_out_dim]`. The `outC`, `outH` and `outW` fields give
+  the current output geometry.
+- `optimizer_add_convnet` registers the parameters.
+- `convnet_clone`, `convnet_copy` and `convnet_soft_update` handle target
+  and averaged networks, buffers included.
+- `convnet_fold_batchnorm` folds each batch norm that directly follows a
+  convolution or dense layer into that layer's weight and bias, for
+  inference. The output is unchanged, but don't train the net afterwards.
+- `convnet_save_file` / `convnet_load_file` write the parameters and
+  buffers to a file and read them back into a net built with the same
+  layers. Loading returns 0 on a mismatch, and nothing is overwritten.
+  `tensors_save` / `tensors_load` and `mlp_save_file` / `mlp_load_file`
+  in `nn.h` use the same format.
+
+```c
+static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(convnet_forward(m, x), y);
+}
+
+struct Rng rng = rng_new(1UL);
+struct ConvNet net = convnet_new(1UL, 28UL, 28UL);                // MNIST
+convnet_conv(&net, 16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);          // 16 x 28 x 28
+convnet_batchnorm(&net, ACT_RELU);
+convnet_residual_block(&net, 16UL, 1UL, 1, ACT_RELU, &rng);       // 16 x 28 x 28
+convnet_residual_block(&net, 32UL, 2UL, 1, ACT_RELU, &rng);       // 32 x 14 x 14
+convnet_residual_block(&net, 64UL, 2UL, 1, ACT_RELU, &rng);       // 64 x 7 x 7
+convnet_dropout(&net, (float)0.1, 1, &rng);
+convnet_global_avgpool(&net);                                     // 64 x 1 x 1
+convnet_dense(&net, 10UL, ACT_NONE, &rng);                        // logits
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+optimizer_add_convnet(&opt, &net);
+struct TrainConfig cfg = train_config_default();
+trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
+convnet_set_training(&net, 0);                                    // inference from here on
+convnet_fold_batchnorm(&net);
+convnet_save_file(&net, "mnist_resnet.bin");
+```
+
+The tests check every op's input and parameter gradients against central
+differences. The cases cover:
+
+- conv2d with stride 1 and 2, a dilated grouped convolution, a depthwise
+  convolution, and a 2×3 kernel with different strides and padding per
+  axis;
+- transposed convolution with stride 1 and 2, grouped with output padding,
+  and dilated;
+- max pooling with disjoint, overlapping, padded, and 2×3 ceil-mode
+  windows;
+- avg pooling, with and without padding counted, and in ceil mode;
+- global average and max pooling;
+- nearest upsampling, bilinear upsampling by 2 and 3, aligned-corner
+  bilinear to 5×4, bicubic to 7×5, and nearest downsampling;
+- batch norm in training and inference mode, layer norm, and group norm;
+- spectral norm;
+- dropout and channel dropout.
+
+Further checks against reference values:
+
+- Sizes: the output sides of padded and ceil-mode pooling and of dilated
+  convolutions match PyTorch's.
+- `cnn.h` parity: `tensor_conv2d`, the padded pooling and global pooling
+  match `conv2d_forward`, `*pool2d_forward_ex` and `global_*pool2d`. The
+  Winograd path matches a direct sum.
+- Resizing: bilinear upsampling reproduces PyTorch's output for a 2×2
+  input, and bicubic resizing keeps a constant image constant.
+
+ConvNet checks:
+
+- An input-gradient check runs through a projection skip, a concat skip,
+  group norm and dense layers.
+- The residual blocks' parameter counts are checked.
+- Batch-norm folding leaves inference output unchanged within 1e-4.
+- A saved net loads into a differently initialized one and gives the same
+  output exactly; a mismatched net refuses to load.
+
+Other checks:
+
+- Batch norm's running statistics follow the batch's.
+- Dropout drops the right fraction, and channel dropout drops whole
+  planes.
+- Spectral norm leaves a largest singular value of 1.
+- Group norm doesn't depend on the rest of the batch.
+- Threaded convolutions match one thread within 1e-4, and pooling,
+  upsampling and batch norm match bit for bit.
+- End to end, a small residual CNN with batch norm and channel dropout
+  classifies held-out 12×12 shapes with more than 90% accuracy.
+
 ## Autoencoders {#autoencoders}
 
 ```c
@@ -803,6 +1049,61 @@ They also check that a classifier trained on the real shapes recognizes the
 conditional VAE's samples as their requested class (accuracy above 70%),
 and that the VQ-VAE keeps more than 4 codes in use.
 
+### Convolutional autoencoders {#conv-autoencoders}
+
+`ConvAutoencoder` and `ConvVae` are the plain AE and the VAE with
+`ConvNet` encoders and decoders that you build. The encoder maps the image
+to features. The decoder takes the code as a `latent × 1 × 1` input and
+must output the image's size; start it with `convnet_dense` +
+`convnet_reshape`, or with a transposed convolution from 1×1. In
+`ConvVae`, linear heads on the flattened features produce μ and log σ².
+Its loss is `Vae`'s, and it reads `latent`, `recon`, `beta`, `classes` and
+`seed` from a `VaeConfig`.
+
+With `classes > 0`, `ConvVae` is a **conditional VAE**. The encoder gets
+the label as `classes` extra input channels (one constant plane per
+class), and the decoder gets the one-hot label appended to the code. So
+for C-channel images the encoder takes `C + classes` channels, and the
+decoder takes `latent + classes` inputs and outputs C channels. As with
+`Vae`, `y` carries the class indices, and `conv_vae_sample` takes labels
+or `null`.
+
+Both models take ownership of the nets, so free the model and not the
+nets. Loss functions run the nets in training mode. Encode, decode,
+reconstruct and sample run them in inference mode, so batch norm uses its
+running statistics there.
+
+```c
+unsigned long classes = 10UL;                                // conditional, MNIST digits
+struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
+convnet_conv(&enc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 14 x 14
+convnet_conv(&enc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 7 x 7
+convnet_batchnorm(&enc, ACT_LEAKY);
+struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // latent 16 + label
+convnet_dense(&dec, 64UL * 49UL, ACT_RELU, &rng);
+convnet_reshape(&dec, 64UL, 7UL, 7UL);
+convnet_deconv(&dec, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
+convnet_batchnorm(&dec, ACT_RELU);
+convnet_deconv(&dec, 1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 1 x 28 x 28 logits
+struct VaeConfig cfg = vae_config_default(16UL);
+cfg.classes = classes;
+struct ConvVae v = conv_vae_new(enc, dec, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+conv_vae_add_params(&opt, &v);
+trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+&Tensor samples = conv_vae_sample(&v, 64UL, (?&Tensor)labels);   // [64, 784] in (0, 1)
+```
+
+The tests run on 8×8 shapes, with batch norm in both nets:
+
+- A conv AE must cut its reconstruction error to below 30% of the
+  untrained error.
+- A conv VAE must cut its loss to below 60% of the first epoch's, keep KL
+  above 0.1, and reconstruct with MSE below 0.1.
+- The conditional conv VAE's samples must be recognized as their
+  requested class more than 70% of the time, by a classifier trained on
+  the real images.
+
 ## GANs {#gans}
 
 ```c
@@ -818,6 +1119,16 @@ The objective is set in the config:
 | `GAN_LSGAN` | Least squares (Mao et al. 2017). |
 | `GAN_WGAN` | Wasserstein critic with weight clipping, `nCritic` critic steps per generator step, RMSProp (Arjovsky et al. 2017). |
 | `GAN_HINGE` | Hinge loss (Miyato et al. 2018). |
+| `GAN_WGAN_GP` | Wasserstein critic with gradient penalty (Gulrajani et al. 2017): `gpWeight` (10) × (‖∇ₓD(x̂)‖ − 1)² on random interpolates of real and generated rows, no clipping, Adam with betas (0, 0.9); use `nCritic` 5. |
+
+The penalty's gradient with respect to the critic's parameters is a mixed
+second derivative. Rather than differentiating the backward pass, it is
+computed from a central difference of the critic along each row's
+normalized input gradient. That costs two extra critic passes and is
+exact to O(ε²), with ε = 0.01; the tests check it against finite
+differences of the penalty itself. Because the penalty treats rows
+independently, the critic must not use batch norm (group norm or layer
+norm are fine).
 
 `classes > 0` makes it a **conditional GAN**: the label goes to both
 networks. `emaDecay` keeps an exponential moving average of the
@@ -836,9 +1147,53 @@ gan_train(&g, &data, 80UL, 64UL);
 ```
 
 In the tests, every objective learns a 2D Gaussian, with the mean within
-0.25. The spread is bounded loosely, because GANs tend to under-cover it.
+0.25. The WGAN-GP critic's input gradient ends up with a norm between 0.6
+and 1.4. The spread is bounded loosely, because GANs tend to under-cover it.
 On a 4-mode ring, a conditional GAN puts more than 75% of its samples
 on the mode of their label.
+
+### DCGAN {#dcgan}
+
+`Dcgan` plays the same game with a `ConvNet` generator and discriminator
+(Radford et al. 2016). G takes the latent batch as a `latent × 1 × 1`
+input and must output the data's size. D takes a data row and must output
+one score. It reads the objective, learning rates, `nCritic`, `clip`,
+`classes`, `emaDecay` and `seed` from a `GanConfig`.
+
+With `classes > 0`, it is a **conditional DCGAN**. G gets the one-hot label
+appended to its noise, so it takes `latent + classes` inputs. D gets the
+label as `classes` extra input channels, one constant plane per class.
+`dcgan_train_step`, `dcgan_generate` and `dcgan_score` take labels or
+`null`, and `dcgan_train` takes them from the dataset.
+
+The DCGAN owns the nets, the optimizers, the averaged generator and the
+step arena. Training steps run the nets in training mode, so batch norm
+uses batch statistics, as DCGAN prescribes. `dcgan_generate` and
+`dcgan_score` run in inference mode.
+
+```c
+struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);             // latent 16
+convnet_deconv(&gen, 64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 32 x 8 x 8
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);  // 1 x 16 x 16
+struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
+convnet_conv(&disc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 8 x 8
+convnet_conv(&disc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 4 x 4
+convnet_batchnorm(&disc, ACT_LEAKY);
+convnet_conv(&disc, 1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);      // one score
+struct GanConfig cfg = gan_config_default(16UL);
+struct Dcgan g = dcgan_new(gen, disc, &cfg);
+dcgan_train(&g, &images, 20UL, 64UL);
+&Tensor fake = dcgan_generate(&g, 64UL, null);   // [64, 256], heap tensor, caller frees
+```
+
+The tests train on 8×8 shapes. A DCGAN must move its samples' mean
+intensity from the untrained sigmoid's 0.5 to within 0.1 of the data's.
+A conditional DCGAN's samples must be recognized as their requested class
+more than 55% of the time, by a classifier trained on the real images
+(chance is 25%).
 
 ## Reinforcement learning {#rl}
 

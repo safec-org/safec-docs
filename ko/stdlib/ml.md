@@ -387,6 +387,9 @@ struct MambaState st = mamba_state_new(&m);
 #include <std/ml/cnn.h>
 ```
 
+이 레이어들은 순방향 전용이다. 합성곱 네트워크를 학습하려면 같은 연산을
+자동미분 텐서로 제공하는 [`convnet.h`](#convnet)를 쓴다.
+
 `Conv2D`(스트라이드 + 제로 패딩, 팽창/그룹 컨볼루션 없음),
 `maxpool2d_forward`/`avgpool2d_forward`, `upsample2x_nearest`(최근접
 이웃 방식의 2배 공간 업샘플링), `concat_channels`(채널 축 연결) — 모두
@@ -627,6 +630,11 @@ void    jit_block_free(&JiTBlock block);
   필드(`lr`, beta, `weightDecay`)가 공개되어 있어 스텝 사이에 스케줄로 바꿀 수
   있다.
 
+- **저장과 불러오기.** `tensors_save` / `tensors_load`는 텐서 목록(형상과
+  float32 값)을 파일에 쓰고, 같은 형상의 텐서에 다시 읽어 들인다.
+  `mlp_save_file` / `mlp_load_file`은 `Mlp`에 대해 같은 일을 한다. 파일이
+  없거나 맞지 않으면 아무것도 바꾸지 않고 0을 반환한다.
+
 `trainer_fit`은 모델 타입에 대해 제네릭이라 순전파와 손실이 컴파일 시간에
 결정된다. 섞인 미니배치로 에폭을 돌린다: 손실, 역전파, 선택적 클리핑, 스텝,
 에폭마다 lr 감쇠. 각 스텝의 텐서는 스텝이 끝나면 리셋되는 `TensorArena`에서
@@ -752,6 +760,231 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss가 qlora_forwar
   기반 모델은 원래 과제에서 여전히 95%를 넘기고, 어댑터는 새 과제에서 95%를
   넘긴다.
 
+## 합성곱 네트워크 {#convnet}
+
+```c
+#include <std/ml/convnet.h>
+```
+
+`cnn.h`는 `FeatureMap`에서 합성곱을 순방향으로만 실행한다. `convnet.h`는 같은
+연산을 `Tensor`에서 미분 가능하게 만들어, `Mlp`처럼 `tensor_backward`,
+옵티마이저, `trainer_fit`으로 학습할 수 있게 한다. 이미지는 다른 모델과
+마찬가지로 행이다. 배치는 `[batch, C*H*W]` 텐서이고, 각 행에 CHW 순서의
+이미지 하나가 들어 있다. 2D 텐서는 이미지 형상을 담지 않으므로 모든 연산이
+`C, H, W`를 인수로 받는다. 각 연산은 입력과 학습 파라미터의 그래디언트를
+기록한다.
+
+### 합성곱과 풀링
+
+`tensor_conv2d_ex`와 `tensor_conv_transpose2d_ex`는 `Conv2dSpec`을 받는다.
+축마다 따로 정하는 커널 크기, 스트라이드, 패딩, 팽창(dilation)에 더해
+`groups`와, 전치 합성곱이라면 `outPadH` / `outPadW`가 들어 있다.
+`conv2d_spec(kernel, stride, padding)`은 정사각 커널, 팽창 1, 그룹 1, 출력
+패딩 0으로 채우며, 필요한 필드만 바꾸면 된다. `tensor_conv2d` /
+`tensor_conv_transpose2d`는 두 축에 같은 스트라이드와 패딩을 쓰는 흔한
+경우다.
+
+| 연산 | 가중치 | 출력 크기 |
+|---|---|---|
+| `tensor_conv2d_ex` | `[outC, (inC/groups)*kH*kW]`(PyTorch `Conv2d` 가중치를 평탄화한 것), 바이어스 `[outC]` | `(dim + 2·pad − dil·(k − 1) − 1)/stride + 1`, 내림 |
+| `tensor_conv_transpose2d_ex` | `[inC, (outC/groups)*kH*kW]`(PyTorch `ConvTranspose2d` 가중치를 평탄화한 것), 바이어스 `[outC]` | `(dim − 1)·stride − 2·pad + dil·(k − 1) + outPad + 1` |
+
+`groups == inC`이면 깊이별(depthwise) 합성곱이다. 출력 패딩은 PyTorch처럼
+스트라이드나 팽창보다 작아야 한다. 같은 스트라이드가 한 입력 크기로 되돌리는
+여러 출력 크기 중 하나를 고르는 데 쓴다.
+
+풀링은 `pool2d_spec(kernel, stride, padding)`으로 만드는 `Pool2dSpec`을
+받는다. 축마다 따로 정하는 윈도우, 스트라이드, 패딩과 `ceilMode`, 그리고
+평균 풀링이라면 `countIncludePad`가 들어 있다.
+
+- `tensor_maxpool2d_ex` / `tensor_avgpool2d_ex`는 윈도우를 평면 안으로
+  자른다. 그래서 최대 풀링은 PyTorch의 `MaxPool2d`처럼 패딩을 무시하고,
+  각 윈도우의 그래디언트를 첫 번째 최댓값 입력으로 보낸다.
+- `countIncludePad`를 켜면 평균 풀링은 PyTorch `AvgPool2d`의 기본값처럼,
+  패딩된 평면 안에 드는 윈도우 크기로 나눈다. 끄면 평면 안의 위치 수로
+  나눈다.
+- `ceilMode`는 출력 크기를 올림한다. PyTorch처럼 마지막 윈도우도 입력이나
+  왼쪽 패딩 안에서 시작해야 한다.
+- `tensor_maxpool2d` / `tensor_avgpool2d`는 정사각 윈도우를 받는다.
+  `tensor_global_avgpool2d` / `tensor_global_maxpool2d`는 채널마다 값
+  하나로 줄인다(`[batch, C*H*W] → [batch, C]`).
+
+크기는 `conv_out_side_ex`, `conv_transpose_out_side_ex`, `pool_out_side`로
+구한다.
+
+두 합성곱 모두 그룹마다 im2col + `sgemm`으로 계산한다. 입출력 채널이 8개
+이상인 3×3, 스트라이드 1 레이어는 순방향을 `cnn.h`의 Winograd F(2×2, 3×3)
+커널로, 1×1 레이어는 직접 경로로 실행한다. 배치가 충분히 크면 스레드 풀에
+나눠, 스레드마다 이미지 묶음 하나를 맡긴다. 가중치와 바이어스 그래디언트는
+묶음별로 합한 뒤 묶음 순서대로 더하므로, 결과가 스케줄링에 따라 달라지지
+않는다. 풀링, 크기 조절, 정규화는 큰 입력을 평면, 행, 채널 단위로 나눈다.
+단위끼리 출력을 공유하지 않으므로, 여러 스레드의 결과가 한 스레드의 결과와
+비트 단위로 같다.
+
+### 크기 조절
+
+`tensor_resize2d(x, C, H, W, outH, outW, mode, alignCorners)`는 PyTorch의
+`interpolate(size=...)`처럼 어떤 크기로든 키우거나 줄인다.
+
+| `mode` | 읽는 위치 |
+|---|---|
+| `RESIZE_NEAREST` | 원본 픽셀 `floor(o · in / out)`(PyTorch `nearest`) |
+| `RESIZE_BILINEAR` | 가장 가까운 픽셀 4개 |
+| `RESIZE_BICUBIC` | 가장 가까운 픽셀 16개, a = −0.75 3차 합성곱 |
+
+`alignCorners`를 켜면 모서리 픽셀의 중심끼리 맞추고, 끄면 픽셀 영역끼리
+맞춘다. 가장자리는 고정(clamp)하며, 그래디언트는 같은 가중치로 되돌아간다.
+`tensor_upsample_nearest`는 정수 배율용 빠른 경로이고,
+`tensor_upsample_bilinear`는 모서리를 맞추지 않고 정수 배율로 크기를 바꾼다.
+
+### 정규화와 드롭아웃
+
+- **배치 정규화**(`tensor_batch_norm`, Ioffe & Szegedy 2015)는 채널마다
+  배치와 평면에 걸쳐 정규화한다. 특징 맵에는 `plane = H*W`를,
+  `[batch, features]` 행에는 1을 넘긴다. 학습 중에는 배치 통계를 쓰고 이동
+  통계를 `momentum`만큼 그쪽으로 옮긴다. 이동 분산은 PyTorch처럼 불편
+  추정치를 쓴다. 추론 중에는 이동 통계를 쓴다.
+- **그룹 정규화**(`tensor_group_norm`, Wu & He 2018)는 이미지마다 채널
+  그룹을 그 채널과 평면에 걸쳐 정규화한다. 배치와 무관하므로 학습과 추론에서
+  똑같이 동작한다. 그룹 1개는 (C, H, W)에 대한 레이어 정규화이고, 채널마다
+  그룹 하나는 인스턴스 정규화다.
+- **스펙트럴 정규화**(`tensor_spectral_norm`, Miyato et al. 2018)는
+  가중치를 최대 특이값으로 나눈다. 그 값은 호출 사이에 유지되는 벡터 `u`에서
+  출발하는 거듭제곱 반복으로 추정한다. 그래디언트는 PyTorch처럼 거듭제곱 반복
+  벡터를 상수로 본다.
+- **드롭아웃**: `tensor_dropout`은 학습 중에 각 값을 확률 p로 0으로 만들고
+  나머지를 1/(1 − p)배 하며, 추론 중에는 x를 그대로 통과시킨다.
+  `tensor_dropout2d`는 채널 평면 전체를 떨군다.
+
+**조건 입력.** `tensor_label_planes`는 클래스 인덱스를 클래스마다 상수 평면
+하나로 바꾼다. 행의 레이블에 해당하는 평면은 1이고 나머지는 0이다.
+`tensor_append_label_channels`는 그 평면들을 이미지 채널 뒤에 붙인다. 조건부
+`ConvVae`와 `Dcgan`은 이 방식으로 이미지 쪽 네트워크에 레이블을 넘긴다.
+
+### `ConvNet`
+
+`ConvNet`은 `Mlp`에 대응하는 합성곱 네트워크다. 입력 형상으로 시작해
+레이어를 덧붙이며, 각 레이어의 입력은 앞 레이어의 출력이다.
+
+| 빌더 | 레이어 |
+|---|---|
+| `convnet_conv(&n, outC, kernel, stride, padding, act, &rng)` / `convnet_conv_ex(&n, outC, &spec, act, &rng)` | 합성곱 후 `act` |
+| `convnet_deconv(...)` / `convnet_deconv_ex(...)` | 전치 합성곱 후 `act` |
+| `convnet_maxpool(&n, kernel, stride, padding)` / `convnet_maxpool_ex(&n, &spec)` | 최대 풀링 |
+| `convnet_avgpool(&n, kernel, stride, padding, countIncludePad)` / `convnet_avgpool_ex(&n, &spec)` | 평균 풀링 |
+| `convnet_global_avgpool(&n)` / `convnet_global_maxpool(&n)` | 채널마다 값 하나로. 출력은 `C × 1 × 1` |
+| `convnet_upsample(&n, factor)` / `convnet_upsample_bilinear(&n, factor)` / `convnet_resize(&n, outH, outW, mode, alignCorners)` | 크기 조절 |
+| `convnet_batchnorm(&n, act)` | 배치 정규화(momentum 0.1, eps 1e-5) 후 `act` |
+| `convnet_groupnorm(&n, groups, act)` / `convnet_layernorm(&n, act)` / `convnet_instancenorm(&n, act)` | 그룹 정규화(eps 1e-5) 후 `act` |
+| `convnet_spectral_norm(&n, &rng)` | 마지막 합성곱이나 완전 연결 레이어의 가중치를 스펙트럴 정규화한다. 학습 패스마다 거듭제곱 반복 1회 |
+| `convnet_dropout(&n, p, byChannel, &rng)` | 드롭아웃. 난수열은 `rng`에서 시드를 받는다 |
+| `convnet_dense(&n, outDim, act, &rng)` | 평탄화한 맵에 대한 완전 연결. 출력은 `outDim × 1 × 1` |
+| `convnet_reshape(&n, C, H, W)` | 데이터를 옮기지 않고 형상만 다시 해석한다 |
+| `slot = convnet_save(&n)` | 스킵 연결에 쓸 현재 활성값을 보관한다 |
+| `convnet_add_skip(&n, slot, act, &rng)` | 보관한 활성값을 더한 뒤 `act`. 채널 수나 크기가 다르면 보관한 활성값을 학습되는 1×1 합성곱에 통과시킨다(ResNet의 투영 지름길) |
+| `convnet_concat_skip(&n, slot)` | 보관한 활성값의 채널을 뒤에 붙인다. 높이와 너비가 같아야 한다(U-Net 스킵) |
+| `convnet_residual_block(&n, outC, stride, batchNorm, act, &rng)` | ResNet 기본 블록: 3×3 합성곱(stride) → [배치 정규화] → act → 3×3 합성곱 → [배치 정규화] → 지름길 더하기 → act |
+
+정규화는 `ACT_NONE` 합성곱과 활성화 사이에 둔다. 가중치와 바이어스는
+PyTorch처럼 U(−1/√fanIn, 1/√fanIn)으로 초기화하고, 정규화는 gamma 1,
+beta 0에서 시작한다. `params`에는 학습되는 텐서가, `buffers`에는 옵티마이저가
+학습하지 않는 것(이동 통계, 스펙트럴 정규화의 `u`)이 들어 있으며, 둘 다 힙에
+둔다.
+
+`training` 필드는 `convnet_new`에서 1로 시작한다. 학습 모드에서는 배치
+정규화가 배치 통계를 쓰고 이동 통계를 갱신하며, 스펙트럴 정규화가 반복하고,
+드롭아웃이 값을 떨군다. 추론할 때는 `convnet_set_training(&n, 0)`을
+호출하며, 이 함수는 이전 모드를 반환한다. `autoencoder.h`와 `gan.h`의 모델은
+모드를 직접 바꾼다. 손실 함수와 학습 스텝 함수는 학습 모드로,
+encode·decode·sample·generate·score는 추론 모드로 실행한다.
+
+`ConvNet`에 대한 그 밖의 연산:
+
+- `convnet_forward`는 `[batch, convnet_in_dim]`을
+  `[batch, convnet_out_dim]`으로 바꾼다. `outC`, `outH`, `outW` 필드가 현재
+  출력 형상이다.
+- `optimizer_add_convnet`으로 파라미터를 등록한다.
+- `convnet_clone`, `convnet_copy`, `convnet_soft_update`는 버퍼까지 포함해
+  타깃 네트워크와 평균 네트워크를 다룬다.
+- `convnet_fold_batchnorm`은 합성곱이나 완전 연결 레이어 바로 뒤의 배치
+  정규화를 추론용으로 그 레이어의 가중치와 바이어스에 접어 넣는다. 출력은
+  그대로지만, 그 뒤로는 네트워크를 학습하지 않는다.
+- `convnet_save_file` / `convnet_load_file`은 파라미터와 버퍼를 파일에 쓰고,
+  같은 레이어로 만든 네트워크에 다시 읽어 들인다. 맞지 않으면 아무것도 덮어쓰지
+  않고 0을 반환한다. `nn.h`의 `tensors_save` / `tensors_load`,
+  `mlp_save_file` / `mlp_load_file`도 같은 형식을 쓴다.
+
+```c
+static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
+    return tensor_cross_entropy_loss(convnet_forward(m, x), y);
+}
+
+struct Rng rng = rng_new(1UL);
+struct ConvNet net = convnet_new(1UL, 28UL, 28UL);                // MNIST
+convnet_conv(&net, 16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);          // 16 x 28 x 28
+convnet_batchnorm(&net, ACT_RELU);
+convnet_residual_block(&net, 16UL, 1UL, 1, ACT_RELU, &rng);       // 16 x 28 x 28
+convnet_residual_block(&net, 32UL, 2UL, 1, ACT_RELU, &rng);       // 32 x 14 x 14
+convnet_residual_block(&net, 64UL, 2UL, 1, ACT_RELU, &rng);       // 64 x 7 x 7
+convnet_dropout(&net, (float)0.1, 1, &rng);
+convnet_global_avgpool(&net);                                     // 64 x 1 x 1
+convnet_dense(&net, 10UL, ACT_NONE, &rng);                        // 로짓
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+optimizer_add_convnet(&opt, &net);
+struct TrainConfig cfg = train_config_default();
+trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
+convnet_set_training(&net, 0);                                    // 여기부터 추론
+convnet_fold_batchnorm(&net);
+convnet_save_file(&net, "mnist_resnet.bin");
+```
+
+테스트는 모든 연산의 입력과 파라미터 그래디언트를 중앙 차분과 비교한다.
+다루는 경우는 다음과 같다.
+
+- 스트라이드 1과 2의 conv2d, 팽창 그룹 합성곱, 깊이별 합성곱, 축마다
+  스트라이드와 패딩이 다른 2×3 커널
+- 스트라이드 1과 2의 전치 합성곱, 출력 패딩이 있는 그룹 전치 합성곱, 팽창
+  전치 합성곱
+- 겹치지 않는 윈도우, 겹치는 윈도우, 패딩된 윈도우, 2×3 ceil 모드 윈도우의
+  최대 풀링
+- 패딩을 셀 때와 세지 않을 때, 그리고 ceil 모드의 평균 풀링
+- 전역 평균 풀링과 전역 최대 풀링
+- 최근접 업샘플링, 2배와 3배 쌍선형 업샘플링, 5×4로의 모서리 맞춤 쌍선형,
+  7×5로의 쌍삼차, 최근접 다운샘플링
+- 학습 모드와 추론 모드의 배치 정규화, 레이어 정규화, 그룹 정규화
+- 스펙트럴 정규화
+- 드롭아웃과 채널 드롭아웃
+
+기준값과의 비교:
+
+- 크기: 패딩된 풀링과 ceil 모드 풀링, 팽창 합성곱의 출력 크기가 PyTorch와
+  같다.
+- `cnn.h`와의 일치: `tensor_conv2d`, 패딩된 풀링, 전역 풀링이
+  `conv2d_forward`, `*pool2d_forward_ex`, `global_*pool2d`와 일치한다.
+  Winograd 경로는 직접 합과 일치한다.
+- 크기 조절: 쌍선형 업샘플링이 2×2 입력에서 PyTorch와 같은 출력을 내고,
+  쌍삼차 크기 조절이 상수 이미지를 그대로 유지한다.
+
+`ConvNet` 확인:
+
+- 투영 스킵, 연결 스킵, 그룹 정규화, 완전 연결 레이어를 거치는 입력
+  그래디언트를 확인한다.
+- 잔차 블록의 파라미터 수를 확인한다.
+- 배치 정규화 접기 뒤의 추론 출력이 1e-4 이내로 같다.
+- 저장한 네트워크를 다르게 초기화한 네트워크에 읽으면 출력이 정확히 같고,
+  구조가 다른 네트워크는 읽기를 거부한다.
+
+그 밖의 확인:
+
+- 배치 정규화의 이동 통계가 배치 통계를 따라간다.
+- 드롭아웃이 정해진 비율만큼 떨구고, 채널 드롭아웃이 평면 전체를 떨군다.
+- 스펙트럴 정규화 뒤의 최대 특이값이 1이다.
+- 그룹 정규화가 배치의 다른 행과 무관하다.
+- 여러 스레드의 합성곱이 한 스레드와 1e-4 이내로 같고, 풀링·업샘플링·배치
+  정규화는 비트 단위로 같다.
+- 끝에서 끝까지, 배치 정규화와 채널 드롭아웃을 쓰는 작은 잔차 CNN이 따로 떼어
+  둔 12×12 도형을 90% 넘게 맞힌다.
+
 ## 오토인코더 {#autoencoders}
 
 ```c
@@ -783,6 +1016,57 @@ trainer_fit(&v, vae_loss, &opt, &shapes, &tc);
 학습한 분류기가 조건부 VAE의 샘플을 요청한 클래스로 인식하는지(정확도 70%
 초과), VQ-VAE가 코드를 4개 넘게 쓰는지도 확인한다.
 
+### 합성곱 오토인코더 {#conv-autoencoders}
+
+`ConvAutoencoder`와 `ConvVae`는 직접 만든 `ConvNet` 인코더와 디코더를 쓰는
+기본 AE와 VAE다. 인코더는 이미지를 특징으로 바꾼다. 디코더는 코드를
+`latent × 1 × 1` 입력으로 받아 이미지 크기를 출력해야 한다.
+`convnet_dense` + `convnet_reshape`로 시작하거나, 1×1에서 시작하는 전치
+합성곱으로 시작하면 된다. `ConvVae`에서는 평탄화한 특징 위의 선형 헤드가
+μ와 log σ²를 만든다. 손실은 `Vae`와 같고, `VaeConfig`에서 `latent`, `recon`,
+`beta`, `classes`, `seed`를 읽는다.
+
+`classes > 0`이면 `ConvVae`는 **조건부 VAE**다. 인코더는 레이블을 `classes`개의
+추가 입력 채널(클래스마다 상수 평면 하나)로 받고, 디코더는 코드 뒤에 붙인
+원-핫 레이블을 받는다. 따라서 C채널 이미지라면 인코더는 `C + classes`채널을
+받고, 디코더는 `latent + classes`개 입력을 받아 C채널을 출력한다. `Vae`와
+마찬가지로 `y`에 클래스 인덱스가 들어가고, `conv_vae_sample`은 레이블이나
+`null`을 받는다.
+
+두 모델 모두 네트워크의 소유권을 가져가므로, 네트워크가 아니라 모델을
+해제한다. 손실 함수는 네트워크를 학습 모드로 실행한다. encode, decode,
+reconstruct, sample은 추론 모드로 실행하므로, 거기서 배치 정규화는 이동
+통계를 쓴다.
+
+```c
+unsigned long classes = 10UL;                                // 조건부, MNIST 숫자
+struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
+convnet_conv(&enc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 14 x 14
+convnet_conv(&enc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 7 x 7
+convnet_batchnorm(&enc, ACT_LEAKY);
+struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // 잠재 16 + 레이블
+convnet_dense(&dec, 64UL * 49UL, ACT_RELU, &rng);
+convnet_reshape(&dec, 64UL, 7UL, 7UL);
+convnet_deconv(&dec, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
+convnet_batchnorm(&dec, ACT_RELU);
+convnet_deconv(&dec, 1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 1 x 28 x 28 로짓
+struct VaeConfig cfg = vae_config_default(16UL);
+cfg.classes = classes;
+struct ConvVae v = conv_vae_new(enc, dec, &cfg);
+struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+conv_vae_add_params(&opt, &v);
+trainer_fit(&v, conv_vae_loss, &opt, &mnist, &tc);
+&Tensor samples = conv_vae_sample(&v, 64UL, (?&Tensor)labels);   // (0, 1) 범위의 [64, 784]
+```
+
+테스트는 두 네트워크 모두에 배치 정규화를 넣고 8×8 도형으로 실행한다.
+
+- 합성곱 AE는 재구성 오차를 학습 전의 30% 미만으로 줄여야 한다.
+- 합성곱 VAE는 손실을 첫 에폭의 60% 미만으로 줄이고, KL을 0.1보다 크게
+  유지하며, MSE 0.1 미만으로 재구성해야 한다.
+- 실제 이미지로 학습한 분류기가 조건부 합성곱 VAE의 샘플을 요청한 클래스로
+  인식하는 비율이 70%를 넘어야 한다.
+
 ## GAN {#gans}
 
 ```c
@@ -798,6 +1082,14 @@ MLP 생성기와 판별기(leaky ReLU)를 번갈아 학습한다. 목적 함수�
 | `GAN_LSGAN` | 최소 제곱(Mao et al. 2017). |
 | `GAN_WGAN` | 가중치 클리핑을 쓰는 Wasserstein 크리틱. 생성기 스텝마다 크리틱 스텝 `nCritic`번, RMSProp(Arjovsky et al. 2017). |
 | `GAN_HINGE` | 힌지 손실(Miyato et al. 2018). |
+| `GAN_WGAN_GP` | 그래디언트 벌점을 쓰는 Wasserstein 크리틱(Gulrajani et al. 2017): 실제 행과 생성 행을 무작위로 섞은 점에서 `gpWeight`(10) × (‖∇ₓD(x̂)‖ − 1)². 클리핑 없음, Adam (0, 0.9). `nCritic`은 5를 쓴다. |
+
+크리틱 파라미터에 대한 벌점의 그래디언트는 혼합 2계 도함수다. 역전파를
+다시 미분하는 대신, 행마다 정규화한 입력 그래디언트 방향으로 크리틱의 중앙
+차분을 구해 계산한다. 크리틱 패스가 두 번 더 들고 O(ε²)까지 정확하며(ε =
+0.01), 테스트에서 벌점 자체의 유한 차분과 비교한다. 벌점이 행을 독립적으로
+다루므로 크리틱에 배치 정규화를 쓰면 안 된다(그룹 정규화나 레이어 정규화는
+괜찮다).
 
 `classes > 0`이면 **조건부 GAN**으로, 레이블이 두 네트워크에 모두 들어간다.
 `emaDecay`는 생성기 가중치의 지수 이동 평균(Karras et al. 2018)을 유지하며,
@@ -815,8 +1107,48 @@ gan_train(&g, &data, 80UL, 64UL);
 ```
 
 테스트에서 모든 목적 함수가 2D 가우시안을 학습하며, 평균은 0.25 이내로
-맞춘다. GAN은 분산을 덜 덮는 경향이 있어 퍼짐은 느슨하게 확인한다. 조건부
+맞춘다. WGAN-GP 크리틱의 입력 그래디언트 노름은 0.6과 1.4 사이에 든다. GAN은 분산을 덜 덮는 경향이 있어 퍼짐은 느슨하게 확인한다. 조건부
 GAN은 4개 모드 링에서 샘플의 75% 넘게를 각 레이블의 모드에 놓는다.
+
+### DCGAN {#dcgan}
+
+`Dcgan`은 `ConvNet` 생성기와 판별기로 같은 게임을 한다(Radford et al.
+2016). G는 잠재 배치를 `latent × 1 × 1` 입력으로 받아 데이터 크기를 출력해야
+하고, D는 데이터 행을 받아 점수 하나를 출력해야 한다. `GanConfig`에서 목적
+함수, 학습률, `nCritic`, `clip`, `classes`, `emaDecay`, `seed`를 읽는다.
+
+`classes > 0`이면 **조건부 DCGAN**이다. G는 노이즈 뒤에 붙인 원-핫 레이블을
+받으므로 `latent + classes`개 입력을 받는다. D는 레이블을 `classes`개의 추가
+입력 채널(클래스마다 상수 평면 하나)로 받는다. `dcgan_train_step`,
+`dcgan_generate`, `dcgan_score`는 레이블이나 `null`을 받고, `dcgan_train`은
+데이터셋에서 레이블을 가져온다.
+
+DCGAN은 네트워크, 옵티마이저, 평균 생성기, 스텝 아레나를 직접 가진다. 학습
+스텝은 네트워크를 학습 모드로 실행하므로, DCGAN 논문대로 배치 정규화가 배치
+통계를 쓴다. `dcgan_generate`와 `dcgan_score`는 추론 모드로 실행한다.
+
+```c
+struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);             // 잠재 차원 16
+convnet_deconv(&gen, 64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 32 x 8 x 8
+convnet_batchnorm(&gen, ACT_RELU);
+convnet_deconv(&gen, 1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);  // 1 x 16 x 16
+struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
+convnet_conv(&disc, 32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);    // 32 x 8 x 8
+convnet_conv(&disc, 64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);     // 64 x 4 x 4
+convnet_batchnorm(&disc, ACT_LEAKY);
+convnet_conv(&disc, 1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);      // 점수 하나
+struct GanConfig cfg = gan_config_default(16UL);
+struct Dcgan g = dcgan_new(gen, disc, &cfg);
+dcgan_train(&g, &images, 20UL, 64UL);
+&Tensor fake = dcgan_generate(&g, 64UL, null);   // [64, 256], 힙 텐서, 호출자가 해제
+```
+
+테스트는 8×8 도형으로 학습한다. DCGAN은 샘플의 평균 밝기를 학습 전
+sigmoid의 0.5에서 데이터 평균의 0.1 이내로 옮겨야 한다. 실제 이미지로 학습한
+분류기가 조건부 DCGAN의 샘플을 요청한 클래스로 인식하는 비율은 55%를 넘어야
+한다(우연 수준은 25%).
 
 ## 강화 학습 {#rl}
 
