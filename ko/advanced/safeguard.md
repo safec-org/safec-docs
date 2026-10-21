@@ -329,7 +329,7 @@ crate_type = "bin"              # "bin" (기본값), "staticlib", 또는 "cdylib
 blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 ```
 
-`blas`는 [`sgemm`](/ko/stdlib/simd#gemm)(그리고 이를 통해 `tensor_matmul`과 `conv2d_forward`)이 쓸 CPU 벤더 BLAS를 고르며, 프로그램을 링크할 때 정해집니다:
+`blas`는 [`sgemm`](/ko/stdlib/simd#gemm)(그리고 이를 통해 `tensor_matmul`과 `Conv2D::forward`)이 쓸 CPU 벤더 BLAS를 고르며, 프로그램을 링크할 때 정해집니다:
 
 | `blas` | 링크 대상 |
 |---|---|

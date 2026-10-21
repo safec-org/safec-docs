@@ -312,7 +312,7 @@ A `ThreadSched` holds `TASK_MAX` task slots inline (tens of KB); on small target
 
 Splits `[0, n)` into chunks of at least `grain` indices and runs `body(ctx, lo, hi)` on each, on the calling thread plus a persistent pool of worker threads. It returns once every chunk has finished. Chunks are handed out from an atomic counter, so uneven chunks balance out.
 
-The workers start on the first call and are then kept, parked on a condition variable, so later calls cost a wake-up (a few microseconds) instead of a thread spawn. std's own CPU kernels use the pool: `sgemm` (and through it `tensor_matmul` and `conv2d_forward`), the large-FFT and batched-FFT paths, `fft2d` and `stft_forward`.
+The workers start on the first call and are then kept, parked on a condition variable, so later calls cost a wake-up (a few microseconds) instead of a thread spawn. std's own CPU kernels use the pool: `sgemm` (and through it `tensor_matmul` and `Conv2D::forward`), the large-FFT and batched-FFT paths, `fft2d` and `stft_forward`.
 
 ```c
 generic<T>
