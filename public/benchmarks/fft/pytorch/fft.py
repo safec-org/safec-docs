@@ -1,6 +1,6 @@
 """FFT in PyTorch: the same transforms as ../safec/fft_cuda.sc.
 
-usage: fft.py cpu|cuda
+usage: fft.py cpu|cuda|mps
 
   fft1d   one complex128 transform of length 2^20, from and back to a CPU
           tensor (on CUDA: .to("cuda") -> torch.fft.fft -> .cpu())
@@ -20,6 +20,8 @@ torch.manual_seed(42)
 def sync():
     if dev == "cuda":
         torch.cuda.synchronize()
+    elif dev == "mps":
+        torch.mps.synchronize()
 
 
 def bench(fn, iters):
@@ -40,12 +42,14 @@ def rand_c(*shape, dtype, device):
 host_iters = 5 if dev == "cpu" else 50
 dev_iters = 5 if dev == "cpu" else 1000
 with torch.inference_mode():
-    x = rand_c(1 << 20, dtype=torch.float64, device="cpu")
-    ms = bench(lambda: torch.fft.fft(x.to(dev)).cpu(), host_iters)
-    print(f"[fft1d n=1048576 c128 {dev}] ms_per_call={ms:.4f}", flush=True)
-    img = rand_c(1024, 1024, dtype=torch.float64, device="cpu")
-    ms = bench(lambda: torch.fft.fft2(img.to(dev)).cpu(), host_iters)
-    print(f"[fft2d 1024x1024 c128 {dev}] ms_per_call={ms:.4f}", flush=True)
+    # MPS has no float64 / complex128, so it runs only the on-device rows
+    if dev != "mps":
+        x = rand_c(1 << 20, dtype=torch.float64, device="cpu")
+        ms = bench(lambda: torch.fft.fft(x.to(dev)).cpu(), host_iters)
+        print(f"[fft1d n=1048576 c128 {dev}] ms_per_call={ms:.4f}", flush=True)
+        img = rand_c(1024, 1024, dtype=torch.float64, device="cpu")
+        ms = bench(lambda: torch.fft.fft2(img.to(dev)).cpu(), host_iters)
+        print(f"[fft2d 1024x1024 c128 {dev}] ms_per_call={ms:.4f}", flush=True)
     b = rand_c(1024, 4096, dtype=torch.float32, device=dev)
     ms = bench(lambda: torch.fft.fft(b, dim=-1), dev_iters)
     print(f"[batch 1024x4096 c2c {dev}] ms_per_call={ms:.4f}", flush=True)

@@ -1,6 +1,6 @@
 """Convolution in PyTorch: the same layer and U-Net as ../safec/conv_cuda.sc.
 
-usage: conv.py cpu|cuda
+usage: conv.py cpu|cuda|mps
 
   conv64   Conv2d 64 -> 64, 3x3, stride 1, pad 1, 56 x 56, + bias
   unet128  the std/ml/unet.h network (conv-relu-maxpool x2, bottleneck,
@@ -40,6 +40,8 @@ class UNet(nn.Module):
 def sync():
     if dev == "cuda":
         torch.cuda.synchronize()
+    elif dev == "mps":
+        torch.mps.synchronize()
 
 
 def bench(fn, iters):
@@ -59,6 +61,8 @@ unet = UNet(3, 32, 64, 3).to(dev)
 with torch.inference_mode():
     if dev == "cpu":
         modes = [("cpu", False, False)]
+    elif dev == "mps":
+        modes = [("mps", False, False)]
     else:
         modes = [("fp32", False, True), ("tf32", True, True), ("fp32 heuristic", False, False)]
     for name, tf32, autotune in modes:

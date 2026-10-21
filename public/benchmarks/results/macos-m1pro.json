@@ -6,9 +6,10 @@
   "go": "go version go1.26.5 darwin/arm64",
   "zig": "0.16.0",
   "python": "Python 3.14.6",
-  "torch": "Traceback (most recent call last):",
-  "tensorflow": "ModuleNotFoundError: No module named 'tensorflow'",
+  "torch": "2.14.1",
+  "tensorflow": "2.21.0",
   "numpy": "2.5.4",
+  "mlx": "0.32.4",
   "cpu": "Apple M1 Pro",
   "os": "macOS 26.6.2",
   "cores": 10
@@ -668,29 +669,53 @@
  },
  "web": {
   "safec": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8082/"
+   "rps": 32925.12,
+   "p50_ms": 1,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 6.6
   },
   "c": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8082/"
+   "rps": 26111.06,
+   "p50_ms": 2,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 2.1
   },
   "cpp": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8083/"
+   "rps": 26180.61,
+   "p50_ms": 2,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 2.2
   },
   "zig": {
-   "rps": 27043.73,
+   "rps": 24750.55,
    "p50_ms": 2,
    "p99_ms": 3,
    "failed": 0,
    "rss_mb": 2.3
   },
   "go": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8084/"
+   "rps": 26423.6,
+   "p50_ms": 2,
+   "p99_ms": 3,
+   "failed": 0,
+   "rss_mb": 19.8
   },
   "rust": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8086/"
+   "rps": 29106.36,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 3.5
   },
   "python": {
-   "error": "command failed (119): /usr/sbin/ab -q -n 2000 -c 50 http://127.0.0.1:8087/"
+   "rps": 4812.8,
+   "p50_ms": 10,
+   "p99_ms": 18,
+   "failed": 0,
+   "rss_mb": 56.8
   }
  },
  "dsp": {
@@ -871,6 +896,320 @@
    "resample n=1048576 44100->48000": {
     "ms_per_call": 291.417
    }
+  }
+ },
+ "ml": {
+  "small/safec_cpu": {
+   ":train_ms": 10.509,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 9.105
+  },
+  "small/safec_blas": {
+   ":train_ms": 10.908,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 9.122
+  },
+  "big/safec_cpu": {
+   ":train_ms": 65.052,
+   ":last_loss": 95.428734,
+   ":inference_ms_per_200": 59.238
+  },
+  "big/safec_blas": {
+   ":train_ms": 66.798,
+   ":last_loss": 95.428734,
+   ":inference_ms_per_200": 58.878
+  },
+  "small/safec_mps": {
+   ":train_ms": 40.887,
+   ":last_loss": 100.33329,
+   ":inference_ms_per_1000": 65.31
+  },
+  "big/safec_mps": {
+   ":train_ms": 47.703,
+   ":last_loss": 95.428223,
+   ":inference_ms_per_200": 48.784
+  },
+  "small/pytorch_cpu": {
+   "cpu:train_ms": 8.669,
+   ":last_loss": 100.018272,
+   "cpu:inference_ms_per_1000": 13.068
+  },
+  "small/pytorch_mps": {
+   "mps:train_ms": 61.172,
+   ":last_loss": 103.423889,
+   "mps:inference_ms_per_1000": 347.57
+  },
+  "big/pytorch_cpu": {
+   "cpu:train_ms": 53.655,
+   ":last_loss": 106.548233,
+   "cpu:inference_ms_per_200": 48.623
+  },
+  "big/pytorch_mps": {
+   "mps:train_ms": 41.233,
+   ":last_loss": 108.710899,
+   "mps:inference_ms_per_200": 89.045
+  },
+  "small/mlx": {
+   "mlx:train_ms": 70.609,
+   ":last_loss": 96.632431,
+   "mlx:inference_ms_per_1000": 298.859
+  },
+  "big/mlx": {
+   "mlx:train_ms": 58.765,
+   ":last_loss": 88.7621,
+   "mlx:inference_ms_per_200": 78.613
+  },
+  "small/tensorflow_cpu": {
+   "cpu:train_ms": 75.79,
+   ":last_loss": 106.182999,
+   "cpu:inference_ms_per_1000": 229.698
+  },
+  "big/tensorflow_cpu": {
+   "cpu:train_ms": 140.927,
+   ":last_loss": 316.538452,
+   "cpu:inference_ms_per_200": 184.939
+  }
+ },
+ "conv": {
+  "safec_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_image": 0.6,
+    "checksum": 528.229
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_image": 2.433,
+    "checksum": 994785.1006
+   }
+  },
+  "pytorch_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_batch": 0.3428,
+    "ms_per_image": 0.34278
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_batch": 9.2867,
+    "ms_per_image": 9.2867
+   }
+  },
+  "pytorch_mps": {
+   "conv64 b=1 mps": {
+    "ms_per_batch": 0.0728,
+    "ms_per_image": 0.07283
+   },
+   "conv64 b=32 mps": {
+    "ms_per_batch": 1.4321,
+    "ms_per_image": 0.04475
+   },
+   "unet128 b=1 mps": {
+    "ms_per_batch": 0.6642,
+    "ms_per_image": 0.66417
+   },
+   "unet128 b=16 mps": {
+    "ms_per_batch": 9.3093,
+    "ms_per_image": 0.58183
+   }
+  }
+ },
+ "fft": {
+  "safec_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 2.003
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 1.591
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 2.657
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 1.452
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 1.575
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 0.865
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 1.172
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 0.805
+   }
+  },
+  "pytorch_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 16.4915
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 12.4478
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 9.0187
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 4.1237
+   }
+  },
+  "pytorch_mps": {
+   "batch 1024x4096 c2c mps": {
+    "ms_per_call": 0.3969
+   },
+   "rfft 1024x4096 r2c mps": {
+    "ms_per_call": 0.2194
+   }
+  },
+  "fftw_1t": {
+   "fft1d n=1048576 c128 st": {
+    "ms_per_call": 16.339
+   },
+   "fft2d 1024x1024 c128 st": {
+    "ms_per_call": 37.192
+   },
+   "batch 1024x4096 c2c st": {
+    "ms_per_call": 16.64
+   },
+   "rfft 1024x4096 r2c st": {
+    "ms_per_call": 8.457
+   },
+   "fft1d n=1048576 c64 st": {
+    "ms_per_call": 7.909
+   },
+   "fft2d 1024x1024 c64 st": {
+    "ms_per_call": 24.683
+   },
+   "batch 1024x4096 c2c f32 st": {
+    "ms_per_call": 10.481
+   },
+   "rfft 1024x4096 r2c f32 st": {
+    "ms_per_call": 5.305
+   }
+  },
+  "fftw_16t": {
+   "fft1d n=1048576 c128 mt": {
+    "ms_per_call": 3.649
+   },
+   "fft2d 1024x1024 c128 mt": {
+    "ms_per_call": 7.071
+   },
+   "batch 1024x4096 c2c mt": {
+    "ms_per_call": 3.201
+   },
+   "rfft 1024x4096 r2c mt": {
+    "ms_per_call": 1.809
+   },
+   "fft1d n=1048576 c64 mt": {
+    "ms_per_call": 2.932
+   },
+   "fft2d 1024x1024 c64 mt": {
+    "ms_per_call": 4.838
+   },
+   "batch 1024x4096 c2c f32 mt": {
+    "ms_per_call": 2.021
+   },
+   "rfft 1024x4096 r2c f32 mt": {
+    "ms_per_call": 1.063
+   }
+  },
+  "kfr": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 6.85
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 9.226
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 12.705
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 7.383
+   },
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 45.88
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 8.213
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 5.141
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 165.11
+   },
+   "resample draft n=1048576 44100->48000": {
+    "ms_per_call": 33.134
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 3.293
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 3.314
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 6.211
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 3.922
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 64.14
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 4.198
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 4.204
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 91.701
+   },
+   "resample draft n=1048576 44100->48000 f32": {
+    "ms_per_call": 34.123
+   }
+  },
+  "rust": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 9.436
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 17.618
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 4.625
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 10.261
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 301.362
+   }
+  },
+  "safec_cpu_1t": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 10.368
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 8.538
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 15.447
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 8.928
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 7.551
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 4.432
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 8.703
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 5.241
+   },
+   "note": "SAFEC_NUM_THREADS=1 ./build/fft/safec_cpu, best of 3"
   }
  }
 }

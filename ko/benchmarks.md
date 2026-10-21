@@ -14,7 +14,7 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 - **머신러닝**에서 각 프레임워크의 최적 구성끼리 비교하면:
   - SafeC 자체 GPU 백엔드가 작은 MLP를 PyTorch의 최적 구성보다 2.6배(MI100), 7.8배(H200) 빠르게 학습합니다.
   - Gemma 4 E2B를 PyTorch의 최적 구성보다 3.1배(MI100), 1.5배(H200) 빠르게 디코딩합니다.
-  - M1 Pro에서는 MLX가 Gemma를 SafeC보다 2.6배 빠르게 디코딩하고, fp16 flash 어텐션도 1.2배 빠릅니다.
+  - M1 Pro에서는 MLX가 Gemma를 SafeC보다 2.6배 빠르게 디코딩하고, fp16 flash 어텐션도 1.2배 빠르며, PyTorch가 두 MLP를 1.2배 빠르게 학습합니다.
 
 ## 목차 {#index}
 
@@ -40,8 +40,8 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 | GPU | AMD Instinct MI100(gfx908, 32 GB HBM2), ROCm 6.4 / 7.1(HIP, hiprtc, rocBLAS, MIOpen, hipFFT) | NVIDIA H200(sm_90, 141 GB HBM3e), CUDA 13.0, cuDNN 9.15, 드라이버 580.126.20 | M1 Pro GPU(Metal) |
 | OS | Ubuntu 24.04.5, 네이티브 | Ubuntu 24.04.3(Backend.AI 컨테이너) | macOS 26.6 |
 | 컴파일러 | `safec` 1.0.0, clang 21.1.8, Rust 1.100.0-nightly, Go 1.27.2, Zig 0.16.0 | `safec` 1.0.0, clang 21.1.8, Rust 1.99.1, Go 1.27.3, Zig 0.17.0 | `safec` 1.0.0, Homebrew clang 22.1, Rust 1.98, Go 1.26, Zig 0.16 |
-| Python 환경 | Python 3.12.3, NumPy 2.5.4, SciPy 1.18.1, PyTorch 2.9.1+rocm6.4, transformers 5.20.2, TensorFlow 2.21(CPU) | Python 3.12.3, SciPy 1.16.3, PyTorch 2.10(NGC 25.11), transformers 5.20.2, TensorFlow 2.21(CPU) | Python 3.14, NumPy 2.5.4, SciPy 1.18.1, PyTorch 2.13(`mps`), MLX 0.32 |
-| 네이티브 라이브러리 | OpenBLAS, AOCL-BLAS 5.3.2, oneMKL 2026.2, FFTW 3.3.10, KFR 7.2.0, RustFFT 6.4.1, dasp 0.11, Q, madronalib | OpenBLAS, oneMKL 2026.2, FFTW 3.3.10, KFR 7.2.0, RustFFT 6.4.1, dasp 0.11, Q, madronalib | Accelerate, KFR 7, dasp 0.11, Q, madronalib |
+| Python 환경 | Python 3.12.3, NumPy 2.5.4, SciPy 1.18.1, PyTorch 2.9.1+rocm6.4, transformers 5.20.2, TensorFlow 2.21(CPU) | Python 3.12.3, SciPy 1.16.3, PyTorch 2.10(NGC 25.11), transformers 5.20.2, TensorFlow 2.21(CPU) | Python 3.14, NumPy 2.5.4, SciPy 1.18.1, PyTorch 2.13(`mps`), MLX 0.32. MLP·합성곱·FFT·웹 서비스: Python 3.12, PyTorch 2.14.1(`mps`), TensorFlow 2.21(CPU), MLX 0.32.4, FastAPI + uvicorn |
+| 네이티브 라이브러리 | OpenBLAS, AOCL-BLAS 5.3.2, oneMKL 2026.2, FFTW 3.3.10, KFR 7.2.0, RustFFT 6.4.1, dasp 0.11, Q, madronalib | OpenBLAS, oneMKL 2026.2, FFTW 3.3.10, KFR 7.2.0, RustFFT 6.4.1, dasp 0.11, Q, madronalib | Accelerate, FFTW 3.3.10, KFR 7.2.0, RustFFT 6.4.1, dasp 0.11, Q, madronalib |
 | 결과 | [linux-7800x3d-mi100.json](/benchmarks/results/linux-7800x3d-mi100.json) | [linux-xeon8570-h200.json](/benchmarks/results/linux-xeon8570-h200.json) | [macos-m1pro.json](/benchmarks/results/macos-m1pro.json) |
 
 서드파티 라이브러리는 각자의 벤치마크 프로그램에만 빌드·링크하며, SafeC의 std에는 절대 넣지 않습니다. H200 서버는 학습 작업과 GPU를 공유하는데, 모든 측정 동안 그 작업을 멈춰(`SIGSTOP`) GPU와 12코어가 유휴 상태였습니다.
@@ -50,7 +50,7 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 
 - **빌드**: C, C++, SafeC는 `-O2`(SafeC는 LLVM IR로 컴파일한 뒤 `safeguard build --release`처럼 `clang -O2`), `zig build-exe -O ReleaseFast`, `rustc -O`, 일반 `go build`. SafeC의 CPU 커널은 실행 시점에 CPU의 [SIMD 수준](/ko/stdlib/simd#cpu-levels)에 맞는 코드를 고릅니다.
 - **시간**: 3번 실행 중 가장 짧은 실제 경과 시간. GPU와 라이브러리 행은 워밍업 호출 뒤 두 동기화 사이에 큐에 넣은 여러 호출의 평균이며, 3번 실행 중 최솟값입니다.
-- **메모리**: 같은 실행의 최대 RSS(GNU `/usr/bin/time -f %M`). 웹 서버는 종료 직전 `/proc/<pid>/status`의 `VmHWM`.
+- **메모리**: 같은 실행의 최대 RSS(GNU `/usr/bin/time -f %M`). 웹 서버는 종료 직전 `/proc/<pid>/status`의 `VmHWM`. macOS에서는 `/usr/bin/time -l`과 서버 자체의 `wait4` 최대 RSS.
 - **정확성**: 모든 프로그램의 출력을 정답과 대조한 뒤에만 시간을 셉니다. ML 테스트는 손실도 확인하고, LLM은 생성된 토큰과 로짓을 `transformers`와 대조합니다.
 - **재현**: [`run_bench.py`](/benchmarks/run_bench.py)가 모두 빌드·실행하고 머신별 결과 JSON을 씁니다.
 
@@ -227,19 +227,19 @@ SafeC는 C, C++와 비슷한 속도로 컴파일합니다. Zig의 콜드 빌드�
 
 #### 웹 서비스 — JSON "hello world" {#web-service}
 
-`GET /`가 `{"message":"Hello, World!"}`를 돌려줍니다. TechEmpower의 JSON 직렬화 테스트와 같은 형태이며, Apache Bench(`ab -n 20000 -c 50`, keep-alive 없음, 2,000 요청 워밍업 뒤)로 각 언어 자체의 HTTP 방식을 잽니다: SafeC의 `std::http_serve_reactor`(epoll 리액터), C·C++·Zig의 최소한의 raw 소켓 accept 루프, Go의 `net/http`, Rust의 axum(Dioxus 서버 계층이 쓰는 것), Python의 FastAPI + uvicorn. 셀은 초당 요청 수(높을수록 좋음) · p50/p99 지연 · 최대 메모리입니다.
+`GET /`가 `{"message":"Hello, World!"}`를 돌려줍니다. TechEmpower의 JSON 직렬화 테스트와 같은 형태이며, Apache Bench(`ab -n 20000 -c 50`, keep-alive 없음, 2,000 요청 워밍업 뒤)로 각 언어 자체의 HTTP 방식을 잽니다: SafeC의 `std::http_serve_reactor`(epoll 리액터, macOS에서는 kqueue), C·C++·Zig의 최소한의 raw 소켓 accept 루프, Go의 `net/http`, Rust의 axum(Dioxus 서버 계층이 쓰는 것), Python의 FastAPI + uvicorn. 셀은 초당 요청 수(높을수록 좋음) · p50/p99 지연 · 최대 메모리입니다.
 
 | 언어 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|
-| SafeC | **25,303** · 2/2 ms · 4.9 MB | **33,730** · 1/2 ms · 14.2 MB | — |
-| C | 24,620 · 2/2 ms · 3.1 MB | 32,196 · 2/2 ms · 14.0 MB | — |
-| C++ | 24,845 · 2/2 ms · 5.1 MB | 32,523 · 1/2 ms · 15.7 MB | — |
-| Rust | 25,075 · 2/2 ms · 4.3 MB | 32,592 · 2/2 ms · 13.6 MB | — |
-| Zig | 25,030 · 2/2 ms · 7.1 MB | N/A | — |
-| Go | 23,199 · 2/3 ms · 16.1 MB | 32,219 · 2/2 ms · 25.3 MB | — |
-| Python | 5,096 · 10/14 ms · 46.0 MB | 2,887 · 17/30 ms · 60.8 MB | — |
+| SafeC | **25,303** · 2/2 ms · 4.9 MB | **33,730** · 1/2 ms · 14.2 MB | **32,925** · 1/3 ms · 6.6 MB |
+| C | 24,620 · 2/2 ms · 3.1 MB | 32,196 · 2/2 ms · 14.0 MB | 26,111 · 2/3 ms · 2.1 MB |
+| C++ | 24,845 · 2/2 ms · 5.1 MB | 32,523 · 1/2 ms · 15.7 MB | 26,181 · 2/3 ms · 2.2 MB |
+| Rust | 25,075 · 2/2 ms · 4.3 MB | 32,592 · 2/2 ms · 13.6 MB | 29,106 · 2/2 ms · 3.5 MB |
+| Zig | 25,030 · 2/2 ms · 7.1 MB | N/A | 24,751 · 2/3 ms · 2.3 MB |
+| Go | 23,199 · 2/3 ms · 16.1 MB | 32,219 · 2/2 ms · 25.3 MB | 26,424 · 2/3 ms · 19.8 MB |
+| Python | 5,096 · 10/14 ms · 46.0 MB | 2,887 · 17/30 ms · 60.8 MB | 4,813 · 10/18 ms · 56.8 MB |
 
-모든 서버가 모든 요청을 처리했습니다. 컴파일 언어 서버들은 서로 9% 이내입니다: keep-alive가 없으면 요청마다 새 TCP 연결이므로 커널의 connect/accept 경로와 `ab`가 병목입니다. M1 Pro에서는 VS Code의 포트 포워딩이 서버 포트(127.0.0.1:8082–8087)를 잡고 있어 `ab`가 에디터에 접속했으므로 측정하지 않았습니다.
+모든 서버가 모든 요청을 처리했습니다. 두 Linux 머신에서는 컴파일 언어 서버들이 서로 9% 이내입니다. keep-alive가 없으면 요청마다 새 TCP 연결이므로 커널의 connect/accept 경로와 `ab`가 병목입니다. M1 Pro에서는 차이가 더 큽니다. SafeC의 단일 스레드 kqueue 리액터가 32,925 req/s로 가장 빠르며, Rust의 axum보다 1.13배, 연결마다 스레드를 쓰는 C·C++·Zig·Go 서버보다 1.25–1.33배 빠릅니다. 그곳에서는 VS Code의 포트 포워딩이 127.0.0.1:8082–8087을 잡고 있어 서버를 18082–18088 포트에서 돌렸습니다. `run_bench.py`는 이것을 `WEB_PORT_BASE`로 정하며, 각 서버에 `PORT`로 넘깁니다.
 
 ::: details 소스
 [server_reactor.sc](/benchmarks/webservice/safec/server_reactor.sc) · [server.c](/benchmarks/webservice/c/server.c) · [server.cpp](/benchmarks/webservice/cpp/server.cpp) · [main.rs](/benchmarks/webservice/rust/src/main.rs) · [server.zig](/benchmarks/webservice/zig/server.zig) · [server.go](/benchmarks/webservice/go/server.go) · [server.py](/benchmarks/webservice/python/server.py) · [http.sc](/benchmarks/stdlib/http.sc) · [io_nb.h](/benchmarks/stdlib/io_nb.h)
@@ -331,88 +331,89 @@ SafeC는 C, C++와 비슷한 속도로 컴파일합니다. Zig의 콜드 빌드�
 
 #### FFT {#fft}
 
-CPU에서는 [`fft.h`](/ko/stdlib/dsp)를 FFTW 3.3.10(`FFTW_MEASURE`로 계획), oneMKL의 DFTI, KFR 7.2, RustFFT 6.4, PyTorch와, GPU에서는 SafeC의 [`fft_rocm.h` / `fft_cuda.h`](/ko/stdlib/ml#rocm-miopen-hipfft)(rocFFT, cuFFT)를 PyTorch와 비교합니다. `fft1d`는 2²⁰점 변환 하나, `fft2d`는 1024×1024 변환 하나, `batch`는 4096점 변환 1024개, `rfft`는 중복 없는 n/2 + 1개 빈을 돌려주는 4096점 실수 변환 1024개입니다. "모든 스레드"는 7800X3D에서 16, Xeon에서 12입니다. FFT는 M1 Pro에서 측정하지 않았습니다.
+CPU에서는 [`fft.h`](/ko/stdlib/dsp)를 FFTW 3.3.10(`FFTW_MEASURE`로 계획), oneMKL의 DFTI, KFR 7.2, RustFFT 6.4, PyTorch와, GPU에서는 SafeC의 [`fft_rocm.h` / `fft_cuda.h`](/ko/stdlib/ml#rocm-miopen-hipfft)(rocFFT, cuFFT)를 PyTorch와 비교합니다. `fft1d`는 2²⁰점 변환 하나, `fft2d`는 1024×1024 변환 하나, `batch`는 4096점 변환 1024개, `rfft`는 중복 없는 n/2 + 1개 빈을 돌려주는 4096점 실수 변환 1024개입니다. "모든 스레드"는 7800X3D에서 16, Xeon에서 12입니다. M1 Pro에서는 SafeC가 8(스레드 풀이 성능 코어를 씀), FFTW가 10입니다. 그곳에는 oneMKL이 없고 SafeC에는 Metal FFT가 없으므로, M1 Pro의 GPU 열에는 PyTorch의 `mps` 행만 있습니다. MPS에는 complex128이 없어 PyTorch의 호스트 배열 행도 돌지 않습니다.
 
 CPU, 배정밀도(complex128), 호출당 ms:
 
 | 작업 | 라이브러리 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|
-| fft1d, 2²⁰ | SafeC, 모든 스레드 | **0.888** | 1.21 | — |
-|  | SafeC + oneMKL DFTI | 0.891 | **1.18** | — |
-|  | FFTW, 모든 스레드 | 1.63 | 2.35 | — |
-|  | PyTorch | 8.31 | **1.18** | — |
-|  | SafeC, 1 스레드 | 5.47 | — | — |
-|  | FFTW, 1 스레드 | 6.50 | 11.4 | — |
-|  | KFR, 1 스레드 | 3.36 | 6.35 | — |
-|  | RustFFT, 1 스레드 | 4.75 | 8.78 | — |
-| fft2d, 1024² | SafeC, 모든 스레드 | 0.691 | 1.08 | — |
-|  | SafeC + oneMKL DFTI | 1.00 | 0.837 | — |
-|  | FFTW, 모든 스레드 | **0.618** | 2.59 | — |
-|  | PyTorch | 0.710 | **0.654** | — |
-|  | SafeC, 1 스레드 | 4.43 | — | — |
-|  | FFTW, 1 스레드 | 3.49 | 7.27 | — |
-|  | KFR, 1 스레드 | 4.22 | 5.15 | — |
-| batch, 1024 × 4096 | SafeC, 모든 스레드 | 1.25 | 2.96 | — |
-|  | SafeC + oneMKL DFTI | 1.89 | **1.65** | — |
-|  | FFTW, 모든 스레드 | **1.05** | 2.95 | — |
-|  | SafeC, 1 스레드 | 11.9 | — | — |
-|  | FFTW, 1 스레드 | 7.84 | 10.7 | — |
-|  | KFR, 1 스레드 | 11.8 | 12.3 | — |
-|  | RustFFT, 1 스레드 | 8.25 | 14.8 | — |
-| rfft, 1024 × 4096 | SafeC, 모든 스레드 | 0.861 | 2.31 | — |
-|  | SafeC + oneMKL DFTI | 1.05 | **1.36** | — |
-|  | FFTW, 모든 스레드 | **0.553** | 2.02 | — |
-|  | SafeC, 1 스레드 | 6.17 | — | — |
-|  | FFTW, 1 스레드 | 4.28 | 7.35 | — |
-|  | KFR, 1 스레드 | 4.34 | 7.32 | — |
+| fft1d, 2²⁰ | SafeC, 모든 스레드 | **0.888** | 1.21 | **2.00** |
+|  | SafeC + oneMKL DFTI | 0.891 | **1.18** | N/A |
+|  | FFTW, 모든 스레드 | 1.63 | 2.35 | 3.65 |
+|  | PyTorch | 8.31 | **1.18** | 16.5 |
+|  | SafeC, 1 스레드 | 5.47 | — | 10.4 |
+|  | FFTW, 1 스레드 | 6.50 | 11.4 | 16.3 |
+|  | KFR, 1 스레드 | 3.36 | 6.35 | 6.85 |
+|  | RustFFT, 1 스레드 | 4.75 | 8.78 | 9.44 |
+| fft2d, 1024² | SafeC, 모든 스레드 | 0.691 | 1.08 | **1.59** |
+|  | SafeC + oneMKL DFTI | 1.00 | 0.837 | N/A |
+|  | FFTW, 모든 스레드 | **0.618** | 2.59 | 7.07 |
+|  | PyTorch | 0.710 | **0.654** | 12.4 |
+|  | SafeC, 1 스레드 | 4.43 | — | 8.54 |
+|  | FFTW, 1 스레드 | 3.49 | 7.27 | 37.2 |
+|  | KFR, 1 스레드 | 4.22 | 5.15 | 9.23 |
+| batch, 1024 × 4096 | SafeC, 모든 스레드 | 1.25 | 2.96 | **2.66** |
+|  | SafeC + oneMKL DFTI | 1.89 | **1.65** | N/A |
+|  | FFTW, 모든 스레드 | **1.05** | 2.95 | 3.20 |
+|  | SafeC, 1 스레드 | 11.9 | — | 15.4 |
+|  | FFTW, 1 스레드 | 7.84 | 10.7 | 16.6 |
+|  | KFR, 1 스레드 | 11.8 | 12.3 | 12.7 |
+|  | RustFFT, 1 스레드 | 8.25 | 14.8 | 17.6 |
+| rfft, 1024 × 4096 | SafeC, 모든 스레드 | 0.861 | 2.31 | **1.45** |
+|  | SafeC + oneMKL DFTI | 1.05 | **1.36** | N/A |
+|  | FFTW, 모든 스레드 | **0.553** | 2.02 | 1.81 |
+|  | SafeC, 1 스레드 | 6.17 | — | 8.93 |
+|  | FFTW, 1 스레드 | 4.28 | 7.35 | 8.46 |
+|  | KFR, 1 스레드 | 4.34 | 7.32 | 7.38 |
 
 CPU, 단정밀도(complex64 / float32), 호출당 ms:
 
 | 작업 | 라이브러리 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|
-| fft1d, 2²⁰ | SafeC, 모든 스레드 | **0.688** | 3.06 | — |
-|  | SafeC + oneMKL DFTI | 0.693 | 2.85 | — |
-|  | FFTW, 모든 스레드 | 1.67 | **2.46** | — |
-|  | SafeC, 1 스레드 | 4.39 | — | — |
-|  | FFTW, 1 스레드 | 5.53 | 8.72 | — |
-|  | KFR, 1 스레드 | 1.77 | 3.31 | — |
-|  | RustFFT, 1 스레드 | 2.10 | 4.12 | — |
-| fft2d, 1024² | SafeC, 모든 스레드 | 0.560 | 2.01 | — |
-|  | SafeC + oneMKL DFTI | 0.543 | **1.11** | — |
-|  | FFTW, 모든 스레드 | **0.446** | 1.86 | — |
-|  | SafeC, 1 스레드 | 3.25 | — | — |
-|  | FFTW, 1 스레드 | 2.54 | 4.29 | — |
-|  | KFR, 1 스레드 | 2.63 | 3.07 | — |
-| batch, 1024 × 4096 | SafeC, 모든 스레드 | 0.775 | 3.16 | — |
-|  | SafeC + oneMKL DFTI | 0.964 | **1.60** | — |
-|  | FFTW, 모든 스레드 | **0.504** | 1.75 | — |
-|  | PyTorch | 4.41 | 3.19 | — |
-|  | SafeC, 1 스레드 | 5.76 | — | — |
-|  | FFTW, 1 스레드 | 3.31 | 6.19 | — |
-|  | KFR, 1 스레드 | 4.23 | 6.03 | — |
-|  | RustFFT, 1 스레드 | 4.11 | 7.75 | — |
-| rfft, 1024 × 4096 | SafeC, 모든 스레드 | 0.558 | 2.36 | — |
-|  | SafeC + oneMKL DFTI | 0.457 | 0.812 | — |
-|  | FFTW, 모든 스레드 | **0.409** | 2.08 | — |
-|  | PyTorch | 0.443 | **0.288** | — |
-|  | SafeC, 1 스레드 | 4.28 | — | — |
-|  | FFTW, 1 스레드 | 2.98 | 6.50 | — |
-|  | KFR, 1 스레드 | 2.13 | 3.73 | — |
+| fft1d, 2²⁰ | SafeC, 모든 스레드 | **0.688** | 3.06 | **1.58** |
+|  | SafeC + oneMKL DFTI | 0.693 | 2.85 | N/A |
+|  | FFTW, 모든 스레드 | 1.67 | **2.46** | 2.93 |
+|  | SafeC, 1 스레드 | 4.39 | — | 7.55 |
+|  | FFTW, 1 스레드 | 5.53 | 8.72 | 7.91 |
+|  | KFR, 1 스레드 | 1.77 | 3.31 | 3.29 |
+|  | RustFFT, 1 스레드 | 2.10 | 4.12 | 4.63 |
+| fft2d, 1024² | SafeC, 모든 스레드 | 0.560 | 2.01 | **0.865** |
+|  | SafeC + oneMKL DFTI | 0.543 | **1.11** | N/A |
+|  | FFTW, 모든 스레드 | **0.446** | 1.86 | 4.84 |
+|  | SafeC, 1 스레드 | 3.25 | — | 4.43 |
+|  | FFTW, 1 스레드 | 2.54 | 4.29 | 24.7 |
+|  | KFR, 1 스레드 | 2.63 | 3.07 | 3.31 |
+| batch, 1024 × 4096 | SafeC, 모든 스레드 | 0.775 | 3.16 | **1.17** |
+|  | SafeC + oneMKL DFTI | 0.964 | **1.60** | N/A |
+|  | FFTW, 모든 스레드 | **0.504** | 1.75 | 2.02 |
+|  | PyTorch | 4.41 | 3.19 | 9.02 |
+|  | SafeC, 1 스레드 | 5.76 | — | 8.70 |
+|  | FFTW, 1 스레드 | 3.31 | 6.19 | 10.5 |
+|  | KFR, 1 스레드 | 4.23 | 6.03 | 6.21 |
+|  | RustFFT, 1 스레드 | 4.11 | 7.75 | 10.3 |
+| rfft, 1024 × 4096 | SafeC, 모든 스레드 | 0.558 | 2.36 | **0.805** |
+|  | SafeC + oneMKL DFTI | 0.457 | 0.812 | N/A |
+|  | FFTW, 모든 스레드 | **0.409** | 2.08 | 1.06 |
+|  | PyTorch | 0.443 | **0.288** | 4.12 |
+|  | SafeC, 1 스레드 | 4.28 | — | 5.24 |
+|  | FFTW, 1 스레드 | 2.98 | 6.50 | 5.31 |
+|  | KFR, 1 스레드 | 2.13 | 3.73 | 3.92 |
 
 GPU, 호출당 ms. 호스트 배열 행은 호스트 메모리에서 시작하고 끝나므로 호출마다 업로드와 읽기가 들어가고(complex128), 나머지 두 행은 이미 GPU에 있는 데이터에서 돕니다(complex64 / float32):
 
 | 작업 | 라이브러리 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|
-| fft1d, 2²⁰ (호스트 배열) | SafeC | **1.46** | **1.25** | — |
-|  | PyTorch | 1.56 | 2.05 | — |
-| fft2d, 1024² (호스트 배열) | SafeC | **1.43** | **1.26** | — |
-|  | PyTorch | 1.53 | 2.04 | — |
-| batch, 1024 × 4096 (GPU 상주) | SafeC | **0.100** | 0.0244 | — |
-|  | PyTorch | 0.171 | **0.0238** | — |
-| rfft, 1024 × 4096 (GPU 상주) | SafeC | **0.0949** | **0.0109** | — |
-|  | PyTorch | 0.126 | 0.0120 | — |
+| fft1d, 2²⁰ (호스트 배열) | SafeC | **1.46** | **1.25** | N/A |
+|  | PyTorch | 1.56 | 2.05 | N/A |
+| fft2d, 1024² (호스트 배열) | SafeC | **1.43** | **1.26** | N/A |
+|  | PyTorch | 1.53 | 2.04 | N/A |
+| batch, 1024 × 4096 (GPU 상주) | SafeC | **0.100** | 0.0244 | N/A |
+|  | PyTorch | 0.171 | **0.0238** | **0.397** (MPS) |
+| rfft, 1024 × 4096 (GPU 상주) | SafeC | **0.0949** | **0.0109** | N/A |
+|  | PyTorch | 0.126 | 0.0120 | **0.219** (MPS) |
 
 - **CPU**: 7800X3D에서 2²⁰점 변환은 두 정밀도 모두 SafeC가 가장 빠르며, FFTW보다 1.8배(double), 2.4배(float) 앞섭니다. Xeon에서는 oneMKL·PyTorch와 같고 FFTW보다 1.9배 빠릅니다. 2D, 일괄, 실수 변환은 7800X3D에서 FFTW가 1.1–1.6배 앞서고, Xeon에서는 oneMKL이나 PyTorch가 앞섭니다. 융합한 radix-8 패스, 벡터당 복소수 네 개, 컴파일 시점 비트 반전 표는 [`std/dsp`](/ko/stdlib/dsp)에 설명이 있습니다.
+- **M1 Pro**: 모든 스레드로는 SafeC가 여덟 작업 모두에서 가장 빠른 CPU 라이브러리입니다. 10스레드 FFTW보다 double에서 1.2–4.4배, float에서 1.3–5.6배 앞서며, 1024² 2D 변환에서 차이가 가장 큽니다. 2²⁰점에서는 PyTorch의 CPU 경로보다 8.2배 앞섭니다. 1 스레드로는 여덟 중 일곱에서 KFR이 1.2–2.3배 빠릅니다. SafeC가 1 스레드에서 이기는 곳은 double 2D 변환입니다(8.54 vs 9.23 ms).
 - **Xeon의 float**: 그곳에서 `fft_f32`는 double 코드보다 느립니다(2²⁰점에서 3.06 vs 1.21 ms). 7800X3D에서는 float가 double 시간의 0.6–0.8배입니다. 원인은 아직 조사하지 않았습니다.
 - **GPU**: 양쪽 모두 rocFFT / cuFFT를 호출하므로 H200에서 GPU 상주 변환은 같습니다. MI100에서는 SafeC가 1.3–1.7배 빠른데, 0.1 ms 중 PyTorch의 호출당 작업이 큰 비중을 차지합니다. 호스트 배열은 PCIe가 지배하며, H200에서는 SafeC의 핀 메모리 다중 레인 복사 덕분에 왕복이 PyTorch의 `.to("cuda")` … `.cpu()`보다 1.6배 빠릅니다.
 
@@ -431,30 +432,31 @@ GPU, 호출당 ms. 호스트 배열 행은 호스트 메모리에서 시작하�
 - **작은 모델**: 128→256→64, 배치 64, 학습 100 스텝, 추론 1000회.
 - **큰 모델**: 512→1024→256, 배치 128, 학습 50 스텝, 추론 200회.
 
-모든 프레임워크가 손실을 기록하는 학습 루프처럼 스텝마다 손실을, 추론마다 `Y[0][0]`을 호스트로 읽어 옵니다. 각각 시간에 넣지 않는 워밍업을 한 번 합니다. M1 Pro 열은 이전 std로 측정한 이전 실행 결과입니다(현재 벤치마크 모음에서는 다시 측정하지 않았습니다). 셀은 ms입니다.
+모든 프레임워크가 손실을 기록하는 학습 루프처럼 스텝마다 손실을, 추론마다 `Y[0][0]`을 호스트로 읽어 옵니다. 각각 시간에 넣지 않는 워밍업을 한 번 합니다. 셀은 ms입니다.
 
 작은 모델:
 
-| 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro (이전 실행) |
+| 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|
-| SafeC | 학습 **5.39** (ROCm, fp16, graph)<br>추론 24.3 (CPU, OpenBLAS) | 학습 **2.98** (CUDA, fp16, graph)<br>추론 **19.6** (CUDA, TF32, graph) | 학습 **16.8** (CPU, Accelerate)<br>추론 26.1 (CPU, Accelerate) |
-| PyTorch | 학습 14.0 (CPU)<br>추론 **21.9** (CPU) | 학습 23.2 (CPU)<br>추론 43.0 (CPU) | 학습 23.1 (CPU)<br>추론 **13.5** (CPU) |
-| TensorFlow | 학습 79.5 (CPU)<br>추론 204 (CPU) | 학습 123 (CPU)<br>추론 265 (CPU) | 학습 83.0 (CPU)<br>추론 245 (CPU) |
-| MLX | — | — | 학습 72.2 (GPU)<br>추론 309 (GPU) |
+| SafeC | 학습 **5.39** (ROCm, fp16, graph)<br>추론 24.3 (CPU, OpenBLAS) | 학습 **2.98** (CUDA, fp16, graph)<br>추론 **19.6** (CUDA, TF32, graph) | 학습 10.5 (CPU, Accelerate)<br>추론 **9.11** (CPU, Accelerate) |
+| PyTorch | 학습 14.0 (CPU)<br>추론 **21.9** (CPU) | 학습 23.2 (CPU)<br>추론 43.0 (CPU) | 학습 **8.67** (CPU)<br>추론 13.1 (CPU) |
+| TensorFlow | 학습 79.5 (CPU)<br>추론 204 (CPU) | 학습 123 (CPU)<br>추론 265 (CPU) | 학습 75.8 (CPU)<br>추론 230 (CPU) |
+| MLX | — | — | 학습 70.6 (GPU)<br>추론 299 (GPU) |
 
 큰 모델:
 
-| 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro (이전 실행) |
+| 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|
-| SafeC | 학습 **5.90** (ROCm, fp16, graph)<br>추론 **9.26** (ROCm, fp16, graph) | 학습 **1.90** (CUDA, fp16, graph)<br>추론 **3.99** (CUDA, bf16, graph) | 학습 **47.9** (Metal)<br>추론 **47.3** (Metal) |
-| PyTorch | 학습 9.91 (ROCm, fp16)<br>추론 13.4 (ROCm, fp32) | 학습 15.9 (CUDA, fp32)<br>추론 10.5 (CUDA, fp16) | 학습 67.8 (CPU)<br>추론 48.2 (CPU) |
-| TensorFlow | 학습 106 (CPU)<br>추론 124 (CPU) | 학습 229 (CPU)<br>추론 236 (CPU) | 학습 149 (CPU)<br>추론 198 (CPU) |
-| MLX | — | — | 학습 54.3 (GPU)<br>추론 74.4 (GPU) |
+| SafeC | 학습 **5.90** (ROCm, fp16, graph)<br>추론 **9.26** (ROCm, fp16, graph) | 학습 **1.90** (CUDA, fp16, graph)<br>추론 **3.99** (CUDA, bf16, graph) | 학습 47.7 (Metal)<br>추론 48.8 (Metal) |
+| PyTorch | 학습 9.91 (ROCm, fp16)<br>추론 13.4 (ROCm, fp32) | 학습 15.9 (CUDA, fp32)<br>추론 10.5 (CUDA, fp16) | 학습 **41.2** (MPS)<br>추론 **48.6** (CPU) |
+| TensorFlow | 학습 106 (CPU)<br>추론 124 (CPU) | 학습 229 (CPU)<br>추론 236 (CPU) | 학습 141 (CPU)<br>추론 185 (CPU) |
+| MLX | — | — | 학습 58.8 (GPU)<br>추론 78.6 (GPU) |
 
 - **이 크기에서 GPU 학습은 실행(launch) 비용에 묶입니다.** 한 스텝은 마이크로초 단위 커널 몇 개와 손실을 기다려 읽는 것입니다. SafeC CUDA 한 스텝은 약 38 µs(그래프 실행 한 번과 읽기)이고, PyTorch 한 스텝은 같은 cuBLAS 호출을 둘러싼 Python·autograd·디스패처 작업으로 약 510 µs입니다. 그래서 작은 모델에서는 모든 머신에서 PyTorch의 최적 구성이 CPU입니다.
 - **SafeC의 가장 빠른 모드는 16비트**입니다: 데이터, 가중치, 활성값, 기울기를 fp16/bf16으로 저장하고 fp32로 누산하며, 스텝을 그래프 하나로 재생합니다. MI100에서는 GEMM 형태마다 첫 호출에서 rocBLAS의 모든 솔루션을 재서 가장 빠른 것을 남기며, 이것만으로 fp32 그래프 스텝이 8.29 ms에서 7.37 ms가 되었습니다.
-- **작은 모델의 CPU 추론**은 PyTorch가 앞서는 곳입니다(7800X3D에서 21.9 vs 24.3 ms, M1 Pro에서 13.5 vs 26.1 ms).
-- 이 루프는 반올림을 키우므로 50 스텝 뒤 16비트 손실이 fp32와 다릅니다(MI100의 큰 모델: fp16 95.09, bf16 63.43, fp32 95.43). SafeC의 fp32 실행은 CPU와 GPU에 걸쳐 6자리까지 일치합니다.
+- **작은 모델의 CPU 추론**은 7800X3D에서 PyTorch가 앞서는 곳입니다(21.9 vs 24.3 ms). M1 Pro에서는 Accelerate를 쓰는 SafeC가 앞섭니다(9.11 vs 13.1 ms).
+- **M1 Pro 학습**: 두 크기 모두 PyTorch가 앞섭니다. PyTorch의 CPU 경로는 작은 모델을 SafeC의 CPU 경로보다 1.21배 빠르게 학습합니다(8.67 vs 10.5 ms). `mps` 경로는 큰 모델을 SafeC의 Metal 경로보다 1.16배 빠르게 학습합니다(41.2 vs 47.7 ms). 큰 모델 추론은 같습니다(PyTorch CPU 48.6 ms, SafeC Metal 48.8 ms). MLX와 TensorFlow는 둘 다에 뒤처집니다.
+- 이 루프는 반올림을 키우므로 50 스텝 뒤 16비트 손실이 fp32와 다릅니다(MI100의 큰 모델: fp16 95.09, bf16 63.43, fp32 95.43). SafeC의 fp32 실행은 CPU와 GPU에 걸쳐 6자리까지 일치합니다. 예외는 M1 Pro의 큰 모델로, 5자리까지 일치합니다(CPU 95.42873, Metal 95.42822).
 
 ::: details 소스
 [train.sc](/benchmarks/ml/safec/train.sc) · [train_blas.sc](/benchmarks/ml/safec/train_blas.sc) · [train_rocm.sc](/benchmarks/ml/safec/train_rocm.sc) · [train_cuda.sc](/benchmarks/ml/safec/train_cuda.sc) · [train_gpu_small.sc](/benchmarks/ml/safec/train_gpu_small.sc) · [train_cpu.sc](/benchmarks/ml_big/safec/train_cpu.sc) · [train_gpu.sc](/benchmarks/ml_big/safec/train_gpu.sc) · [PyTorch train.py](/benchmarks/ml/pytorch/train.py) · [TensorFlow train.py](/benchmarks/ml/tensorflow/train.py) · [MLX train.py](/benchmarks/ml/mlx/train.py) · [gpu_rocm.sc](/benchmarks/stdlib/gpu_rocm.sc) · [gpu_cuda.sc](/benchmarks/stdlib/gpu_cuda.sc) · [gemm.sc](/benchmarks/stdlib/gemm.sc)
@@ -462,22 +464,22 @@ GPU, 호출당 ms. 호스트 배열 행은 호스트 메모리에서 시작하�
 
 #### 합성곱과 U-Net {#ml-convolution}
 
-`conv64`는 Conv2D 레이어 하나(64→64 채널, 3×3, stride 1, padding 1, 56×56 맵, 바이어스 포함)이고, U-Net은 `unet_new(3, 32, 64, 3)`의 128×128 순전파(합성곱 다섯 개, 최대 풀링 두 번, 업샘플 + concat 두 번)입니다. SafeC는 [MIOpen과 cuDNN](/ko/stdlib/ml#rocm-miopen-hipfft)으로 돌리며, PyTorch의 `cudnn.benchmark = True`처럼 첫 호출에서 형태마다 알고리즘을 재서 고릅니다. 텐서는 호출 사이에 GPU에 머뭅니다. 모든 행에서 GPU가 이기므로 표는 GPU 구성을 보여 주며, 합성곱 테스트는 M1 Pro에서 측정하지 않았습니다. 셀은 호출당 ms입니다.
+`conv64`는 Conv2D 레이어 하나(64→64 채널, 3×3, stride 1, padding 1, 56×56 맵, 바이어스 포함)이고, U-Net은 `unet_new(3, 32, 64, 3)`의 128×128 순전파(합성곱 다섯 개, 최대 풀링 두 번, 업샘플 + concat 두 번)입니다. SafeC는 [MIOpen과 cuDNN](/ko/stdlib/ml#rocm-miopen-hipfft)으로 돌리며, PyTorch의 `cudnn.benchmark = True`처럼 첫 호출에서 형태마다 알고리즘을 재서 고릅니다. 텐서는 호출 사이에 GPU에 머뭅니다. 모든 행에서 GPU가 이기므로 표는 GPU 구성을 보여 줍니다. SafeC에는 Metal 합성곱이 없으므로, M1 Pro의 SafeC 셀은 이미지 한 장을 도는 CPU 경로입니다(배치 행은 N/A). PyTorch의 셀은 `mps`입니다. 셀은 호출당 ms입니다.
 
 | 작업 | 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|
-| conv64, 1장 | SafeC | **0.0270** (MIOpen) | **0.0181** (cuDNN, fp32) | — |
-|  | PyTorch | 0.0628 | 0.0225 (fp32) | — |
-| conv64, 32장 | SafeC | **0.342** | **0.0838** (TF32) | — |
-|  | PyTorch | 0.346 | 0.0976 (TF32) | — |
-| U-Net, 1장 | SafeC | **0.216** (그래프 하나) | **0.0874** (TF32, 그래프 하나) | — |
-|  | PyTorch | 0.314 | 0.208 (fp32) | — |
-| U-Net, 16장 | SafeC | 1.29 | **0.454** (TF32) | — |
-|  | PyTorch | **1.26** | 0.557 (TF32) | — |
+| conv64, 1장 | SafeC | **0.0270** (MIOpen) | **0.0181** (cuDNN, fp32) | 0.600 (CPU) |
+|  | PyTorch | 0.0628 | 0.0225 (fp32) | **0.0728** (MPS) |
+| conv64, 32장 | SafeC | **0.342** | **0.0838** (TF32) | N/A |
+|  | PyTorch | 0.346 | 0.0976 (TF32) | **1.43** (MPS) |
+| U-Net, 1장 | SafeC | **0.216** (그래프 하나) | **0.0874** (TF32, 그래프 하나) | 2.43 (CPU) |
+|  | PyTorch | 0.314 | 0.208 (fp32) | **0.664** (MPS) |
+| U-Net, 16장 | SafeC | 1.29 | **0.454** (TF32) | N/A |
+|  | PyTorch | **1.26** | 0.557 (TF32) | **9.31** (MPS) |
 
 - MI100에서 SafeC는 이미지 한 장에서 2.3배, 이미지 한 장 U-Net(그래프 하나)에서 1.45배 빠르고, 배치 16–32에서는 3% 이내로 같습니다.
 - H200에서는 SafeC가 모든 행에서 빠릅니다: 합성곱마다 cuDNN 그래프 API로 conv + 바이어스(+ ReLU)를 융합한 그래프 하나를 만들어, 호출당 호스트 시간이 레거시 API의 38 µs 대신 약 6 µs입니다. 그래프 하나로 돌린 이미지 한 장 U-Net은 PyTorch의 최적 구성보다 2.4배 빠릅니다.
-- CPU에서는 SafeC의 Winograd F(2×2, 3×3) 경로가 7800X3D에서 AOCL-BLAS로 U-Net을 PyTorch보다 2.0배(1.35 vs 2.68 ms), Xeon에서 oneMKL로 1.24배(2.65 vs 3.29 ms) 빠르게 돌립니다. 단일 `conv64` 레이어에서는 PyTorch의 oneDNN이 여전히 1.1–2.0배 빠릅니다.
+- CPU에서는 SafeC의 Winograd F(2×2, 3×3) 경로가 7800X3D에서 AOCL-BLAS로 U-Net을 PyTorch보다 2.0배(1.35 vs 2.68 ms), Xeon에서 oneMKL로 1.24배(2.65 vs 3.29 ms) 빠르게 돌립니다. 단일 `conv64` 레이어에서는 PyTorch의 oneDNN이 여전히 1.1–2.0배 빠릅니다. M1 Pro에서는 SafeC의 CPU U-Net이 PyTorch의 CPU 경로보다 3.8배 빠르고(2.43 vs 9.29 ms), `conv64`에서는 PyTorch의 CPU 경로가 1.75배 빠릅니다(0.343 vs 0.600 ms). PyTorch의 `mps` 경로는 가장 빠른 CPU 결과보다 4.7배(`conv64`), 3.7배(U-Net) 빠릅니다.
 
 ::: details 소스
 [conv_rocm.sc](/benchmarks/conv/safec/conv_rocm.sc) · [conv_cuda.sc](/benchmarks/conv/safec/conv_cuda.sc) · [conv_cpu.sc](/benchmarks/conv/safec/conv_cpu.sc) · [conv.py](/benchmarks/conv/pytorch/conv.py) · [cnn.sc](/benchmarks/stdlib/cnn.sc) · [unet.sc](/benchmarks/stdlib/unet.sc) · [gpu_miopen.sc](/benchmarks/stdlib/gpu_miopen.sc) · [gpu_cudnn.sc](/benchmarks/stdlib/gpu_cudnn.sc)
@@ -535,10 +537,10 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 | fib, n-body, SIMD(SafeC vs C) | 1.00–1.03배 | 0.97–1.07배 | 0.94–1.01배 |
 | binary-trees, 아레나(vs C) | 6.1배 빠름 | 4.2배 빠름 | 7.0배 빠름 |
 | binary-trees, 8 스레드, 아레나(vs C) | 4.3배 빠름 | 4.5배 빠름 | 9.3배 빠름 |
-| 웹 서비스 | 가장 빠름, 25,303 req/s | 가장 빠름, 33,730 req/s | — |
+| 웹 서비스 | 가장 빠름, 25,303 req/s | 가장 빠름, 33,730 req/s | 가장 빠름, 32,925 req/s |
 | DSP(작업 7개, 정밀도 2가지) | 모든 행에서 가장 빠름 | 모든 행에서 가장 빠름 | 모든 행에서 가장 빠름 |
-| CPU FFT, 2²⁰점 | 가장 빠름 | oneMKL / PyTorch와 같음 | — |
-| MLP 학습, 최적 대 최적(작은 / 큰 모델) | PyTorch보다 2.6배 / 1.7배 빠름 | 7.8배 / 8.4배 빠름 | 1.4배 / 1.4배 빠름(이전 실행) |
+| CPU FFT, 2²⁰점 | 가장 빠름 | oneMKL / PyTorch와 같음 | 가장 빠름(FFTW의 1.8배) |
+| MLP 학습, 최적 대 최적(작은 / 큰 모델) | PyTorch보다 2.6배 / 1.7배 빠름 | 7.8배 / 8.4배 빠름 | PyTorch가 1.2배 / 1.2배 빠름 |
 | Flash 어텐션, 가장 빠른 데이터 타입 | PyTorch보다 5.3배 빠름 | PyTorch와 같음(cuDNN) | MLX가 1.2배 빠름 |
 | 선형 어텐션 | PyTorch보다 5.3배 빠름 | 2.3배 빠름 | MLX보다 3.0배 빠름 |
 | Gemma 4 E2B 디코딩 | PyTorch보다 3.1배 빠름 | 1.5배 빠름 | MLX가 2.6배 빠름 |
@@ -546,5 +548,4 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 - **언어**: 계산 위주 SafeC는 C와 몇 % 이내로 돌므로, 이 테스트들에서 안전 검사의 비용은 작습니다. `consteval` 표와 단계별 SIMD 디스패치는 실행 비용을 더하지 않습니다.
 - **메모리**: 영역(region)이 가장 큰 단일 이득입니다. slab을 쓰는 힙 할당자는 블록당 16바이트의 안전 헤더를 치르면서도 대부분의 패턴에서 glibc의 `malloc`보다 앞섭니다.
 - **표준 라이브러리**: 컨테이너와 DSP 코드는 컴파일 시점 특수화가 간접 호출을 없애는 곳(정렬, 필터)에서 이기며, 남은 차이는 컬렉션 성장입니다.
-- **머신러닝**: AMD와 NVIDIA 머신에서 SafeC 백엔드는 PyTorch와의 최적 대 최적 비교 대부분에서 이깁니다. 예외는 H200의 fp16/bf16 flash 어텐션(같음, 둘 다 cuDNN), MI100의 이미지 16장 U-Net(2% 뒤처짐), 7800X3D CPU의 작은 모델 추론(1.1배 뒤처짐)입니다. Apple Silicon에서는 MLX가 LLM 디코딩과 반정밀도 flash 어텐션에서 앞섭니다.
-- **아직 측정하지 않음**: M1 Pro의 합성곱, FFT, 현재 MLP 테스트와 웹 서비스.
+- **머신러닝**: AMD와 NVIDIA 머신에서 SafeC 백엔드는 PyTorch와의 최적 대 최적 비교 대부분에서 이깁니다. 예외는 H200의 fp16/bf16 flash 어텐션(같음, 둘 다 cuDNN), MI100의 이미지 16장 U-Net(2% 뒤처짐), 7800X3D CPU의 작은 모델 추론(1.1배 뒤처짐)입니다. Apple Silicon에서는 MLX가 LLM 디코딩과 반정밀도 flash 어텐션에서 앞서고, PyTorch가 두 MLP를 1.2배 빠르게 학습하며, SafeC에 CPU 경로만 있는 합성곱에서는 PyTorch의 `mps` 경로가 앞섭니다.

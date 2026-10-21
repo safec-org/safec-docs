@@ -364,6 +364,15 @@ def bench_ml(runs):
             except Exception as e:
                 res[key] = {"error": str(e).splitlines()[0][:200]}
             print(f"  ml {key} {res[key]}", flush=True)
+    for shape, script in [("small", "ml/mlx/train.py"), ("big", "ml_big/mlx/train.py")]:
+        if sh([MLPY, "-c", "import mlx.core"], check=False).strip():
+            break   # no MLX on this machine
+        try:
+            parsed = [parse_ml(sh([MLPY, os.path.join(HERE, script)])) for _ in range(runs)]
+            res[f"{shape}/mlx"] = {k: min(p[k] for p in parsed) if "ms" in k else parsed[0][k] for k in parsed[0]}
+        except Exception as e:
+            res[f"{shape}/mlx"] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  ml {shape}/mlx {res[f'{shape}/mlx']}", flush=True)
     for shape, script in [("small", "ml/tensorflow/train.py"), ("big", "ml_big/tensorflow/train.py")]:
         try:
             env = dict(os.environ, TF_CPP_MIN_LOG_LEVEL="3", CUDA_VISIBLE_DEVICES="")
@@ -394,9 +403,10 @@ def best_labeled(outputs):
 
 def torch_devices():
     try:
-        return ["cpu"] + (["cuda"] if sh([MLPY, "-c", "import torch;print(torch.cuda.is_available())"]).strip() == "True" else [])
+        info = sh([MLPY, "-c", "import torch;print(torch.cuda.is_available(), torch.backends.mps.is_available())"]).split()
     except Exception:
         return []
+    return ["cpu"] + (["cuda"] if info[0] == "True" else []) + (["mps"] if info[1] == "True" else [])
 
 
 def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_src=None, rocm_libs=()):
@@ -610,14 +620,21 @@ def bench_web(runs):
         ("python", 8087, [], [WEBPY, f"{W}/python/server.py"]),
     ]
     os.makedirs(f"{BUILD}/web", exist_ok=True)
+    # WEB_PORT_BASE moves the servers off 8082-8087 (passed as PORT) when
+    # something else holds those, e.g. an editor's port forwarding
+    base = os.environ.get("WEB_PORT_BASE")
     res = {}
-    for lang, port, builds, cmd in servers:
+    for i, (lang, port, builds, cmd) in enumerate(servers):
+        env = None
+        if base:
+            port = int(base) + i
+            env = dict(os.environ, PORT=str(port))
         row = {}
         try:
             timed_build(builds)
             best = None
             for _ in range(runs):
-                p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 try:
                     if not wait_port(port):
                         raise RuntimeError("server did not start")
@@ -668,6 +685,7 @@ def versions():
         "tensorflow": (sh([MLPY, "-c", "import os;os.environ['TF_CPP_MIN_LOG_LEVEL']='3';import tensorflow as tf;print(tf.__version__)"],
                           check=False).strip().splitlines() or [None])[-1],  # last line: absl may log before the version
         "numpy": first([MLPY, "-c", "import numpy;print(numpy.__version__)"]),
+        "mlx": first([MLPY, "-c", "import mlx.core as mx;print(mx.__version__)"]),
     }
     if IS_MAC:
         v["cpu"] = first(["sysctl", "-n", "machdep.cpu.brand_string"])

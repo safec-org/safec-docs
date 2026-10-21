@@ -7,6 +7,7 @@ extern int printf(const char* fmt, ...);
 #else
 #endif
 #include <std/http/http.h>
+#include <std/sys.h>
 
 struct HttpResponse handle(struct HttpRequest* req) {
     struct HttpResponse resp;
@@ -17,7 +18,12 @@ struct HttpResponse handle(struct HttpRequest* req) {
 }
 
 int main() {
-    printf("SafeC server (reactor) listening on 8082\n");
-    std::http_serve_reactor(8082, handle, 1);
+    unsigned short port = (unsigned short)8082;
+    match (std::sys_getenv("PORT")) {
+        case some(e): { port = (unsigned short)std::sys_atoi(e); }
+        case null: { }
+    }
+    printf("SafeC server (reactor) listening on %d\n", (int)port);
+    std::http_serve_reactor(port, handle, 1);
     return 0;
 }
