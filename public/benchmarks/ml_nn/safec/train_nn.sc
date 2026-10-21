@@ -18,7 +18,7 @@ static float g_loss = (float)0.0;
 static double now_ms() { return (double)time_mono_ns() * 1e-6; }
 
 // ── MLP classifiers ──────────────────────────────────────────────────────────
-static &Tensor clf_loss_(&Mlp m, const &Tensor x, const &Tensor y) {
+static &FloatTensor clf_loss_(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
 
@@ -91,8 +91,8 @@ static void w_dqn() {
     cfg.bufferSize = 10000UL;
     struct Dqn d = Dqn::new(4UL, 2UL, &cfg);
     struct Rng rng = Rng::new(5UL);
-    &Tensor o = Tensor::new_1d(4UL, 0);
-    &Tensor n = Tensor::new_1d(4UL, 0);
+    &FloatTensor o = FloatTensor::new_1d(4UL, 0);
+    &FloatTensor n = FloatTensor::new_1d(4UL, 0);
     unsigned long i = 0UL;
     float last = (float)0.0;
     while (i < 1064UL) {
@@ -112,8 +112,8 @@ static void w_ppo() {
     struct PgConfig cfg = PgConfig::default(PG_PPO);
     struct PolicyAgent p = PolicyAgent::new(4UL, 2UL, &cfg);
     struct Rng rng = Rng::new(6UL);
-    &Tensor o = Tensor::new_1d(4UL, 0);
-    &Tensor n = Tensor::new_1d(4UL, 0);
+    &FloatTensor o = FloatTensor::new_1d(4UL, 0);
+    &FloatTensor n = FloatTensor::new_1d(4UL, 0);
     unsigned long u = 0UL;
     float last = (float)0.0;
     while (u < 5UL) {
@@ -132,7 +132,7 @@ static void w_ppo() {
 }
 
 // ── LoRA: rank 4 on a frozen 2-64-64-2 MLP ───────────────────────────────────
-static &Tensor lora_loss_(&LoraMlp l, const &Tensor x, const &Tensor y) {
+static &FloatTensor lora_loss_(&LoraMlp l, const &FloatTensor x, const &FloatTensor y) {
     return tensor_cross_entropy_loss(l.forward(x), y);
 }
 
@@ -154,20 +154,20 @@ static void w_lora() {
 
 // ── Conv autoencoder on 1x16x16 images ───────────────────────────────────────
 struct ConvAE {
-    &Tensor w1; &Tensor b1;   // conv 1->16, 3x3 s2 p1     16x16 -> 8x8
-    &Tensor w2; &Tensor b2;   // conv 16->32, 3x3 s2 p1    8x8 -> 4x4
-    &Tensor w3; &Tensor b3;   // convT 32->16, 4x4 s2 p1   4x4 -> 8x8
-    &Tensor w4; &Tensor b4;   // convT 16->1, 4x4 s2 p1    8x8 -> 16x16
+    &FloatTensor w1; &FloatTensor b1;   // conv 1->16, 3x3 s2 p1     16x16 -> 8x8
+    &FloatTensor w2; &FloatTensor b2;   // conv 16->32, 3x3 s2 p1    8x8 -> 4x4
+    &FloatTensor w3; &FloatTensor b3;   // convT 32->16, 4x4 s2 p1   4x4 -> 8x8
+    &FloatTensor w4; &FloatTensor b4;   // convT 16->1, 4x4 s2 p1    8x8 -> 16x16
 };
 
-static &Tensor param_(unsigned long r, unsigned long c, float scale, &Rng rng) {
-    &Tensor t = Tensor::new_2d(r, c, 1);
+static &FloatTensor param_(unsigned long r, unsigned long c, float scale, &Rng rng) {
+    &FloatTensor t = FloatTensor::new_2d(r, c, 1);
     rng.fill_uniform(t, -scale, scale);
     return t;
 }
 
-static &Tensor cae_loss_(&ConvAE m, const &Tensor x, const &Tensor y) {
-    &Tensor h = tensor_conv2d(x, m.w1, m.b1, 1UL, 16UL, 16UL, 3UL, 3UL, 2UL, 1UL).relu();
+static &FloatTensor cae_loss_(&ConvAE m, const &FloatTensor x, const &FloatTensor y) {
+    &FloatTensor h = tensor_conv2d(x, m.w1, m.b1, 1UL, 16UL, 16UL, 3UL, 3UL, 2UL, 1UL).relu();
     h = tensor_conv2d(h, m.w2, m.b2, 16UL, 8UL, 8UL, 3UL, 3UL, 2UL, 1UL).relu();
     h = tensor_conv_transpose2d(h, m.w3, m.b3, 32UL, 4UL, 4UL, 4UL, 4UL, 2UL, 1UL).relu();
     h = tensor_conv_transpose2d(h, m.w4, m.b4, 16UL, 8UL, 8UL, 4UL, 4UL, 2UL, 1UL);

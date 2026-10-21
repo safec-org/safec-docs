@@ -13,7 +13,7 @@
 // Real checkpoints (this module was written against google/gemma-4-E2B's
 // single-file 10GB+ model.safetensors) store weights as BF16, not F32 — see
 // std/ml/float16.h's bf16_to_f32_bulk, used here to convert on load since
-// SafeC's Tensor (std/ml/tensor.h) is F32-only. F32-dtype tensors pass
+// SafeC's FloatTensor (std/ml/tensor.h) is F32. F32-dtype tensors pass
 // through with a plain byte copy (safetensors is little-endian throughout,
 // matching every target this compiler runs on -- no byte-swap needed).
 #include <std/ml/tensor.h>
@@ -46,12 +46,12 @@ struct SafetensorsFile {
     // weight at model-load time, not in any hot path.
     long          find(const char* name) const;
 
-    // Loads the named tensor into a freshly-allocated F32 Tensor (converting
+    // Loads the named tensor into a freshly-allocated FloatTensor (converting
     // from BF16 if that's how it's stored), shape taken directly from the
-    // header. Returns (Tensor*)0 (with a printf'd error) if the name isn't
+    // header. Returns (FloatTensor*)0 (with a printf'd error) if the name isn't
     // found or the dtype isn't one this function knows how to widen to F32.
-    // Caller owns the result (free with Tensor::free() when done).
-    struct Tensor* load(const char* name);
+    // Caller owns the result (free with FloatTensor::free() when done).
+    FloatTensor* load(const char* name);
 
     // Loads the named tensor into a freshly-allocated Gemma4Bf16Tensor
     // (see gemma4_bf16.h) WITHOUT ever widening to F32: BF16-dtype

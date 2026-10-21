@@ -13,7 +13,7 @@ extern void srand48(long seed);
 #define LR 0.001
 #define STEPS 50
 
-void sgd_update(&Tensor w) {
+void sgd_update(&FloatTensor w) {
     unsafe {
         unsigned long i = 0UL;
         while (i < w->size) {
@@ -39,11 +39,11 @@ int main() {
     i = 0UL;
     while (i < BATCH * OUT_DIM) { tbuf[i] = (float)(drand48() - 0.5); i = i + 1UL; }
 
-    &Tensor X = Tensor::from_2d(xbuf, BATCH, IN_DIM, 0);
-    &Tensor target = Tensor::from_2d(tbuf, BATCH, OUT_DIM, 0);
+    &FloatTensor X = FloatTensor::from_2d(xbuf, BATCH, IN_DIM, 0);
+    &FloatTensor target = FloatTensor::from_2d(tbuf, BATCH, OUT_DIM, 0);
 
-    &Tensor W1 = Tensor::new_2d(IN_DIM, HIDDEN, 1);
-    &Tensor W2 = Tensor::new_2d(HIDDEN, OUT_DIM, 1);
+    &FloatTensor W1 = FloatTensor::new_2d(IN_DIM, HIDDEN, 1);
+    &FloatTensor W2 = FloatTensor::new_2d(HIDDEN, OUT_DIM, 1);
     i = 0UL;
     while (i < IN_DIM * HIDDEN) { unsafe { float* d = (float*)W1->data; d[i] = (float)((drand48() - 0.5) * 0.1); } i = i + 1UL; }
     i = 0UL;
@@ -60,11 +60,11 @@ int main() {
         W1.zero_grad();
         W2.zero_grad();
 
-        &Tensor H = std::tensor_matmul_blas(X, W1).relu();
-        &Tensor Y = std::tensor_matmul_blas(H, W2);
-        &Tensor diff = std::tensor_sub(Y, target);
-        &Tensor sq = std::tensor_mul(diff, diff);
-        &Tensor loss = sq.sum();
+        &FloatTensor H = std::tensor_matmul_blas(X, W1).relu();
+        &FloatTensor Y = std::tensor_matmul_blas(H, W2);
+        &FloatTensor diff = std::tensor_sub(Y, target);
+        &FloatTensor sq = std::tensor_mul(diff, diff);
+        &FloatTensor loss = sq.sum();
 
         loss.backward();
         sgd_update(W1);
@@ -86,8 +86,8 @@ int main() {
     double checksum = 0.0;
     while (inf < 200) {
         stepArena.begin();
-        &Tensor H2 = std::tensor_matmul_blas(X, W1).relu();
-        &Tensor Y2 = std::tensor_matmul_blas(H2, W2);
+        &FloatTensor H2 = std::tensor_matmul_blas(X, W1).relu();
+        &FloatTensor Y2 = std::tensor_matmul_blas(H2, W2);
         unsafe { checksum = checksum + (double)Y2->data[0]; }
         std::tensor_arena_end();
         stepArena.reset();

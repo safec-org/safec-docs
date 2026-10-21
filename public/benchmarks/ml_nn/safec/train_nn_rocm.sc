@@ -86,8 +86,8 @@ static void w_dqn() {
     struct Dqn d = Dqn::new(4UL, 2UL, &cfg);
     struct RocmDqn dev = RocmDqn::new(&d);
     struct Rng rng = Rng::new(5UL);
-    &Tensor o = Tensor::new_1d(4UL, 0);
-    &Tensor n = Tensor::new_1d(4UL, 0);
+    &FloatTensor o = FloatTensor::new_1d(4UL, 0);
+    &FloatTensor n = FloatTensor::new_1d(4UL, 0);
     unsigned long i = 0UL;
     while (i < 1064UL) {
         rng.fill_normal(o, (float)0.0, (float)1.0);
@@ -107,8 +107,8 @@ static void w_ppo() {
     struct PolicyAgent p = PolicyAgent::new(4UL, 2UL, &cfg);
     struct RocmPolicy dev = RocmPolicy::new(&p, 1024UL);
     struct Rng rng = Rng::new(6UL);
-    &Tensor o = Tensor::new_1d(4UL, 0);
-    &Tensor n = Tensor::new_1d(4UL, 0);
+    &FloatTensor o = FloatTensor::new_1d(4UL, 0);
+    &FloatTensor n = FloatTensor::new_1d(4UL, 0);
     unsigned long u = 0UL;
     float last = (float)0.0;
     while (u < 5UL) {
@@ -128,18 +128,18 @@ static void w_ppo() {
 }
 
 // ── Conv autoencoder on 1x16x16 images ───────────────────────────────────────
-static &Tensor param_(unsigned long r, unsigned long c, float scale, &Rng rng) {
-    &Tensor t = Tensor::new_2d(r, c, 1);
+static &FloatTensor param_(unsigned long r, unsigned long c, float scale, &Rng rng) {
+    &FloatTensor t = FloatTensor::new_2d(r, c, 1);
     rng.fill_uniform(t, -scale, scale);
     return t;
 }
 
 static void w_conv_ae() {
     struct Rng rng = Rng::new(8UL);
-    &Tensor w1 = param_(16UL, 9UL, (float)0.33, &rng);   &Tensor b1 = param_(1UL, 16UL, (float)0.33, &rng);
-    &Tensor w2 = param_(32UL, 144UL, (float)0.083, &rng); &Tensor b2 = param_(1UL, 32UL, (float)0.083, &rng);
-    &Tensor w3 = param_(32UL, 256UL, (float)0.044, &rng); &Tensor b3 = param_(1UL, 16UL, (float)0.044, &rng);
-    &Tensor w4 = param_(16UL, 16UL, (float)0.0625, &rng); &Tensor b4 = param_(1UL, 1UL, (float)0.0625, &rng);
+    &FloatTensor w1 = param_(16UL, 9UL, (float)0.33, &rng);   &FloatTensor b1 = param_(1UL, 16UL, (float)0.33, &rng);
+    &FloatTensor w2 = param_(32UL, 144UL, (float)0.083, &rng); &FloatTensor b2 = param_(1UL, 32UL, (float)0.083, &rng);
+    &FloatTensor w3 = param_(32UL, 256UL, (float)0.044, &rng); &FloatTensor b3 = param_(1UL, 16UL, (float)0.044, &rng);
+    &FloatTensor w4 = param_(16UL, 16UL, (float)0.0625, &rng); &FloatTensor b4 = param_(1UL, 1UL, (float)0.0625, &rng);
     struct TrainConfig tc = TrainConfig::default();
     tc.epochs = 5UL;
     struct RocmNet n = RocmNet::new(32UL);

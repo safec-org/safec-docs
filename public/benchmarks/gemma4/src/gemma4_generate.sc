@@ -8,7 +8,7 @@
 namespace std {
 
 // Greedy argmax over row 'row' of 'logits' ([rows, vocabSize]).
-static int __g4g_argmax(const &Tensor logits, unsigned long row) {
+static int __g4g_argmax(const &FloatTensor logits, unsigned long row) {
     unsigned long cols;
     unsafe { cols = logits->shape[1]; }
     int bestId = 0;
@@ -30,7 +30,7 @@ static int __g4g_argmax(const &Tensor logits, unsigned long row) {
 // softmax, same pattern as gemma4_attention.sc's per-head softmax) plus a
 // third for the cumulative sample -- fine for a one-token-per-call
 // decode step, not a hot inner loop the way attention's score loop is.
-static int __g4g_sample(const &Tensor logits, unsigned long row, float temperature) {
+static int __g4g_sample(const &FloatTensor logits, unsigned long row, float temperature) {
     unsigned long cols;
     unsafe { cols = logits->shape[1]; }
 
@@ -71,7 +71,7 @@ unsigned long gemma4_bf16_generate(&Gemma4Bf16Model model, const int* promptIds,
                                      struct Gemma4GenConfig cfg, void* ctx, Gemma4TokenCallback onToken) {
     struct Gemma4Bf16KvCache cache = gemma4_bf16_kvcache_new(model);
 
-    &Tensor promptLogits = gemma4_bf16_model_forward(model, promptIds, promptCount, &cache);
+    &FloatTensor promptLogits = gemma4_bf16_model_forward(model, promptIds, promptCount, &cache);
     unsigned long promptLastRow;
     unsafe { promptLastRow = promptLogits->shape[0] - 1UL; }
 
@@ -93,7 +93,7 @@ unsigned long gemma4_bf16_generate(&Gemma4Bf16Model model, const int* promptIds,
 
         int stepIds[1];
         unsafe { stepIds[0] = nextId; }
-        &Tensor stepLogits = gemma4_bf16_model_forward(model, stepIds, 1UL, &cache);
+        &FloatTensor stepLogits = gemma4_bf16_model_forward(model, stepIds, 1UL, &cache);
 
         if (cfg.temperature <= (float)0.0) {
             nextId = __g4g_argmax(stepLogits, 0UL);
@@ -128,7 +128,7 @@ void gemma4_bf16_generate_batch(&Gemma4Bf16Model model, const struct Gemma4Batch
             finished[b] = 0;
         }
 
-        &Tensor promptLogits;
+        &FloatTensor promptLogits;
         unsafe { promptLogits = gemma4_bf16_model_forward(model, prompts[b].ids, prompts[b].count, &caches[b]); }
         unsigned long lastRow;
         unsafe { lastRow = promptLogits->shape[0] - 1UL; }
@@ -187,7 +187,7 @@ void gemma4_bf16_generate_batch(&Gemma4Bf16Model model, const struct Gemma4Batch
             }
         }
 
-        &Tensor stepLogits = gemma4_bf16_model_forward_batch(model, stepIds, batchSize, cachePtrs);
+        &FloatTensor stepLogits = gemma4_bf16_model_forward_batch(model, stepIds, batchSize, cachePtrs);
         unsafe { free((void*)stepIds); }
 
         b = 0UL;
@@ -284,7 +284,7 @@ unsigned long gemma4_bf16_generate_speculative(&Gemma4Bf16Model model, const int
         while (i < promptCount) { history[histLen] = promptIds[i]; histLen = histLen + 1UL; i = i + 1UL; }
     }
 
-    &Tensor promptLogits = gemma4_bf16_model_forward(model, promptIds, promptCount, &cache);
+    &FloatTensor promptLogits = gemma4_bf16_model_forward(model, promptIds, promptCount, &cache);
     unsigned long promptLastRow;
     unsafe { promptLastRow = promptLogits->shape[0] - 1UL; }
     int nextId;
@@ -327,7 +327,7 @@ unsigned long gemma4_bf16_generate_speculative(&Gemma4Bf16Model model, const int
         if (draftLen == 1UL) {
             int stepIds[1];
             unsafe { stepIds[0] = nextId; }
-            &Tensor stepLogits = gemma4_bf16_model_forward(model, stepIds, 1UL, &cache);
+            &FloatTensor stepLogits = gemma4_bf16_model_forward(model, stepIds, 1UL, &cache);
             if (cfg.temperature <= (float)0.0) { nextId = __g4g_argmax(stepLogits, 0UL); }
             else { nextId = __g4g_sample(stepLogits, 0UL, cfg.temperature); }
             stepLogits.free();
@@ -340,7 +340,7 @@ unsigned long gemma4_bf16_generate_speculative(&Gemma4Bf16Model model, const int
         // draft[0..i]) in one multi-token forward call -- exactly
         // gemma4_bf16_model_forward's existing prefill path, unchanged.
         unsigned long cacheLenBeforeVerify = cache.cachedLen;
-        &Tensor verifyLogits = gemma4_bf16_model_forward(model, draft, draftLen, &cache);
+        &FloatTensor verifyLogits = gemma4_bf16_model_forward(model, draft, draftLen, &cache);
 
         unsigned long accepted = 1UL; // draft[0] already verified-by-construction, already emitted above
         int newNextId = nextId;

@@ -38,11 +38,11 @@ long SafetensorsFile::find(const char* name) const {
     return -1L;
 }
 
-struct Tensor* SafetensorsFile::load(const char* name) {
+FloatTensor* SafetensorsFile::load(const char* name) {
     long idx = self.find(name);
     if (idx < 0L) {
         printf("safetensors: tensor not found: %s\n", name);
-        return (struct Tensor*)0;
+        return (FloatTensor*)0;
     }
     &File f = expect_ref(self.handle, "safetensors: load on a closed file");
     struct SafetensorsEntry* e;
@@ -59,10 +59,10 @@ struct Tensor* SafetensorsFile::load(const char* name) {
     if (got != byteLen) {
         printf("safetensors: short read for %s (wanted %lu, got %lu)\n", name, byteLen, got);
         unsafe { free((void*)raw); }
-        return (struct Tensor*)0;
+        return (FloatTensor*)0;
     }
 
-    struct Tensor* out;
+    FloatTensor* out;
     int isF32; int isBF16;
     unsafe {
         out = __tensor_alloc((const unsigned long*)&e->shape[0], e->ndim, 0);
@@ -92,7 +92,7 @@ struct Tensor* SafetensorsFile::load(const char* name) {
             free((void*)raw);
             out->free();
         }
-        return (struct Tensor*)0;
+        return (FloatTensor*)0;
     }
 
     unsafe { free((void*)raw); }

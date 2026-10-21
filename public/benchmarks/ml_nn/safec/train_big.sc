@@ -22,7 +22,7 @@ static struct Dataset g_rgb32;     // 1024 x 3x32x32, 10 classes
 static struct Dataset g_img32;     // 512 x 1x32x32 shapes
 
 // ── MLP 784-1024-1024-10, batch 256, 2 epochs ────────────────────────────────
-static &Tensor clf_mlp_(&Mlp m, const &Tensor x, const &Tensor y) { return tensor_cross_entropy_loss(m.forward(x), y); }
+static &FloatTensor clf_mlp_(&Mlp m, const &FloatTensor x, const &FloatTensor y) { return tensor_cross_entropy_loss(m.forward(x), y); }
 
 static void w_mlp() {
     struct Rng rng = Rng::new(3UL);
@@ -36,8 +36,8 @@ static void w_mlp() {
     net.free();
 }
 
-static &Tensor clf_cn_(&ConvNet n, const &Tensor x, const &Tensor y) { return tensor_cross_entropy_loss(n.forward(x), y); }
-static &Tensor rec_cn_(&ConvNet n, const &Tensor x, const &Tensor y) { return tensor_bce_logits_loss(n.forward(x), x); }
+static &FloatTensor clf_cn_(&ConvNet n, const &FloatTensor x, const &FloatTensor y) { return tensor_cross_entropy_loss(n.forward(x), y); }
+static &FloatTensor rec_cn_(&ConvNet n, const &FloatTensor x, const &FloatTensor y) { return tensor_bce_logits_loss(n.forward(x), x); }
 
 // ── ConvNet classifiers ──────────────────────────────────────────────────────
 static struct ConvNet cnn_() {
