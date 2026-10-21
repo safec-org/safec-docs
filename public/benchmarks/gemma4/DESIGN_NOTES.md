@@ -1625,3 +1625,35 @@ std signatures from raw pointers to `&T`/`?&T` references:
   on macOS needs safec-org/SafeC#10, which makes std/panic.sc and
   std/log.sc print through std/stderr_compat.h instead of glibc's
   `stderr` symbol.
+
+## ROCm backend (Linux, AMD MI100)
+
+`src/gemma4_rocm.{h,sc}` + `src/gemma4_rocm_kernels.hip`: a GPU-resident
+decode engine for AMD GPUs, separate from the MPS paths above. It takes an
+already-loaded `Gemma4Bf16Model` (`gemma4_bf16_model_load`, unchanged),
+uploads every weight as bf16 (the per-layer embedding table too, so a step
+never touches the host), and runs one decode step as ~420 hiprtc-compiled
+kernels recorded once as a HIP graph: a bf16 GEMV per projection (one wave
+per row, 0.85-1.07 TB/s), gated GELUs in GEMV epilogues (gate/up rows
+interleaved at upload), one-block residual/norm steps, q/k norm + RoPE +
+KV-cache write in one kernel, split-key MQA attention (8 lanes per query
+head, online softmax per wave, then a merge), and a GPU argmax feeding the
+next step. Activations and the KV cache are fp32.
+
+Results (MI100, `tests/bench_rocm.sc`): 6.44 ms/token, vs 20.2 ms for
+PyTorch with `torch.compile` and 36.3 ms eager on the same GPU (see
+benchmarks.md, "Gemma 4 E2B on the MI100"). Top-5 ids and logits match
+transformers 5.20.2 in fp32 to 1e-4 on four prompts (with `<bos>`), and a
+900-token greedy generation matches it token for token.
+
+Note on the reference table in benchmarks.md (and in the validation section
+above): it was produced without `<bos>`. transformers 5.20.2 reproduces it
+without `<bos>`; with `<bos>`, which generation uses, the top-5 differ (see
+`tests/ref_transformers.py`).
+
+Build on Linux: `linux/build.sh tests/bench_rocm.sc /tmp/bench_rocm`, then
+`/tmp/bench_rocm <model-dir> 128`, where `<model-dir>` has
+`model.safetensors` and the `vocab.bin`/`merges.bin` that
+`tools/make_tokenizer_bins.py` makes from `tokenizer.json`. After editing
+the `.hip` file, `tools/embed_hip.py` regenerates `gemma4_rocm_kernels.h`
+(`build.sh` runs it too).

@@ -9,6 +9,9 @@ public/benchmarks/build/
 public/benchmarks/gemma4/*
 !public/benchmarks/gemma4/DESIGN_NOTES.md
 !public/benchmarks/gemma4/src/
+!public/benchmarks/gemma4/linux/
+public/benchmarks/gemma4/linux/build/
+!public/benchmarks/gemma4/tools/
 !public/benchmarks/gemma4/tests/
 public/benchmarks/gemma4/tests/*
 !public/benchmarks/gemma4/tests/bench_mlx.py
@@ -20,3 +23,7 @@ public/benchmarks/gemma4/tests/*
 !public/benchmarks/gemma4/tests/test_gemma4_bf16_speculative.sc
 !public/benchmarks/gemma4/tests/test_gemma4_bf16_speculative_real.sc
 !public/benchmarks/gemma4/tests/test_mps_linear_gemv.sc
+!public/benchmarks/gemma4/tests/bench_rocm.sc
+!public/benchmarks/gemma4/tests/bench_pytorch_compiled.py
+!public/benchmarks/gemma4/tests/ref_transformers.py
+!public/benchmarks/gemma4/tests/ref_transformers_generate.py

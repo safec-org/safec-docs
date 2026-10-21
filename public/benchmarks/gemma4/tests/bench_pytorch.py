@@ -1,11 +1,21 @@
+"""PyTorch (transformers) Gemma 4 E2B generation, the baseline for
+bench_safec.sc / bench_rocm.sc.
+
+usage: bench_pytorch.py [model-dir] [devices] [max-new-tokens] [batch-sizes]
+  devices        comma list of cpu, mps, cuda (cuda is also ROCm's device);
+                 default: cpu, then mps when available
+  batch-sizes    comma list; default 1,4,8,16,32
+"""
+import sys
 import time
 import torch
 from transformers import AutoTokenizer, Gemma4ForConditionalGeneration
 
-MODEL_DIR = "/Users/minjaekim/SafeC/models/gemma4-e2b"
+MODEL_DIR = sys.argv[1] if len(sys.argv) > 1 else "/Users/minjaekim/SafeC/models/gemma4-e2b"
+DEVICES = sys.argv[2].split(",") if len(sys.argv) > 2 else None
 PROMPT = "The capital of France is"
-MAX_NEW_TOKENS = 20
-BATCH_SIZES = [1, 4, 8, 16, 32]
+MAX_NEW_TOKENS = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+BATCH_SIZES = [int(b) for b in sys.argv[4].split(",")] if len(sys.argv) > 4 else [1, 4, 8, 16, 32]
 
 
 def run_batch(model, tok, device_name, batch_size):
@@ -68,11 +78,15 @@ def run(device_name):
 
 if __name__ == "__main__":
     results = []
-    results.append(run("cpu"))
-    if torch.backends.mps.is_available():
-        results.append(run("mps"))
+    if DEVICES:
+        for d in DEVICES:
+            results.append(run(d))
     else:
-        print("\nMPS not available in this torch build -- skipping MPS run")
+        results.append(run("cpu"))
+        if torch.backends.mps.is_available():
+            results.append(run("mps"))
+        else:
+            print("\nMPS not available in this torch build -- skipping MPS run")
 
     print("\n=== summary ===")
     for r in results:
