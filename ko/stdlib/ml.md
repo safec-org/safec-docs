@@ -46,13 +46,13 @@ SafeC에는 정적 메서드가 없으므로 생성자는 `*_new`(다른 타입�
 
 역방향 모드 자동미분을 갖춘 CPU 텐서(1D/2D, `float` — PyTorch의 기본값이자 Metal이 지원하는 유일한 정밀도인 float32) — PyTorch 스타일의
 사용감: `requiresGrad` 텐서에 연산을 호출해 암묵적으로 계산 그래프를
-만들고, 그다음 `tensor_backward()`를 호출합니다. fp16/bf16 저장과 혼합 정밀도
+만들고, 그다음 `Tensor::backward()`를 호출합니다. fp16/bf16 저장과 혼합 정밀도
 학습은 [반정밀도 텐서](#half-precision-tensors)를 참고합니다.
 
 ```c
 &Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
 &Tensor y = tensor_sum(tensor_mul(x, x));  // y = sum(x^2)
-tensor_backward(y);                         // 이제 x.grad는 2x를 담고 있다
+y.backward();                               // 이제 x.grad는 2x를 담고 있다
 ```
 
 연산: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/
@@ -107,10 +107,22 @@ struct Tensor {
 &Tensor tensor_matmul(const &Tensor a, const &Tensor b);
 &Tensor tensor_sum(const &Tensor a);
 
-void tensor_backward(&Tensor t);
-void tensor_zero_grad(&Tensor t);
-int  tensor_is_grad_enabled();
-void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
+void Tensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
+void Tensor::zero_grad();
+
+// Gradient recording: the program's autograd state. Disabled (inference),
+// composed ops record no graph (leaf flags unchanged).
+struct GradGuard { int was; void restore(); };
+struct Autograd {
+    int  enabled() const;
+    void set_enabled(int enabled);
+    struct GradGuard no_grad();   // disables recording; restore() puts the mode back
+};
+&Autograd autograd();
+
+struct GradGuard g = autograd().no_grad();
+// ... forward passes record nothing ...
+g.restore();
 ```
 
 ### 텐서 아레나 {#tensor-arena}
@@ -128,7 +140,7 @@ unsigned long TensorArena::used() const;   // 마지막 reset 이후 할당한 �
 struct TensorArena step = tensor_arena_new(0UL);
 while (s < steps) {
     step.begin();
-    // ... 순전파, tensor_backward, 옵티마이저 갱신 ...
+    // ... 순전파, Tensor::backward, 옵티마이저 갱신 ...
     tensor_arena_end();
     step.reset();   // 이 단계의 텐서는 사라짐
     s = s + 1;
@@ -880,7 +892,7 @@ trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss가 qlora_forward를 �
 ```
 
 `cnn.h`는 `FeatureMap`에서 합성곱을 순방향으로만 실행합니다. `convnet.h`는 같은
-연산을 `Tensor`에서 미분 가능하게 만들어, `Mlp`처럼 `tensor_backward`,
+연산을 `Tensor`에서 미분 가능하게 만들어, `Mlp`처럼 `Tensor::backward`,
 옵티마이저, `trainer_fit`으로 학습할 수 있게 합니다. 이미지는 다른 모델과
 마찬가지로 행입니다. 배치는 `[batch, C*H*W]` 텐서이고, 각 행에 CHW 순서의
 이미지 하나가 들어 있습니다. 2D 텐서는 이미지 형상을 담지 않으므로 모든 연산이
@@ -2227,7 +2239,7 @@ int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> pa
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
 struct LossScaler {
-    float scale;            // multiply the loss by this before tensor_backward()
+    float scale;            // multiply the loss by this before Tensor::backward()
     float growthFactor;     // 2.0
     float backoffFactor;    // 0.5
     int   growthInterval;   // 2000 clean steps
@@ -2280,17 +2292,17 @@ int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler sca
     &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
     &Tensor diff = std::tensor_sub(y, target);
     &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
-    std::tensor_backward(std::tensor_scale(loss, scaler.scale));
+    std::tensor_scale(loss, scaler.scale).backward();
 
-    int finite = std::loss_scaler_unscale(scaler, w);
+    int finite = scaler.unscale(w);
     if (finite) {
         struct Slice<float> g = std::slice_of(w.grad, w.size);
         for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
             w.set1(i, w.at1(i) - lr * *g.at(i));
         }
     }
-    std::loss_scaler_update(scaler, finite);
-    std::tensor_zero_grad(w);
+    scaler.update(finite);
+    w.zero_grad();
     return finite;
 }
 
