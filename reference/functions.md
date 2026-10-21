@@ -161,6 +161,42 @@ Methods are lowered to plain functions with an explicit `self` pointer:
 
 Const methods receive a `const T*` self pointer; non-const methods receive a `T*` self pointer. Inside the method body, `self` is typed as `&stack T`.
 
+### Static Methods {#static-methods}
+
+A method declared `static` has no `self` and is called through its type — the place for a type's constructors and other type-level functions:
+
+```c
+struct File {
+    int fd;
+
+    static struct File open(const &char path);   // no self
+    int read(&unsigned char buf, unsigned long n);
+};
+
+struct File File::open(const &char path) { ... }  // defined like any method, without 'static'
+
+struct File f = File::open("data.bin");           // inside the struct's namespace
+struct File g = std::File::open("data.bin");      // from outside 'namespace std'
+```
+
+A static method lowers to the plain function `File_open` — the same mangling as any method, minus the self pointer — so a call costs exactly a function call. Any keyword spelled like a word can name a method where `(` follows, so `Vec::new()`, `String::join(...)` and `t.spawn()` are all valid.
+
+On a [generic struct](/reference/generics#generic-structs-and-methods) a static method is a generic function over the struct's parameters, inferred like any generic call: from the arguments, or from the target type when the parameters only appear in the return type:
+
+```c
+generic<T>
+struct Box {
+    T v;
+    static struct Box<T> of(T x);
+    static struct Box<T> new();
+};
+
+struct Box<int>  a = Box::of(5);    // T = int from the argument
+struct Box<long> b = Box::new();    // T = long from the target type
+```
+
+Calling a static method on a value (`f.open(...)`) or an instance method through the type (`File::read(...)`) is a compile error that names the right form; `self` is undeclared inside a static method, and `static` on a field is rejected.
+
 ## Operator Overloading {#operator-overloading}
 
 Struct types can overload binary operators by defining methods named `operator+`, `operator-`, etc.

@@ -123,7 +123,7 @@ int greet(const &String name, &String out) {
 
 ### No implicit special member functions {#no-implicit-special-member-functions}
 
-C++ generates constructors, destructors, copy/move operators implicitly. SafeC does not. Struct creation is always aggregate initialization or field-by-field assignment. Cleanup is always explicit.
+C++ generates constructors, destructors, copy/move operators implicitly. SafeC does not. Struct creation is always aggregate initialization or field-by-field assignment, usually wrapped in an explicit [static method](/reference/functions#static-methods) such as `File::open(...)` that you call yourself. Cleanup is always explicit.
 
 ```c
 struct Buffer {
