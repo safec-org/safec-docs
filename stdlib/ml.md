@@ -624,10 +624,19 @@ indices stored as floats.
   `ACT_SIGMOID`, `ACT_GELU` or `ACT_SILU` between layers. It is
   initialized like PyTorch's `nn.Linear`, with weights stored `[in, out]`.
   `mlp_copy` / `mlp_soft_update` keep target networks in sync.
-- **`Optimizer`** holds a list of parameters and offers `OPT_SGD`,
-  `OPT_MOMENTUM`, `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM` and `OPT_ADAMW`
-  (decoupled weight decay). `optimizer_clip_grad_norm` clips the global
-  gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
+- **`Optimizer`** holds a list of parameters and offers these kinds:
+
+  | Kind | Update |
+  |---|---|
+  | `OPT_SGD` | Plain gradient descent. |
+  | `OPT_MOMENTUM` / `OPT_NESTEROV` | Heavy-ball or Nesterov momentum (`momentum` 0.9). |
+  | `OPT_RMSPROP` | Running average of squared gradients (`beta2` 0.99). |
+  | `OPT_ADAGRAD` | Learning rate divided by the root of the summed squared gradients (Duchi et al. 2011). |
+  | `OPT_ADAM` | Adam with L2 weight decay (`beta1` 0.9, `beta2` 0.999). |
+  | `OPT_ADAMW` | Adam with decoupled weight decay (`weightDecay` 0.01). |
+  | `OPT_LION` | Sign of the interpolated momentum (Chen et al. 2023), with decoupled decay. Use a learning rate 3–10× smaller than Adam's. |
+
+  `optimizer_clip_grad_norm` clips the global gradient norm. The fields (`lr`, betas, `weightDecay`) are public, so a
   schedule can change them between steps.
 
 `trainer_fit` is generic over the model type, so the forward pass and loss
@@ -673,6 +682,94 @@ hands out batches in a fresh shuffled order every epoch.
 Every op's gradient is checked against central differences in the tests.
 The optimizers are checked to converge, and an MLP trained on moons
 reaches more than 95% accuracy.
+
+## Normalization: LayerNorm and AdaLN {#norm}
+
+```c
+#include <std/ml/norm.h>
+```
+
+Trainable normalization layers, with autograd, over `[batch, dim]` rows.
+`activations.h`'s `tensor_layernorm_rows` is the forward-only version.
+
+- **`LayerNorm`** (Ba et al. 2016) computes `y = LN(x) · gamma + beta`, with
+  learned `gamma` (initialized to 1) and `beta` (initialized to 0).
+- **`AdaLN`** is the adaptive LayerNorm of DiT (Peebles & Xie 2023). A
+  linear map of a per-sample conditioning vector, such as a timestep or
+  class embedding, gives `(shift, scale[, gate])`, and
+  `y = LN(x) · (1 + scale) + shift`. The map starts at zero (adaLN-Zero),
+  so a fresh AdaLN is a plain LayerNorm. With `gated`, `AdaLNOut.gate`
+  also starts at 0, so a residual branch `x + gate · f(y)` starts as the
+  identity.
+- **Building blocks**: `tensor_layer_norm`, `tensor_mul_row` (multiply by
+  a vector on every row), and `attention.h`'s `tensor_slice_cols`, which is
+  now differentiable.
+
+```c
+struct AdaLN ad = adaln_new(dim, condDim, 1);          // gated
+struct AdaLNOut o = adaln_forward(&ad, x, cond);       // x [m, dim], cond [m, condDim]
+&Tensor h = tensor_add(x, tensor_mul(o.gate, mlp_forward(&ffn, o.out)));
+adaln_add_params(&opt, &ad);
+```
+
+The tests check both layers' gradients against finite differences, and
+check that a fresh AdaLN equals LayerNorm. They also check that AdaLN
+learns a class-dependent affine map that a plain LayerNorm cannot
+represent, bringing its loss from above 0.5 to below 0.001.
+
+## Fine-tuning: LoRA and QLoRA {#lora}
+
+```c
+#include <std/ml/lora.h>
+```
+
+**LoRA** (Hu et al. 2021) freezes a pretrained `Mlp` and learns a low-rank
+update for each layer:
+
+`y = x·W + b + (alpha / r) · (dropout(x)·A)·B`
+
+`A [in, r]` starts random and `B [r, out]` starts at zero, so the adapted
+network begins identical to the base. Only A and B train, which is
+`r · (in + out)` values per layer instead of `in · out`.
+
+- `lora_attach` sets the base's `requiresGrad` to 0, and `lora_detach`
+  restores it.
+- `lora_merge` folds `scale · A·B` into `W`, so the base alone then
+  computes the adapted output at no extra inference cost.
+
+**QLoRA** (Dettmers et al. 2023) does the same on a base stored as
+**4-bit NormalFloat (NF4)**. Each block of 64 weights keeps one absmax
+scale and a 4-bit index into the 16 NF4 levels, which are quantiles of a
+normal distribution, so Gaussian-like weights use the levels evenly.
+Double quantization also stores the scales in 8 bits, with one float per
+256 scales, bringing the base to about 4.1 bits per weight.
+
+`qlora_attach` copies the base, so the original `Mlp` can be freed. Each
+forward pass dequantizes the weights to float32, and gradients flow
+through the frozen 4-bit base to the adapters. `nf4_quantize` /
+`nf4_dequantize` are also usable on their own.
+
+```c
+struct LoraConfig cfg = lora_config_default(8UL);    // rank 8, alpha 8
+struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + double quant
+mlp_free(&pretrained);
+struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
+qlora_add_params(&opt, &ft);                          // adapters only
+trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss calls qlora_forward
+```
+
+In the tests, an MLP pretrained on moons is fine-tuned to a rotated,
+label-swapped task that the frozen base gets wrong (accuracy below 70%):
+
+- **LoRA** reaches more than 95% accuracy. The base weights stay
+  bit-identical, and the merged base reproduces the adapter's output to
+  1e-3.
+- **NF4** reproduces values on its grid exactly. On Gaussian weights the
+  relative RMS error is below 12%, at 4.5 bits per weight, or under 4.2
+  bits with double quantization at almost the same error.
+- **QLoRA** works on a base stored in under 1/6 of its float32 size. The
+  4-bit base still scores above 95% on the original task, and the adapters
+  reach more than 95% on the new one.
 
 ## Autoencoders {#autoencoders}
 

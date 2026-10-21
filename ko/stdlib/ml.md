@@ -611,9 +611,19 @@ void    jit_block_free(&JiTBlock block);
   `ACT_SIGMOID`, `ACT_GELU`, `ACT_SILU` 중 하나를 쓴다. PyTorch `nn.Linear`처럼
   초기화하며 가중치는 `[in, out]`으로 저장한다. `mlp_copy` /
   `mlp_soft_update`는 타깃 네트워크를 동기화한다.
-- **`Optimizer`**는 파라미터 목록을 갖고 `OPT_SGD`, `OPT_MOMENTUM`,
-  `OPT_NESTEROV`, `OPT_RMSPROP`, `OPT_ADAM`, `OPT_ADAMW`(분리된 weight decay)를
-  제공한다. `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자른다.
+- **`Optimizer`**는 파라미터 목록을 갖고 다음 종류를 제공한다.
+
+  | 종류 | 갱신 |
+  |---|---|
+  | `OPT_SGD` | 기본 경사 하강. |
+  | `OPT_MOMENTUM` / `OPT_NESTEROV` | heavy-ball 또는 Nesterov 모멘텀(`momentum` 0.9). |
+  | `OPT_RMSPROP` | 제곱 그래디언트의 이동 평균(`beta2` 0.99). |
+  | `OPT_ADAGRAD` | 누적 제곱 그래디언트의 제곱근으로 학습률을 나눈다(Duchi et al. 2011). |
+  | `OPT_ADAM` | L2 weight decay를 쓰는 Adam(`beta1` 0.9, `beta2` 0.999). |
+  | `OPT_ADAMW` | 분리된 weight decay를 쓰는 Adam(`weightDecay` 0.01). |
+  | `OPT_LION` | 보간한 모멘텀의 부호로 갱신한다(Chen et al. 2023). 분리된 decay를 쓰며, 학습률은 Adam보다 3~10배 작게 준다. |
+
+  `optimizer_clip_grad_norm`은 전체 그래디언트 노름을 자른다.
   필드(`lr`, beta, `weightDecay`)가 공개되어 있어 스텝 사이에 스케줄로 바꿀 수
   있다.
 
@@ -657,6 +667,90 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
 
 테스트는 모든 연산의 그래디언트를 중앙 차분과 비교한다. 옵티마이저가
 수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘는다.
+
+## 정규화: LayerNorm과 AdaLN {#norm}
+
+```c
+#include <std/ml/norm.h>
+```
+
+`[batch, dim]` 행에 대한 학습 가능한 정규화 레이어로, autograd를 지원한다.
+`activations.h`의 `tensor_layernorm_rows`는 순전파 전용 버전이다.
+
+- **`LayerNorm`**(Ba et al. 2016)은 `y = LN(x) · gamma + beta`를 계산한다.
+  `gamma`(초기값 1)와 `beta`(초기값 0)를 학습한다.
+- **`AdaLN`**은 DiT(Peebles & Xie 2023)의 적응형 LayerNorm이다. 샘플마다의
+  조건 벡터(타임스텝·클래스 임베딩 등)에 선형 변환을 적용해
+  `(shift, scale[, gate])`를 얻고, `y = LN(x) · (1 + scale) + shift`를
+  계산한다. 변환은 0에서 시작하므로(adaLN-Zero) 새 AdaLN은 일반 LayerNorm과
+  같다. `gated`를 켜면 `AdaLNOut.gate`도 0에서 시작하므로, 잔차 분기
+  `x + gate · f(y)`가 항등 함수로 시작한다.
+- **구성 연산**: `tensor_layer_norm`, `tensor_mul_row`(모든 행에 벡터를
+  곱함), 그리고 이제 미분 가능해진 `attention.h`의 `tensor_slice_cols`.
+
+```c
+struct AdaLN ad = adaln_new(dim, condDim, 1);          // 게이트 사용
+struct AdaLNOut o = adaln_forward(&ad, x, cond);       // x [m, dim], cond [m, condDim]
+&Tensor h = tensor_add(x, tensor_mul(o.gate, mlp_forward(&ffn, o.out)));
+adaln_add_params(&opt, &ad);
+```
+
+테스트는 두 레이어의 그래디언트를 유한 차분과 비교하고, 새 AdaLN이
+LayerNorm과 같은지 확인한다. 또 일반 LayerNorm으로는 표현할 수 없는 클래스별
+아핀 변환을 AdaLN이 학습해, 손실을 0.5 초과에서 0.001 미만으로 낮추는지도
+확인한다.
+
+## 미세 조정: LoRA와 QLoRA {#lora}
+
+```c
+#include <std/ml/lora.h>
+```
+
+**LoRA**(Hu et al. 2021)는 사전 학습된 `Mlp`를 고정하고 레이어마다 저랭크
+갱신을 학습한다.
+
+`y = x·W + b + (alpha / r) · (dropout(x)·A)·B`
+
+`A [in, r]`는 무작위로, `B [r, out]`는 0으로 시작하므로 적응된 네트워크는
+기반 모델과 똑같이 시작한다. A와 B만 학습하며, 레이어마다 `in · out` 대신
+`r · (in + out)`개 값이다.
+
+- `lora_attach`는 기반 모델의 `requiresGrad`를 0으로 만들고, `lora_detach`가
+  되돌린다.
+- `lora_merge`는 `scale · A·B`를 `W`에 접어 넣으므로, 이후에는 기반 모델만으로
+  적응된 출력을 계산하며 추론 비용이 늘지 않는다.
+
+**QLoRA**(Dettmers et al. 2023)는 같은 일을 **4비트 NormalFloat(NF4)**로
+저장한 기반 모델 위에서 한다. 가중치 64개 블록마다 absmax 스케일 하나와,
+16개 NF4 레벨에 대한 4비트 인덱스를 둔다. NF4 레벨은 정규 분포의
+분위수이므로, 가우시안에 가까운 가중치가 레벨을 고르게 쓴다. 이중 양자화는
+스케일도 8비트로 저장하고 스케일 256개마다 float 하나를 두어, 기반 모델을
+가중치당 약 4.1비트로 줄인다.
+
+`qlora_attach`는 기반 모델을 복사하므로 원래 `Mlp`는 해제해도 된다. 순전파마다
+가중치를 float32로 역양자화하며, 그래디언트는 고정된 4비트 기반 모델을 거쳐
+어댑터로 흐른다. `nf4_quantize` / `nf4_dequantize`는 단독으로도 쓸 수 있다.
+
+```c
+struct LoraConfig cfg = lora_config_default(8UL);    // 랭크 8, alpha 8
+struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + 이중 양자화
+mlp_free(&pretrained);
+struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
+qlora_add_params(&opt, &ft);                          // 어댑터만
+trainer_fit(&ft, my_loss, &opt, &data, &tc);          // my_loss가 qlora_forward를 호출
+```
+
+테스트에서는 moons로 사전 학습한 MLP를, 회전하고 레이블을 뒤바꾼 과제로 미세
+조정한다. 고정된 기반 모델은 이 과제를 틀린다(정확도 70% 미만).
+
+- **LoRA**는 정확도 95%를 넘긴다. 기반 가중치는 비트 단위로 그대로이며,
+  병합한 기반 모델은 어댑터의 출력을 1e-3 이내로 재현한다.
+- **NF4**는 격자 위의 값을 정확히 복원한다. 가우시안 가중치에서는 가중치당
+  4.5비트에 상대 RMS 오차가 12% 미만이며, 이중 양자화를 쓰면 거의 같은 오차로
+  4.2비트 미만이 된다.
+- **QLoRA**는 float32 크기의 1/6 미만으로 저장한 기반 모델에서 동작한다. 4비트
+  기반 모델은 원래 과제에서 여전히 95%를 넘기고, 어댑터는 새 과제에서 95%를
+  넘긴다.
 
 ## 오토인코더 {#autoencoders}
 
