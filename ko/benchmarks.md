@@ -295,8 +295,11 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 | PyTorch 2.9.1 + transformers 5.20.2, `torch.compile` | MI100 | 17.2 s (+첫 컴파일 105 s) | 20.2 |
 | PyTorch, 정적 KV 캐시 | MI100 | 17.2 s | 20.5 |
 | PyTorch, eager `generate()` | MI100 | 17.2 s | 36.3 |
+| SafeC, CPU(디코딩에 `half_gemv`, 16스레드) | Ryzen 7 7800X3D | 6.0 s | 225 |
+| SafeC, CPU, `half_gemv` 이전(호출마다 bf16 가중치를 넓힘 + OpenBLAS) | Ryzen 7 7800X3D | 6.0 s | 4,426 |
+| PyTorch, CPU | Ryzen 7 7800X3D | 0.3 s | 211 |
 
-같은 프롬프트(`"The capital of France is"`), greedy 디코딩, SafeC는 새 토큰 128개, PyTorch는 64개이며, 모든 행의 가중치가 bf16입니다. SafeC는 디코딩 스텝만 재고, PyTorch 행은 6토큰 prefill(몇 ms)이 포함된 `generate()`를 잽니다. PyTorch 자체의 그래프 재생 설정(정적 캐시와 `torch.compile(mode="reduce-overhead")`)은 ROCm 6.4에서 transformers의 정적 캐시 갱신 중에 죽으므로 행이 없습니다. 모든 경로가 같은 텍스트를 냅니다. SafeC 엔진은 가장 빠른 PyTorch 경로보다 3.1배, eager PyTorch보다 5.6배 빠릅니다.
+같은 프롬프트(`"The capital of France is"`), greedy 디코딩, SafeC는 새 토큰 128개, PyTorch는 64개이며, 모든 행의 가중치가 bf16입니다. SafeC는 디코딩 스텝만 재고, PyTorch 행은 6토큰 prefill(몇 ms)이 포함된 `generate()`를 잽니다. PyTorch 자체의 그래프 재생 설정(정적 캐시와 `torch.compile(mode="reduce-overhead")`)은 ROCm 6.4에서 transformers의 정적 캐시 갱신 중에 죽으므로 행이 없습니다. 모든 경로가 같은 텍스트를 냅니다. SafeC 엔진은 가장 빠른 PyTorch 경로보다 3.1배, eager PyTorch보다 5.6배 빠릅니다. CPU 행은 `tests/bench_safec.sc cpu`와 `bench_pytorch.py cpu`로 새 토큰 20개를 생성한 것이며 prefill을 포함합니다. 프로젝트의 CPU 경로는 이제 행렬곱마다 모든 가중치를 float32로 넓히는 대신 `std::half_gemv`(저장된 bf16 가중치를 그대로, 메모리 대역폭으로 읽음)로 디코딩하므로 20배 빨라져 PyTorch와 비슷해졌습니다.
 
 - **transformers와 대조.** [`bench_rocm.sc`](/benchmarks/gemma4/tests/bench_rocm.sc)는 같은 GPU에서 transformers로 fp32로 돌린 `google/gemma-4-E2B`([`ref_transformers.py`](/benchmarks/gemma4/tests/ref_transformers.py))와, `<bos>`를 포함한 네 프롬프트에 대해 다음 토큰 top-5 id와 그 로짓을 비교합니다. 네 프롬프트 모두 id가 순서까지 같고, 로짓은 1e-4 이내로 일치합니다. 512토큰 sliding window를 훨씬 넘는 900토큰 greedy 생성도 transformers의 fp32 출력과 토큰 하나하나 같습니다([`ref_transformers_generate.py`](/benchmarks/gemma4/tests/ref_transformers_generate.py)). bf16에서는 transformers가 "quick brown fox" 프롬프트의 4·5번째 후보를 바꾸는데, fp32는 SafeC와 같습니다. 이 절 맨 위의 기준 표는 `<bos>` 없이 계산된 것입니다: `<bos>`가 없으면 transformers 5.20.2가 그 표를 재현하고, `<bos>`가 있으면 top-5가 다릅니다("Hello, world!"의 경우 [108, 564, 3551, 107, 19694]).
 - **시간이 드는 곳.** 스텝마다 가중치를 약 4.6 GB 읽으므로 6.44 ms 중 GEMV가 약 5.2 ms입니다. 나머지는 작은 커널입니다: 잔차 단계 105개, 어텐션+병합 35쌍, q/k/v 후처리 35개와 PLE gate GEMV로, 각각 4–8 µs입니다. 두 가지 융합을 측정하고 버렸습니다. 하나는 정규화된 입력을 각 GEMV 블록 안에서 만드는 방식으로, 블록마다 리덕션을 반복해 gate/up GEMV가 40% 느려졌습니다. 다른 하나는 잔차 단계와 어텐션 병합을 커널의 마지막 블록에서 처리하는 방식으로, 이득이 없었습니다. 비용이 실행 자체가 아니라 서로 의존하는 커널 사이의 경계에 있기 때문입니다.

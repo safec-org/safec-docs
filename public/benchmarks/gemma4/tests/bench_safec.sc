@@ -5,7 +5,7 @@
 // (temperature=0). See DESIGN_NOTES.md's BF16 section for the numbers
 // this produces.
 //
-// Usage: bench_safec [cpu|gpu] [batchSize]
+// Usage: bench_safec [cpu|gpu] [batchSize] [model-dir]
 //   cpu|gpu    Forces gemma4_bf16_linear's CPU+BLAS path (cblas_sgemm/
 //              Accelerate) or leaves the default GPU path
 //              (mps_matmul_abt_bf16_persistent) in place. Default: gpu.
@@ -21,18 +21,24 @@
 //              per-decode-step wall-clock cost, since the whole point of
 //              batching is trading per-token latency for aggregate
 //              throughput, not improving single-sequence latency itself.
+//   model-dir  holds model.safetensors, vocab.bin and merges.bin
+//              (default: the paths this benchmark was first run with).
 extern int printf(const char* fmt, ...);
 extern void* malloc(unsigned long size);
 extern void  free(void* ptr);
 extern int strcmp(const char* a, const char* b);
+extern int snprintf(char* buf, unsigned long n, const char* fmt, ...);
 #include "../src/gemma4_generate.h"
 #include "../src/gemma4_tokenizer.h"
 #include <std/sys.h>
 #include <std/time.h>
 
+// Generated ids, kept for printing the text after timing (no per-token
+// decode/print work inside the timed loop).
+static int g_ids[512];
+static unsigned long g_nids = 0UL;
 static void stream_token_noop(void* ctxRaw, int tokenId) {
-    // Intentionally no per-token decode/print work here -- this bench
-    // measures the model's own compute cost, not string handling.
+    if (g_nids < 512UL) { unsafe { g_ids[g_nids] = tokenId; } g_nids = g_nids + 1UL; }
 }
 
 static void batch_stream_token_noop(void* ctxRaw, unsigned long seqIdx, int tokenId) {
@@ -54,11 +60,17 @@ int main(int argc, char** argv) {
     printf("batch size: %lu\n", batchSize);
 
     long long tLoad0 = std::time_mono_ns();
-    struct Gemma4Tokenizer tok = std::gemma4_tok_load(
-        "/Users/minjaekim/SafeC/safec-docs/public/benchmarks/gemma4/vocab.bin",
-        "/Users/minjaekim/SafeC/safec-docs/public/benchmarks/gemma4/merges.bin"
-    );
-    struct Gemma4Bf16Model model = std::gemma4_bf16_model_load("/Users/minjaekim/SafeC/models/gemma4-e2b/model.safetensors");
+    char pModel[1024]; char pVocab[1024]; char pMerges[1024];
+    unsafe {
+        const char* dir = "/Users/minjaekim/SafeC/models/gemma4-e2b";
+        const char* tokDir = "/Users/minjaekim/SafeC/safec-docs/public/benchmarks/gemma4";
+        if (argc > 3) { dir = (const char*)argv[3]; tokDir = (const char*)argv[3]; }
+        snprintf(&pModel[0], 1024UL, "%s/model.safetensors", dir);
+        snprintf(&pVocab[0], 1024UL, "%s/vocab.bin", tokDir);
+        snprintf(&pMerges[0], 1024UL, "%s/merges.bin", tokDir);
+    }
+    struct Gemma4Tokenizer tok = std::gemma4_tok_load(&pVocab[0], &pMerges[0]);
+    struct Gemma4Bf16Model model = std::gemma4_bf16_model_load(&pModel[0]);
     long long tLoad1 = std::time_mono_ns();
     double loadMs = std::time_ns_to_ms(std::time_elapsed_ns(tLoad0, tLoad1));
     printf("load: %f s\n", loadMs / 1000.0);
@@ -90,6 +102,10 @@ int main(int argc, char** argv) {
         long long tGen1 = std::time_mono_ns();
         double genMs = std::time_ns_to_ms(std::time_elapsed_ns(tGen0, tGen1));
         printf("generate (%lu tokens): %f s (%f ms/token)\n", n, genMs / 1000.0, genMs / (double)n);
+        struct String text;
+        unsafe { text = std::gemma4_tok_decode(&tok, (const int*)&g_ids[0], g_nids); }
+        unsafe { printf("text: %s%s\n", prompt, text.as_ptr()); }
+        text.free();
     } else {
         struct Gemma4BatchPrompt* prompts;
         unsafe { prompts = (struct Gemma4BatchPrompt*)malloc(sizeof(struct Gemma4BatchPrompt) * batchSize); }
