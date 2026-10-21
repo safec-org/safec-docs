@@ -2,9 +2,9 @@
 
 SafeC provides low-level, C-compatible concurrency primitives. Threads are created with `spawn` and joined with `join`, mapping directly to POSIX pthreads. There are no closures or runtime schedulers -- concurrency is explicit and deterministic.
 
-## Spawn and Join
+## Spawn and Join {#spawn-and-join}
 
-### Creating a Thread
+### Creating a Thread {#creating-a-thread}
 
 `spawn(fn, arg)` creates a new thread that executes the given function with the given argument. It returns a thread handle (`long long`, which is the underlying `pthread_t`).
 
@@ -27,7 +27,7 @@ int main() {
 }
 ```
 
-### Thread Function Signature
+### Thread Function Signature {#thread-function-signature}
 
 A thread function takes one nullable reference and returns one — `?&T name(?&T arg)` — which is exactly the POSIX `void*(void*)` shape at the ABI level, with the argument's type checked:
 
@@ -40,7 +40,7 @@ A thread function takes one nullable reference and returns one — `?&T name(?&T
 
 Pass `null` when the thread needs no argument.
 
-### Joining a Thread
+### Joining a Thread {#joining-a-thread}
 
 `join(h)` blocks the calling thread until the thread identified by handle `h` completes. It maps directly to `pthread_join`.
 
@@ -51,7 +51,7 @@ join(h1);                      // wait for worker1
 join(h2);                      // wait for worker2
 ```
 
-## Lowering
+## Lowering {#lowering}
 
 `spawn` and `join` lower directly to pthread calls:
 
@@ -62,11 +62,11 @@ join(h2);                      // wait for worker2
 
 The handle returned by `spawn` is the raw `pthread_t` value cast to `long long`.
 
-## Region Safety in Concurrency
+## Region Safety in Concurrency {#region-safety-in-concurrency}
 
 The region system provides safety guarantees for concurrent code:
 
-### Spawn Requires Static Function Reference
+### Spawn Requires Static Function Reference {#spawn-requires-static-function-reference}
 
 The function passed to `spawn` must be a `&static` function reference -- it must be a named function, not a local function pointer that could go out of scope:
 
@@ -80,7 +80,7 @@ int main() {
 }
 ```
 
-### Mutable Non-Static References Rejected
+### Mutable Non-Static References Rejected {#mutable-non-static-references-rejected}
 
 The compiler rejects passing mutable references to non-static data as spawn arguments, preventing data races:
 
@@ -103,7 +103,7 @@ A `&static` reference is accepted: static data outlives every thread, and coordi
 
 To share mutable data between threads, use atomic operations or explicit synchronization with the standard library's thread module.
 
-## Linking
+## Linking {#linking}
 
 Programs that use `spawn` or `join` must be linked with `-lpthread`:
 
@@ -112,7 +112,7 @@ Programs that use `spawn` or `join` must be linked with `-lpthread`:
 /usr/bin/clang program.ll -lpthread -o program
 ```
 
-## Atomic Built-ins
+## Atomic Built-ins {#atomic-built-ins}
 
 For lock-free synchronization between threads, SafeC provides atomic operations:
 
@@ -141,7 +141,7 @@ Available atomic operations:
 
 See [Bare-Metal Programming](/reference/baremetal) for the full list of atomic operations.
 
-## Standard Library Thread Module
+## Standard Library Thread Module {#standard-library-thread-module}
 
 The SafeC standard library provides higher-level concurrency primitives in the `thread` module:
 
@@ -152,7 +152,7 @@ The SafeC standard library provides higher-level concurrency primitives in the `
 
 These are cross-platform wrappers over POSIX threads (or Win32 threads with `-D__WINDOWS__`).
 
-## Scoped Spawn
+## Scoped Spawn {#scoped-spawn}
 
 `spawn_scoped(fn, arg)` is a compiler built-in, distinct from `spawn` — it
 has the same signature and the same mutable-non-static-reference rejection,
@@ -171,7 +171,7 @@ void example() {
 }
 ```
 
-## Channels
+## Channels {#channels}
 
 Channels are another compiler built-in (no `#include` required, like
 `spawn`/`join`), providing a bounded MPMC queue for passing values between
@@ -210,7 +210,7 @@ int main() {
 }
 ```
 
-## Example: Parallel Computation
+## Example: Parallel Computation {#example-parallel-computation}
 
 ```c
 #include <std/collections/slice.h>

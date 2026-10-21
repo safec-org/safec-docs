@@ -17,7 +17,7 @@ Functions that can fail on bad input take an `int* ok` out-parameter, the same c
 
 ---
 
-## ASCII — `ascii.h`
+## ASCII — `ascii.h` {#ascii-ascii-h}
 
 ```c
 int ascii_is_valid(const &char s);                     // 1 if every byte of the NUL-terminated string is 0..127
@@ -39,7 +39,7 @@ These only look at ASCII and ignore locale. For the C-style `ctype` functions, s
 
 ---
 
-## UTF-8 — `utf8.h`
+## UTF-8 — `utf8.h` {#utf-8-utf8-h}
 
 A codepoint is a Unicode scalar value (0..0x10FFFF, excluding surrogates 0xD800..0xDFFF) stored in an `unsigned int`. SafeC has no separate rune type.
 
@@ -60,7 +60,7 @@ int           utf8_encoded_len(unsigned int cp);  // 1-4, or 0 if invalid
 
 `utf8_len` returns 0 for both an empty string and an invalid one; call `utf8_is_valid` first if you need to tell them apart.
 
-### Example — walk the codepoints
+### Example — walk the codepoints {#example-walk-the-codepoints}
 
 ```c
 #include <std/encoding/utf8.h>
@@ -84,7 +84,7 @@ int main() {
 
 ---
 
-## URL — `url.h`
+## URL — `url.h` {#url-url-h}
 
 Percent-encoding per RFC 3986, component style (like JavaScript's `encodeURIComponent`).
 
@@ -103,7 +103,7 @@ Both return a heap `String`; free it with `.free()` (see [Collections](/stdlib/c
 
 ---
 
-## Base64 — `base64.h`
+## Base64 — `base64.h` {#base64-base64-h}
 
 Standard alphabet with `=` padding (RFC 4648).
 
@@ -118,7 +118,7 @@ struct Vec<unsigned char> base64_decode(const &char s, ?&int ok);
 
 Free the results with `.free()` like any other `String` or `Vec`.
 
-### Example — round trip
+### Example — round trip {#example-round-trip}
 
 ```c
 #include <std/encoding/base64.h>

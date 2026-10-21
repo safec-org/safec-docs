@@ -18,11 +18,11 @@ For communicating with a *different process* rather than another thread, see [IP
 
 ---
 
-## Spinlock
+## Spinlock {#spinlock}
 
 A busy-wait mutual exclusion lock built on `__sync_lock_test_and_set`. Suitable for short critical sections where sleeping is impossible or undesirable (interrupt handlers, bare-metal drivers).
 
-### Struct
+### Struct {#struct}
 
 ```c
 struct Spinlock {
@@ -35,13 +35,13 @@ struct Spinlock {
 }
 ```
 
-### Constructor
+### Constructor {#constructor}
 
 ```c
 struct Spinlock spinlock_init();  // an unlocked spinlock
 ```
 
-### Methods
+### Methods {#methods}
 
 | Method | Description |
 |--------|-------------|
@@ -50,7 +50,7 @@ struct Spinlock spinlock_init();  // an unlocked spinlock
 | `unlock()` | Release the lock. |
 | `is_locked() const` | Return 1 if currently locked (advisory only). |
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/sync/spinlock.h>

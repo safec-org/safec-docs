@@ -2,7 +2,7 @@
 
 SafeC has two layers of threading: the **`spawn`/`join`/`spawn_scoped` language keywords** (compiler built-ins, no `#include` needed), and the **`std::thread_*` library API** below (`thread.h`) for direct control over OS threads plus mutexes/condition variables/read-write locks. Both are backed by POSIX pthreads on Linux/macOS and Win32 threads on Windows; on freestanding/bare-metal targets (or any target the compiler doesn't recognize), the language keywords instead compile down to a documented two-symbol hook that `std/sync/bare_spawn.sc` implements cooperatively — see [Synchronization](/stdlib/sync) for that backend and for `std::thread_create`/`join`'s bare-metal-friendly cousins.
 
-## Language-Level `spawn` / `join` / `spawn_scoped`
+## Language-Level `spawn` / `join` / `spawn_scoped` {#language-level-spawn-join-spawn_scoped}
 
 ```c
 long long spawn(fn, arg);          // fn: &static function reference; returns a thread handle
@@ -30,11 +30,11 @@ int main() {
 }
 ```
 
-### Region Isolation
+### Region Isolation {#region-isolation}
 
 `spawn`'s argument may not be a **mutable, non-`&static`** reference — passing one is a compile error ("region isolation violation"), since the spawned thread could outlive the region the reference points into. Pass a `&static` reference, an immutable reference, or a plain value (e.g. an index or a heap pointer you manage explicitly) instead.
 
-### Backend Selection
+### Backend Selection {#backend-selection}
 
 The compiler picks a backend for `spawn`/`join`/`spawn_scoped` based on the build target:
 
@@ -48,7 +48,7 @@ The compiler picks a backend for `spawn`/`join`/`spawn_scoped` based on the buil
 
 The **Hook** backend compiles `spawn`/`join` to calls against two fixed extern symbols — `__safec_thread_create(func, arg) -> i64` and `__safec_thread_join(i64) -> void` — a deliberate extension point: any runtime providing exactly those two symbols can back `spawn`/`join` without compiler changes. `std/sync/bare_spawn.sc` is the reference implementation, running spawned functions cooperatively on a `std::TaskScheduler` (see [Synchronization](/stdlib/sync)); a vendor RTOS shim could define the same two symbols instead.
 
-## Direct OS-Thread API (`thread.h`)
+## Direct OS-Thread API (`thread.h`) {#direct-os-thread-api-threadh}
 
 The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a separate, explicitly-called API for when you want direct control over OS threads rather than the `spawn`/`join` keywords above. Both are pthread/Win32-backed on hosted targets; `thread_create`'s handle is ABI-compatible with `spawn`'s on Win32, but the two are otherwise independent (this API is not part of the Hook backend contract).
 
@@ -56,14 +56,14 @@ The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a
 #include <std/thread.h>
 ```
 
-## Handle Representation
+## Handle Representation {#handle-representation}
 
 All handles (thread IDs, mutexes, condition variables, read-write locks) are stored as `unsigned long long`:
 
 - **POSIX**: `pthread_t` value (8 bytes on 64-bit), or a pointer to a heap-allocated pthread object
 - **Win32**: `HANDLE` (kernel object pointer, 8 bytes on x64), or a pointer to a heap-allocated Windows primitive
 
-## Thread
+## Thread {#thread}
 
 ```c
 generic<T>
@@ -75,33 +75,33 @@ void thread_sleep_ms(unsigned long ms);
 unsigned long long thread_self();
 ```
 
-### thread_create
+### thread_create {#thread_create}
 
 Start `func(arg)` on a new thread and write its handle to `*tid`; returns 0 on success. The thread function takes and returns a nullable reference to its context type — `static ?&Job work(?&Job job)` — and `T` is inferred from it, so passing the wrong context type is a compile error. Pass `null` when the thread needs no argument. The return value is discarded (`thread_join` only waits).
 
 The untyped OS entry point underneath (POSIX `void*(*)(void*)`, Win32 `LPTHREAD_START_ROUTINE`) is `thread_create_raw_`; it is ABI-identical, since `?&T` is a plain pointer at the machine level.
 
-### thread_join
+### thread_join {#thread_join}
 
 Block until thread `tid` finishes. Returns 0 on success.
 
-### thread_detach
+### thread_detach {#thread_detach}
 
 Detach thread `tid` so its resources are automatically reclaimed on exit. Returns 0 on success.
 
-### thread_yield
+### thread_yield {#thread_yield}
 
 Yield the current thread's time slice to other runnable threads.
 
-### thread_sleep_ms
+### thread_sleep_ms {#thread_sleep_ms}
 
 Sleep the calling thread for `ms` milliseconds.
 
-### thread_self
+### thread_self {#thread_self}
 
 Return the calling thread's ID.
 
-## Mutex
+## Mutex {#mutex}
 
 ```c
 int mutex_init(&unsigned long long m);
@@ -111,19 +111,19 @@ int mutex_trylock(&unsigned long long m);
 int mutex_unlock(&unsigned long long m);
 ```
 
-### mutex_init / mutex_destroy
+### mutex_init / mutex_destroy {#mutex_init-mutex_destroy}
 
 Initialize or destroy a mutex. The mutex handle is stored in `*m`.
 
-### mutex_lock / mutex_unlock
+### mutex_lock / mutex_unlock {#mutex_lock-mutex_unlock}
 
 Acquire or release the mutex. `mutex_lock` blocks if the mutex is held by another thread.
 
-### mutex_trylock
+### mutex_trylock {#mutex_trylock}
 
 Attempt to acquire the mutex without blocking. Returns 0 if the lock was acquired, non-zero if busy.
 
-## Condition Variable
+## Condition Variable {#condition-variable}
 
 ```c
 int cond_init(&unsigned long long cv);
@@ -134,19 +134,19 @@ int cond_signal(&unsigned long long cv);
 int cond_broadcast(&unsigned long long cv);
 ```
 
-### cond_wait
+### cond_wait {#cond_wait}
 
 Atomically release mutex `*m` and block until the condition variable is signaled. Re-acquires the mutex before returning.
 
-### cond_timedwait_ms
+### cond_timedwait_ms {#cond_timedwait_ms}
 
 Like `cond_wait`, but with a timeout in milliseconds. Returns non-zero on timeout.
 
-### cond_signal / cond_broadcast
+### cond_signal / cond_broadcast {#cond_signal-cond_broadcast}
 
 Wake one (`signal`) or all (`broadcast`) threads waiting on the condition variable.
 
-## Read-Write Lock
+## Read-Write Lock {#read-write-lock}
 
 ```c
 int rwlock_init(&unsigned long long rw);
@@ -161,7 +161,7 @@ int rwlock_wrunlock(&unsigned long long rw);
 
 Multiple simultaneous readers are allowed; writers are exclusive. Use `rdlock`/`rdunlock` for shared read access, and `wrlock`/`wrunlock` for exclusive write access.
 
-## Example
+## Example {#example}
 
 ```c
 #include <std/thread.h>
@@ -201,7 +201,7 @@ int main() {
 }
 ```
 
-## Producer-Consumer Example
+## Producer-Consumer Example {#producer-consumer-example}
 
 ```c
 #include <std/thread.h>

@@ -11,9 +11,9 @@ int main() {
 }
 ```
 
-## Module Categories
+## Module Categories {#module-categories}
 
-### Core
+### Core {#core}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -24,7 +24,7 @@ int main() {
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
 | [atomic](/stdlib/atomic) | `atomic.h` | Lock-free atomic operations (C11 `<stdatomic.h>` wrappers) |
 
-### [Serialization](/stdlib/serial)
+### [Serialization](/stdlib/serial) {#serialization}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -33,7 +33,7 @@ int main() {
 | xml | `serial/xml.h` | XML writer + parser (own-grammar round-trip) |
 | html | `serial/html.h` | HTML fragment writer + parser (`<dl>`/`<ul>` shape) |
 
-### [Collections](/stdlib/collections)
+### [Collections](/stdlib/collections) {#collections}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -50,7 +50,7 @@ int main() {
 | node_pool | `collections/node_pool.h` | `NodePool<N>` per-container node arena |
 | static_vec | `collections/static_vec.h` | `StaticVec<T>` / `StaticMap<V>` over caller storage (zero heap) |
 
-### [Allocators](/stdlib/allocators)
+### [Allocators](/stdlib/allocators) {#allocators}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -59,7 +59,7 @@ int main() {
 | pool | `alloc/pool.h` | Variable-size first-fit pool with coalescing |
 | tlsf | `alloc/tlsf.h` | Two-Level Segregated Fit; O(1) worst-case general heap |
 
-### [Synchronization](/stdlib/sync)
+### [Synchronization](/stdlib/sync) {#synchronization}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -71,21 +71,21 @@ int main() {
 | thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
 | bare_spawn | `sync/bare_spawn.sc` | Reference "Hook" backend for the `spawn`/`join` language keywords on freestanding targets |
 
-### [IPC](/stdlib/ipc)
+### [IPC](/stdlib/ipc) {#ipc}
 
 | Module | Header | Description |
 |--------|--------|-------------|
 | pipe | `ipc/pipe.h` | Anonymous pipes (hosted) — one-way byte stream, typically parent/child after `fork()` |
 | uds | `ipc/uds.h` | Unix domain sockets (hosted) — named IPC between unrelated processes, non-blocking/`Reactor`-pairable |
 
-### [Real-Time Scheduler](/stdlib/sched)
+### [Real-Time Scheduler](/stdlib/sched) {#real-time-scheduler}
 
 | Module | Header | Description |
 |--------|--------|-------------|
 | reactor | `sched/reactor.h` | `Reactor` — kqueue-backed I/O event loop driving `TaskScheduler` |
 | io_nb | `sched/io_nb.h` | Non-blocking file/socket helpers meant to pair with the reactor |
 
-### [Networking](/stdlib/net)
+### [Networking](/stdlib/net) {#networking}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -99,7 +99,7 @@ int main() {
 | dns | `net/dns.h` | A-record query builder + reply parser (label compression) |
 | dhcp | `net/dhcp.h` | `DhcpClient` DORA handshake |
 
-### [HTTP & Web](/stdlib/http)
+### [HTTP & Web](/stdlib/http) {#http-web}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -114,9 +114,9 @@ int main() {
 | wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (bump `malloc`/`free`, `mem*`, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
 | scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
 
-### Machine Learning — see [ML](/stdlib/ml)
+### Machine Learning — see [ML](/stdlib/ml) {#machine-learning-see-ml}
 
-### [GUI](/stdlib/gui)
+### [GUI](/stdlib/gui) {#gui}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -126,8 +126,9 @@ int main() {
 | png | `gui/gui_png.h` | From-scratch PNG decoder (own DEFLATE inflater) |
 | svg | `gui/gui_svg.h` | SVG subset renderer (shapes, paths with cubic curves) |
 | widget | `gui/gui_widget.h` | Retained-mode widget tree: stacks, button, label, checkbox, text input, slider, custom widgets |
+| fb | `gui/gui_fb.h` | Bare-metal framebuffer backend setup: `gui_fb_configure`, `gui_fb_inject_event` |
 
-### [Filesystems](/stdlib/fs)
+### [Filesystems](/stdlib/fs) {#filesystems}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -138,7 +139,7 @@ int main() {
 | ext | `fs/ext.h` | ext2 read-only driver; inode walk, direct-block reads |
 | tmpfs | `fs/tmpfs.h` | In-memory FS; 32 inodes, 64 KiB data pool; full CRUD |
 
-### [DSP & Real-Time](/stdlib/dsp)
+### [DSP & Real-Time](/stdlib/dsp) {#dsp-real-time}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -163,7 +164,7 @@ int main() {
 | audio_buffer | `dsp/audio_buffer.h` | Multi-channel SPSC audio ring buffer (interleaved `Fixed` frames) |
 | timer_wheel | `dsp/timer_wheel.h` | 256-slot O(1) timer wheel; one-shot + periodic |
 
-### [Security & Cryptography](/stdlib/crypto)
+### [Security & Cryptography](/stdlib/crypto) {#security-cryptography}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -174,7 +175,7 @@ int main() {
 | x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, wildcard hostname, validity |
 | tls | `crypto/tls.h` | TLS 1.3 record layer; AES-CBC + PKCS#7 + nonce XOR seq |
 
-### [Debugging & Profiling](/stdlib/debug)
+### [Debugging & Profiling](/stdlib/debug) {#debugging-profiling}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -182,14 +183,14 @@ int main() {
 | coverage | `debug/coverage.h` | 1024-site coverage tracker; `COV_SITE()` macro; `report()` |
 | jtag | `debug/jtag.h` | `debug_break` per arch; ARM/AArch64 semihosting; ITM ports |
 
-### [SIMD](/stdlib/simd)
+### [SIMD](/stdlib/simd) {#simd}
 
 | Module | Header | Description |
 |--------|--------|-------------|
 | simd | `simd/simd.h` | Portable core: `f32x4`/`i32x8`/... type aliases over native `vec<T,N>`; load/store, splat, fma, min/max, horizontal reductions |
 | x86_64 / aarch64 / riscv / wasm / spirv / cortex_m / cuda / rocm | `simd/*.h` | Thin per-ISA convenience layers (native-preferred-width naming, real-hardware verification notes) — same portable source underneath, no separate implementation |
 
-### [Hardware Abstraction Layer](/stdlib/hal)
+### [Hardware Abstraction Layer](/stdlib/hal) {#hardware-abstraction-layer}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -203,7 +204,7 @@ int main() {
 | aarch64 | `hal/aarch64.h` | System registers, Generic Timer, GICv2 (ARMv8-A) |
 | riscv | `hal/riscv.h` | CSR access, CLINT, PLIC |
 
-### [Interrupts & MMIO](/stdlib/interrupt)
+### [Interrupts & MMIO](/stdlib/interrupt) {#interrupts-mmio}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -213,7 +214,7 @@ int main() {
 | vector_table | `interrupt/vector_table.h` | Hardware vector table — Cortex-M `VTOR`/RISC-V `mtvec`/AArch64 `VBAR_EL1` |
 | clock | `interrupt/clock.h` | PLL/clock-source configuration |
 
-### [Kernel Primitives](/stdlib/kernel)
+### [Kernel Primitives](/stdlib/kernel) {#kernel-primitives}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -225,7 +226,7 @@ int main() {
 | ipc | `kernel/ipc.h` | `Mailbox` — fixed-capacity message queue |
 | syscall | `kernel/syscall.h` | Syscall registration/dispatch table |
 
-### [Testing & Benchmarking](/stdlib/testing)
+### [Testing & Benchmarking](/stdlib/testing) {#testing-benchmarking}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -233,7 +234,7 @@ int main() {
 | bench | `test/bench.h` | `BenchSuite` — wall-clock timed iteration benchmarks |
 | fuzz | `test/fuzz.h` | `FuzzTarget` — lightweight in-process mutation fuzzer |
 
-### [Encoding](/stdlib/encoding)
+### [Encoding](/stdlib/encoding) {#encoding}
 
 | Module | Header | Description |
 |--------|--------|-------------|
@@ -242,7 +243,7 @@ int main() {
 | url | `encoding/url.h` | RFC 3986 percent-encoding (component style) |
 | base64 | `encoding/base64.h` | RFC 4648 Base64 with padding |
 
-### [Utilities](/stdlib/utilities)
+### [Utilities](/stdlib/utilities) {#utilities}
 
 | Header | Description |
 |--------|-------------|
@@ -257,7 +258,7 @@ int main() {
 | `sys.h` | Process-control constants (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG constants |
 | `complex.h` | Complex numbers (C99 `<complex.h>`) as `[real, imag]` float/double pairs |
 
-### [C Compatibility Headers](/stdlib/utilities#c-type-and-limit-headers)
+### [C Compatibility Headers](/stdlib/utilities#c-type-and-limit-headers) {#c-compatibility-headers}
 
 | Header | Description |
 |--------|-------------|
@@ -276,7 +277,7 @@ int main() {
 | `float.h` | Floating-point limits |
 | `inttypes.h` | Format macros for fixed-width types |
 
-## Generic Pattern
+## Generic Pattern {#generic-pattern}
 
 Containers and other value-holding APIs are generic structs and functions, monomorphized per element type. They hand out `?&T` references (narrow them with `match`, `.default(x)`, or `std::expect_ref`), return `?T` when there may be no value, and take typed `fn` callbacks — the standard library has no `void*` element or callback parameters. `T` is written once, on the variable, and the constructor infers it from that target type:
 
@@ -299,7 +300,7 @@ int main() {
 
 Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic function that takes a matching `fn(?&T)` and `?&T` — `timer_add`, `widget_on_click`, `vfs_mount`, `task_spawn` — so every call is still checked at compile time. The remaining `void*` declarations in `std/` are C ABI boundaries: libc/OS externs, `mem.h`'s raw byte allocator, MMIO base addresses, and GPU/WASM foreign interfaces.
 
-## Including the Standard Library
+## Including the Standard Library {#including-the-standard-library}
 
 **Individual modules:**
 ```c

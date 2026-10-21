@@ -2,7 +2,7 @@
 
 SafeC uses a region-based memory model that enforces lifetime safety at compile time. Every reference carries a region qualifier that tells the compiler where the data lives and how long it will be valid. Regions are compile-time only -- they produce no runtime metadata and erase to raw pointers in the generated code.
 
-## The Four Regions
+## The Four Regions {#the-four-regions}
 
 | Region | Lifetime | Allocation | Deallocation |
 |--------|----------|------------|--------------|
@@ -11,7 +11,7 @@ SafeC uses a region-based memory model that enforces lifetime safety at compile 
 | `heap` | Dynamic | Explicit (`malloc`) | Explicit (`free`) |
 | `arena<R>` | User-defined | Region allocator | Bulk reset |
 
-## Region-Qualified References
+## Region-Qualified References {#region-qualified-references}
 
 Every reference in SafeC must be region-qualified. This tells the compiler exactly where the pointed-to data lives:
 
@@ -29,7 +29,7 @@ All references are non-null by default. Use the optional prefix for nullable ref
 ?&heap Buffer cache;           // may be null
 ```
 
-## Stack Region
+## Stack Region {#stack-region}
 
 The `stack` region is the default for local variables. Stack references cannot escape the scope in which they were created.
 
@@ -51,7 +51,7 @@ The compiler performs escape analysis to ensure stack references never outlive t
 }
 ```
 
-## Static Region
+## Static Region {#static-region}
 
 The `static` region is for data that lives for the entire program duration:
 
@@ -65,7 +65,7 @@ static int counter = 0;
 
 Static references are the most permissive -- they can be stored anywhere because they never become invalid.
 
-## Heap Region
+## Heap Region {#heap-region}
 
 The `heap` region is for dynamically allocated data. Heap references require explicit allocation and deallocation:
 
@@ -122,7 +122,7 @@ A deferred free runs when the scope exits, so it doesn't count as freeing
 the reference for the statements after it — only an explicit `dealloc`
 that has already run does (see below).
 
-### Compile-Time Use-After-Free and Double-Free Checking
+### Compile-Time Use-After-Free and Double-Free Checking {#compile-time-use-after-free-and-double-free-checking}
 
 A `&heap T` variable freed with `std::dealloc(p)` is tracked the same
 flow-sensitive way arena references are (if/else branches checked
@@ -174,11 +174,11 @@ invalid-free protection described in [Safety](/reference/safety) instead.
 `unsafe {}` bypasses the check, same as every other region rule.
 :::
 
-## Arena Regions
+## Arena Regions {#arena-regions}
 
 Arenas provide bulk allocation and deallocation. You declare a region, allocate into it with `new<R>`, and reset all allocations at once with `arena_reset<R>()`.
 
-### Declaring a Region
+### Declaring a Region {#declaring-a-region}
 
 ```c
 region AudioPool {
@@ -186,7 +186,7 @@ region AudioPool {
 }
 ```
 
-### Allocating in an Arena
+### Allocating in an Arena {#allocating-in-an-arena}
 
 ```c
 &arena<AudioPool> Sample s = new<AudioPool> Sample;
@@ -194,7 +194,7 @@ region AudioPool {
 
 The `new<R> T` expression performs a bump-pointer allocation from the arena. It is fast (just an offset increment plus a capacity check). An allocation that doesn't fit in the region's remaining capacity aborts the program, the same way an out-of-bounds index does — it never hands out memory past the end of the arena.
 
-### Resetting an Arena
+### Resetting an Arena {#resetting-an-arena}
 
 ```c
 arena_reset<AudioPool>();
@@ -202,7 +202,7 @@ arena_reset<AudioPool>();
 
 This resets the arena's offset to zero, effectively freeing all allocations at once. No destructors are called -- arena-allocated objects must not hold external resources.
 
-### Destroying an Arena
+### Destroying an Arena {#destroying-an-arena}
 
 `arena_destroy<R>()` goes a step further than `arena_reset<R>()`: it frees
 the region's malloc'd backing buffer entirely rather than just rewinding the
@@ -219,7 +219,7 @@ reused for a while and you want to release its memory back to the system;
 use `arena_reset<R>()` when you'll keep allocating from it again soon and
 want to avoid the re-`malloc` cost.
 
-### Partially Freeing an Arena
+### Partially Freeing an Arena {#partially-freeing-an-arena}
 
 `arena_reset<R>()` always rewinds all the way to zero. `arena_mark<R>()` /
 `arena_free_to<R>()` are a checkpoint/rewind pair for freeing only the
@@ -308,7 +308,7 @@ void process() {
 `unsafe {}` bypasses the check entirely, same as every other region rule.
 :::
 
-### Arena Runtime Representation
+### Arena Runtime Representation {#arena-runtime-representation}
 
 At the LLVM level, each arena is a global struct `{ptr, i64 used, i64 cap}`:
 
@@ -396,11 +396,11 @@ void optional(?&&int out) {
 
 `&&T` and `& &T` mean the same thing. An array of references is not a reference to a reference — wrap it in an array or `Slice<&T>` as above.
 
-## Region Rules
+## Region Rules {#region-rules}
 
 The compiler enforces several rules to guarantee memory safety:
 
-### 1. References Cannot Outlive Their Region
+### 1. References Cannot Outlive Their Region {#_1-references-cannot-outlive-their-region}
 
 ```c
 &stack int ref;
@@ -411,7 +411,7 @@ The compiler enforces several rules to guarantee memory safety:
 // ref would be dangling here
 ```
 
-### 2. References Cannot Escape to a Longer-Lived Region
+### 2. References Cannot Escape to a Longer-Lived Region {#_2-references-cannot-escape-to-a-longer-lived-region}
 
 A reference to a short-lived region cannot be stored in a longer-lived location:
 
@@ -424,7 +424,7 @@ void bad() {
 }
 ```
 
-### 3. No Implicit Cross-Region Conversion
+### 3. No Implicit Cross-Region Conversion {#_3-no-implicit-cross-region-conversion}
 
 References from different regions are not interchangeable:
 
@@ -437,7 +437,7 @@ void example() {
 }
 ```
 
-### 4. Arena References Die on Reset
+### 4. Arena References Die on Reset {#_4-arena-references-die-on-reset}
 
 `arena_reset<R>()` and `arena_destroy<R>()` invalidate *every* outstanding
 reference into region `R`, since the memory they point into may be handed
@@ -512,7 +512,7 @@ p = new<Pool> int;   // OK: fresh binding, judged against the current generation
 *p = 42;              // OK
 ```
 
-## Unsafe Escape Hatch
+## Unsafe Escape Hatch {#unsafe-escape-hatch}
 
 When the region rules are too restrictive, `unsafe {}` blocks allow bypassing them:
 
@@ -526,7 +526,7 @@ unsafe {
 
 See [Safety](/reference/safety) for the full unsafe model.
 
-## Outliving References: `&T` / `?&T` With No Region
+## Outliving References: `&T` / `?&T` With No Region {#outliving-references-t-t-with-no-region}
 
 Leaving the region qualifier off entirely — `&T` (non-nullable) or `?&T`
 (nullable) — gives a reference with **no declared or tracked region** at
@@ -568,7 +568,7 @@ Nullable vs. non-nullable is the ordinary, orthogonal choice here: use
 (`match`/`is_null()`/`.default()`/`!`), which applies identically to
 `?&T`.
 
-## FFI and Regions
+## FFI and Regions {#ffi-and-regions}
 
 When calling C functions, region information is erased:
 

@@ -24,7 +24,7 @@
 | `gui_cocoa.sc` | macOS — Objective-C 런타임(`objc_msgSend`) + Core Graphics, 레이어 기반 `NSView` | 실제 하드웨어에서 빌드 및 실행됨 |
 | `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Win32 ABI에 맞춰 작성 및 타입 검사됨; Windows에서 아직 실행해 보지 않음 |
 | `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Xlib ABI에 맞춰 작성 및 타입 검사됨; X 서버에서 아직 실행해 보지 않음 |
-| `gui_fb.sc` | 베어메탈 — 부트로더가 넘겨준 선형 프레임버퍼 | 빌드 및 실행됨; OS 의존성 없음 |
+| `gui_fb.sc` | 베어메탈 — 부트로더가 넘겨준 선형 프레임버퍼; 설정 함수는 `gui/gui_fb.h` | 빌드 및 실행됨; OS 의존성 없음 |
 
 백엔드는 `safeguard`가 골라 줍니다: 타깃의 std 아카이브에는 그 타깃에 맞는 변형만 들어갑니다(Apple은 `_cocoa`, Linux/BSD는 `_x11`, Windows는 `_win32`, 베어메탈 타깃은 `_fb`). [패키지 매니저](/ko/advanced/safeguard)를 참고하세요.
 
@@ -352,9 +352,11 @@ int main() {
 
 ## 베어메탈 — `gui_fb.sc` {#bare-metal-gui-fb-sc}
 
-베어메탈에는 창 시스템도 입력 스택도 없습니다. 창을 만들기 전에 프레임버퍼 위치를 백엔드에 알려 주고, 입력은 직접 작성한 드라이버에서 넣어 주세요.
+베어메탈에는 창 시스템도 입력 스택도 없습니다. 창을 만들기 전에 프레임버퍼 위치를 백엔드에 알려 주고, 입력은 직접 작성한 드라이버에서 넣습니다.
 
 ```c
+#include <std/gui/gui_fb.h>   // gui.h에 더해 이 선언들
+
 struct GuiFbConfig {
     &volatile unsigned char base;  // linear framebuffer memory
     unsigned long pitch;  // bytes per scanline (may include padding)

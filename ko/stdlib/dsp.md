@@ -152,11 +152,11 @@ int main() {
 `std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed` 배열(첫 원소에 대한 `&Fixed`로 전달) 위에서 동작합니다.
 
 ```c
-Fixed dsp_dot(&stack Fixed a, &stack Fixed b, unsigned long n);           // a[i]*b[i]의 합
+Fixed dsp_dot(const &Fixed a, const &Fixed b, unsigned long n);           // a[i]*b[i]의 합
 void  dsp_scale(&stack Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
-void  dsp_add(&stack Fixed a, &stack Fixed b, &stack Fixed out, unsigned long n); // out[i] = a[i]+b[i]
+void  dsp_add(const &Fixed a, const &Fixed b, &Fixed out, unsigned long n); // out[i] = a[i]+b[i]
 void  dsp_clip(&stack Fixed a, Fixed lo, Fixed hi, unsigned long n);      // [lo, hi]로 클램프
-Fixed dsp_peak(&stack Fixed a, unsigned long n);                          // max |a[i]|
+Fixed dsp_peak(const &Fixed a, unsigned long n);                          // max |a[i]|
 Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
 
 // SIMD FMA로 가속되는 두 *double* 배열의 내적 (simd.h 참고) --
@@ -469,8 +469,8 @@ struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
 
 // freqHz에서의 Z영역 주파수 응답: 크기(선형)와 위상(라디안).
-double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
+double biquad_response_mag(const &stack Biquad bq, double fs, double freqHz);
+double biquad_response_phase(const &stack Biquad bq, double fs, double freqHz);
 
 struct FBiquad {   // Q8.24 대응 버전
     Fixed b0, b1, b2, a1, a2, z1, z2;

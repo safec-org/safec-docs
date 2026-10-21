@@ -2,7 +2,7 @@
 
 `safeguard` is the official SafeC package manager and build system. It is a standalone C++17 binary with no runtime dependencies beyond a working `safec` compiler and `clang` linker.
 
-## Commands
+## Commands {#commands}
 
 | Command | Description |
 |---------|-------------|
@@ -18,7 +18,7 @@
 | `safeguard lint [--verbose]` | Run static-analysis lint passes on all `.sc` source files |
 | `safeguard format [--check]` | Reindent and whitespace-normalize all `.sc`/`.h` source files |
 
-## `check` — fast compile-only feedback
+## `check` — fast compile-only feedback {#check-fast-compile-only-feedback}
 
 Like Rust's `cargo check`: runs every source file through its full front
 end (for `.sc`, `safec`'s Preprocessor→Lexer→Parser→Sema→ConstEval — so
@@ -31,7 +31,7 @@ path, not the linkable implementation. This is normally the majority of
 break anything," with `build`/`run` reserved for when you actually need a
 binary.
 
-## `test` — integration tests
+## `test` — integration tests {#test-integration-tests}
 
 `tests/` is to `safeguard test` what Rust's `tests/` directory is to
 `cargo test`: each file is an independent, standalone program with its
@@ -72,7 +72,7 @@ included — verified against a real `safeguard test` run of the example
 above.
 :::
 
-## `format` — reindenter
+## `format` — reindenter {#format-reindenter}
 
 (`safeguard fmt` is accepted as a shorter alias.)
 
@@ -89,7 +89,7 @@ arbitrary reflow risks corrupting comment/string content. `--check`
 reports which files would change without writing them (matching `cargo
 fmt --check` / `gofmt -l`), useful as a CI gate.
 
-## `lint` — static analysis
+## `lint` — static analysis {#lint-static-analysis}
 
 In the spirit of `cargo clippy`: catches real issues beyond what
 compilation alone checks. Combines heuristic scans over raw source with
@@ -107,7 +107,7 @@ accepted as an alias for `safeguard lint` — both run the identical pass.
 | SA006 | warning | `=` instead of `==` in an `if` condition |
 | SA007 | warning | Duplicate `#include` in the same file |
 
-### Example output
+### Example output {#example-output}
 
 ```
 src/driver.sc: warning [SA001] file contains 7 unsafe{} blocks — consider refactoring
@@ -133,7 +133,7 @@ safeguard test --target rv32e        # builds every test for RV32E, doesn't run 
 - WebAssembly targets link a library module instead: no entry point, exports are the functions marked `export_name`, unresolved externs become imports, and the std archive includes `std/wasm` (the wasm runtime). See [WebAssembly](/reference/baremetal#wasm).
 - `test` builds the test binaries without running them (they're for another machine); `run` refuses a cross target.
 
-## Package.toml
+## Package.toml {#package-toml}
 
 Every SafeC project has a `Package.toml` at its root:
 
@@ -179,7 +179,7 @@ What a directory provides, whether it's fetched or local, depends on what it con
 
 `lib` names the library files outright and takes precedence over what's in the directory. `lib` and `include` paths are relative to the dependency's directory when it has `version` or `path`, and to the project root otherwise. A fetched repository can ship prebuilt libraries this way too: `version = "https://..."` with `lib = ["lib/macos-arm64/libmylib.a"]`. Shared libraries get an rpath to their directory, so the program finds them at run time. A local `path` is resolved against the project root. `safeguard fetch` and `build` fail with the dependency's name when a library, a directory or an `include` directory doesn't exist, or when a directory has neither `src/` nor a library. Dependency libraries are linked before the standard library, so a SafeC package can use `std`.
 
-## Feature Flags
+## Feature Flags {#feature-flags}
 
 `Package.toml` can declare a Cargo-style `[features]` table — named, optional
 build configurations that gate source code without maintaining separate
@@ -241,7 +241,7 @@ unrelated build errors the way Cargo's per-feature compilation does. See
 `frontend`/`backend`/`fullstack` project built this way, including a scx
 frontend (see [scx Templating](/advanced/scx)).
 
-## Build Flow
+## Build Flow {#build-flow}
 
 `src/` can freely mix `.sc`, `.c`, and `.cpp`/`.cc`/`.cxx` files — each is
 dispatched by extension and compiled to its own object file independently,
@@ -273,7 +273,7 @@ preprocessing model, and putting them on a real C/C++ compiler's search
 path corrupts its own standard headers (e.g. `<cstdint>`/`<vector>`) if
 they happen to shadow the same names.
 
-### Example: calling C and C++ from SafeC
+### Example: calling C and C++ from SafeC {#example-calling-c-and-c-from-safec}
 
 ```c
 // src/helper.c
@@ -312,7 +312,7 @@ means the linker never finds a plain `sum_cpp` symbol.
 `src/`; `cflags = [...]` is appended to every `clang`/`clang++` invocation
 (both `.c`/`.cpp` compilation and the final link).
 
-## Linking External Libraries and Library Output
+## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
 Four more `[build]` keys configure the final link step and what kind of
 artifact it produces — the same underlying flags `safec --emit-bin` exposes
@@ -350,13 +350,13 @@ Libraries are looked up in `AOCL_ROOT`, `MKLROOT` and `OPENBLAS_ROOT` (or their 
 has no executable entry point to run, and running it against the linker
 directly produces a clear error rather than a confusing OS-level failure.
 
-## Standard Library Linking
+## Standard Library Linking {#standard-library-linking}
 
 The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed.
 
 Each dependency built from source is similarly compiled to `build/deps/lib<name>.a`; prebuilt ones are linked from where they are.
 
-## Environment Setup
+## Environment Setup {#environment-setup}
 
 `safeguard` locates the SafeC toolchain using the `SAFEC_HOME` environment variable:
 
@@ -369,7 +369,7 @@ This should point to the SafeC repository root. From there, `safeguard` auto-dis
 - The `safec` compiler binary at `$SAFEC_HOME/compiler/build/safec`
 - The standard library at `$SAFEC_HOME/std/`
 
-## Project Structure
+## Project Structure {#project-structure}
 
 A typical SafeC project created with `safeguard new`:
 
@@ -385,7 +385,7 @@ myproject/
     └── myproject    (final executable)
 ```
 
-## Example Workflow
+## Example Workflow {#example-workflow}
 
 ```bash
 # Create a new project
@@ -405,7 +405,7 @@ safeguard build --release
 ./build/hello
 ```
 
-## Reproducible Builds
+## Reproducible Builds {#reproducible-builds}
 
 After every successful build, safeguard writes a `Package.lock` file that pins:
 
@@ -426,7 +426,7 @@ git_sha = "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
 "src/utils.sc"  = "1a2b3c4d5e6f7a8b"
 ```
 
-### Verifying a lock
+### Verifying a lock {#verifying-a-lock}
 
 ```bash
 safeguard verify-lock
@@ -434,7 +434,7 @@ safeguard verify-lock
 
 Checks that each dependency's current HEAD matches the locked SHA. If any dependency has drifted, the command prints a warning and exits with code 1. When the compiler binary hash changes, a warning is printed but the build is not blocked.
 
-### Blocking builds on drift
+### Blocking builds on drift {#blocking-builds-on-drift}
 
 `safeguard build` automatically calls `checkLock()` before compiling. A dependency SHA mismatch is a hard error that aborts the build (a `safec` binary hash mismatch, by contrast, only warns — see above):
 
@@ -445,7 +445,7 @@ safeguard: error: dependency 'mylib' git SHA mismatch (locked=c3d4e5f... current
 
 ---
 
-## Building safeguard
+## Building safeguard {#building-safeguard}
 
 The package manager itself is built with CMake:
 

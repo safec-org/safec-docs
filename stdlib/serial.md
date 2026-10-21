@@ -9,7 +9,7 @@
 #include <std/serial/html.h>
 ```
 
-## The `Value` Tree
+## The `Value` Tree {#the-value-tree}
 
 ```c
 #define VAL_NULL   0
@@ -72,7 +72,7 @@ match (parsed.object_get("age")) {
 
 `array_at` is non-nullable (it trusts the index is in range, checked via `array_len()`), so it can be chained directly: `v.array_at(0).as_string()`.
 
-## Making a Struct Serializable
+## Making a Struct Serializable {#making-a-struct-serializable}
 
 Write a `to_value()` method that builds a `Value` tree from the struct's fields:
 
@@ -106,7 +106,7 @@ int main() {
 
 A `from_value(const &Value)` method covers the decode direction the same way — read fields back out with `object_get`/`array_at`/`as_int`/etc.
 
-## JSON
+## JSON {#json}
 
 ```c
 void json_write(const &Value v, &String out);   // appends; doesn't clear 'out' first
@@ -140,7 +140,7 @@ value_free(&v);
 value_free(&parsed);
 ```
 
-## XML
+## XML {#xml}
 
 ```c
 void xml_write(const &Value v, const &char tag, &String out);
@@ -178,7 +178,7 @@ value_free(&parsed);
 
 `xml_parse`/`json_parse` only understand this module's own output shape — no attributes, no CDATA, no entities beyond the 5 `xml_write` emits (`&amp; &lt; &gt; &quot; &apos;`).
 
-## HTML
+## HTML {#html}
 
 ```c
 void html_escape(&String out, const &char s);   // usable standalone, independent of the Value renderer
@@ -211,7 +211,7 @@ value_free(&v);
 
 `html_parse` reads this same `<dl>`/`<ul>`/`<em>null</em>`/bare-text shape back into a `Value` tree — it is not a general HTML parser, and (like `xml_parse`) is meant for round-tripping this module's own output, not arbitrary HTML documents.
 
-## CSV
+## CSV {#csv}
 
 ```c
 #include <std/serial/csv.h>
@@ -238,7 +238,7 @@ printf("%s\n", name.as_string());
 value_free(&rows);
 ```
 
-## YAML
+## YAML {#yaml}
 
 ```c
 #include <std/serial/yaml.h>
@@ -273,7 +273,7 @@ yaml.free();
 value_free(&v);
 ```
 
-## Markdown
+## Markdown {#markdown}
 
 ```c
 #include <std/serial/markdown.h>
@@ -326,7 +326,7 @@ int main() {
 }
 ```
 
-## Protobuf
+## Protobuf {#protobuf}
 
 ```c
 #include <std/serial/protobuf.h>
@@ -411,7 +411,7 @@ int main() {
 
 `std/serial/serial.h` includes only `value.h`, `json.h`, `xml.h` and `html.h`; include `csv.h`, `yaml.h`, `markdown.h` and `protobuf.h` directly.
 
-## Round-Trip Fidelity
+## Round-Trip Fidelity {#round-trip-fidelity}
 
 JSON has no structural ambiguity — prefer it whenever exact round-tripping of arbitrary string content matters. XML and HTML share two inherent ambiguities from mapping every `Value` kind onto plain tagged text:
 
@@ -420,6 +420,6 @@ JSON has no structural ambiguity — prefer it whenever exact round-tripping of 
 
 CSV avoids this by never inferring types at all (every field parses back as `VAL_STRING`, full stop). YAML, like XML/HTML, infers `null`/bool/numeric-looking scalars back to their typed `Value` kind — the same ambiguity, one more format.
 
-## Performance Note
+## Performance Note {#performance-note}
 
 Each format's string-escaping function (`json_append_escaped_`, `xml_append_escaped_`, `html_escape`) batches runs of bytes that need no escaping into a single `String::push_n()` call rather than one `push_char()` per byte — since most real-world string content has no special characters, this keeps the common case to one bounds-checked buffer growth and one `memcpy` per string instead of one function call per byte.

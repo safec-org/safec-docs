@@ -6,7 +6,7 @@ title: Getting Started
 
 This guide walks you through installing SafeC, compiling your first program, and understanding the basic compilation workflow.
 
-## Installation
+## Installation {#installation}
 
 Run the install script. It downloads a prebuilt `safec`/`safeguard`/`sc-lsp` release from GitHub Releases and configures your shell environment — no LLVM or C++ toolchain needed on the machine you're installing to.
 
@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | b
 irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 ```
 
-### Install Script Options
+### Install Script Options {#install-script-options}
 
 | Option | Description |
 |---|---|
@@ -37,7 +37,7 @@ Verify the install:
 safec --help
 ```
 
-## Your First Program
+## Your First Program {#your-first-program}
 
 Create a new project with `safeguard`:
 
@@ -79,7 +79,7 @@ Output:
 Hello from SafeC!
 ```
 
-## A More Complete Example
+## A More Complete Example {#a-more-complete-example}
 
 This example demonstrates regions, references, arrays, and slices:
 
@@ -106,7 +106,7 @@ int main() {
 }
 ```
 
-## Compilation Pipeline
+## Compilation Pipeline {#compilation-pipeline}
 
 The SafeC compiler processes source files through a multi-stage pipeline:
 
@@ -138,20 +138,20 @@ LLVM IR (.ll)    Text IR or bitcode output
 clang/lld        Link to native binary
 ```
 
-## Compiler Flags
+## Compiler Flags {#compiler-flags}
 
 ```
 safec <input.sc> [options]
 ```
 
-### Output
+### Output {#output}
 
 | Flag | Description |
 |---|---|
 | `-o <file>` | Output file path |
 | `--emit-llvm` | Emit LLVM IR as text (`.ll`) |
 
-### Debug and Diagnostics
+### Debug and Diagnostics {#debug-and-diagnostics}
 
 | Flag | Description |
 |---|---|
@@ -161,7 +161,7 @@ safec <input.sc> [options]
 | `--g full` | Emit full debug info with local variables |
 | `-v` | Verbose output |
 
-### Compilation Control
+### Compilation Control {#compilation-control}
 
 | Flag | Description |
 |---|---|
@@ -172,14 +172,14 @@ safec <input.sc> [options]
 | `--no-import-c-headers` | Disable automatic C header import |
 | `--no-strict-aliasing` | Don't emit type-based alias info, for `unsafe` code that type-puns through pointer casts (see [Strict Aliasing](/reference/safety#strict-aliasing)) |
 
-### Preprocessor
+### Preprocessor {#preprocessor}
 
 | Flag | Description |
 |---|---|
 | `-I <dir>` | Add include search path |
 | `-D NAME[=VALUE]` | Define a preprocessor macro |
 
-### Incremental Compilation
+### Incremental Compilation {#incremental-compilation}
 
 Incremental compilation (per-file `.bc` caching) is **on by default** — no flag needed to enable it.
 
@@ -189,7 +189,7 @@ Incremental compilation (per-file `.bc` caching) is **on by default** — no fla
 | `--cache-dir <dir>` | Set cache directory (default: `.safec_cache`) |
 | `--clear-cache` | Clear all cached `.bc` files and exit |
 
-## C Header Import
+## C Header Import {#c-header-import}
 
 SafeC can natively include C standard headers. The compiler parses C header declarations and makes them available without manual `extern` stubs:
 
@@ -214,7 +214,7 @@ int main() {
 
 The automatic import works by invoking `clang -ast-dump=json` on the included header and extracting function and typedef declarations. Disable it with `--no-import-c-headers` if you prefer manual `extern` declarations.
 
-## Using the Package Manager
+## Using the Package Manager {#using-the-package-manager}
 
 For projects with dependencies or multiple source files, use `safeguard`. The install script installs it alongside `safec` and `sc-lsp`, so it's already available.
 
@@ -244,7 +244,7 @@ export SAFEC_HOME=/path/to/safec
 export PATH="$SAFEC_HOME/bin:$PATH"
 ```
 
-## Linking
+## Linking {#linking}
 
 SafeC compiles to LLVM IR. The final linking step uses your system's C toolchain:
 
@@ -259,7 +259,7 @@ clang concurrency.ll -lpthread -o concurrency
 clang math_demo.ll -lm -o math_demo
 ```
 
-## Editor Support
+## Editor Support {#editor-support}
 
 An LSP server is available for `.sc` files, providing:
 
@@ -271,7 +271,7 @@ An LSP server is available for `.sc` files, providing:
 
 A VS Code extension is included in the `editors/vscode/` directory of the LSP server repository.
 
-## Next Steps
+## Next Steps {#next-steps}
 
 - [Design Philosophy](/guide/design) — Understand why SafeC makes the choices it does
 - [Types](/reference/types) — Learn about SafeC's type system

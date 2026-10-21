@@ -250,12 +250,13 @@ ChaCha20을 기반으로 한 암호학적으로 안전한 의사 난수 생성�
 struct RngCtx {
     void          fill(&unsigned char out, unsigned long len);   // len random bytes
     unsigned int  rand32();
-    unsigned long rand64();
+    unsigned long long rand64();
     unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
 };
 
-// Seed from hardware entropy (rdrand / /dev/urandom). 1 on success,
-// 0 if no entropy source is available (e.g. bare metal without a TRNG).
+// Seed from rdrand (x86-64) or /dev/urandom. Returns 1; aborts with a
+// diagnostic if neither exists (e.g. bare metal) — use rng_init_seed with
+// your own entropy source there.
 int  rng_init(&RngCtx ctx);
 
 // Deterministic seed (tests, reproducible simulations).
@@ -270,7 +271,7 @@ void rng_init_seed(&RngCtx ctx, const unsigned char seed[32]);
 
 int main() {
     struct RngCtx rng;
-    if (!std::rng_init(&rng)) { std::println("no entropy source"); return 1; }
+    std::rng_init(&rng);   // aborts if there is no entropy source
 
     std::print("dice: ");
     std::println_int((long long)rng.rand_range(6UL) + 1LL);
@@ -333,22 +334,24 @@ struct X509Name {
 }
 
 struct X509San {
-    char          names[8][64];  // DNS SAN 항목
-    unsigned long count;
+    char names[8][64];  // DNS SAN 항목
+    int  count;
 }
 
 struct X509Cert {
-    X509Validity   validity;
     X509Name       subject;
     X509Name       issuer;
+    X509Validity   validity;
     X509San        san;
-    unsigned char  pubkey[256];
+    unsigned char  pubkey[256];     // SubjectPublicKeyInfo 본문 (최대 256바이트)
+    unsigned long  pubkey_len;
     unsigned char  serial[20];
-    int            is_ca;
-    unsigned short key_usage;
+    unsigned long  serial_len;
+    int            is_ca;           // BasicConstraints CA=TRUE
+    int            key_usage;       // KeyUsage 원시 비트
 
     int is_valid_at(unsigned long long unix_time) const;
-    int matches_hostname(const &char host) const;  // SAN + CN 폴백; 와일드카드 *.domain
+    int matches_hostname(const &char host) const;  // DNS SAN (SAN이 없을 때만 CN); 와일드카드 *.domain
     int is_ca_cert() const;
 }
 ```
@@ -359,12 +362,12 @@ struct X509Cert {
 // DER 인코딩된 인증서를 파싱합니다.
 // 성공 시 0, 오류 시 음수를 반환합니다.
 int x509_parse_der(const &unsigned char der, unsigned long len,
-                   &X509Cert out);
+                   &stack X509Cert out);
 
 // 구조적인 발급자/주체 이름 일치 여부만 확인합니다.
 // 암호학적 서명은 검증하지 **않습니다**.
-int x509_verify_chain(const &X509Cert cert,
-                      const &X509Cert ca);
+int x509_verify_chain(const &stack X509Cert cert,
+                      const &stack X509Cert ca);
 ```
 
 ### 예제 {#example-3}
@@ -395,7 +398,7 @@ void check_cert(const &unsigned char der, unsigned long len,
 ```
 
 ::: info
-`matches_hostname`은 와일드카드 인증서를 지원합니다: `*.example.com`은 `api.example.com`과는 일치하지만 `a.b.example.com`과는 일치하지 않습니다. SAN 항목이 없을 경우 CN 필드가 폴백으로 확인됩니다.
+`matches_hostname`은 대소문자를 구분하지 않고 비교하며 와일드카드 인증서를 지원합니다: `*.example.com`은 `api.example.com`과는 일치하지만 `a.b.example.com`과는 일치하지 않습니다. 주체 CN은 인증서에 DNS SAN 항목이 없을 때만 확인합니다(RFC 6125).
 :::
 
 ---
@@ -407,6 +410,10 @@ void check_cert(const &unsigned char der, unsigned long len,
 ```
 
 TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드의 프레이밍, 암호화, 복호화를 처리합니다. 키 스케줄링과 핸드셰이크 프로토콜은 **포함되어 있지 않습니다** — 외부에서 핸드셰이크를 완료한 후 키를 공급해야 합니다.
+
+::: warning
+레코드 보호는 TLS 1.3의 AES-GCM AEAD 대신 PKCS#7 패딩을 쓰는 AES-256-CBC이며 **MAC이 없습니다**. 레코드가 인증되지 않으므로 능동적 공격자가 레코드를 변조할 수 있고 패딩 오류가 관찰됩니다. 또한 와이어 형식이 실제 TLS 1.3 피어와 상호 운용되지 않습니다. 트래픽 보호가 아니라 프레이밍 실험에 사용합니다.
+:::
 
 ### 상수 {#constants}
 
@@ -449,7 +456,9 @@ struct TlsSession {
     struct TlsTranscript transcript;
 
     // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
-    // after install_keys: AES-256-CBC + PKCS#7. Returns bytes written, 0 on error.
+    // after install_keys: AES-256-CBC + PKCS#7, no MAC (see the warning).
+    // Returns bytes written, 0 on error; a record that doesn't fit out_cap
+    // doesn't consume a sequence number.
     unsigned long encode_record(unsigned char content_type,
                                 const &unsigned char payload, unsigned long payload_len,
                                 &unsigned char out, unsigned long out_cap);
@@ -463,6 +472,8 @@ struct TlsSession {
     unsigned long build_alert(unsigned char level, unsigned char desc,
                               &unsigned char out, unsigned long out_cap);
 
+    // Installs traffic keys, resets both sequence numbers and switches to
+    // protected records (is_established() becomes 1).
     void install_keys(const unsigned char write_key[TLS_KEY_LEN],
                       const unsigned char write_iv[TLS_IV_LEN],
                       const unsigned char read_key[TLS_KEY_LEN],

@@ -25,7 +25,7 @@ int main(void) {
 }
 ```
 
-## What gets namespaced
+## What gets namespaced {#what-gets-namespaced}
 
 Only **functions and global variables** are namespaced. Struct, enum, and
 typedef names are deliberately *not* — every type name lives in one flat,
@@ -43,7 +43,7 @@ namespace net {
 struct Packet p;   // works — no 'net::' qualifier needed or accepted
 ```
 
-## Qualified vs. unqualified lookup
+## Qualified vs. unqualified lookup {#qualified-vs-unqualified-lookup}
 
 A call inside the same namespace (or in code that hasn't opened any
 namespace) can reach a namespaced function or variable either by its full
@@ -52,7 +52,7 @@ searching namespaced symbols when no plain-scope match exists. This is why
 standard library code can call its own helpers unqualified while user code
 typically calls them as `std::something`.
 
-## Linkage
+## Linkage {#linkage}
 
 A namespaced function or variable is compiled to a single mangled symbol
 (`std::foo` → `std_foo`) — namespaces are purely a *source-level*

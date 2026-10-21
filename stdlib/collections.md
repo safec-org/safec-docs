@@ -2,7 +2,7 @@
 
 `std/collections/` holds SafeC's container types. Every element container is a **generic struct** (see [Generics](/reference/generics#generic-structs-and-methods)): `Vec<T>`, `HashMap<K, V>`, `StrMap<V>`, `List<T>`, `Stack<T>`, `Queue<T>`, `BST<K, V, C>`, `BTree<V>`, `Slice<T>`, `StaticVec<T>` and `StaticMap<V>`. Elements are stored **by value** and the API never hands out `void*` or raw `T*`:
 
-- element access returns `?&T`, a nullable reference that you must narrow before use — with `match`, `.default(x)`, `.is_null()`, or `std::expect_ref` (see [Nullable references](/reference/memory#nullable-references));
+- element access returns `?&T`, a nullable reference that you must narrow before use — with `match`, `.default(x)`, `.is_null()`, or `std::expect_ref` (see [Nullable references](/reference/types#reading-a-nullable-value));
 - removal returns `?T` (an optional value: `null` when there was nothing to remove);
 - callbacks are typed `fn` values, and orderings are compile-time types (see [Orderings](#orderings)).
 
@@ -143,7 +143,7 @@ int main() {
 
 Open addressing with linear probing; the table grows at a 0.75 load factor, and tombstones count toward it so remove-heavy workloads rehash instead of degrading. Hashes, keys, values and slot states live in separate arrays so a probe touches as little memory as possible.
 
-### HashMap\<K, V\>
+### HashMap\<K, V\> {#hashmap-k-v}
 
 ```c
 generic<K, V>
@@ -166,7 +166,7 @@ generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 
 Keys are hashed and compared **by their bytes**, so `K` must be fully described by its bytes: integers, enums, pointers, padding-free structs. For 1-, 2-, 4- and 8-byte keys the map reads the key as one word, hashes it with murmur3's 64-bit finalizer and compares with a single integer compare — the size test is an `if const`, resolved at compile time per instantiation. Other sizes use FNV-1a and a byte compare. Use `StrMap` for text keys.
 
-### StrMap\<V\>
+### StrMap\<V\> {#strmap-v}
 
 ```c
 generic<V>
@@ -473,7 +473,7 @@ Compared with one `std::alloc` per node, this drops the allocator's 16-byte safe
 
 Chunk sizing: the first chunk holds `NODE_POOL_FIRST_CHUNK` (8) nodes and each later chunk doubles, up to `NODE_POOL_MAX_CHUNK` (1024); each chunk has a `NODE_POOL_CHUNK_HDR` (16-byte) header so nodes stay 16-byte aligned.
 
-## string -- Mutable String
+## string -- Mutable String {#string-mutable-string}
 
 ```c
 #include <std/collections/string.h>
@@ -481,7 +481,7 @@ Chunk sizing: the first chunk holds `NODE_POOL_FIRST_CHUNK` (8) nodes and each l
 
 A growable, heap-allocated, NUL-terminated byte string with 40+ methods. `data` is `&heap char`. Only construction is a free function — everything else is a method.
 
-### Struct and Methods
+### Struct and Methods {#struct-and-methods}
 
 ```c
 struct String {
@@ -574,7 +574,7 @@ struct String {
 };
 ```
 
-### Constructors
+### Constructors {#constructors}
 
 ```c
 struct String string_new();
@@ -585,7 +585,7 @@ struct String string_repeat(const &char s, unsigned long n);
 struct String string_join(const &char sep, &stack String parts, unsigned long count);
 ```
 
-### Example
+### Example {#example}
 
 Verified against a real compile/run:
 
@@ -616,7 +616,7 @@ int main() {
 
 
 
-## ringbuffer -- SPSC Lock-Free Ring Buffer
+## ringbuffer -- SPSC Lock-Free Ring Buffer {#ringbuffer-spsc-lock-free-ring-buffer}
 
 ```c
 #include <std/collections/ringbuffer.h>
@@ -626,7 +626,7 @@ A single-producer / single-consumer **byte-oriented** power-of-two ring buffer. 
 
 Unlike the other collection types, `RingBuffer` is not element-based — it operates on raw byte streams. Use it with `unsigned char` buffers.
 
-### Struct
+### Struct {#struct}
 
 ```c
 struct RingBuffer {
@@ -653,7 +653,7 @@ struct RingBuffer {
 struct RingBuffer ring_init(&static unsigned char buf, unsigned long cap);
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/collections/ringbuffer.h>

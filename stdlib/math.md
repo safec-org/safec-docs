@@ -6,19 +6,19 @@ This page covers three numeric modules:
 - **complex** -- Complex number arithmetic and transcendentals
 - **bit** -- Bit manipulation and power-of-two helpers
 
-## math
+## math {#math}
 
 ```c
 #include <std/math.h>
 ```
 
-### Naming Convention
+### Naming Convention {#naming-convention}
 
 - `_int` / `_ll` -- integer operations (const-evaluable at compile time)
 - `_f` -- single-precision `float` (wraps `<math.h>` `*f` variants)
 - `_d` -- double-precision `double` (wraps `<math.h>` base variants)
 
-### Constants
+### Constants {#constants}
 
 ```c
 const double PI_D();       // 3.14159265358979323846
@@ -33,7 +33,7 @@ const float  E_F();
 const float  SQRT2_F();
 ```
 
-### Integer Functions
+### Integer Functions {#integer-functions}
 
 All integer functions are `const`-qualified and eligible for compile-time evaluation.
 
@@ -48,7 +48,7 @@ const int       clamp_int(int v, int lo, int hi);
 const long long clamp_ll(long long v, long long lo, long long hi);
 ```
 
-### Float Functions (_f)
+### Float Functions (_f) {#float-functions-_f}
 
 | Category | Functions |
 |----------|-----------|
@@ -61,7 +61,7 @@ const long long clamp_ll(long long v, long long lo, long long hi);
 | Misc | `hypot_f`, `fmod_f`, `copysign_f`, `fma_f`, `min_f`, `max_f`, `clamp_f` |
 | Classification | `isnan_f`, `isinf_f`, `isfinite_f` |
 
-### Double Functions (_d)
+### Double Functions (_d) {#double-functions-_d}
 
 All the same functions are available with the `_d` suffix operating on `double`:
 
@@ -76,7 +76,7 @@ All the same functions are available with the `_d` suffix operating on `double`:
 | Misc | `hypot_d`, `fmod_d`, `copysign_d`, `fma_d`, `min_d`, `max_d`, `clamp_d` |
 | Classification | `isnan_d`, `isinf_d`, `isfinite_d` |
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/math.h>
@@ -100,7 +100,7 @@ int main() {
 
 ---
 
-## complex
+## complex {#complex}
 
 ```c
 #include <std/complex.h>
@@ -108,7 +108,7 @@ int main() {
 
 Complex numbers are represented as two-element arrays: `float[2]` or `double[2]` where index 0 is the real part and index 1 is the imaginary part. All functions use the naming convention `cXXX_f` (float) and `cXXX_d` (double). Results are written to an output array parameter.
 
-### Construction & Access
+### Construction & Access {#construction-access}
 
 ```c
 void   cmplx_f(&float out, float re, float im);
@@ -120,7 +120,7 @@ float  cimag_f(const &float z);
 double cimag_d(const &double z);
 ```
 
-### Magnitude & Angle
+### Magnitude & Angle {#magnitude-angle}
 
 ```c
 float  cabs_f(const &float z);    // |z| = sqrt(re^2 + im^2)
@@ -129,7 +129,7 @@ float  carg_f(const &float z);    // phase angle = atan2(im, re)
 double carg_d(const &double z);
 ```
 
-### Arithmetic
+### Arithmetic {#arithmetic}
 
 ```c
 void cadd_f(&float out, const &float a, const &float b);
@@ -146,7 +146,7 @@ void cconj_f(&float out, const &float z);   // complex conjugate
 void cconj_d(&double out, const &double z);
 ```
 
-### Transcendental
+### Transcendental {#transcendental}
 
 ```c
 void csqrt_f(&float out, const &float z);
@@ -163,7 +163,7 @@ void ccos_f(&float out, const &float z);
 void ccos_d(&double out, const &double z);
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/complex.h>
@@ -192,7 +192,7 @@ int main() {
 
 ---
 
-## bit
+## bit {#bit}
 
 ```c
 #include <std/bit.h>
@@ -200,7 +200,7 @@ int main() {
 
 Bit manipulation functions based on C23 `<stdbit.h>` and compiler builtins. All functions are `const`-qualified (pure, no side effects) and eligible for compile-time evaluation.
 
-### Population Count
+### Population Count {#population-count}
 
 ```c
 const int popcount32(unsigned int x);
@@ -209,7 +209,7 @@ const int popcount64(unsigned long long x);
 
 Count the number of set (1) bits.
 
-### Leading / Trailing Zeros
+### Leading / Trailing Zeros {#leading-trailing-zeros}
 
 ```c
 const int clz32(unsigned int x);        // returns 32 for x == 0
@@ -218,7 +218,7 @@ const int ctz32(unsigned int x);        // returns 32 for x == 0
 const int ctz64(unsigned long long x);  // returns 64 for x == 0
 ```
 
-### Bit Scan (Find First/Last Set)
+### Bit Scan (Find First/Last Set) {#bit-scan-find-first-last-set}
 
 ```c
 const int bsf32(unsigned int x);        // least-significant set bit (0-based); -1 if x == 0
@@ -227,7 +227,7 @@ const int bsr32(unsigned int x);        // most-significant set bit (0-based); -
 const int bsr64(unsigned long long x);
 ```
 
-### Rotate
+### Rotate {#rotate}
 
 ```c
 const unsigned int       rotl32(unsigned int x, int n);
@@ -238,14 +238,14 @@ const unsigned long long rotr64(unsigned long long x, int n);
 
 Rotate `x` left/right by `n` bits. `n` is taken modulo 32 or 64.
 
-### Byte Swap (Endian Reversal)
+### Byte Swap (Endian Reversal) {#byte-swap-endian-reversal}
 
 ```c
 const unsigned int       bswap32(unsigned int x);
 const unsigned long long bswap64(unsigned long long x);
 ```
 
-### Power-of-Two Helpers
+### Power-of-Two Helpers {#power-of-two-helpers}
 
 ```c
 const int               is_pow2(unsigned long long x);   // 1 if x is a power of 2
@@ -253,7 +253,7 @@ const unsigned long long next_pow2(unsigned long long x); // round up to next po
 const int               ilog2(unsigned long long x);      // floor(log2(x)); -1 for x == 0
 ```
 
-### Bit Field Helpers
+### Bit Field Helpers {#bit-field-helpers}
 
 ```c
 const unsigned int       bits32(unsigned int x, int lo, int hi);
@@ -263,7 +263,7 @@ const unsigned int       set_bits32(unsigned int x, int lo, int hi, unsigned int
 
 Extract or set bits `[hi:lo]` (inclusive) in `x`.
 
-### Example
+### Example {#example-2}
 
 ```c
 #include <std/bit.h>

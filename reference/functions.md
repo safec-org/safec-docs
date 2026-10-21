@@ -2,7 +2,7 @@
 
 SafeC supports several function forms, from regular C-compatible functions to compile-time evaluated functions, struct methods, and generic functions.
 
-## Regular Functions
+## Regular Functions {#regular-functions}
 
 ```c
 int add(int a, int b) {
@@ -14,7 +14,7 @@ void greet(const &char name) {
 }
 ```
 
-## Const Functions
+## Const Functions {#const-functions}
 
 Functions marked `const` may be executed at compile time if all arguments are known constants. They can also be called at runtime.
 
@@ -28,7 +28,7 @@ const int val = factorial(5);  // evaluated at compile time → 120
 int dynamic = factorial(x);    // called at runtime
 ```
 
-## Consteval Functions
+## Consteval Functions {#consteval-functions}
 
 Functions marked `consteval` **must** be executed at compile time. Calling them with non-constant arguments is a compilation error.
 
@@ -41,7 +41,7 @@ int lookup[table_size()];      // OK: compile-time constant
 // int bad = table_size();     // ERROR if result not used in const context
 ```
 
-## `constinit` Globals
+## `constinit` Globals {#constinit-globals}
 
 Every global variable's initializer must already be a compile-time
 constant expression — this is enforced unconditionally, as a hard
@@ -72,7 +72,7 @@ initialization at all, so there's no silent fallback to guard against —
 a non-constant initializer is caught at compile time everywhere, with or
 without the keyword.
 
-## Pure Functions
+## Pure Functions {#pure-functions}
 
 Functions marked `pure` guarantee no side effects. The compiler lowers them with LLVM `readonly` and `nounwind` attributes, enabling aggressive optimization.
 
@@ -89,7 +89,7 @@ Pure functions may not:
 
 See [Functional Programming](/reference/functional#purity) for what this buys you beyond the optimization hint.
 
-## Must-Use Functions
+## Must-Use Functions {#must-use-functions}
 
 The `must_use` keyword causes a compiler warning if the return value is discarded:
 
@@ -102,7 +102,7 @@ compute(5);                    // WARNING: return value discarded
 int result = compute(5);       // OK
 ```
 
-## Noreturn Functions
+## Noreturn Functions {#noreturn-functions}
 
 Functions that never return (e.g., `abort`, `exit`, infinite loops) can be annotated with `noreturn`:
 
@@ -113,11 +113,11 @@ noreturn void panic(const &char msg) {
 }
 ```
 
-## Struct Methods
+## Struct Methods {#struct-methods}
 
 Methods are declared inside a struct body and defined outside using `T::method()` qualified syntax. The `self` parameter is implicit.
 
-### Declaration
+### Declaration {#declaration}
 
 ```c
 struct Point {
@@ -129,7 +129,7 @@ struct Point {
 };
 ```
 
-### Definition
+### Definition {#definition}
 
 ```c
 double Point::length() const {
@@ -142,7 +142,7 @@ void Point::scale(double s) {
 }
 ```
 
-### Calling Methods
+### Calling Methods {#calling-methods}
 
 ```c
 Point p = {3.0, 4.0};
@@ -150,7 +150,7 @@ double len = p.length();       // calls Point_length(&p)
 p.scale(2.0);                  // calls Point_scale(&p, 2.0)
 ```
 
-### Lowering
+### Lowering {#lowering}
 
 Methods are lowered to plain functions with an explicit `self` pointer:
 
@@ -161,7 +161,7 @@ Methods are lowered to plain functions with an explicit `self` pointer:
 
 Const methods receive a `const T*` self pointer; non-const methods receive a `T*` self pointer. Inside the method body, `self` is typed as `&stack T`.
 
-## Operator Overloading
+## Operator Overloading {#operator-overloading}
 
 Struct types can overload binary operators by defining methods named `operator+`, `operator-`, etc.
 
@@ -197,11 +197,11 @@ Operator methods are mangled as `TypeName_operator+` etc. in the generated code.
 
 See [Polymorphism & OOP](/reference/polymorphism#ad-hoc-polymorphism-operator-overloading) for how this fits alongside generics, traits, and `fn_eval` as one of several distinct polymorphism mechanisms.
 
-## Generic Functions
+## Generic Functions {#generic-functions}
 
 Generic functions use the `generic<T>` syntax and are fully monomorphized at compile time.
 
-### Basic Generic
+### Basic Generic {#basic-generic}
 
 ```c
 generic<T>
@@ -214,7 +214,7 @@ int m1 = max(3, 7);           // instantiates max<int>
 double m2 = max(1.5, 2.7);    // instantiates max<double>
 ```
 
-### Constrained Generic
+### Constrained Generic {#constrained-generic}
 
 Type parameters can be constrained with traits:
 
@@ -227,7 +227,7 @@ T clamp(T val, T lo, T hi) {
 }
 ```
 
-### Monomorphization
+### Monomorphization {#monomorphization}
 
 The compiler deep-clones the function body for each concrete type instantiation, substituting type parameters with concrete types. The mangled name follows the pattern `__safec_fn_type`:
 
@@ -238,7 +238,7 @@ max<double> → __safec_max_double
 
 Generic bodies are skipped during the first semantic analysis pass. Type inference determines `T` from argument types at call sites.
 
-## Naked Functions
+## Naked Functions {#naked-functions}
 
 Naked functions have no compiler-generated prologue or epilogue. The body must consist entirely of inline assembly.
 
@@ -248,7 +248,7 @@ naked void isr_handler() {
 }
 ```
 
-## Interrupt Functions
+## Interrupt Functions {#interrupt-functions}
 
 Interrupt functions use the ISR calling convention. They must be `void(void)`:
 
@@ -258,7 +258,7 @@ interrupt void timer_isr() {
 }
 ```
 
-## Function Pointers
+## Function Pointers {#function-pointers}
 
 Functions can be referenced as values using the `fn` type syntax:
 

@@ -2,7 +2,7 @@
 
 SafeC is designed for seamless interoperation with C. Region-qualified references erase to raw pointers at code generation, so there is no ABI difference between SafeC and C at the binary level.
 
-## Extern Declarations
+## Extern Declarations {#extern-declarations}
 
 C functions are declared using `extern` with raw C types. Region qualifiers must not appear in extern signatures:
 
@@ -13,7 +13,7 @@ extern void free(void *ptr);
 extern int open(const char *path, int flags);
 ```
 
-## Native C Header Import
+## Native C Header Import {#native-c-header-import}
 
 SafeC can directly import standard C headers. The compiler invokes `clang -ast-dump=json` behind the scenes to extract function and typedef declarations:
 
@@ -50,7 +50,7 @@ Enum typedefs are converted to `typedef int name;`.
 
 To disable native header import, pass `--no-import-c-headers`.
 
-## References to Raw Pointers
+## References to Raw Pointers {#references-to-raw-pointers}
 
 Every reference converts to the matching raw pointer (`&T` to `T*`) implicitly, whatever its region — `&static`, `&stack`, `&heap`, `&arena<R>` or region-less `&T`/`?&T`. A region is a compile-time fact about where the data lives; at the C boundary it simply erases. So a SafeC function that wraps a C call takes references and hands them straight to the `extern`:
 
@@ -73,7 +73,7 @@ Converting to an untyped `void*` works the same way for every reference except `
 
 What the compiler can't check is what C does with the pointer afterwards. If the C side keeps it past the call — a registered callback context, an opaque handle — pass data that outlives that use (`&static`, heap, or an arena that isn't reset meanwhile).
 
-### `&static T`
+### `&static T` {#static-t}
 
 Static data lives for the entire program, so it is always safe to hand to C, even when C keeps it:
 
@@ -93,7 +93,7 @@ file-scope `static const &char greeting = "...";` fails to compile
 it as a local `static` inside a function instead, as shown above.
 :::
 
-### `&T` / `?&T` (No Region)
+### `&T` / `?&T` (No Region) {#t-t-no-region}
 
 A reference with **no region qualifier at all** — `&T` (non-nullable) or
 `?&T` (nullable) — is the natural type for a pointer meant to cross the
@@ -130,7 +130,7 @@ grammar as `?&stack T`/`?&heap T`/etc — `match`, `is_null()`,
 `.default(fallback)`, or an `unsafe`-gated `!`. See
 [Safety](/reference/safety) for that grammar.
 
-## Raw Pointers from C
+## Raw Pointers from C {#raw-pointers-from-c}
 
 A raw pointer coming back from C converts implicitly to a nullable reference, `?&T` — any pointee type, including from `void*` — which you then narrow with `match` like any other `?&T`. Turning it into a non-null `&T` directly needs `unsafe`, because only you know C didn't return null.
 
@@ -155,7 +155,7 @@ void example() {
 }
 ```
 
-## Passing Callbacks to C
+## Passing Callbacks to C {#passing-callbacks-to-c}
 
 C libraries that take function pointer callbacks work naturally because SafeC functions have C-compatible calling conventions:
 
@@ -174,7 +174,7 @@ void sort_array(&int first, long n) {
 }
 ```
 
-## Struct Layout Compatibility
+## Struct Layout Compatibility {#struct-layout-compatibility}
 
 SafeC structs use C-compatible layout by default. This means you can pass SafeC structs to C functions and receive C structs without any conversion:
 
@@ -194,7 +194,7 @@ void example() {
 }
 ```
 
-## Zero-Cost Abstraction
+## Zero-Cost Abstraction {#zero-cost-abstraction}
 
 Region qualifiers are a compile-time-only concept. At the LLVM IR level:
 - `&stack int` is just `i32*`
@@ -204,7 +204,7 @@ Region qualifiers are a compile-time-only concept. At the LLVM IR level:
 
 References carry `nonnull` and `noalias` LLVM attributes where applicable, enabling better optimization, but there is no runtime metadata or fat pointer overhead.
 
-## FFI Rules Summary
+## FFI Rules Summary {#ffi-rules-summary}
 
 | Scenario | Requires `unsafe`? |
 |----------|-------------------|

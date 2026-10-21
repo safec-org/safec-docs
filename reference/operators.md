@@ -2,9 +2,9 @@
 
 SafeC supports the full set of C operators plus SafeC-specific extensions for overflow control. This page is a complete reference for all operators, their precedence, and associativity.
 
-## Arithmetic Operators
+## Arithmetic Operators {#arithmetic-operators}
 
-### Binary Arithmetic
+### Binary Arithmetic {#binary-arithmetic}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -14,14 +14,14 @@ SafeC supports the full set of C operators plus SafeC-specific extensions for ov
 | `/` | Division | `a / b` |
 | `%` | Modulo (remainder) | `a % b` |
 
-### Unary Arithmetic
+### Unary Arithmetic {#unary-arithmetic}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
 | `+x` | Unary plus (identity) | `+a` |
 | `-x` | Unary negation | `-a` |
 
-### Increment and Decrement
+### Increment and Decrement {#increment-and-decrement}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -38,7 +38,7 @@ int c = --x;   // x is 6, c is 6
 int d = x--;   // d is 6, x is 5
 ```
 
-### Overflow-Aware Arithmetic
+### Overflow-Aware Arithmetic {#overflow-aware-arithmetic}
 
 SafeC adds operator variants for explicit overflow control. See [Overflow Operators](/reference/overflow) for detailed usage.
 
@@ -51,16 +51,16 @@ SafeC adds operator variants for explicit overflow control. See [Overflow Operat
 | `-%` | Saturating subtraction | Clamp to min/max |
 | `*%` | Saturating multiplication | Clamp to min/max |
 
-## Assignment Operators
+## Assignment Operators {#assignment-operators}
 
-### Simple Assignment
+### Simple Assignment {#simple-assignment}
 
 ```c
 int x = 42;
 x = 100;
 ```
 
-### Compound Assignment
+### Compound Assignment {#compound-assignment}
 
 Compound assignment operators combine an arithmetic or bitwise operation with assignment. `a op= b` is equivalent to `a = a op b`.
 
@@ -91,7 +91,7 @@ flags |= 0x00F0;    // flags is 0x0FF0
 flags ^= 0x0FF0;    // flags is 0x0000
 ```
 
-## Comparison Operators
+## Comparison Operators {#comparison-operators}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -104,7 +104,7 @@ flags ^= 0x0FF0;    // flags is 0x0000
 
 All comparison operators return `bool`.
 
-## Logical Operators
+## Logical Operators {#logical-operators}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -125,7 +125,7 @@ unsafe {
 }
 ```
 
-## Bitwise Operators
+## Bitwise Operators {#bitwise-operators}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -150,7 +150,7 @@ uint32_t not_result = ~flags;         // all bits flipped
 uint32_t shifted = 1 << 4;           // 16 (bit 4 set)
 ```
 
-## Member Access Operators
+## Member Access Operators {#member-access-operators}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -183,7 +183,7 @@ double Point::length() const {
 }
 ```
 
-## Subscript Operator
+## Subscript Operator {#subscript-operator}
 
 Array and slice indexing uses `[]`. Accesses are bounds-checked in safe contexts.
 
@@ -195,7 +195,7 @@ int x = arr[2];              // 30 (bounds-checked)
 int y = s[0];                // 20 (bounds-checked via slice length)
 ```
 
-## Ternary Operator
+## Ternary Operator {#ternary-operator}
 
 The conditional (ternary) operator evaluates one of two expressions based on a condition:
 
@@ -213,7 +213,7 @@ const &char label = (count == 1) ? "item" : "items";
 
 The ternary operator has very low precedence — use parentheses around complex conditions for clarity.
 
-## Comma Operator
+## Comma Operator {#comma-operator}
 
 Works like C: `(e1, e2, ..., eN)` evaluates every operand left to right
 for its side effects, and the whole expression's type and value are the
@@ -241,7 +241,7 @@ for (int i = 0, j = 10; i < j; i++, j--) {
 int a, b = 5, c;   // a and c uninitialized, b == 5
 ```
 
-## Address-of and Dereference
+## Address-of and Dereference {#address-of-and-dereference}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -256,7 +256,7 @@ int y = *ref;                // dereference: y is 42
 
 See [Memory & Regions](/reference/memory) for region-qualified reference details.
 
-## Type-Related Operators
+## Type-Related Operators {#type-related-operators}
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -276,7 +276,7 @@ long a = alignof(double);    // 8 (platform-dependent)
 
 See [Compile-Time Introspection](/advanced/introspection) for `typeof`, `fieldcount`, and `sizeof...`.
 
-## Operator Precedence
+## Operator Precedence {#operator-precedence}
 
 From highest to lowest precedence:
 
@@ -298,7 +298,7 @@ From highest to lowest precedence:
 | 14 | `=` `+=` `-=` `*=` `/=` `%=` `&=` `^=` `\|=` `<<=` `>>=` | Right-to-left |
 | 15 (lowest) | `,` | Left-to-right |
 
-## Operator Overloading
+## Operator Overloading {#operator-overloading}
 
 Struct types can overload binary operators by defining methods named `operator+`, `operator-`, etc. See [Functions](/reference/functions) for details.
 

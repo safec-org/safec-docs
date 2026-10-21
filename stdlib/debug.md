@@ -16,7 +16,7 @@ The SafeC compiler also emits DWARF debug information when invoked with `--g`:
 
 ---
 
-## perf — Hardware Performance Counters
+## perf — Hardware Performance Counters {#perf-hardware-performance-counters}
 
 ```c
 #include <std/debug/perf.h>
@@ -24,7 +24,7 @@ The SafeC compiler also emits DWARF debug information when invoked with `--g`:
 
 `PerfCounter` reads architecture-specific cycle counters for sub-microsecond timing.
 
-### Cycle sources
+### Cycle sources {#cycle-sources}
 
 | Architecture | Instruction |
 |---|---|
@@ -33,7 +33,7 @@ The SafeC compiler also emits DWARF debug information when invoked with `--g`:
 | RISC-V | `csrr %0, cycle` |
 | Other | 0 (no hardware counter) |
 
-### Struct
+### Struct {#struct}
 
 ```c
 struct PerfCounter {
@@ -48,7 +48,7 @@ struct PerfCounter {
 }
 ```
 
-### Constructor
+### Constructor {#constructor}
 
 ```c
 PerfCounter perf_counter_init();
@@ -58,16 +58,16 @@ PerfCounter perf_counter_init();
 
 **Freestanding**: sets `freq_hz = 0`; `ns()` returns 0.
 
-### One-shot reads
+### One-shot reads {#one-shot-reads}
 
 ```c
 unsigned long long perf_read_cycle();   // raw cycle counter for this arch
-unsigned long long perf_read_ns();      // nanoseconds; 0 on freestanding without a known frequency
+unsigned long long perf_read_ns();      // hosted: time_mono_ns(); 0 on freestanding
 ```
 
 `PERF_BEGIN(ctr)` / `PERF_END(ctr)` wrap `ctr.start()` / `ctr.stop()` in [compat preprocessor mode](/reference/preprocessor).
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/debug/perf.h>
@@ -89,7 +89,7 @@ int main() {
 
 ---
 
-## coverage — Source-Level Code Coverage
+## coverage — Source-Level Code Coverage {#coverage-source-level-code-coverage}
 
 ```c
 #include <std/debug/coverage.h>
@@ -97,14 +97,14 @@ int main() {
 
 Instruments call sites with a single macro. Tracks how many times each site was reached. 1024 sites maximum.
 
-### Global instance
+### Global instance {#global-instance}
 
 ```c
 extern struct Coverage coverage;
 void coverage_init();  // zero all sites (call at program start)
 ```
 
-### Struct
+### Struct {#struct-1}
 
 ```c
 struct CovSite {
@@ -127,7 +127,7 @@ struct Coverage {
 }
 ```
 
-### COV_SITE() macro
+### COV_SITE() macro {#cov_site-macro}
 
 Place `COV_SITE();` at any point you want to instrument. It registers once (via a `static int` guard) and increments the counter on every call:
 
@@ -140,7 +140,7 @@ int clamp(int v, int lo, int hi) {
 }
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/debug/coverage.h>
@@ -177,7 +177,7 @@ coverage: 100
 
 ---
 
-## jtag — Hardware Debug Helpers
+## jtag — Hardware Debug Helpers {#jtag-hardware-debug-helpers}
 
 ```c
 #include <std/debug/jtag.h>
@@ -185,7 +185,7 @@ coverage: 100
 
 Arch-conditional breakpoints, semihosting, and Cortex-M ITM stimulus port output. Useful during early bring-up when a UART is not yet available.
 
-### Breakpoints
+### Breakpoints {#breakpoints}
 
 ```c
 void debug_break();
@@ -200,7 +200,7 @@ Emits the native breakpoint instruction:
 | x86-64 | `int3` |
 | RISC-V | `ebreak` |
 
-### Semihosting (ARM / AArch64)
+### Semihosting (ARM / AArch64) {#semihosting-arm-aarch64}
 
 Semihosting lets a Cortex-M or Cortex-A target send output to the host debugger (J-Link, OpenOCD) via the debug connection — no UART needed.
 
@@ -211,7 +211,7 @@ void debug_semihost_putc(char c);         // SYS_WRITEC — single character
 
 These are **no-ops** on x86-64 and RISC-V.
 
-### ITM Stimulus Ports (Cortex-M only)
+### ITM Stimulus Ports (Cortex-M only) {#itm-stimulus-ports-cortex-m-only}
 
 Registers at `ITM_STIMULUS_BASE` (`0xE0000000`) and `ITM_TCR_BASE` (`0xE0000E80`).
 
@@ -225,7 +225,7 @@ void itm_put32(unsigned char port, unsigned int word);    // write 32-bit word
 
 `itm_putc` and `itm_put32` poll until the stimulus register is ready (bit 0 == 1) before writing. They are no-ops if the ITM is not enabled or the port is not enabled.
 
-### DBG_ASSERT
+### DBG_ASSERT {#dbg_assert}
 
 ```c
 DBG_ASSERT(cond);
@@ -234,7 +234,7 @@ DBG_ASSERT(cond);
 
 A function-like macro, so it exists only in [compat preprocessor mode](/reference/preprocessor). In safe mode write `if (!cond) { std::debug_break(); }`.
 
-### Example
+### Example {#example-2}
 
 ```c
 #include <std/debug/jtag.h>

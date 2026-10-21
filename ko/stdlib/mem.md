@@ -195,8 +195,8 @@ int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if 
 
 // locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
 generic<T> void mem_prefetch(const &T addr, int write, int locality);
-generic<T> void mem_clflush(const &T addr);              // flush the line holding addr (x86 CLFLUSH; no-op elsewhere)
-generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero, then flush, so the bytes leave the cache
+generic<T> void mem_clflush(const &T addr);              // write back + invalidate addr's line (x86 CLFLUSH, AArch64 DC CIVAC; else no-op)
+generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero with volatile stores the optimizer can't remove
 ```
 
 주소 산술 헬퍼는 일반 `unsigned long` 주소를 받고, 나머지는 위의 `safe_mem*` 함수들처럼 영역의 첫 바이트에 대한 참조를 받습니다.

@@ -2,9 +2,9 @@
 
 SafeC includes a preprocessor that supports a safe subset of C preprocessing directives. By default, it operates in **safe mode**, which restricts features that lead to hard-to-debug macro issues. A compatibility mode is available for full C macro support.
 
-## Directives
+## Directives {#directives}
 
-### `#include`
+### `#include` {#include}
 
 Include other SafeC files or C headers:
 
@@ -19,7 +19,7 @@ System C headers are imported natively via the `CHeaderImporter`, which extracts
 
 Use `-I <dir>` to add include search paths.
 
-### `#define` (Object-Like)
+### `#define` (Object-Like) {#define-object-like}
 
 Object-like macros define simple text substitutions:
 
@@ -48,7 +48,7 @@ T max(T a, T b) {
 }
 ```
 
-### `#undef`
+### `#undef` {#undef}
 
 Remove a previously defined macro:
 
@@ -58,7 +58,7 @@ Remove a previously defined macro:
 #undef FEATURE_X
 ```
 
-### `#pragma once`
+### `#pragma once` {#pragma-once}
 
 Prevent a header from being included multiple times:
 
@@ -68,9 +68,9 @@ Prevent a header from being included multiple times:
 // header contents...
 ```
 
-## Conditional Compilation
+## Conditional Compilation {#conditional-compilation}
 
-### `#ifdef` / `#ifndef`
+### `#ifdef` / `#ifndef` {#ifdef-ifndef}
 
 Test whether a macro is defined:
 
@@ -84,7 +84,7 @@ Test whether a macro is defined:
 #endif
 ```
 
-### `#if` / `#elif` / `#else` / `#endif`
+### `#if` / `#elif` / `#else` / `#endif` {#if-elif-else-endif}
 
 General conditional compilation with constant expressions:
 
@@ -98,7 +98,7 @@ General conditional compilation with constant expressions:
 #endif
 ```
 
-### Nesting
+### Nesting {#nesting}
 
 Conditional blocks can be nested:
 
@@ -129,9 +129,9 @@ Conditional blocks can be nested:
 
 Unlike C, SafeC deliberately omits `__TIME__` and `__DATE__` to support reproducible builds.
 
-## Command-Line Flags
+## Command-Line Flags {#command-line-flags}
 
-### `-D <name>[=value]`
+### `-D <name>[=value]` {#-d-namevalue}
 
 Define a macro from the command line:
 
@@ -139,7 +139,7 @@ Define a macro from the command line:
 ./build/safec program.sc -D DEBUG -D MAX_SIZE=2048 --emit-llvm -o program.ll
 ```
 
-### `-I <dir>`
+### `-I <dir>` {#-i-dir}
 
 Add an include search directory:
 
@@ -147,17 +147,17 @@ Add an include search directory:
 ./build/safec program.sc -I ./include -I ../lib/include --emit-llvm -o program.ll
 ```
 
-### `--no-import-c-headers`
+### `--no-import-c-headers` {#--no-import-c-headers}
 
 Disable the native C header import mechanism. With this flag, `#include <stdio.h>` will not invoke clang for AST extraction. You must provide `extern` declarations manually.
 
-### `--compat-preprocessor`
+### `--compat-preprocessor` {#--compat-preprocessor}
 
 Enable compatibility mode with full C preprocessor features (see below).
 
-## Safe Mode vs Compatibility Mode
+## Safe Mode vs Compatibility Mode {#safe-mode-vs-compatibility-mode}
 
-### Safe Mode (Default)
+### Safe Mode (Default) {#safe-mode-default}
 
 The default preprocessor mode restricts features that are common sources of bugs in C:
 
@@ -171,7 +171,7 @@ The default preprocessor mode restricts features that are common sources of bugs
 | `#ifdef` / `#if` | Allowed | Conditional compilation is necessary |
 | `#pragma once` | Allowed | Header guard |
 
-### Compatibility Mode (`--compat-preprocessor`)
+### Compatibility Mode (`--compat-preprocessor`) {#compatibility-mode---compat-preprocessor}
 
 When working with legacy C code or headers that require full macro support, enable compatibility mode:
 
@@ -187,7 +187,7 @@ In compatibility mode, function-like macros, token pasting, and stringification 
 #endif
 ```
 
-## Compile-Time Alternatives
+## Compile-Time Alternatives {#compile-time-alternatives}
 
 SafeC provides first-class language features that replace most preprocessor use cases:
 
@@ -205,7 +205,7 @@ Using language-level constructs instead of macros provides:
 - **Debuggability**: no invisible text substitution
 - **IDE support**: go-to-definition, rename, hover all work correctly
 
-## Example
+## Example {#example}
 
 ```c
 #pragma once

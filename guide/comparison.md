@@ -6,7 +6,7 @@ title: Comparison
 
 SafeC occupies a specific point in the design space of systems programming languages. This page compares it with C, C++, Rust, and Zig across the dimensions that matter most for low-level, safety-critical, and real-time systems.
 
-## Feature Comparison
+## Feature Comparison {#feature-comparison}
 
 | Feature | C | C++ | Rust | Zig | SafeC |
 |---|---|---|---|---|---|
@@ -25,11 +25,11 @@ SafeC occupies a specific point in the design space of systems programming langu
 
 The "Memory Safety" row above is necessarily a single yes/no — see [Formal Safety Model's memory-safety comparison](/advanced/safety-model#memory-safety-compared-to-c-c-rust-and-zig) for a property-by-property breakdown (spatial safety, use-after-free, double-free, null safety, data races, ...) of what each language actually checks, and whether that checking happens at compile time, at runtime, or as an opt-in build mode.
 
-## Compared to C
+## Compared to C {#compared-to-c}
 
 SafeC is a superset of C. Valid C patterns work in SafeC, but SafeC adds compile-time safety checks that C lacks.
 
-### What SafeC adds
+### What SafeC adds {#what-safec-adds}
 
 **Region-annotated references** prevent dangling pointers and use-after-free:
 
@@ -82,7 +82,7 @@ int x = 10;
 // Use: generic<T> T max(T a, T b) instead
 ```
 
-### What stays the same
+### What stays the same {#what-stays-the-same}
 
 - Struct layout is identical
 - Calling convention is identical
@@ -91,15 +91,15 @@ int x = 10;
 - C headers work via `#include`
 - Object files link together
 
-### Migration path
+### Migration path {#migration-path}
 
 You can adopt SafeC one file at a time. Rename `.c` to `.sc`, fix the diagnostics the compiler reports, and link the resulting object alongside your existing C objects. No wrapper layer, no binding generator.
 
-## Compared to C++
+## Compared to C++ {#compared-to-c-1}
 
 C++ and SafeC solve similar problems — adding safety and abstraction to C — but with fundamentally different philosophies about hidden behavior.
 
-### Hidden costs in C++
+### Hidden costs in C++ {#hidden-costs-in-c}
 
 ```cpp
 // C++: how many function calls happen here?
@@ -121,7 +121,7 @@ int greet(const &String name, &String out) {
 }
 ```
 
-### No implicit special member functions
+### No implicit special member functions {#no-implicit-special-member-functions}
 
 C++ generates constructors, destructors, copy/move operators implicitly. SafeC does not. Struct creation is always aggregate initialization or field-by-field assignment. Cleanup is always explicit.
 
@@ -140,7 +140,7 @@ b.size = 1024UL;
 defer { std::dealloc(b.data); }
 ```
 
-### No exceptions
+### No exceptions {#no-exceptions}
 
 C++ exceptions add hidden control flow paths, stack unwinding machinery, and unpredictable timing. SafeC has no exception mechanism. Errors are returned as values:
 
@@ -153,21 +153,21 @@ if (result != 0) {
 }
 ```
 
-### No RTTI or virtual dispatch
+### No RTTI or virtual dispatch {#no-rtti-or-virtual-dispatch}
 
 SafeC has no `virtual` functions, no `dynamic_cast`, no vtables. Polymorphism is achieved through generics (monomorphized at compile time) or function pointers (explicit) — see [Polymorphism & OOP](/reference/polymorphism) for the full picture, including `fn_eval` (vtable-free per-type method resolution) and how to build explicit runtime dispatch when you need it.
 
-### What SafeC keeps from C++
+### What SafeC keeps from C++ {#what-safec-keeps-from-c}
 
 - Struct methods (with `self` instead of `this`)
 - Operator overloading (explicit, opt-in)
 - Generics (via monomorphization, not templates)
 
-## Compared to Rust
+## Compared to Rust {#compared-to-rust}
 
 Rust and SafeC share the goal of memory safety without garbage collection, but they achieve it through different mechanisms.
 
-### Ownership vs Regions
+### Ownership vs Regions {#ownership-vs-regions}
 
 Rust tracks **ownership transfer**: a value has one owner at a time, and ownership can be moved or borrowed.
 
@@ -198,7 +198,7 @@ process(v);
 // v is still accessible — no ownership transfer
 ```
 
-### No lifetime elision — because there's no lifetime parameter to elide
+### No lifetime elision — because there's no lifetime parameter to elide {#no-lifetime-elision-because-there-s-no-lifetime-parameter-to-elide}
 
 Rust elides lifetimes in common cases like `fn first(s: &str) -> &str`, inferring that the returned borrow's lifetime is tied to `s`'s. SafeC doesn't have an equivalent to elide, because it doesn't have lifetime *parameters* at all — regions are a fixed, closed set (`stack`, `heap`, `arena<R>`, `static`, and the region-less `&T`/`?&T` form that opts out of tracking one), not per-call-site-inferred spans. The practical consequence is stricter than "annotations are always explicit": **a `&stack` reference can never be returned from a function, full stop** — not even the caller's own stack reference handed right back. `longest`'s Rust signature (`fn longest<'a>(a: &'a str, b: &'a str) -> &'a str`) has no direct SafeC equivalent for `&stack` parameters, because there's no lifetime variable `'a` to tie the return value to — the closest fit is a region-less `&str` return, which sidesteps the question by not tracking a specific lifetime at all rather than inferring one.
 
@@ -223,7 +223,7 @@ region Pool { capacity: 8192 }
 
 This is the same trade-off [Region-Based Safety Model](/guide/design#region-based-safety-model) describes: SafeC is more permissive than Rust for arena-shaped code (no borrow-checker fights over cyclic/shared arena references) and strictly more restrictive for stack references (no lifetime inference means no way to prove a returned stack reference is safe, so it's disallowed outright rather than requiring an annotation).
 
-### No borrow checker "fights"
+### No borrow checker "fights" {#no-borrow-checker-fights}
 
 Rust's borrow checker is powerful but can reject valid programs, particularly those involving self-referential structures, graph data structures, or arena allocation patterns. SafeC's region model is more permissive for these patterns:
 
@@ -237,7 +237,7 @@ a.next = b;  // both references coexist — arena guarantees validity
 b.prev = a;  // cyclic references are fine within the same arena
 ```
 
-### C ABI by default
+### C ABI by default {#c-abi-by-default}
 
 Rust requires `extern "C"` and `#[repr(C)]` annotations for C interop. SafeC uses C ABI by default:
 
@@ -264,7 +264,7 @@ struct Point {
 extern void c_process_point(const Point* p);
 ```
 
-### Different trade-offs
+### Different trade-offs {#different-trade-offs}
 
 | Aspect | Rust | SafeC |
 |---|---|---|
@@ -276,11 +276,11 @@ extern void c_process_point(const Point* p);
 | Self-referential structs | Difficult (Pin, unsafe) | Natural (arena regions) |
 | Async | Built-in (async/await) | Not built-in (pthreads, channels) |
 
-## Compared to Zig
+## Compared to Zig {#compared-to-zig}
 
 Zig and SafeC share the philosophy of zero hidden cost and explicit control, but differ in their memory models and compile-time systems.
 
-### Allocators vs Regions
+### Allocators vs Regions {#allocators-vs-regions}
 
 Zig passes allocators as function parameters. The caller decides where memory comes from. SafeC uses region types that encode the memory source in the type system.
 
@@ -302,7 +302,7 @@ region Audio { capacity: 65536 }
 
 Zig's approach is more flexible (any allocator can be swapped in). SafeC's approach provides compile-time safety guarantees (the compiler verifies region lifetimes).
 
-### comptime vs consteval
+### comptime vs consteval {#comptime-vs-consteval}
 
 Both languages emphasize compile-time computation, but with different mechanisms:
 
@@ -330,7 +330,7 @@ static_assert(fib10 == 55, "fibonacci broken");
 
 Zig's `comptime` is more general (it can operate on types, generate code). SafeC's `consteval` is more focused (compile-time value computation and branch elimination).
 
-### Preprocessor
+### Preprocessor {#preprocessor}
 
 Zig has no preprocessor. SafeC has a disciplined preprocessor subset that allows safe macros while rejecting dangerous patterns:
 
@@ -347,7 +347,7 @@ Zig has no preprocessor. SafeC has a disciplined preprocessor subset that allows
 // #define SQUARE(x) ((x) * (x))  // function-like macros
 ```
 
-### Error handling
+### Error handling {#error-handling}
 
 Zig uses error unions and `try`/`catch`. SafeC uses return values:
 
@@ -370,7 +370,7 @@ int readFile(const &char path, &char buf, int bufLen) {
 }
 ```
 
-## When to Choose SafeC
+## When to Choose SafeC {#when-to-choose-safec}
 
 SafeC is a strong fit when:
 
@@ -388,7 +388,7 @@ SafeC may not be the best fit when:
 - You need async/await for high-concurrency network services
 - Your team is already productive in Rust or Zig
 
-## Summary
+## Summary {#summary}
 
 | | C | C++ | Rust | Zig | SafeC |
 |---|---|---|---|---|---|
@@ -401,7 +401,7 @@ SafeC may not be the best fit when:
 
 SafeC's position: **the safety of Rust, the transparency of C, the interop of neither-having-to-change**.
 
-## Next Steps
+## Next Steps {#next-steps}
 
 - [Types](/reference/types) — Learn the SafeC type system
 - [Memory and Regions](/reference/memory) — Deep dive into region-based memory safety

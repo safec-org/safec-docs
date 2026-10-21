@@ -26,7 +26,7 @@ int main(void) {
 }
 ```
 
-## Unit Testing (`test/test.h`)
+## Unit Testing (`test/test.h`) {#unit-testing-testtesth}
 
 `TestSuite` (via `test_suite_init()`, capacity `TEST_MAX` = 256 cases):
 `add(name, func)` (`func`: `fn void()`), `run()` (executes every
@@ -51,7 +51,7 @@ call it directly.
 
 Test names are truncated to `TEST_NAME_MAX` (64) characters.
 
-## Benchmarking (`test/bench.h`)
+## Benchmarking (`test/bench.h`) {#benchmarking-testbenchh}
 
 `BenchSuite` (via `bench_suite_init()`, capacity `BENCH_MAX` = 64 cases):
 `bench_add(&suite, name, func, arg, iters)` registers a case — `func` is
@@ -77,7 +77,7 @@ void bench() {
 
 Benchmark names are truncated to `BENCH_NAME_MAX` (64) characters.
 
-## Fuzzing (`test/fuzz.h`)
+## Fuzzing (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
 `FuzzTarget` (via `fuzz_target_init(func, iters)`, `func`:
 `fn void(const &unsigned char data, unsigned long size)`) — a

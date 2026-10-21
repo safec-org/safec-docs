@@ -11,13 +11,13 @@
 
 ---
 
-## Pipe — Anonymous Pipes
+## Pipe — Anonymous Pipes {#pipe-anonymous-pipes}
 
 The simplest form of hosted IPC: a one-way byte stream with a read end and a write end, most commonly used for parent/child communication — a spawned child process inherits the pipe's fds/handles, or they're wired to its stdin/stdout (that wiring itself is out of scope for this module, which only creates and operates the pipe).
 
 Handles are `long long` uniformly across platforms: a POSIX pipe fd fits directly; a Windows pipe `HANDLE` (a pointer-sized value) is stored via the same pointer-to-integer convention `std/thread.h`'s OS-thread handles already use. Two backends, picked the same way `std/sched/reactor.h`'s are: `pipe_posix.sc` (macOS, iOS, Linux, Android, FreeBSD — `pipe()` is identical across all of these) and `pipe_win32.sc` (`CreatePipe`/`ReadFile`/`WriteFile`/`CloseHandle`).
 
-### Struct
+### Struct {#struct}
 
 ```c
 struct Pipe {
@@ -45,7 +45,7 @@ int  pipe_close_read(&Pipe p);
 int  pipe_close_write(&Pipe p);
 ```
 
-### Example
+### Example {#example}
 
 ```c
 #include <std/ipc/pipe.h>
@@ -74,7 +74,7 @@ This example writes and reads within a single process/thread to keep it self-con
 
 ---
 
-## UDS — Unix Domain Sockets
+## UDS — Unix Domain Sockets {#uds-unix-domain-sockets}
 
 Named, addressable IPC between *unrelated* processes (unlike `Pipe`'s anonymous pipes, which only work between a process and something that already has the fds — typically a `fork()`'d child): any process that knows the filesystem path can connect, the same way any process that knows a TCP port can connect over the network. Deliberately the same non-blocking, `std::Reactor`-pairable shape as `std/sched/io_nb.h`'s `tcp_*_nb` functions — a task calls one of these, gets `EAGAIN`/`EWOULDBLOCK` immediately instead of blocking the whole program, and awaits readiness via `TaskScheduler::await_fd(fd, SCHED_READ/SCHED_WRITE)` instead.
 
@@ -84,7 +84,7 @@ Windows has no `AF_UNIX`-domain-socket equivalent in the traditional BSD-sockets
 
 Two backends: `uds_bsd.sc` (macOS, iOS, FreeBSD — `struct sockaddr_un` has a leading 1-byte `sun_len` field) and `uds_linux.sc` (Linux, Android — no `sun_len`, plain 2-byte `sun_family`).
 
-### API
+### API {#api}
 
 ```c
 // socket()+bind()+listen() on 'path', non-blocking. Returns the listening
@@ -109,7 +109,7 @@ int uds_connect_nb(const &char path);
 int uds_unlink(const &char path);
 ```
 
-### Example
+### Example {#example-1}
 
 ```c
 #include <std/ipc/uds.h>

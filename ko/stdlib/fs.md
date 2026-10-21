@@ -115,7 +115,7 @@ struct PartTable {
 }
 
 // LBA 0에서 MBR을 읽는다; 0x55/0xAA 부트 시그니처를 검증한다
-int partition_read(&stack BlockDevice dev, &stack PartTable table_out);
+int partition_read(&BlockDevice dev, &PartTable table_out);
 ```
 
 `get()`은 널 가능(nullable) 참조를 반환합니다 — 필드로 곧장 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑하세요:
@@ -228,14 +228,14 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // 클러스터를 `buf`로 읽어들인다 (bytes_per_cluster 바이트 이상이어야 함).
-    int read_cluster(unsigned long cluster, &unsigned char buf);
+    int read_cluster(unsigned long cluster, &stack unsigned char buf);
 
     // FAT 체인을 따라가 `start_cluster`로부터 위치 `idx`에 있는 클러스터를 찾는다.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
 }
 
 // `lba`에서 시작하는 블록 장치 파티션으로부터 FAT32 컨텍스트를 초기화한다.
-int fat_init(&stack FatCtx ctx, &stack BlockDevice dev, unsigned long lba);
+int fat_init(&FatCtx ctx, &BlockDevice dev, unsigned long lba);
 
 // FAT32 드라이버용 VfsOps — Vfs::mount에 전달되는 'ctx'는 FatCtx*여야 한다.
 struct VfsOps fat_ops();
@@ -290,7 +290,7 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // 블록 `block_no`를 `buf`로 읽어들인다 (block_size 바이트 이상이어야 함).
-    int  read_block(unsigned long block_no, &unsigned char buf);
+    int  read_block(unsigned long block_no, &stack unsigned char buf);
 
     // 아이노드 `ino`를 `inode_out`으로 읽어들인다.
     int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
@@ -302,7 +302,7 @@ struct Ext2Ctx {
 
 // 블록 장치로부터 ext2 컨텍스트를 초기화한다 (장치의 LBA 0로부터
 // 바이트 오프셋 1024에서 슈퍼블록을 읽음; EXT2_SUPER_MAGIC을 검증함).
-int ext2_init(&stack Ext2Ctx ctx, &stack BlockDevice dev);
+int ext2_init(&Ext2Ctx ctx, &BlockDevice dev);
 
 // ext2 드라이버용 VfsOps — Vfs::mount에 전달되는 'ctx'는 Ext2Ctx*여야 한다.
 struct VfsOps ext2_ops();
@@ -340,7 +340,7 @@ struct TmpfsCtx {
 }
 
 // tmpfs 컨텍스트를 초기화한다 (0으로 채움).
-void tmpfs_init(&stack TmpfsCtx ctx);
+void tmpfs_init(&TmpfsCtx ctx);
 
 // tmpfs 드라이버용 VfsOps — Vfs::mount에 전달되는 'ctx'는 TmpfsCtx*여야 한다.
 struct VfsOps tmpfs_ops();

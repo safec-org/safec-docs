@@ -27,7 +27,7 @@ compile-time constant. There's no restriction to "nice" hardware widths —
 [`std::simd`](/stdlib/simd) pick widths that map cleanly onto real vector
 registers (128-bit SSE/NEON/SIMD128, 256-bit AVX2, ...).
 
-## What compiles to what
+## What compiles to what {#what-compiles-to-what}
 
 Nothing architecture-specific is hardcoded in the compiler — `vec<T,N>`
 lowers to portable LLVM vector IR, and each target's own backend does
@@ -60,7 +60,7 @@ model from a real vector register file, and LLVM does not auto-vectorize
 `vec<T,N>` IR into them. They're exposed separately as `std::dsp_*`
 functions — see [Bare-Metal](/reference/baremetal#dsp-extension-cortex-m4-m7).
 
-## Compound initializers
+## Compound initializers {#compound-initializers}
 
 Vector initializers accept exactly `N` positional values — no designators
 (unlike struct/array compound initializers):
@@ -76,7 +76,7 @@ as any other global:
 vec<float, 4> global_v = {10.0, 20.0, 30.0, 40.0};   // fine — literals fold
 ```
 
-## Subscript semantics
+## Subscript semantics {#subscript-semantics}
 
 Reading `v[i]` on a constant index is bounds-checked at compile time (an
 out-of-range constant index is a compile error); a runtime index is
@@ -86,7 +86,7 @@ way an array element is — `v[i]` lowers to `extractelement`/
 `insertelement` against the whole SSA-resident vector value, not a pointer
 computation.
 
-## Loads and stores through pointers
+## Loads and stores through pointers {#loads-and-stores-through-pointers}
 
 Dereferencing a `vec<T, N>` pointer reads or writes all `N` lanes at once:
 
@@ -107,7 +107,7 @@ Such a pointer usually comes from an element address inside an array, which is o
 
 Plain `a * b + c` is never contracted into an FMA, because that changes the rounding. Use `__builtin_fmuladd` where fusing is acceptable, as in dot products and matrix kernels.
 
-## ISA macros and `--target-cpu`
+## ISA macros and `--target-cpu` {#isa-macros-and-target-cpu}
 
 The compiler defines clang's SIMD feature macros from what the target CPU and `--target-features` guarantee:
 
@@ -120,7 +120,7 @@ The compiler defines clang's SIMD feature macros from what the target CPU and `-
 
 `--target-cpu=native` builds for the build machine's CPU with every feature it has, like clang's `-march=native`; `--target-cpu=znver4`, `--target-cpu=skylake-avx512` and so on name one. Without either, x86-64 code targets the baseline (SSE2), and std's hot kernels pick their ISA level at run time instead (see [CPU SIMD levels](/stdlib/simd#cpu-levels)).
 
-## Relationship to `std::simd`
+## Relationship to `std::simd` {#relationship-to-stdsimd}
 
 `vec<T,N>` is the compiler-level building block. [`std::simd`](/stdlib/simd)
 is a portable library built entirely on top of it — type aliases

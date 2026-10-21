@@ -6,9 +6,9 @@ title: Design Philosophy
 
 SafeC is built on a small set of principles that inform every language decision. Understanding these principles explains not just what SafeC does, but why it does it — and why it deliberately omits certain features that other languages consider essential.
 
-## The Five Principles
+## The Five Principles {#the-five-principles}
 
-### 1. Determinism
+### 1. Determinism {#_1-determinism}
 
 **The same input always produces the same output. No hidden runtime variance.**
 
@@ -30,7 +30,7 @@ region SensorPool { capacity: 4096 }
 // (arena memory is pre-reserved at known capacity)
 ```
 
-### 2. Zero Hidden Cost
+### 2. Zero Hidden Cost {#_2-zero-hidden-cost}
 
 **Every operation has a visible, predictable cost.**
 
@@ -49,7 +49,7 @@ process(buf, count);               // passes pointer, no copy
 
 There are no implicit constructors, no implicit destructors, no implicit conversions between unrelated types, and no hidden runtime library calls.
 
-### 3. Explicit Control
+### 3. Explicit Control {#_3-explicit-control}
 
 **No implicit memory, no implicit conversion, no implicit error handling.**
 
@@ -73,7 +73,7 @@ if (result < 0) {
 
 SafeC does not have exceptions. Errors are returned as values. The programmer handles them explicitly at every call site. This makes error propagation paths visible in the source code, not hidden in exception tables.
 
-### 4. C ABI Compatibility
+### 4. C ABI Compatibility {#_4-c-abi-compatibility}
 
 **C struct layout, C calling conventions, C linkage by default.**
 
@@ -101,7 +101,7 @@ int main() {
 
 This means SafeC can be adopted incrementally. You can rewrite one file at a time, linking SafeC objects alongside existing C objects, without changing your build system or rewriting your interfaces.
 
-### 5. Compile-Time-First Design
+### 5. Compile-Time-First Design {#_5-compile-time-first-design}
 
 **Anything knowable at compile time must be resolved at compile time.**
 
@@ -132,7 +132,7 @@ int main() {
 }
 ```
 
-## The Determinism Contract
+## The Determinism Contract {#the-determinism-contract}
 
 These principles combine into a concrete contract. SafeC guarantees the absence of:
 
@@ -147,7 +147,7 @@ These principles combine into a concrete contract. SafeC guarantees the absence 
 
 This contract is not aspirational — it is enforced by the compiler. Code that would violate these guarantees does not compile.
 
-## Region-Based Safety Model
+## Region-Based Safety Model {#region-based-safety-model}
 
 SafeC's approach to memory safety is fundamentally different from Rust's ownership model. Instead of tracking ownership transfer, SafeC tracks **where** memory lives:
 
@@ -183,13 +183,13 @@ Each reference carries its region in the type. The compiler uses this informatio
 
 The region information exists only at compile time. At runtime, references are plain pointers with no metadata, no reference counting, and no indirection.
 
-## Why Not Ownership?
+## Why Not Ownership? {#why-not-ownership}
 
 Rust's ownership model is powerful but imposes a specific programming style. Self-referential structures, arena allocation patterns, and many low-level systems idioms fight against ownership semantics.
 
 SafeC's region model is more permissive in some ways (multiple references into an arena are fine) and more restrictive in others (region annotations are explicit, not elided). The trade-off is intentional: SafeC prioritizes **transparency** over **convenience**. The programmer sees exactly what the compiler sees.
 
-## Why Not Exceptions?
+## Why Not Exceptions? {#why-not-exceptions}
 
 Exceptions hide control flow. In a real-time system, you need to know exactly which paths your code can take and how long each path takes. Exception unwinding is inherently unpredictable in timing and behavior.
 
@@ -213,7 +213,7 @@ int main() {
 }
 ```
 
-## Why Not Classes?
+## Why Not Classes? {#why-not-classes}
 
 Classes in C++ bundle data, behavior, lifetime management, and polymorphism into a single mechanism. This creates implicit costs: constructors run when you declare a variable, destructors run when a scope exits, virtual calls add indirection, and inheritance hierarchies create coupling.
 
@@ -249,7 +249,7 @@ Methods are syntactic sugar for functions with an implicit `self` parameter. At 
 
 See [Polymorphism & OOP](/reference/polymorphism) for every mechanism this stance leaves you with — generics, structural traits, the vtable-free `fn_eval` dispatch primitive, and how to build genuine runtime polymorphism explicitly when you actually need it.
 
-## Unsafe Escape Hatch
+## Unsafe Escape Hatch {#unsafe-escape-hatch}
 
 Safety checks can be selectively disabled inside `unsafe {}` blocks. This is necessary for low-level operations like raw pointer manipulation, hardware register access, and FFI with C libraries that return raw pointers:
 
@@ -262,7 +262,7 @@ unsafe {
 
 The `unsafe` block is a clear signal — both to the compiler and to human readers — that the enclosed code bypasses safety guarantees. It is not a failure of the safety model; it is a deliberate, visible escape hatch for code that inherently cannot be statically verified.
 
-## Summary
+## Summary {#summary}
 
 SafeC's design can be summarized in one sentence:
 
@@ -270,7 +270,7 @@ SafeC's design can be summarized in one sentence:
 
 This is the opposite of the C++ and Rust philosophy, where the compiler is expected to generate substantial invisible code (destructors, drop glue, move constructors, unwinding tables). SafeC trusts the programmer to make explicit decisions and uses compile-time analysis to verify those decisions are safe.
 
-## Next Steps
+## Next Steps {#next-steps}
 
 - [Comparison](/guide/comparison) — See how these principles play out compared to C, C++, Rust, and Zig
 - [Memory and Regions](/reference/memory) — Deep dive into the region-based memory model

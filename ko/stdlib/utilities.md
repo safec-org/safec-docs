@@ -127,6 +127,8 @@ int fenv_save_clear(&unsigned char env);  // save, then clear all flags
 |----------------|-----------------|
 | `FE_TONEAREST()`, `FE_DOWNWARD()`, `FE_UPWARD()`, `FE_TOWARDZERO()` | `FE_INVALID()`, `FE_DIVBYZERO()`, `FE_OVERFLOW()`, `FE_UNDERFLOW()`, `FE_INEXACT()`, `FE_ALL_EXCEPT()` |
 
+값은 대상의 `<fenv.h>` 값이며 아키텍처마다 다릅니다(x86, ARM/AArch64, RISC-V가 각자 다른 값을 씁니다). 숫자 리터럴이 아니라 항상 이 함수들을 전달합니다.
+
 ---
 
 ## fmt — 버퍼로 서식화 {#fmt-formatting-into-buffers}
@@ -309,7 +311,7 @@ int   signal_kill(int pid, int sig);           // to another process
 void  signal_pause();                          // block until a signal arrives
 ```
 
-시그널 번호(POSIX 값): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL`과 `SIG_STOP`은 잡을 수 없습니다.
+시그널 번호(POSIX 값): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL`과 `SIG_STOP`은 잡을 수 없습니다. `SIG_USR1`, `SIG_USR2`, `SIG_CHLD`, `SIG_CONT`, `SIG_STOP`, `SIG_TSTP`는 Linux와 macOS/BSD에서 번호가 다르며, 함수가 대상에 맞는 번호를 반환합니다.
 
 `signal_handle`은 이전 핸들러를 불투명한 `?&void`로 반환합니다. SafeC 함수가 아니라 C 라이브러리의 `SIG_DFL`/`SIG_IGN` 표식일 수 있기 때문입니다.
 

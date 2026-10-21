@@ -30,13 +30,13 @@ Remember that struct *types* aren't namespaced even though the
 constructor functions are — `struct GpioPin`, not `struct std::GpioPin`
 (see [Namespaces](/reference/namespaces#what-gets-namespaced)).
 
-## Generic Peripherals
+## Generic Peripherals {#generic-peripherals}
 
 | Module | Header | Type | Description |
 |---|---|---|---|
 | GPIO | `hal/gpio.h` | `GpioPin` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read` (combined transaction), `probe` |
-| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write`, `read` |
+| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
+| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
 | UART | `hal/uart.h` | `Uart` | `uart_init(base, baud)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` (all polling-based) |
 | Timer | `hal/timer.h` | `Timer` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
 | Watchdog | `hal/watchdog.h` | `Watchdog` | `watchdog_init(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
@@ -49,7 +49,7 @@ for the interrupt-handling side (ISR registration, vector tables, MMIO
 bitfield helpers) if a peripheral needs to signal completion
 asynchronously instead.
 
-## ARM Cortex-M
+## ARM Cortex-M {#arm-cortex-m}
 
 `hal/cortex_m.h` — NVIC, SysTick, SCB as global instances at their
 standard Cortex-M memory-mapped addresses; see
@@ -95,7 +95,7 @@ struct Scb {                       // global instance: scb (scb_init())
 #define SCB_FAULT_MEM    (1u << 16)
 ```
 
-## AArch64
+## AArch64 {#aarch64}
 
 `hal/aarch64.h` — targets ARMv8-A application cores (Cortex-A53/A57/A72/
 A55/A76), distinct from the Cortex-M *microcontroller* HAL above.
@@ -121,7 +121,7 @@ default bases `GIC_DIST_BASE` = `0x08000000` and `GIC_CPU_BASE` =
 pending IRQ number), `eoi()` (end-of-interrupt) and `running_priority()`
 on the CPU interface.
 
-## RISC-V
+## RISC-V {#risc-v}
 
 `hal/riscv.h` — addresses follow the SiFive FE310 / standard RISC-V MMIO
 map.

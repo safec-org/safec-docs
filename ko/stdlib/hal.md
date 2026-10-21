@@ -35,8 +35,8 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 | 모듈 | 헤더 | 타입 | 설명 |
 |---|---|---|---|
 | GPIO | `hal/gpio.h` | `GpioPin` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read`(결합 트랜잭션), `probe` |
-| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write`, `read` |
+| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read`(쓰기 후 읽기), `probe`; 전송이 실패해도 STOP을 보내 버스를 해제합니다 |
+| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)`(`rx`는 `null`일 수 있음), `read` |
 | UART | `hal/uart.h` | `Uart` | `uart_init(base, baud)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready`(모두 폴링 기반) |
 | Timer | `hal/timer.h` | `Timer` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
 | Watchdog | `hal/watchdog.h` | `Watchdog` | `watchdog_init(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |

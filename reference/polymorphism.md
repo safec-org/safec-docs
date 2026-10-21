@@ -4,7 +4,7 @@ SafeC has no classes, no inheritance, and no vtables. That's a deliberate design
 
 This page pulls together every polymorphism-adjacent mechanism SafeC actually has — most already documented individually elsewhere, linked from here — into one map of "coming from C++/Java/Python OOP, what do I reach for." It also documents `fn_eval`, SafeC's vtable-free method-dispatch primitive, which — despite being a fully implemented compiler feature with its own keyword, parser rule, and semantic-analysis pass — had no reference documentation before this page.
 
-## Encapsulation: Structs and Methods
+## Encapsulation: Structs and Methods {#encapsulation-structs-and-methods}
 
 Data and behavior bundle into a struct the same way a class would, minus everything C++ classes bundle in alongside them — see [Design Philosophy](/guide/design#why-not-classes) for the specific list (no implicit constructors/destructors, no hidden `this`, no vtable). A method is sugar for a plain function taking an explicit `self` pointer:
 
@@ -21,7 +21,7 @@ double Point::length() const {
 
 `p.length()` compiles to a direct call `Point_length(&p)` — no indirection. See [Functions](/reference/functions#struct-methods) for the full lowering table and calling-convention details.
 
-## Ad-Hoc Polymorphism: Operator Overloading
+## Ad-Hoc Polymorphism: Operator Overloading {#ad-hoc-polymorphism-operator-overloading}
 
 The same operator name resolves to different behavior per type, the classic definition of ad-hoc polymorphism — scoped to a fixed operator set (`+ - * / % == != < > <= >=`), not general function overloading (SafeC has no overloading by parameter type outside this list):
 
@@ -43,7 +43,7 @@ Vec2 c = a + b;   // calls Vec2_operator+(a, b)
 
 See [Functions](/reference/functions#operator-overloading) and [Operators](/reference/operators#operator-overloading).
 
-## Parametric Polymorphism: Generics
+## Parametric Polymorphism: Generics {#parametric-polymorphism-generics}
 
 The main polymorphism mechanism, and the one the design philosophy singles out as the classes replacement: a `generic<T>` function or struct is fully monomorphized — the compiler emits a separate concrete copy per instantiating type, at compile time, with no runtime type tag and no indirection:
 
@@ -62,7 +62,7 @@ Structs are generic the same way (`generic<T> struct Pair { T first; T second; }
 
 **The load-bearing limitation to know before reaching for generics as your polymorphism story:** monomorphization means there is no such thing as a heterogeneous runtime collection of `generic<T>` values with different `T`s — `Vec<Circle>` and `Vec<Square>` are two unrelated, fully separate emitted types, the same way `std::vector<Circle>` and `std::vector<Square>` are two unrelated C++ template instantiations. If you need one array holding "any shape," see [Manual Dispatch](#manual-dispatch-explicit-vtables) below — that's the honest, explicit way to get it.
 
-## Structural Polymorphism: Traits
+## Structural Polymorphism: Traits {#structural-polymorphism-traits}
 
 A `trait` is a named set of method signatures, satisfied **structurally** ("duck-typed") — no `impl Trait for Type` block, no explicit opt-in. A struct satisfies a trait the moment it defines matching methods:
 
@@ -85,11 +85,11 @@ Conformance is checked at the monomorphization call site, not where the generic 
 
 This is SafeC's closest equivalent to an interface/abstract base class — a trait bound says "any `T` with these methods," checked at compile time, still monomorphized (still no runtime dispatch — every call in a `generic<T: Drawable>` body is a direct call to that instantiation's concrete `draw`).
 
-## Vtable-Free Dynamic Dispatch: `fn_eval`
+## Vtable-Free Dynamic Dispatch: `fn_eval` {#vtable-free-dynamic-dispatch-fn-eval}
 
 Trait bounds get you "call this method on a `T` known to have it." `fn_eval` gets you something a trait bound can't: **the method itself, as a first-class function-pointer value**, resolved per concrete type — without declaring a trait, and without any runtime dispatch machinery. The compiler's own description (from `FnEvalExpr`'s design comment) calls this "vtable-free polymorphism": the source reads like it's picking a method dynamically, but by the time codegen sees it, every call site is a direct function reference.
 
-### Syntax
+### Syntax {#syntax}
 
 ```c
 fn_eval(object, func)
@@ -99,7 +99,7 @@ fn_eval(object, func)
 - `func` must directly name an already-declared **plain function** (not a method) — it's used purely as a name+signature key, and is itself never called. Its name is the method name being looked up; its parameter/return types (self excluded) must match the found method's exactly.
 - The whole expression evaluates to a function-pointer value for `object`'s struct type's method of that name — callable immediately, or stored for later, with the receiver passed explicitly as the first argument (methods have no bound receiver in SafeC — see the lowering table in [Functions](/reference/functions#lowering)).
 
-### Resolution rules
+### Resolution rules {#resolution-rules}
 
 `fn_eval(object, func)` fails to compile (not silently falls back to anything) unless all of the following hold:
 
@@ -113,7 +113,7 @@ fn_eval(object, func)
 | Every parameter type matches, position by position | `parameter N of 'X::Y' is '...', but 'Y' declares '...'` |
 | The return type matches | `'X::Y' returns '...', but 'Y' declares '...'` |
 
-### Generic dispatch, resolved per instantiation
+### Generic dispatch, resolved per instantiation {#generic-dispatch-resolved-per-instantiation}
 
 The design case: call `fn_eval` inside a `generic<T>` function. Each monomorphized instantiation of `T` re-resolves `fn_eval` against its own concrete type — no trait declaration needed, since the check is structural (name + signature) at the point of instantiation, exactly like everything else in generic type-checking:
 
@@ -154,7 +154,7 @@ int main() {
 
 `describe_area` never mentions `Circle` or `Square` by name, and neither type declares conformance to anything — `fn_eval` just asks "does `T` have a method that looks like `area`?" at each instantiation. (Verified: compiles and runs, output `circle=12.5664 square=9.0000`, matching `π·2²` and `3²`.)
 
-### Extracting a method as a stored value
+### Extracting a method as a stored value {#extracting-a-method-as-a-stored-value}
 
 Because `fn_eval` produces an ordinary function-pointer value (not an inline call), it can be assigned to a `fn` variable and invoked later — a genuine "unbound method reference," resolved statically, no closure:
 
@@ -165,7 +165,7 @@ double ca = getArea(&c);   // 12.5664
 
 (Verified: compiles and runs. Note the parameter type in the `fn` declaration is the reference form `&stack const Circle`, not a raw `const Circle*` — `fn_eval`'s result type mirrors how the method's `self` is actually represented in SafeC's own type system, not the lowered-to-C pointer form the [Functions](/reference/functions#lowering) table shows for the *emitted* signature.)
 
-### `fn_eval` vs. the alternatives
+### `fn_eval` vs. the alternatives {#fn-eval-vs-the-alternatives}
 
 | Mechanism | Dispatch resolved | Needs a trait? | Produces a value? | Works across heterogeneous types at runtime? |
 |---|---|---|---|---|
@@ -176,7 +176,7 @@ double ca = getArea(&c);   // 12.5664
 
 Reach for `fn_eval` specifically when you want a generic function to pick up "whatever method named X this particular `T` happens to have" without formalizing a trait for it, or when you need the method as a value to pass around rather than call in place. If you just need to call the method, a trait bound is more conventional and self-documenting. If you need actual runtime dispatch over a mix of types in one collection, neither generics nor `fn_eval` can do that — both are compile-time/monomorphized — see below.
 
-## Closed-Set Polymorphism: Tagged Unions + `match`
+## Closed-Set Polymorphism: Tagged Unions + `match` {#closed-set-polymorphism-tagged-unions-match}
 
 Every `union` in SafeC is tagged (a hidden discriminant, enforced field access), making it a real sum type — the "polymorphism over a known, closed set of variants" style familiar from Rust enums or sealed classes, resolved by exhaustive pattern matching rather than dispatch:
 
@@ -202,7 +202,7 @@ A `match` used as an *expression* must be provably exhaustive (every variant cov
 
 This is the right tool when the set of "shapes" a value can take is fixed and known at the definition site (a `Shape` that's always exactly a circle, square, or triangle) — as opposed to open-ended polymorphism (a `Shape` a downstream user can extend with their own new variant), which is what generics/traits/`fn_eval` are for.
 
-## Nominal Distinctness: Newtype
+## Nominal Distinctness: Newtype {#nominal-distinctness-newtype}
 
 Not dispatch-related, but relevant to "OOP without a shared base class doing the wrong kind of type unification": `newtype` creates a distinct type from a base type, incompatible without an explicit cast — useful for preventing two structurally-identical-but-semantically-different `int`s (a `UserId` and a `PostId`, say) from being accidentally interchangeable the way a plain `typedef` would allow:
 
@@ -273,7 +273,7 @@ int main() {
 
 This is real runtime polymorphism — the loop doesn't know or care whether `shapes[i]` is backed by a `Circle` or a `Square`. The erased fields and the single cast that undoes them live in two short functions, and the generic constructor is what makes that cast sound. It is the pattern the standard library uses wherever one table holds callbacks with different context types: `timer_add` (`std/dsp/timer_wheel.h`), `widget_on_click`, `vfs_mount`, `task_spawn`.
 
-## Quick Reference
+## Quick Reference {#quick-reference}
 
 | Coming from... | Reach for |
 |---|---|
@@ -286,7 +286,7 @@ This is real runtime polymorphism — the loop doesn't know or care whether `sha
 | A sealed class hierarchy / closed enum with data | Tagged `union` + exhaustive `match` |
 | A strongly-typed ID wrapper (`UserId` vs raw `int`) | `newtype` |
 
-## What SafeC Doesn't Have
+## What SafeC Doesn't Have {#what-safec-doesnt-have}
 
 - **No classes, no inheritance, no `virtual`, no vtables** by default — see [Design Philosophy](/guide/design#why-not-classes) and [Comparison](/guide/comparison).
 - **No general function/method overloading** — only the fixed operator set (`+ - * / % == != < > <= >=`) can have multiple type-specific definitions; there's no C++-style "same name, different parameter types" resolution for ordinary functions.

@@ -10,7 +10,7 @@ The non-blocking socket layer underneath (`std/sched/io_nb.h`) has one backend p
 
 Scope: bodies are `Content-Length`-delimited (chunked transfer-encoding is returned undecoded), and there is no TLS — this is plain HTTP. For HTML templating see [scx](/advanced/scx).
 
-## Server
+## Server {#server}
 
 ```c
 struct HttpResponse handle(&HttpRequest req) {
@@ -24,7 +24,7 @@ struct HttpResponse handle(&HttpRequest req) {
 std::http_serve(8080, handle);
 ```
 
-### Multithreading
+### Multithreading {#multithreading}
 
 ```c
 std::http_serve_threaded(8080, handle, /*numThreads=*/4);
@@ -42,14 +42,14 @@ real parallel handling, not serialization.
 
 `http_serve_reactor(port, handler, numThreads)` has the same contract, but each thread runs a non-blocking [`Reactor`](/stdlib/sched) event loop, so one thread serves many connections at once.
 
-## Client
+## Client {#client}
 
 ```c
 int ok;
 struct HttpResponse resp = std::http_get("example.com", 80, "/", &ok);
 ```
 
-### API
+### API {#api}
 
 ```c
 struct HttpResponse {
@@ -100,7 +100,7 @@ const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" o
 
 `ok` is set to 0 on DNS, connect or parse failure; pass `null` if you don't need it.
 
-## CORS
+## CORS {#cors}
 
 ```c
 #include <std/http/cors.h>
@@ -130,7 +130,7 @@ struct HttpResponse cors_preflight_response(const &char allowedOrigin,
                                             const &char allowedHeaders);
 ```
 
-## JWT
+## JWT {#jwt}
 
 ```c
 #include <std/http/jwt.h>
@@ -159,7 +159,7 @@ signature — `exp`/`nbf`/other claim validation is left to the caller.
 Verified against sign→verify round trips, a wrong-secret rejection, and a
 tampered-token rejection.
 
-## OAuth2
+## OAuth2 {#oauth2}
 
 ```c
 #include <std/http/oauth2.h>
@@ -205,7 +205,7 @@ Verified end-to-end against a local mock token endpoint. Building the
 browser-facing `/authorize?...` redirect URL is provider-specific query
 parameters and left to the caller.
 
-## WebSocket
+## WebSocket {#websocket}
 
 ```c
 #include <std/http/websocket.h>
@@ -265,7 +265,7 @@ int main() {
 }
 ```
 
-## RPC
+## RPC {#rpc}
 
 ```c
 #include <std/rpc/rpc.h>
@@ -295,7 +295,7 @@ int  rpc_serve(unsigned short port);
 
 A handler reports failure by returning `ok = 0` with `error_message` set; `rpc_serve` turns it into an HTTP error.
 
-## Server Functions
+## Server Functions {#server-functions}
 
 ```c
 #include <std/rpc/server_fn.h>
@@ -331,7 +331,7 @@ std::value_object_set(&args, "b", std::value_int(3));
 struct Value result = std::server_fn_call("localhost", 8080, "add", &args, &ok);   // 5
 ```
 
-## Reactive Signals
+## Reactive Signals {#reactive-signals}
 
 ```c
 #include <std/reactive/signal.h>
@@ -387,7 +387,7 @@ int main() {
 
 Subscribers with different context types share one list, so each is stored type-erased; `signal_subscribe` only pairs a `fn void(?&U)` with a `?&U`, so every call is checked at compile time (see [Generic Pattern](/stdlib/#generic-pattern)).
 
-## WASM DOM and Hydration
+## WASM DOM and Hydration {#wasm-dom-and-hydration}
 
 ```c
 #include <std/wasm/dom.h>
