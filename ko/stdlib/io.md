@@ -1,8 +1,8 @@
 # io -- 입출력
 
 `io` 모듈은 stdout/stderr로의 포맷된 출력, stdin 입력, 버퍼 포맷팅을
-제공한다. `io_file` 모듈은 FILE\* 기반 파일 I/O를 제공한다. 둘 다
-각각 `io.h`와 `io_file.h`를 통해 포함된다.
+제공합니다. `io_file` 모듈은 FILE\* 기반 파일 I/O를 제공합니다. 둘 다
+각각 `io.h`와 `io_file.h`를 통해 포함됩니다.
 
 ## io -- 콘솔 I/O {#io-console-io}
 
@@ -48,7 +48,7 @@ void eprint_float(double v);
 
 ### 버퍼 포맷팅 {#buffer-formatting}
 
-모두 (NUL을 제외하고) 기록된 문자 수를 반환하거나, 오류 시 -1을 반환한다.
+모두 (NUL을 제외하고) 기록된 문자 수를 반환하거나, 오류 시 -1을 반환합니다.
 
 ```c
 int io_fmt_int(&char buf, int n, long long v);
@@ -72,9 +72,9 @@ int  io_scan_float(&double out);          // stdin에서 부동소수점을 파�
 ```
 
 `io_read_line`은 (NUL을 제외하고) 읽은 문자 수를 반환하거나, EOF/오류
-시 -1을 반환한다.
+시 -1을 반환합니다.
 
-`io_scan_*` 함수들은 성공 시 1, 오류 시 0을 반환한다.
+`io_scan_*` 함수들은 성공 시 1, 오류 시 0을 반환합니다.
 
 ### 파일 시스템 연산 {#file-system-operations}
 
@@ -99,11 +99,11 @@ void flush_stderr();
 #include <std/io_file.h>
 ```
 
-핸들은 불투명 타입에 대한 `&File` 참조다 — 그 아래의 C `FILE`은 결코
-노출되지 않는다. `file_open`은 `?&File`(실패 시 null)을 반환하므로 사용
+핸들은 불투명 타입에 대한 `&File` 참조입니다 — 그 아래의 C `FILE`은 결코
+노출되지 않습니다. `file_open`은 `?&File`(실패 시 null)을 반환하므로 사용
 전에 좁혀야 하며(`match`, `std::expect_ref`), 그 밖의 모든 함수는
-non-null `&File`을 받는다. 바이트 버퍼는 `&unsigned char` /
-`const &unsigned char`다.
+non-null `&File`을 받습니다. 바이트 버퍼는 `&unsigned char` /
+`const &unsigned char`입니다.
 
 ### 열기 / 닫기 {#open-close}
 
