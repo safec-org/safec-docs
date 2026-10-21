@@ -502,7 +502,7 @@ SafeC `std::ml` 테스트 스위트의 학습 워크로드를 라이브러리 �
 
 #### 합성곱과 U-Net {#ml-convolution}
 
-`conv64`는 Conv2D 레이어 하나(64→64 채널, 3×3, stride 1, padding 1, 56×56 맵, 바이어스 포함)이고, U-Net은 `unet_new(3, 32, 64, 3)`의 128×128 순전파(합성곱 다섯 개, 최대 풀링 두 번, 업샘플 + concat 두 번)입니다. SafeC는 [MIOpen과 cuDNN](/ko/stdlib/ml#rocm-miopen-hipfft)으로 돌리며, PyTorch의 `cudnn.benchmark = True`처럼 첫 호출에서 형태마다 알고리즘을 재서 고릅니다. 텐서는 호출 사이에 GPU에 머뭅니다. 모든 행에서 GPU가 이기므로 표는 GPU 구성을 보여 줍니다. SafeC에는 Metal 합성곱이 없으므로, M1 Pro의 SafeC 셀은 이미지 한 장을 도는 CPU 경로입니다(배치 행은 N/A). PyTorch의 셀은 `mps`입니다. 셀은 호출당 ms입니다.
+`conv64`는 Conv2D 레이어 하나(64→64 채널, 3×3, stride 1, padding 1, 56×56 맵, 바이어스 포함)이고, U-Net은 `UNet::new(3, 32, 64, 3)`의 128×128 순전파(합성곱 다섯 개, 최대 풀링 두 번, 업샘플 + concat 두 번)입니다. SafeC는 [MIOpen과 cuDNN](/ko/stdlib/ml#rocm-miopen-hipfft)으로 돌리며, PyTorch의 `cudnn.benchmark = True`처럼 첫 호출에서 형태마다 알고리즘을 재서 고릅니다. 텐서는 호출 사이에 GPU에 머뭅니다. 모든 행에서 GPU가 이기므로 표는 GPU 구성을 보여 줍니다. SafeC에는 Metal 합성곱이 없으므로, M1 Pro의 SafeC 셀은 이미지 한 장을 도는 CPU 경로입니다(배치 행은 N/A). PyTorch의 셀은 `mps`입니다. 셀은 호출당 ms입니다.
 
 | 작업 | 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|

@@ -529,7 +529,7 @@ Bigger models, trained end to end on [`nn_rocm.h`](/stdlib/ml#rocm-training), Sa
 
 #### Convolution and U-Net {#ml-convolution}
 
-`conv64` is one Conv2D layer (64→64 channels, 3×3, stride 1, padding 1, 56×56 maps, plus bias); the U-Net is `unet_new(3, 32, 64, 3)` forward at 128×128 (five convolutions, two max pools, two upsample + concat steps). SafeC runs them through [MIOpen and cuDNN](/stdlib/ml#rocm-miopen-hipfft), choosing each shape's algorithm by timing on the first call, as PyTorch does with `cudnn.benchmark = True`. Tensors stay on the GPU between calls. The GPU wins every row, so the tables show the GPU configurations. SafeC has no Metal convolution, so its M1 Pro cells are its CPU path, which runs one image (N/A for the batched rows). PyTorch's are `mps`. Cells are ms per call.
+`conv64` is one Conv2D layer (64→64 channels, 3×3, stride 1, padding 1, 56×56 maps, plus bias); the U-Net is `UNet::new(3, 32, 64, 3)` forward at 128×128 (five convolutions, two max pools, two upsample + concat steps). SafeC runs them through [MIOpen and cuDNN](/stdlib/ml#rocm-miopen-hipfft), choosing each shape's algorithm by timing on the first call, as PyTorch does with `cudnn.benchmark = True`. Tensors stay on the GPU between calls. The GPU wins every row, so the tables show the GPU configurations. SafeC has no Metal convolution, so its M1 Pro cells are its CPU path, which runs one image (N/A for the batched rows). PyTorch's are `mps`. Cells are ms per call.
 
 | Workload | Framework | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|

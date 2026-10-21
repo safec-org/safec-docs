@@ -28,15 +28,18 @@ a reference of any region) converts to these implicitly, with no
 Stateful types (models, layers, optimizers, data loaders, agents, device
 nets and buffers) are used through [methods](/reference/functions#struct-methods):
 `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
-Constructors are functions named `*_new` (or `*_from_*` / `*_upload` when
-built from another type), since SafeC has no static methods. What every
+Constructors are [static methods](/reference/functions#static-methods):
+`Mlp::new(...)`, `Tensor::new_2d(...)`, `Dataset::moons(...)`,
+`RocmNet::from_mlp(&net, 128UL)`, `TrainConfig::default()`. An operation on
+one tensor is a method of that tensor — `x.relu()`, `logits.log_softmax()`,
+`loss.backward()`, `t.fill(0.0f)` — const unless it changes the tensor in
+place; operations on two tensors stay functions (`tensor_matmul(a, b)`). What every
 model can do — add its parameters to an optimizer, count them, save and
 load them, copy them, train on a built-in loss — is written once as
 generic functions over [traits](#modules) the models satisfy:
 `model_add_params(&net, &opt)`, `model_save_file(&net, path)`,
-`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. Tensor math stays
-functions (`tensor_matmul(a, b)`), and so do the step functions passed to
-`rocm_trainer_fit` as values (`rocm_net_ce_step`).
+`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. The step functions
+passed to `rocm_trainer_fit` as values (`rocm_net_ce_step`) stay functions.
 
 ---
 
@@ -53,13 +56,13 @@ ergonomics: build a computation graph implicitly by calling ops on
 and mixed-precision training, see [Half-precision tensors](#half-precision-tensors).
 
 ```c
-&Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
-&Tensor y = tensor_sum(tensor_mul(x, x));  // y = sum(x^2)
+&Tensor x = Tensor::from_1d(values, 3UL, /*requiresGrad=*/1);
+&Tensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
 y.backward();                               // x.grad now holds 2x
 ```
 
-Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/`tensor_matmul`/
-`tensor_relu`/`tensor_sum`. Verified against hand-computed gradients and a
+Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`Tensor::scale`/`tensor_matmul`/
+`Tensor::relu`/`Tensor::sum`. Verified against hand-computed gradients and a
 real finite-difference check on a matmul→relu→sum chain.
 
 `tensor_matmul` and its backward pass run on [`sgemm`](/stdlib/simd#gemm):
@@ -95,19 +98,19 @@ struct Tensor {
     void  free();
 };
 
-&Tensor tensor_new_1d(unsigned long n, int requiresGrad);
-&Tensor tensor_new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
-&Tensor tensor_from_1d(const &float values, unsigned long n, int requiresGrad);
-&Tensor tensor_from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
-&Tensor tensor_zeros_like(const &Tensor t);
-&Tensor tensor_fill(&Tensor t, float v);
+static &Tensor Tensor::new_1d(unsigned long n, int requiresGrad);
+static &Tensor Tensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
+static &Tensor Tensor::from_1d(const &float values, unsigned long n, int requiresGrad);
+static &Tensor Tensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+&Tensor Tensor::zeros_like() const;
+void    Tensor::fill(float v);   // in place
 
 &Tensor tensor_add(const &Tensor a, const &Tensor b);
 &Tensor tensor_sub(const &Tensor a, const &Tensor b);
 &Tensor tensor_mul(const &Tensor a, const &Tensor b);   // elementwise
-&Tensor tensor_scale(const &Tensor a, float k);
+&Tensor Tensor::scale(float k) const;
 &Tensor tensor_matmul(const &Tensor a, const &Tensor b);
-&Tensor tensor_sum(const &Tensor a);
+&Tensor Tensor::sum() const;
 
 void Tensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
 void Tensor::zero_grad();
@@ -120,9 +123,9 @@ struct Autograd {
     void set_enabled(int enabled);
     struct GradGuard no_grad();   // disables recording; restore() puts the mode back
 };
-&Autograd autograd();
+static &Autograd Autograd::get();
 
-struct GradGuard g = autograd().no_grad();
+struct GradGuard g = Autograd::get().no_grad();
 // ... forward passes record nothing ...
 g.restore();
 ```
@@ -132,14 +135,14 @@ g.restore();
 Every op allocates its output, so a training loop does a `malloc` (and, for fresh memory, page faults) per op per step. On a small MLP that cost more than the arithmetic. A `TensorArena` is a chunked bump allocator, 64-byte aligned, for one step's temporaries. Between `TensorArena::begin` and `tensor_arena_end`, every tensor created on that thread comes from the arena: its data, shape and gradient. `TensorArena::reset` drops them all at once and keeps the memory, already faulted in, for the next step.
 
 ```c
-struct TensorArena tensor_arena_new(unsigned long chunkBytes);   // 0 = 16 MiB chunks
+static struct TensorArena TensorArena::new(unsigned long chunkBytes);   // 0 = 16 MiB chunks
 void TensorArena::begin();                                       // this thread's new tensors come from this arena
 void tensor_arena_end();                                         // back to the heap
 void TensorArena::reset();                                       // drop every tensor in it, keep the memory
 void TensorArena::free();
 unsigned long TensorArena::used() const;   // bytes since the last reset
 
-struct TensorArena step = tensor_arena_new(0UL);
+struct TensorArena step = TensorArena::new(0UL);
 while (s < steps) {
     step.begin();
     // ... forward, Tensor::backward, optimizer update ...
@@ -161,17 +164,17 @@ Tensors created outside the arena, such as parameters, stay on the heap, and so 
 Activations with backward passes (the ones every GPU backend uses), 1D pooling, and Adam.
 
 ```c
-&Tensor tensor_relu(const &Tensor a);
-&Tensor tensor_sigmoid(const &Tensor a);
-&Tensor tensor_tanh_t(const &Tensor a);
-&Tensor tensor_softmax(const &Tensor a);
-&Tensor tensor_elu(const &Tensor a, float alpha);
-&Tensor tensor_gelu(const &Tensor a);
-&Tensor tensor_silu(const &Tensor a);
-&Tensor tensor_glu(const &Tensor a);      // split last axis into [a1, a2]: a1 * sigmoid(a2)
-&Tensor tensor_swiglu(const &Tensor a);   // silu(a1) * a2 — output has half the columns
-&Tensor tensor_maxpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
-&Tensor tensor_avgpool1d(const &Tensor a, unsigned long kernel, unsigned long stride);
+&Tensor Tensor::relu() const;
+&Tensor Tensor::sigmoid() const;
+&Tensor Tensor::tanh() const;
+&Tensor Tensor::softmax() const;
+&Tensor Tensor::elu(float alpha) const;
+&Tensor Tensor::gelu() const;
+&Tensor Tensor::silu() const;
+&Tensor Tensor::glu() const;      // split last axis into [a1, a2]: a1 * sigmoid(a2)
+&Tensor Tensor::swiglu() const;   // silu(a1) * a2 — output has half the columns
+&Tensor Tensor::maxpool1d(unsigned long kernel, unsigned long stride) const;
+&Tensor Tensor::avgpool1d(unsigned long kernel, unsigned long stride) const;
 
 struct AdamState {
     &heap float m; &heap float v;
@@ -179,8 +182,8 @@ struct AdamState {
     float lr; float beta1; float beta2; float eps;
     unsigned long t;
 };
-struct AdamState adam_new(unsigned long size, float lr, float beta1, float beta2, float eps);
-struct AdamState adam_new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
+static struct AdamState AdamState::new(unsigned long size, float lr, float beta1, float beta2, float eps);
+static struct AdamState AdamState::new_default(unsigned long size, float lr);   // beta1 0.9, beta2 0.999, eps 1e-8 (paper defaults)
 void AdamState::step(&Tensor param);                               // uses param.grad
 void AdamState::free();
 ```
@@ -193,18 +196,18 @@ void AdamState::free();
 
 Forward-only elementwise activations (no autograd — for inference layers;
 the autograd versions are in `tensor_nn.h` above);
-`tensor_layernorm_rows` (row-wise mean-0/var-1 normalization, no affine —
+`Tensor::layernorm_rows` (row-wise mean-0/var-1 normalization, no affine —
 apply your own scale/shift for AdaLN-style conditioning, see DiT below);
 `tensor_residual_add` (a named `tensor_add` alias for residual/skip-
 connection call sites).
 
 ```c
-&Tensor tensor_relu_fwd(const &Tensor a);
-&Tensor tensor_sigmoid_fwd(const &Tensor a);
-&Tensor tensor_tanh_fwd(const &Tensor a);
-&Tensor tensor_silu_fwd(const &Tensor a);
-&Tensor tensor_gelu_fwd(const &Tensor a);
-&Tensor tensor_layernorm_rows(const &Tensor x, float eps);
+&Tensor Tensor::relu_fwd() const;
+&Tensor Tensor::sigmoid_fwd() const;
+&Tensor Tensor::tanh_fwd() const;
+&Tensor Tensor::silu_fwd() const;
+&Tensor Tensor::gelu_fwd() const;
+&Tensor Tensor::layernorm_rows(float eps) const;
 &Tensor tensor_residual_add(const &Tensor x, const &Tensor sublayerOut);
 ```
 
@@ -231,9 +234,9 @@ concatenates results). Also in this file:
   `kvLen`.
 
 ```c
-&Tensor softmax_rows(const &Tensor x);
-&Tensor tensor_transpose(const &Tensor in);
-&Tensor tensor_slice_cols(const &Tensor in, unsigned long startCol, unsigned long numCols);
+&Tensor Tensor::softmax_rows() const;
+&Tensor Tensor::transpose() const;
+&Tensor Tensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
 void    tensor_set_cols(&Tensor dst, unsigned long startCol, const &Tensor src);
 
 &Tensor attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V);
@@ -258,7 +261,7 @@ projections, `mha_forward(X Wq, X Wk, X Wv, numHeads) Wo`, forward only
 like the ops above. It is a [`Module`](#modules).
 
 ```c
-struct MultiHeadAttention mha_new(unsigned long dModel, unsigned long numHeads, &Rng rng);
+static struct MultiHeadAttention MultiHeadAttention::new(unsigned long dModel, unsigned long numHeads, &Rng rng);
 &Tensor MultiHeadAttention::forward(const &Tensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
 void    MultiHeadAttention::free();
 ```
@@ -290,19 +293,18 @@ DeltaNet.
 
 ```c
 struct Mla { &Tensor Wq; &Tensor Wdkv; &Tensor Wuk; &Tensor Wuv; unsigned long numHeads; };
-struct Mla mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
+static struct Mla Mla::new(unsigned long dModel, unsigned long dLatent, unsigned long numHeads, &Rng rng);
 &Tensor Mla::forward(const &Tensor X) const;           // [seqLen, dModel] -> [seqLen, dModel]
 
 struct EgMla { &Tensor Wq; &Tensor Wdkv; struct Vec<&Tensor> Wuk; struct Vec<&Tensor> Wuv;  // one per group
                unsigned long headsPerGroup; };
-struct EgMla eg_mla_new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups,
-                        unsigned long headsPerGroup, &Rng rng);
+static struct EgMla EgMla::new(unsigned long dModel, unsigned long dLatent, unsigned long numGroups, unsigned long headsPerGroup, &Rng rng);
 &Tensor EgMla::forward(const &Tensor X) const;
 &Tensor windowed_attention_forward(const &Tensor Q, const &Tensor K, const &Tensor V,
                                    unsigned long windowSize, unsigned long shift);
 
 struct GatedDeltaNet { &Tensor Walpha; &Tensor Wbeta; unsigned long keyDim; unsigned long valueDim; };
-struct GatedDeltaNet gated_deltanet_new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
+static struct GatedDeltaNet GatedDeltaNet::new(unsigned long dModel, unsigned long keyDim, unsigned long valueDim);
 &Tensor GatedDeltaNet::forward(const &Tensor X, const &Tensor Q, const &Tensor K, const &Tensor V) const;
 void    GatedDeltaNet::free();
 ```
@@ -324,21 +326,21 @@ Each cell verified against hand-computed gate values for a real forward
 pass.
 
 ```c
-struct RNNCell  rnn_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+static struct RNNCell  RNNCell::new(unsigned long inputSize, unsigned long hiddenSize);
 &Tensor         RNNCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
 void            RNNCell::free();
 
-struct GRUCell  gru_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+static struct GRUCell  GRUCell::new(unsigned long inputSize, unsigned long hiddenSize);
 &Tensor         GRUCell::forward(const &Tensor x_t, const &Tensor h_prev) const;
 void            GRUCell::free();
 
-struct LSTMCell lstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+static struct LSTMCell LSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
 // Returns h_t; the new cell state is written through c_out.
 &Tensor         LSTMCell::forward(const &Tensor x_t, const &Tensor h_prev, const &Tensor c_prev, &&Tensor c_out) const;
 void            LSTMCell::free();
 
 struct XLSTMState { &Tensor h; &Tensor c; &Tensor n; &Tensor m; };   // hidden, cell, normalizer, stabilizer
-struct XLSTMCell  xlstm_cell_new(unsigned long inputSize, unsigned long hiddenSize);
+static struct XLSTMCell  XLSTMCell::new(unsigned long inputSize, unsigned long hiddenSize);
 struct XLSTMState XLSTMCell::forward(const &Tensor x_t, const &XLSTMState prev) const;
 void              XLSTMCell::free();
 void              XLSTMState::free();
@@ -377,7 +379,7 @@ block, without the surrounding RMSNorm and residual add:
 
 Weights are `[in, out]` like the rest of `std::ml`. To load a PyTorch
 `nn.Linear`, transpose its weight. The Conv1d weight `[dInner, 1, dConv]`
-loads as `[dInner, dConv]`. `mamba_new` follows the paper's
+loads as `[dInner, dConv]`. `Mamba::new` follows the paper's
 initialization: `Alog[d][n] = log(n+1)`, `D = 1`, and `dtBias` chosen so
 that `softplus(dtBias)` spans [0.001, 0.1].
 
@@ -407,19 +409,19 @@ struct Mamba {
     &Tensor outProj;  // [dInner, dModel]
     unsigned long dModel; unsigned long dInner; unsigned long dState; unsigned long dConv; unsigned long dtRank;
 };
-struct Mamba mamba_new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
+static struct Mamba Mamba::new(unsigned long dModel, unsigned long dState, unsigned long dConv, unsigned long expand);
 &Tensor      Mamba::forward(const &Tensor X) const;   // [T, dModel] -> [T, dModel]
 void         Mamba::free();
 
 struct MambaState { &Tensor conv; &Tensor h; };   // [dInner, dConv-1], [dInner, dState]
-struct MambaState mamba_state_new(const &Mamba layer);
+static struct MambaState MambaState::new(const &Mamba layer);
 &Tensor           Mamba::step(&MambaState state, const &Tensor x) const;   // [1, dModel]
 void              MambaState::reset();
 void              MambaState::free();
 
-struct Mamba m = mamba_new(768UL, 16UL, 4UL, 2UL);
+struct Mamba m = Mamba::new(768UL, 16UL, 4UL, 2UL);
 &Tensor y = m.forward(prompt);   // prefill
-struct MambaState st = mamba_state_new(&m);
+struct MambaState st = MambaState::new(&m);
 // ... or decode token by token with a fixed-size state
 &Tensor yt = m.step(&st, token);
 ```
@@ -434,7 +436,7 @@ These layers run forward only. To train convolutional networks, use
 [`convnet.h`](#convnet), which has the same operations on autograd tensors.
 
 `Conv2D` (stride + zero-padding, no dilation/grouped conv),
-`maxpool2d_forward`/`avgpool2d_forward`, `upsample2x_nearest` (nearest-
+`FeatureMap::maxpool2d`/`FeatureMap::avgpool2d`, `FeatureMap::upsample2x_nearest` (nearest-
 neighbor 2x spatial upsample), `concat_channels` (channel-axis
 concatenation) — all over a channels-first `FeatureMap` (not `Tensor`,
 which tops out at 2D). Verified via hand-computed 3×3-kernel and
@@ -464,19 +466,17 @@ struct FeatureMap {
     unsigned long height;
     unsigned long width;
 };
-struct FeatureMap feature_map_new(unsigned long channels, unsigned long height, unsigned long width);
+static struct FeatureMap FeatureMap::new(unsigned long channels, unsigned long height, unsigned long width);
 void              FeatureMap::free();
 
-struct Conv2D conv2d_new(unsigned long inChannels, unsigned long outChannels,
-                         unsigned long kH, unsigned long kW,
-                         unsigned long stride, unsigned long padding);
+static struct Conv2D Conv2D::new(unsigned long inChannels, unsigned long outChannels, unsigned long kH, unsigned long kW, unsigned long stride, unsigned long padding);
 struct FeatureMap Conv2D::forward(const &FeatureMap input) const;
 struct FeatureMap Conv2D::relu_forward(const &FeatureMap input) const;   // relu(conv), one pass
 void              Conv2D::free();
 
-struct FeatureMap maxpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
-struct FeatureMap avgpool2d_forward(const &FeatureMap input, unsigned long kernel, unsigned long stride);
-struct FeatureMap upsample2x_nearest(const &FeatureMap input);
+struct FeatureMap FeatureMap::maxpool2d(unsigned long kernel, unsigned long stride) const;
+struct FeatureMap FeatureMap::avgpool2d(unsigned long kernel, unsigned long stride) const;
+struct FeatureMap FeatureMap::upsample2x_nearest() const;
 struct FeatureMap concat_channels(const &FeatureMap a, const &FeatureMap b);
 ```
 
@@ -487,7 +487,7 @@ side is `(dim + 2·padding − kernel)/stride + 1`. Max pooling skips the
 padded positions, as PyTorch's `MaxPool2d` does. Average pooling counts
 them as zeros in the divisor when `countIncludePad` is set (PyTorch's
 `AvgPool2d` default). Otherwise it divides by the number of positions
-inside the plane. `global_avgpool2d` / `global_maxpool2d` reduce each
+inside the plane. `FeatureMap::global_avgpool2d` / `FeatureMap::global_maxpool2d` reduce each
 channel's whole plane to one value, giving channels × 1 × 1: the head of
 a ResNet-style classifier.
 
@@ -506,22 +506,20 @@ against a direct reference, and the block against the composition of its
 convolutions.
 
 ```c
-struct FeatureMap maxpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
-                                       unsigned long padding);
-struct FeatureMap avgpool2d_forward_ex(const &FeatureMap input, unsigned long kernel, unsigned long stride,
-                                       unsigned long padding, int countIncludePad);
-struct FeatureMap global_avgpool2d(const &FeatureMap input);   // channels x 1 x 1
-struct FeatureMap global_maxpool2d(const &FeatureMap input);
+struct FeatureMap FeatureMap::maxpool2d_ex(unsigned long kernel, unsigned long stride, unsigned long padding) const;
+struct FeatureMap FeatureMap::avgpool2d_ex(unsigned long kernel, unsigned long stride, unsigned long padding, int countIncludePad) const;
+struct FeatureMap FeatureMap::global_avgpool2d() const;   // channels x 1 x 1
+struct FeatureMap FeatureMap::global_maxpool2d() const;
 struct FeatureMap feature_map_add(const &FeatureMap a, const &FeatureMap b, int relu);
 
 struct ResidualBlock { struct Conv2D conv1; struct Conv2D conv2; struct Conv2D projection; int hasProjection; };
-struct ResidualBlock residual_block_new(unsigned long inChannels, unsigned long outChannels, unsigned long stride);
+static struct ResidualBlock ResidualBlock::new(unsigned long inChannels, unsigned long outChannels, unsigned long stride);
 struct FeatureMap    ResidualBlock::forward(const &FeatureMap input) const;
 void                 ResidualBlock::free();
 
 // ResNet-18 stem and first stage
 struct FeatureMap s = stem7x7s2.relu_forward(&image);
-struct FeatureMap p = maxpool2d_forward_ex(&s, 3UL, 2UL, 1UL);
+struct FeatureMap p = s.maxpool2d_ex(3UL, 2UL, 1UL);
 struct FeatureMap r = layer1a.forward(&p);
 ```
 
@@ -537,8 +535,7 @@ backbone. Verified via output-shape checks and full self-consistency
 against a manual replication of `UNet::forward`'s call sequence.
 
 ```c
-struct UNet unet_new(unsigned long inChannels, unsigned long c1, unsigned long c2,
-                     unsigned long outChannels);
+static struct UNet UNet::new(unsigned long inChannels, unsigned long c1, unsigned long c2, unsigned long outChannels);
 struct FeatureMap UNet::forward(const &FeatureMap input);
 void UNet::free();
 ```
@@ -614,18 +611,16 @@ The model is your own struct, holding its weights; the solver calls its `predict
   distinction this implementation draws between the two.
 
 ```c
-struct DiTBlock dit_block_new(unsigned long dModel, unsigned long dHidden,
-                              unsigned long dModelCond, unsigned long numHeads);
+static struct DiTBlock DiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long dModelCond, unsigned long numHeads);
 &Tensor DiTBlock::forward(const &Tensor x, const &Tensor c) const;   // c = conditioning
 void    DiTBlock::free();
 
-struct JiTBlock jit_block_new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
+static struct JiTBlock JiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long numHeads);
 &Tensor JiTBlock::forward(const &Tensor x) const;
 void    JiTBlock::free();
 // The model: patch embedding + conditioning, then the blocks.
 struct JiT { &Tensor WPatchEmbed; struct Vec<struct JiTBlock> blocks; };
-struct JiT jit_new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden,
-                   unsigned long numHeads, unsigned long depth);
+static struct JiT JiT::new(unsigned long patchDim, unsigned long dModel, unsigned long dHidden, unsigned long numHeads, unsigned long depth);
 &Tensor JiT::forward(const &Tensor patches, const &Tensor cond) const;   // cond: [1, dModel]
 void    JiT::free();
 ```
@@ -646,14 +641,14 @@ indices stored as floats.
   bounded-integer draws. Every initialization, shuffle and sample in these
   modules goes through one, so runs are reproducible.
 - **Differentiable ops**, in addition to `tensor.h` / `tensor_nn.h`:
-  - Arithmetic: `tensor_add_bias` (row broadcast) and `tensor_add_scalar`.
-  - Elementwise: `tensor_exp`, `tensor_log`, `tensor_abs`,
-    `tensor_leaky_relu`, `tensor_clamp` and `tensor_minimum`.
-  - Reductions and reshaping: `tensor_mean`, `tensor_sum_rows`
+  - Arithmetic: `tensor_add_bias` (row broadcast) and `Tensor::add_scalar`.
+  - Elementwise: `Tensor::exp`, `Tensor::log`, `Tensor::abs`,
+    `Tensor::leaky_relu`, `Tensor::clamp` and `tensor_minimum`.
+  - Reductions and reshaping: `Tensor::mean`, `Tensor::sum_rows`
     (`[m,n] → [m,1]`), `tensor_concat_cols` and `tensor_gather_rows`
     (embedding or codebook lookup, with gradients scatter-added back).
-  - `tensor_log_softmax`.
-  - `tensor_detach`, which stops gradients.
+  - `Tensor::log_softmax`.
+  - `Tensor::detach`, which stops gradients.
 - **Losses**, each returning one value averaged over elements:
   - `tensor_mse_loss`.
   - `tensor_huber_loss`.
@@ -701,13 +696,13 @@ static &Tensor clf_loss(&Mlp m, const &Tensor x, const &Tensor y) {
 }
 static &Tensor clf_logits(&Mlp m, const &Tensor x) { return m.forward(x); }
 
-struct Rng rng = rng_new(1UL);
-struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
+struct Rng rng = Rng::new(1UL);
+struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
 struct DatasetSplit sp = data.split((float)0.25, &rng);
-struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
-struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.01);
 model_add_params(&net, &opt);
-struct TrainConfig cfg = train_config_default();     // 10 epochs, batch 32
+struct TrainConfig cfg = TrainConfig::default();     // 10 epochs, batch 32
 cfg.epochs = 60UL;
 struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
 float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // > 0.95 in the tests
@@ -716,14 +711,14 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // > 0.95 in t
 **Datasets.** A `Dataset` is `x [n, features]` plus `y [n, targets]`, with
 `classes` set for classification. The synthetic generators are:
 
-- `dataset_moons`, `dataset_circles`, `dataset_spirals`, `dataset_blobs`
-  and `dataset_xor`: 2D toy classification.
-- `dataset_sine`: regression.
-- `dataset_gaussian_ring`: the usual GAN mode-coverage test.
-- `dataset_shapes`: small binary images of four shape classes.
+- `Dataset::moons`, `Dataset::circles`, `Dataset::spirals`, `Dataset::blobs`
+  and `Dataset::xor`: 2D toy classification.
+- `Dataset::sine`: regression.
+- `Dataset::gaussian_ring`: the usual GAN mode-coverage test.
+- `Dataset::shapes`: small binary images of four shape classes.
 
-`dataset_load_mnist` reads MNIST / Fashion-MNIST IDX files, with pixels
-scaled to [0, 1]. `dataset_load_csv` reads numeric CSV, with an optional
+`Dataset::load_mnist` reads MNIST / Fashion-MNIST IDX files, with pixels
+scaled to [0, 1]. `Dataset::load_csv` reads numeric CSV, with an optional
 header and label column. Both return `n == 0` on error. `Dataset::split`,
 `Dataset::standardize` and `Dataset::standardize_pair` (which applies the
 train set's statistics to both sets) prepare the data. A `DataLoader`
@@ -776,8 +771,8 @@ has the capability. Each call is resolved at compile time.
 | `recurrent_run(&cell, xs, h0)` | `Recurrent` | the cell over a sequence `[T, in]`, returning the last hidden state |
 
 ```c
-struct Mlp net = mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
-struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.01);
+struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.01);
 model_add_params(&net, &opt);
 struct TrainReport rep = module_fit(&net, TRAIN_LOSS_CE, &opt, &train, &cfg);
 float acc = module_accuracy(&net, &test, 64UL);
@@ -801,7 +796,7 @@ struct Avg2 {
 };
 generic<M: Module>
 &Tensor Avg2::forward(const &Tensor x) {
-    return tensor_scale(tensor_add(self.a.forward(x), self.b.forward(x)), (float)0.5);
+    return tensor_add(self.a.forward(x), self.b.forward(x)).scale((float)0.5);
 }
 generic<M: Module>
 void Avg2::collect_params(&Vec<&Tensor> out) const { self.a.collect_params(out); self.b.collect_params(out); }
@@ -825,7 +820,7 @@ and trains the `Avg2` pair above.
 ```
 
 Trainable normalization layers, with autograd, over `[batch, dim]` rows.
-`activations.h`'s `tensor_layernorm_rows` is the forward-only version.
+`activations.h`'s `Tensor::layernorm_rows` is the forward-only version.
 
 - **`LayerNorm`** (Ba et al. 2016) computes `y = LN(x) · gamma + beta`, with
   learned `gamma` (initialized to 1) and `beta` (initialized to 0).
@@ -836,12 +831,12 @@ Trainable normalization layers, with autograd, over `[batch, dim]` rows.
   so a fresh AdaLN is a plain LayerNorm. With `gated`, `AdaLNOut.gate`
   also starts at 0, so a residual branch `x + gate · f(y)` starts as the
   identity.
-- **Building blocks**: `tensor_layer_norm`, `tensor_mul_row` (multiply by
-  a vector on every row), and `attention.h`'s `tensor_slice_cols`, which is
+- **Building blocks**: `Tensor::layer_norm`, `tensor_mul_row` (multiply by
+  a vector on every row), and `attention.h`'s `Tensor::slice_cols`, which is
   now differentiable.
 
 ```c
-struct AdaLN ad = adaln_new(dim, condDim, 1);   // gated
+struct AdaLN ad = AdaLN::new(dim, condDim, 1);   // gated
 struct AdaLNOut o = ad.forward(x, cond);        // x [m, dim], cond [m, condDim]
 &Tensor h = tensor_add(x, tensor_mul(o.gate, ffn.forward(o.out)));
 model_add_params(&ad, &opt);
@@ -867,7 +862,7 @@ update for each layer:
 network begins identical to the base. Only A and B train, which is
 `r · (in + out)` values per layer instead of `in · out`.
 
-- `lora_attach` sets the base's `requiresGrad` to 0, and `LoraMlp::detach`
+- `LoraMlp::attach` sets the base's `requiresGrad` to 0, and `LoraMlp::detach`
   restores it.
 - `LoraMlp::merge` folds `scale · A·B` into `W`, so the base alone then
   computes the adapted output at no extra inference cost.
@@ -879,16 +874,16 @@ normal distribution, so Gaussian-like weights use the levels evenly.
 Double quantization also stores the scales in 8 bits, with one float per
 256 scales, bringing the base to about 4.1 bits per weight.
 
-`qlora_attach` copies the base, so the original `Mlp` can be freed. Each
+`QLoraMlp::attach` copies the base, so the original `Mlp` can be freed. Each
 forward pass dequantizes the weights to float32, and gradients flow
-through the frozen 4-bit base to the adapters. `nf4_quantize` /
-`nf4_dequantize` are also usable on their own.
+through the frozen 4-bit base to the adapters. `Nf4Tensor::quantize` /
+`Nf4Tensor::dequantize` are also usable on their own.
 
 ```c
-struct LoraConfig cfg = lora_config_default(8UL);    // rank 8, alpha 8
-struct QLoraMlp ft = qlora_attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + double quant
+struct LoraConfig cfg = LoraConfig::default(8UL);    // rank 8, alpha 8
+struct QLoraMlp ft = QLoraMlp::attach(&pretrained, &cfg, NF4_BLOCK, 1);   // NF4 + double quant
 pretrained.free();
-struct Optimizer opt = optimizer_new(OPT_ADAMW, (float)0.001);
+struct Optimizer opt = Optimizer::new(OPT_ADAMW, (float)0.001);
 model_add_params(&ft, &opt);                   // adapters only
 trainer_fit(&ft, my_loss, &opt, &data, &tc);   // my_loss calls QLoraMlp::forward
 ```
@@ -925,7 +920,7 @@ input and its trained parameters.
 `tensor_conv2d_ex` and `tensor_conv_transpose2d_ex` take a `Conv2dSpec`
 with a separate kernel size, stride, padding and dilation for each axis,
 plus `groups` and, for the transposed convolution, `outPadH` / `outPadW`.
-`conv2d_spec(kernel, stride, padding)` fills in a square kernel with
+`Conv2dSpec::new(kernel, stride, padding)` fills in a square kernel with
 dilation 1, one group and no output padding; change the fields you need.
 `tensor_conv2d` / `tensor_conv_transpose2d` are the common case with one
 stride and padding for both axes.
@@ -943,7 +938,7 @@ Pooling takes a `Pool2dSpec`, built with `pool2d_spec(kernel, stride,
 padding)`: a separate window, stride and padding per axis, `ceilMode`,
 and, for avg pooling, `countIncludePad`.
 
-- `tensor_maxpool2d_ex` / `tensor_avgpool2d_ex` clip their windows to the
+- `Tensor::maxpool2d_ex` / `Tensor::avgpool2d_ex` clip their windows to the
   plane. Max pooling therefore ignores the padding, as PyTorch's
   `MaxPool2d` does, and sends each window's gradient to its first largest
   input.
@@ -952,8 +947,8 @@ and, for avg pooling, `countIncludePad`.
   Without it, avg pooling divides by the positions inside the plane.
 - `ceilMode` rounds the output side up. As in PyTorch, the last window
   must still start inside the input or its left padding.
-- `tensor_maxpool2d` / `tensor_avgpool2d` take a square window.
-  `tensor_global_avgpool2d` / `tensor_global_maxpool2d` reduce each
+- `Tensor::maxpool2d` / `Tensor::avgpool2d` take a square window.
+  `Tensor::global_avgpool2d` / `Tensor::global_maxpool2d` reduce each
   channel to one value, `[batch, C*H*W] → [batch, C]`.
 
 `conv_out_side_ex`, `conv_transpose_out_side_ex` and `pool_out_side`
@@ -971,7 +966,7 @@ bit-for-bit the single-threaded one.
 
 ### Resizing
 
-`tensor_resize2d(x, C, H, W, outH, outW, mode, alignCorners)` resizes to
+`x.resize2d(C, H, W, outH, outW, mode, alignCorners)` resizes to
 any size, up or down, as PyTorch's `interpolate(size=...)`:
 
 | `mode` | Reads |
@@ -982,8 +977,8 @@ any size, up or down, as PyTorch's `interpolate(size=...)`:
 
 With `alignCorners`, the corner pixels' centres map onto each other.
 Without it, pixel areas line up. Edges are clamped, and gradients scatter
-back with the same weights. `tensor_upsample_nearest` is a fast path for
-an integer factor. `tensor_upsample_bilinear` resizes by an integer
+back with the same weights. `Tensor::upsample_nearest` is a fast path for
+an integer factor. `Tensor::upsample_bilinear` resizes by an integer
 factor without aligning corners.
 
 ### Normalization and dropout
@@ -1003,11 +998,11 @@ factor without aligning corners.
   a weight by its largest singular value. It estimates that value by power
   iteration from a vector `u` kept between calls. The gradient treats the
   power-iteration vectors as constants, as PyTorch does.
-- **Dropout**: `tensor_dropout` zeroes each value with probability p and
+- **Dropout**: `Tensor::dropout` zeroes each value with probability p and
   scales the rest by 1/(1 − p) in training, and passes x unchanged in
-  inference. `tensor_dropout2d` drops whole channel planes.
+  inference. `Tensor::dropout2d` drops whole channel planes.
 
-**Conditioning.** `tensor_label_planes` turns class indices into one
+**Conditioning.** `Tensor::label_planes` turns class indices into one
 constant plane per class: 1 in the plane of the row's label and 0
 elsewhere. `tensor_append_label_channels` adds those planes after an
 image's channels. This is how the conditional `ConvVae` and `Dcgan` pass
@@ -1045,7 +1040,7 @@ U(−1/√fanIn, 1/√fanIn), and the norms start at gamma 1 and beta 0.
 doesn't train: running statistics and spectral norms' `u`. Both stay on
 the heap.
 
-The `training` field is 1 from `convnet_new`. In training mode, batch norm
+The `training` field is 1 from `ConvNet::new`. In training mode, batch norm
 uses batch statistics and updates the running ones, spectral norms
 iterate, and dropout drops. Call `n.set_training(0)` for
 inference; it returns the previous mode. The models in `autoencoder.h`
@@ -1075,8 +1070,8 @@ static &Tensor cnn_loss(&ConvNet m, const &Tensor x, const &Tensor y) {
     return tensor_cross_entropy_loss(m.forward(x), y);
 }
 
-struct Rng rng = rng_new(1UL);
-struct ConvNet net = convnet_new(1UL, 28UL, 28UL);   // MNIST
+struct Rng rng = Rng::new(1UL);
+struct ConvNet net = ConvNet::new(1UL, 28UL, 28UL);   // MNIST
 net.conv(16UL, 3UL, 1UL, 1UL, ACT_NONE, &rng);       // 16 x 28 x 28
 net.batchnorm(ACT_RELU);
 net.residual_block(16UL, 1UL, 1, ACT_RELU, &rng);   // 16 x 28 x 28
@@ -1085,9 +1080,9 @@ net.residual_block(64UL, 2UL, 1, ACT_RELU, &rng);   // 64 x 7 x 7
 net.dropout((float)0.1, 1, &rng);
 net.global_avgpool();              // 64 x 1 x 1
 net.dense(10UL, ACT_NONE, &rng);   // logits
-struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
 model_add_params(&net, &opt);
-struct TrainConfig cfg = train_config_default();
+struct TrainConfig cfg = TrainConfig::default();
 trainer_fit(&net, cnn_loss, &opt, &mnist, &cfg);
 net.set_training(0);   // inference from here on
 net.fold_batchnorm();
@@ -1161,10 +1156,10 @@ logits, and `*_decode` / `*_reconstruct` apply the sigmoid.
 | `VqVae` | **VQ-VAE** (van den Oord et al. 2017): the encoder output snaps to its nearest codebook vector. Gradients pass straight through, and the loss adds codebook and `commitment` terms. Against codebook collapse, the first batch initializes the codebook, and a code unused for `resetDeadAfter` batches is moved onto a random encoder output. `VqVae::encode` / `VqVae::decode` map to and from the discrete codes. |
 
 ```c
-struct VaeConfig cfg = vae_config_default(4UL);   // 256 hidden, BCE, beta 1
+struct VaeConfig cfg = VaeConfig::default(4UL);   // 256 hidden, BCE, beta 1
 cfg.classes = 4UL;                               // conditional
-struct Vae v = vae_new(100UL, &cfg);
-struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.002);
+struct Vae v = Vae::new(100UL, &cfg);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.002);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &shapes, &tc);   // the VAE's own loss (Vae::loss)
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 100] in (0, 1)
@@ -1201,20 +1196,20 @@ running statistics there.
 
 ```c
 unsigned long classes = 10UL;                                // conditional, MNIST digits
-struct ConvNet enc = convnet_new(1UL + classes, 28UL, 28UL);
+struct ConvNet enc = ConvNet::new(1UL + classes, 28UL, 28UL);
 enc.conv(32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);   // 32 x 14 x 14
 enc.conv(64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 64 x 7 x 7
 enc.batchnorm(ACT_LEAKY);
-struct ConvNet dec = convnet_new(16UL + classes, 1UL, 1UL);  // latent 16 + label
+struct ConvNet dec = ConvNet::new(16UL + classes, 1UL, 1UL);  // latent 16 + label
 dec.dense(64UL * 49UL, ACT_RELU, &rng);
 dec.reshape(64UL, 7UL, 7UL);
 dec.deconv(32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 14 x 14
 dec.batchnorm(ACT_RELU);
 dec.deconv(1UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 1 x 28 x 28 logits
-struct VaeConfig cfg = vae_config_default(16UL);
+struct VaeConfig cfg = VaeConfig::default(16UL);
 cfg.classes = classes;
-struct ConvVae v = conv_vae_new(enc, dec, &cfg);
-struct Optimizer opt = optimizer_new(OPT_ADAM, (float)0.001);
+struct ConvVae v = ConvVae::new(enc, dec, &cfg);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
 model_add_params(&v, &opt);
 model_fit(&v, &opt, &mnist, &tc);
 &Tensor samples = v.sample(64UL, (?&Tensor)labels);   // [64, 784] in (0, 1)
@@ -1265,9 +1260,9 @@ RMSProp for WGAN) and the arena for its steps. `Gan::train` runs epochs
 over a `Dataset`, and `Gan::train_step` runs one step on your own batch.
 
 ```c
-struct GanConfig cfg = gan_config_default(4UL);   // latent 4
+struct GanConfig cfg = GanConfig::default(4UL);   // latent 4
 cfg.loss = GAN_HINGE;
-struct Gan g = gan_new(2UL, &cfg);
+struct Gan g = Gan::new(2UL, &cfg);
 g.train(&data, 80UL, 64UL);
 &Tensor fake = g.sample(1000UL, null);   // heap tensor, caller frees
 ```
@@ -1298,19 +1293,19 @@ uses batch statistics, as DCGAN prescribes. `Dcgan::sample` and
 `Dcgan::score` run in inference mode.
 
 ```c
-struct ConvNet gen = convnet_new(16UL, 1UL, 1UL);   // latent 16
+struct ConvNet gen = ConvNet::new(16UL, 1UL, 1UL);   // latent 16
 gen.deconv(64UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);    // 64 x 4 x 4
 gen.batchnorm(ACT_RELU);
 gen.deconv(32UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);   // 32 x 8 x 8
 gen.batchnorm(ACT_RELU);
 gen.deconv(1UL, 4UL, 2UL, 1UL, ACT_SIGMOID, &rng);   // 1 x 16 x 16
-struct ConvNet disc = convnet_new(1UL, 16UL, 16UL);
+struct ConvNet disc = ConvNet::new(1UL, 16UL, 16UL);
 disc.conv(32UL, 4UL, 2UL, 1UL, ACT_LEAKY, &rng);   // 32 x 8 x 8
 disc.conv(64UL, 4UL, 2UL, 1UL, ACT_NONE, &rng);    // 64 x 4 x 4
 disc.batchnorm(ACT_LEAKY);
 disc.conv(1UL, 4UL, 1UL, 0UL, ACT_NONE, &rng);   // one score
-struct GanConfig cfg = gan_config_default(16UL);
-struct Dcgan g = dcgan_new(gen, disc, &cfg);
+struct GanConfig cfg = GanConfig::default(16UL);
+struct Dcgan g = Dcgan::new(gen, disc, &cfg);
 g.train(&images, 20UL, 64UL);
 &Tensor fake = g.sample(64UL, null);   // [64, 256], heap tensor, caller frees
 ```
@@ -1328,7 +1323,7 @@ more than 55% of the time, by a classifier trained on the real images
 ```
 
 **Environments.** `Bandit` is a k-armed Gaussian bandit. `GridWorld` has
-walls, pits, goals, slip probability and truncation; `gridworld_cliff()`
+walls, pits, goals, slip probability and truncation; `GridWorld::cliff()`
 is Sutton & Barto's cliff walk. `CartPole` uses Gym's CartPole-v1
 dynamics, its 12° / 2.4 m limits and 500-step truncation. Steps return an
 `EnvStep` that separates `terminated` (no future value) from `truncated`
@@ -1342,8 +1337,8 @@ dynamics, its 12° / 2.4 m limits and 500-step truncation. Steps return an
 | Policy-based | `PolicyAgent` with `PG_REINFORCE` (Monte Carlo returns, learned baseline), `PG_A2C` (advantage actor-critic, GAE(λ)) or `PG_PPO` (clipped surrogate, several epochs of shuffled minibatches per rollout). Every variant uses an entropy bonus, advantage normalization and gradient clipping. `PolicyAgent::act` + `PolicyAgent::record` per step, then `PolicyAgent::update` per episode or rollout. |
 
 ```c
-struct Dqn d = dqn_new(CARTPOLE_OBS, CARTPOLE_ACTIONS, &cfg);
-struct CartPole env = cartpole_new(1UL);
+struct Dqn d = Dqn::new(CARTPOLE_OBS, CARTPOLE_ACTIONS, &cfg);
+struct CartPole env = CartPole::new(1UL);
 env.reset(obs);
 while (1) {
     unsigned long a = d.act(obs, 1);   // epsilon-greedy
@@ -1422,12 +1417,12 @@ and picks the concrete type at compile time:
   device buffers), not the host model, which you free as usual
   (`t.host.free()`).
 - **Optimizer.** The `Optimizer` passed to a constructor only supplies the
-  kind and hyperparameters (`optimizer_from` / `rocm_optimizer_from`). The
+  kind and hyperparameters (`Optimizer::from` / `RocmOptimizer::from`). The
   trainer adds the model's parameters to its own optimizer.
 - **Losses.** A net trainer takes `TRAIN_LOSS_CE` (softmax cross-entropy on
   class indices), `TRAIN_LOSS_MSE` or `TRAIN_LOSS_BCE` (on logits).
   Autoencoders and VAEs train on their own losses.
-- **`TrainerOptions`** (`trainer_options_default()`: `maxBatch` 256, fp32).
+- **`TrainerOptions`** (`TrainerOptions::default()`: `maxBatch` 256, fp32).
   The CPU ignores both fields. `maxBatch` sizes a device's buffers;
   `cfg.batchSize` must not exceed it, and for `pg_learner_new` it is the
   longest rollout. `precision` (`TENSOR_FP16` / `TENSOR_BF16`) selects
@@ -1445,13 +1440,13 @@ and picks the concrete type at compile time:
 
 static &Tensor logits(&Mlp m, const &Tensor x) { return m.forward(x); }
 
-struct Rng rng = rng_new(1UL);
-struct Dataset data = dataset_moons(400UL, (float)0.1, &rng);
-struct Optimizer adam = optimizer_new(OPT_ADAM, (float)0.01);   // kind and hyperparameters
-struct TrainerOptions to = trainer_options_default();
-MlpTrainer t = mlp_trainer_new(mlp_new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng),
+struct Rng rng = Rng::new(1UL);
+struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
+struct Optimizer adam = Optimizer::new(OPT_ADAM, (float)0.01);   // kind and hyperparameters
+struct TrainerOptions to = TrainerOptions::default();
+MlpTrainer t = mlp_trainer_new(Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng),
                                TRAIN_LOSS_CE, &adam, &to);
-struct TrainConfig cfg = train_config_default();
+struct TrainConfig cfg = TrainConfig::default();
 cfg.epochs = 60UL;
 struct TrainReport rep = train_fit(&t, &data, &cfg);         // t.host is the trained Mlp
 float acc = trainer_accuracy(&t.host, logits, &data, 64UL);
@@ -1558,13 +1553,13 @@ the backend picks the one with the most compute units.
 | Group | Functions |
 |---|---|
 | Device | `rocm_available`, `rocm_device_name`, `rocm_sync` |
-| Buffers | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `RocmBuf::free` |
+| Buffers | `RocmBuf::alloc`, `RocmBuf::upload`, `rocm_write`, `rocm_read`, `RocmBuf::free` |
 | Matmul | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, either operand transposed |
 | Elementwise | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_gelu` (tanh approximation), `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
 | Decoding (one token at a time) | `rocm_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors; one wave per output row, 0.8–1.07 TB/s on an MI100, 1.04–1.8× faster than a one-row `rocm_half_gemm_f32`. `rocm_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. These are the kernels of the [Gemma 4 E2B ROCm engine](/benchmarks#ml-llm) |
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
-| fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `RocmHalfBuf::free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
+| fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `RocmHalfBuf::alloc`, `RocmHalfBuf::upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `RocmHalfBuf::free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
 | Mixed precision | `rocm_half_convert` (fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many` (up to 32 buffers per launch); `rocm_half_unscale_many` / `rocm_unscale_many` (gradients × 1/scale, with an overflow flag) and `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam` (fp32 master weights, also writing the 16-bit copy, skipped on the GPU when the flag is set); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias` (row or NCHW channel bias, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. See [mixed precision on the GPU](#gpu-mixed-precision) |
 | Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)` (matrix cores on CDNA GPUs) |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `RocmGraph::free` |
@@ -1672,9 +1667,9 @@ also wrapped as `RocmTrainer`, `RocmGanTrainer`, `RocmDqnAgent` and
 written against `train.h` runs here when built with the `rocm` feature.
 
 ```c
-struct Mlp net = mlp_new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
-struct RocmNet dnet = rocm_net_from_mlp(&net, 128UL);           // batches of up to 128 rows
-struct RocmOptimizer opt = rocm_optimizer_new(OPT_ADAM, (float)0.001);
+struct Mlp net = Mlp::new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
+struct RocmNet dnet = RocmNet::from_mlp(&net, 128UL);           // batches of up to 128 rows
+struct RocmOptimizer opt = RocmOptimizer::new(OPT_ADAM, (float)0.001);
 dnet.add_params(&opt);
 struct TrainReport rep = rocm_trainer_fit(&dnet, rocm_net_ce_step, &opt, &train, &cfg);
 dnet.download(&net.params);   // back into the host Mlp
@@ -1682,13 +1677,13 @@ dnet.download(&net.params);   // back into the host Mlp
 
 | Part | Functions |
 |---|---|
-| Nets | `RocmNet`: `rocm_net_from_mlp`, `rocm_net_from_convnet` (every `ConvNet` layer kind, its running statistics and training mode), or `rocm_net_new` and the `RocmNet` methods `add_linear` / `add_conv2d(_ex)` / `add_conv_transpose2d(_ex)` / `add_maxpool` / `add_avgpool` / `add_global_pool` / `add_upsample` / `add_resize` / `add_reshape` / `add_batchnorm` / `add_groupnorm` / `add_dropout`, `spectral_norm`, and skips (`add_save`, then `add_skip` (add, optional 1×1 projection) or `add_concat`) |
+| Nets | `RocmNet`: `RocmNet::from_mlp`, `RocmNet::from_convnet` (every `ConvNet` layer kind, its running statistics and training mode), or `RocmNet::new` and the `RocmNet` methods `add_linear` / `add_conv2d(_ex)` / `add_conv_transpose2d(_ex)` / `add_maxpool` / `add_avgpool` / `add_global_pool` / `add_upsample` / `add_resize` / `add_reshape` / `add_batchnorm` / `add_groupnorm` / `add_dropout`, `spectral_norm`, and skips (`add_save`, then `add_skip` (add, optional 1×1 projection) or `add_concat`) |
 | Passes | `RocmNet` methods `forward`, `grad_output`, `backward`; `set_training` (batch norm statistics, dropout) |
 | Losses | `rocm_cross_entropy` (class indices), `rocm_bce_logits`, `rocm_mse`: each writes its gradient and adds to a loss sum on the GPU |
 | Steps | `rocm_net_ce_step`, `rocm_net_mse_step`, `rocm_net_bce_step`, `rocm_net_recon_bce_step`, `rocm_net_recon_mse_step`, `rocm_vae_step`, `rocm_conv_autoencoder_step`: forward, loss and backward (functions, so they can be passed to `rocm_trainer_fit`) |
-| Optimizer | `RocmOptimizer` (`rocm_optimizer_new`, `rocm_optimizer_from` an `Optimizer`, `net.add_params(&opt)`, `opt.step()`): every `OPT_*` kind with `Optimizer::step`'s arithmetic, gradient-norm clipping (`clipNorm`) and weight clamping (`clampWeights`) |
+| Optimizer | `RocmOptimizer` (`RocmOptimizer::new`, `RocmOptimizer::from` an `Optimizer`, `net.add_params(&opt)`, `opt.step()`): every `OPT_*` kind with `Optimizer::step`'s arithmetic, gradient-norm clipping (`clipNorm`) and weight clamping (`clampWeights`) |
 | Training loop | `rocm_trainer_fit(&model, step, &opt, &data, &cfg)`: `trainer_fit` with the same batch order |
-| Models | `rocm_vae_new` / `rocm_conv_vae_new` (+ conditional), `rocm_conv_autoencoder_new`, `rocm_gan_new` / `rocm_dcgan_new` with `RocmGan::train` (every GAN loss, gradient penalty, conditional models, the averaged generator), `rocm_dqn_new`, `rocm_pg_new` (REINFORCE, A2C, PPO) |
+| Models | `RocmVae::new` / `RocmVae::new_conv` (+ conditional), `RocmConvAe::new`, `RocmGan::new` / `RocmGan::new_dcgan` with `RocmGan::train` (every GAN loss, gradient penalty, conditional models, the averaged generator), `RocmDqn::new`, `RocmPolicy::new` (REINFORCE, A2C, PPO) |
 | Transfer | `RocmNet` methods `download` / `upload` (parameters), `download_stats` / `upload_stats` (running statistics, spectral norms' `u`), `download_convnet`, `download_mlp`, and `download` on every device model |
 | Engine, precision | `rocm_conv_engine(ROCM_CONV_AUTO \| ROCM_CONV_IM2COL)`, `net.set_precision(ROCM_FP16 \| ROCM_BF16)`, `net.set_loss_scale(s)`, `net.loss_scale()` |
 
@@ -1812,11 +1807,11 @@ into graphs.
 | Group | Functions |
 |---|---|
 | Device | `cuda_available`, `cuda_device_name`, `cuda_sync` |
-| Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `CudaBuf::free`; raw byte copies `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
+| Buffers | `CudaBuf::alloc`, `CudaBuf::upload`, `cuda_write`, `cuda_read`, `CudaBuf::free`; raw byte copies `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | Matmul | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu` (same arguments, fused ReLU) |
 | Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu` (tanh approximation), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
-| fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
+| fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `CudaHalfBuf::alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
 | Mixed precision | The [ROCm mixed-precision ops](#gpu-mixed-precision) with `cuda_` names: `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_mp_adam_many` (a whole model's Adam step, 24 tensors per launch), `cuda_half_gemm_strided` (strided-batched 16-bit GEMM), `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`; queued, so they can be recorded into a `CudaGraph`. On the H200 (bf16, vs PyTorch 2.10): a GPT-2-small AdamW step with the bf16 copy takes 1.11 ms with `cuda_mp_adam_many` vs 1.61 ms for fused `torch.optim.AdamW` + `_foreach_copy_`; unscaling is 1.1× faster than `_amp_foreach_non_finite_check_and_unscale_`; fp32 → bf16 casts and 16-bit add are within 7% of PyTorch; pooling and bias + ReLU are 1.3–1.6× faster |
 | Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm-hip-amd), taken from the [Gemma 4 CUDA engine](/benchmarks#ml-llm)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `CudaGraph::free` |
@@ -1867,9 +1862,9 @@ switch the cuBLAS GEMMs use.
 
 | Group | Functions |
 |---|---|
-| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `CudaConv2D::free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D` (weights rounded to fp16 / bf16), `CudaHalfConv2D::free` |
+| Layers | `CudaConv2D::upload(&Conv2D)` → `CudaConv2D`, `CudaConv2D::free`, `cuda_conv_out_dim`; `CudaHalfConv2D::upload(&Conv2D, dtype)` → `CudaHalfConv2D` (weights rounded to fp16 / bf16), `CudaHalfConv2D::free` |
 | Queued ops | `CudaConv2D::forward(x, y, batch, h, w)`, `CudaConv2D::forward_relu` (conv + bias + ReLU, fused), `CudaHalfConv2D::forward` / `CudaHalfConv2D::forward_relu` (16-bit `CudaHalfBuf`s, fp32 compute: the same fused conv + bias (+ ReLU) cuDNN graph plan as fp32, every engine config timed; 1×1 stride-1 convolutions as one strided-batched cuBLAS GEMM plus the fused bias kernel; on the H200, NCHW bf16 at batch 32, 1.2–1.5× faster than PyTorch's `conv2d` + `relu_` with `cudnn.benchmark`), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
-| U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `CudaUNet::forward(x, y)`, `CudaUNet::free` |
+| U-Net | `CudaUNet::new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `CudaUNet::forward(x, y)`, `CudaUNet::free` |
 | Host arrays | `conv2d_forward_cuda`, `unet_forward_cuda`: the signatures of `Conv2D::forward`/`UNet::forward`. They upload the weights on every call and fall back to the CPU when no GPU is usable |
 
 **`fft_cuda.h`** is the GPU counterpart of [`fft.h`](/stdlib/dsp#fft-fast-fourier-transform-radix-2-cooley-tukey).
@@ -1943,9 +1938,9 @@ shapes, so the bias add and ReLU run as one HIP kernel after the convolution
 
 | Group | Functions |
 |---|---|
-| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `RocmConv2D::free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D` (weights rounded to fp16 / bf16), `RocmHalfConv2D::free` |
+| Layers | `RocmConv2D::upload(&Conv2D)` → `RocmConv2D`, `RocmConv2D::free`, `rocm_conv_out_dim`; `RocmHalfConv2D::upload(&Conv2D, dtype)` → `RocmHalfConv2D` (weights rounded to fp16 / bf16), `RocmHalfConv2D::free` |
 | Queued ops | `RocmConv2D::forward(x, y, batch, h, w)`, `RocmConv2D::forward_relu`, `RocmHalfConv2D::forward` / `RocmHalfConv2D::forward_relu` (16-bit `RocmHalfBuf`s: MIOpen's half / bfloat16 convolution with fp32 accumulation, then the fused 16-bit bias kernel), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
-| U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `RocmUNet::forward(x, y)` (each decoder step upsamples straight into its concat buffer), `RocmUNet::free` |
+| U-Net | `RocmUNet::new(&UNet, batch, h, w)` → `RocmUNet`, `RocmUNet::forward(x, y)` (each decoder step upsamples straight into its concat buffer), `RocmUNet::free` |
 | Host arrays | `conv2d_forward_rocm`, `unet_forward_rocm`, falling back to the CPU when no GPU is usable |
 
 **`fft_rocm.h`** runs the transforms through hipFFT (rocFFT underneath), for
@@ -2154,7 +2149,7 @@ Autograd `Tensor` ops that run their forward pass on a backend and reuse the CPU
 ```c
 void tensor_gpu_batch_begin();
 void tensor_gpu_batch_end();
-void tensor_gpu_mark_persistent(const &Tensor t);   // keep t's data resident on the GPU
+void Tensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
 void tensor_gpu_release_all_persistent();
 ```
 
@@ -2255,7 +2250,7 @@ hardware paths.
 Two layers:
 
 - **`HalfTensor`** stores a 1D/2D tensor in fp16 or bf16 — half the memory of a float32 `Tensor`. Its ops widen operands to float32, compute, and round the result back to the storage format, the same arithmetic a GPU half path performs; `half_matmul` accumulates each dot product in float32 and rounds once, like tensor cores. No autograd on this layer.
-- **Mixed precision on float32 `Tensor`s, with autograd.** `tensor_cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
+- **Mixed precision on float32 `Tensor`s, with autograd.** `Tensor::cast` rounds values to fp16/bf16 precision in the forward pass and passes gradients through unchanged (the straight-through estimator), so a graph can compute in reduced precision while weights and gradients stay float32. `LossScaler` is fp16 training's dynamic loss scaling; bf16 shares float32's exponent range and doesn't need it.
 
 ```c
 #define TENSOR_FP16 1
@@ -2279,21 +2274,21 @@ float          half_round(float v, int dtype);          // nearest dtype value, 
 unsigned short half_encode(float v, int dtype);
 float          half_decode(unsigned short bits, int dtype);
 
-struct HalfTensor half_tensor_new_1d(unsigned long n, int dtype);           // zero-filled
-struct HalfTensor half_tensor_new_2d(unsigned long rows, unsigned long cols, int dtype);
-struct HalfTensor tensor_to_half(const &Tensor t, int dtype);                // round to nearest even
-&Tensor           half_to_tensor(const &HalfTensor h, int requiresGrad);     // exact
+static struct HalfTensor HalfTensor::new_1d(unsigned long n, int dtype);           // zero-filled
+static struct HalfTensor HalfTensor::new_2d(unsigned long rows, unsigned long cols, int dtype);
+struct HalfTensor Tensor::to_half(int dtype) const;                // round to nearest even
+&Tensor           HalfTensor::to_tensor(int requiresGrad) const;     // exact
 
 // Shapes and dtypes must match; otherwise the result is empty (size 0).
 struct HalfTensor half_add(const &HalfTensor a, const &HalfTensor b);
 struct HalfTensor half_sub(const &HalfTensor a, const &HalfTensor b);
 struct HalfTensor half_mul(const &HalfTensor a, const &HalfTensor b);       // elementwise
-struct HalfTensor half_scale(const &HalfTensor a, float k);
-struct HalfTensor half_relu(const &HalfTensor a);
+struct HalfTensor HalfTensor::scale(float k) const;
+struct HalfTensor HalfTensor::relu() const;
 struct HalfTensor half_matmul(const &HalfTensor a, const &HalfTensor b);    // float32 accumulate
-float             half_sum(const &HalfTensor a);                            // float32 accumulate
-int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
-int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // m vectors: x [m][k], y [m][n]
+float             HalfTensor::sum() const;                            // float32 accumulate
+int               HalfTensor::gemv(const &float x, &float y) const; // y = w x, float32 x / y
+int               HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // m vectors: x [m][k], y [m][n]
 
 // Mixed-precision batches: fp32 masters <-> 16-bit copies, 16-bit gradients back
 int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // into an existing copy
@@ -2305,7 +2300,7 @@ int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
 void half_tensors_free(&Vec<struct HalfTensor> hs);
 int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = all finite
 
-&Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
+&Tensor Tensor::cast(int dtype) const;                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
 struct LossScaler {
@@ -2315,7 +2310,7 @@ struct LossScaler {
     int   growthInterval;   // 2000 clean steps
     int   goodSteps;
 };
-struct LossScaler loss_scaler_new();                  // scale 65536 (PyTorch GradScaler's defaults)
+static struct LossScaler LossScaler::new();                  // scale 65536 (PyTorch GradScaler's defaults)
 int  LossScaler::unscale(&Tensor p);                  // divide p.grad by scale; 0 if any grad is inf/NaN
 int  LossScaler::unscale_all(&Vec<&Tensor> params);   // every tensor in a list
 void LossScaler::update(int allFinite);               // grow after clean steps, back off after overflow
@@ -2323,7 +2318,7 @@ void LossScaler::update(int allFinite);               // grow after clean steps,
 
 A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
 
-`half_gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#ml-llm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `half_gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `half_gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#ml-llm) CPU path on the M1 Pro takes 136 ms per token.
+`HalfTensor::gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#ml-llm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `HalfTensor::gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `HalfTensor::gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#ml-llm) CPU path on the M1 Pro takes 136 ms per token.
 
 Storage and arithmetic in bf16:
 
@@ -2333,8 +2328,8 @@ Storage and arithmetic in bf16:
 
 int main() {
     // Store weights in bf16 (half the memory), compute a matmul in bf16.
-    struct HalfTensor w = std::half_tensor_new_2d(2UL, 2UL, TENSOR_BF16);
-    struct HalfTensor x = std::half_tensor_new_2d(2UL, 1UL, TENSOR_BF16);
+    struct HalfTensor w = HalfTensor::new_2d(2UL, 2UL, TENSOR_BF16);
+    struct HalfTensor x = HalfTensor::new_2d(2UL, 1UL, TENSOR_BF16);
     w.set2(0UL, 0UL, 0.5f);  w.set2(0UL, 1UL, -1.0f);
     w.set2(1UL, 0UL, 2.0f);  w.set2(1UL, 1UL, 0.25f);
     x.set1(0UL, 3.0f);       x.set1(1UL, 4.0f);
@@ -2343,7 +2338,7 @@ int main() {
     std::println_float((double)y.at1(1UL));             // 7
 
     // Back to float32 for anything that needs autograd.
-    &Tensor yf = std::half_to_tensor(&y, 0);
+    &Tensor yf = y.to_tensor(0);
     yf.free();
     y.free(); x.free(); w.free();
     return 0;
@@ -2361,8 +2356,8 @@ Mixed-precision training — fp16 forward, float32 master weights, skipped steps
 int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler scaler, float lr) {
     &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
     &Tensor diff = std::tensor_sub(y, target);
-    &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
-    std::tensor_scale(loss, scaler.scale).backward();
+    &Tensor loss = std::tensor_mul(diff, diff).sum();
+    loss.scale(scaler.scale).backward();
 
     int finite = scaler.unscale(w);
     if (finite) {
@@ -2380,10 +2375,10 @@ int main() {
     float wv[2] = { 0.1f, 0.2f };
     float xv[2] = { 1.0f, 2.0f };
     float tv[1] = { 1.0f };
-    &Tensor w = std::tensor_from_2d(&wv[0], 2UL, 1UL, 1);
-    &Tensor x = std::tensor_from_2d(&xv[0], 1UL, 2UL, 0);
-    &Tensor t = std::tensor_from_2d(&tv[0], 1UL, 1UL, 0);
-    struct LossScaler scaler = std::loss_scaler_new();
+    &Tensor w = Tensor::from_2d(&wv[0], 2UL, 1UL, 1);
+    &Tensor x = Tensor::from_2d(&xv[0], 1UL, 2UL, 0);
+    &Tensor t = Tensor::from_2d(&tv[0], 1UL, 1UL, 0);
+    struct LossScaler scaler = LossScaler::new();
     int ok = 1;
     for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
     float pred = w.at1(0UL) + w.at1(1UL) * (float)2.0;
@@ -2439,7 +2434,7 @@ yet run on an NVIDIA GPU.
 
 ## Device selection {#device-selection}
 
-Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — precise, but awkward for a caller that wants to pick a device once. `tensor_matmul_on(a, b, device)` / `tensor_relu_on(a, device)` dispatch over a `Device` enum instead — verified bit-identical across CPU/CPU+BLAS/MPS:
+Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — precise, but awkward for a caller that wants to pick a device once. `tensor_matmul_on(a, b, device)` / `a.relu_on(device)` dispatch over a `Device` enum instead — verified bit-identical across CPU/CPU+BLAS/MPS:
 
 | Device | Y[0][0] | Y[0][1] |
 |---|---|---|
@@ -2457,14 +2452,14 @@ enum Device {
     DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
 };
 &Tensor tensor_matmul_on(const &Tensor a, const &Tensor b, enum Device device);
-&Tensor tensor_relu_on(const &Tensor a, enum Device device);
+&Tensor Tensor::relu_on(enum Device device) const;
 
 #include <std/ml/transformer_dispatch.h>
 &Tensor jit_block_forward_on(const &JiTBlock block, const &Tensor x, enum Device device);
 &Tensor jit_forward_on(const &JiT model, const &Tensor patches, const &Tensor cond, enum Device device);
 ```
 
-Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `tensor_sigmoid`/`tensor_relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
+Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `Tensor::sigmoid`/`Tensor::relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
 
 `jit_block_forward_on(block, x, device)` threads device selection through a real layer (JiTBlock's Q/K/V/output projections + FFN) — verified bit-identical to the reference across CPU/CPU+BLAS/MPS:
 
@@ -2500,29 +2495,28 @@ Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`
 struct LlmMessage { struct String role; struct String content; };
 struct LlmClient  { struct String host; unsigned short port; struct String model; struct String apiKey; };
 
-struct LlmClient llm_client_new(const &char host, unsigned short port,
-                                const &char model, const &char apiKey);
+static struct LlmClient LlmClient::new(const &char host, unsigned short port, const &char model, const &char apiKey);
 // The assistant's reply text; *ok = 0 on transport or response-shape failure.
 struct String LlmClient::chat(&Vec<struct LlmMessage> messages, ?&int ok);
 
 struct String prompt_template_render(const &char tmpl, const &Value vars);   // {name} -> vars.name
 
 typedef fn struct Value(const &Value input) ChainStepFn;
-struct Chain chain_new();
+static struct Chain Chain::new();
 void         Chain::add_step(ChainStepFn step);
 struct Value Chain::run(const &Value input);
 void         Chain::free();
 
 typedef fn struct Value(const &Value state) GraphNodeFn;
 typedef fn struct String(const &Value state) GraphRouterFn;   // name of the next node, or "__end__"
-struct Graph graph_new(const &char entryNode);
+static struct Graph Graph::new(const &char entryNode);
 void         Graph::add_node(const &char name, GraphNodeFn nodeFn, const &char nextNode);
 void         Graph::add_conditional_node(const &char name, GraphNodeFn nodeFn, GraphRouterFn router);
 struct Value Graph::run(struct Value initialState, int maxSteps);
 void         Graph::free();
 
 struct TraceEvent { struct String name; struct String inputJson; struct String outputJson; double durationMs; };
-struct Tracer tracer_new();
+static struct Tracer Tracer::new();
 void          Tracer::record(const &char name, const &Value input, const &Value output, double durationMs);
 struct String Tracer::to_json() const;
 void          Tracer::free();

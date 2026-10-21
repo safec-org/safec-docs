@@ -160,6 +160,24 @@ p.scale(2.0);                  // Point_scale(&p, 2.0)을 호출
 
 const 메서드는 `const T*` self 포인터를 받고, 비const 메서드는 `T*` self 포인터를 받습니다. 메서드 본문 안에서 `self`는 `&stack T` 타입으로 취급됩니다.
 
+### 구조체 밖에서 선언하는 메서드 {#methods-declared-outside-the-struct}
+
+메서드는 구조체 본문 밖에서도 한정된 이름으로 선언할 수 있습니다. 보통 그 타입을 기반으로 하는 다른 헤더에서 선언합니다. 호출은 본문 안에서 선언한 메서드와 똑같이 결정됩니다:
+
+```c
+// tensor.h
+struct Tensor { ... };
+
+// tensor_nn.h — tensor.h를 건드리지 않고 Tensor에 연산을 더합니다
+&Tensor Tensor::relu() const;
+&Tensor Tensor::softmax() const;
+
+// tensor_nn.sc
+&Tensor Tensor::relu() const { ... }
+```
+
+이렇게 하면 각 모듈의 메서드가 그 모듈과 함께 있습니다. 표준 라이브러리의 `Tensor`는 활성화 함수를 `tensor_nn.h`에서, 풀링을 `convnet.h`에서, GPU 변형을 백엔드 헤더에서 얻습니다. 정적 메서드는 구조체 본문 안에서 선언해야 합니다(본문 밖 선언 앞의 `static`은 C의 내부 링크를 뜻합니다).
+
 ### 정적 메서드 {#static-methods}
 
 `static`으로 선언한 메서드는 `self`가 없으며 타입을 통해 호출합니다. 타입의 생성자와 그 밖의 타입 수준 함수를 두는 자리입니다:

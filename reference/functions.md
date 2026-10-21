@@ -161,6 +161,24 @@ Methods are lowered to plain functions with an explicit `self` pointer:
 
 Const methods receive a `const T*` self pointer; non-const methods receive a `T*` self pointer. Inside the method body, `self` is typed as `&stack T`.
 
+### Methods declared outside the struct {#methods-declared-outside-the-struct}
+
+A method can also be declared outside the struct's body, with the qualified name — typically in another header that builds on the type. Calls resolve the same way as for a method declared in the body:
+
+```c
+// tensor.h
+struct Tensor { ... };
+
+// tensor_nn.h — adds operations to Tensor without touching tensor.h
+&Tensor Tensor::relu() const;
+&Tensor Tensor::softmax() const;
+
+// tensor_nn.sc
+&Tensor Tensor::relu() const { ... }
+```
+
+This keeps each module's methods with that module: the standard library's `Tensor` gets its activations from `tensor_nn.h`, its pooling from `convnet.h` and its GPU variants from the backend headers. Static methods must be declared in the struct body (a `static` before an out-of-body declaration means C's internal linkage).
+
 ### Static Methods {#static-methods}
 
 A method declared `static` has no `self` and is called through its type — the place for a type's constructors and other type-level functions:
