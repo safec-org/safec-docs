@@ -362,6 +362,33 @@ unsigned int hash_key(const &K key) {
 }
 ```
 
+### 타입 매개변수를 통한 정적 메서드 호출 {#static-methods-through-a-type-parameter}
+
+제네릭 본문 안에서 `E::f(...)`는 `E`에 바인딩된 구조체의 [정적 메서드](/ko/reference/functions#static-methods) `f`를 호출합니다. 각 인스턴스는 자기 타입의 메서드를 직접 호출하며 `E`의 값은 필요 없으므로, 타입 매개변수가 타입 수준 함수들의 묶음을 나타낼 수 있습니다:
+
+```c
+struct F32 { float v;           static float load(F32 x);  static struct F32 store(float f); };
+struct F16 { unsigned short bits; static float load(F16 x); static struct F16 store(float f); };
+
+generic<E>
+float sum2(E a, E b) { return E::load(a) + E::load(b); }   // F32::load 또는 F16::load
+```
+
+### 값으로 쓰는 제네릭 함수 {#generic-functions-as-values}
+
+제네릭 함수는 함수 타입이 기대되는 모든 곳 — 변수나 필드의 초기화, 대입, 인자, 반환값 — 에서 값으로 쓸 수 있습니다. 타입 인자는 그 함수 타입에서 가져오므로, 값은 맞는 인스턴스가 됩니다:
+
+```c
+generic<E> struct Node { E val; fn void(&Node<E>) back; };
+generic<E> void back_relu(&Node<E> n) { ... }
+
+struct Node<struct F16> n;
+n.back = back_relu;                        // E = F16인 back_relu
+fn void(&Node<struct F32>) f = back_relu;  // ... 그리고 E = F32
+```
+
+다른 제네릭 함수에 넘기면(`link(&n, back_relu)`), 그 호출의 타입 인자를 다른 인자들에서 추론하는 동안에는 건너뛰고, 정해진 매개변수 타입에 맞춰 인스턴스화합니다. 대상 함수 타입에서 타입 인자를 읽어 낼 수 없으면 그 함수를 이름으로 알려 주는 컴파일 오류입니다.
+
 ## 리전과의 상호작용 {#interaction-with-regions}
 
 제네릭 타입은 리전 한정 참조와 결합될 수 있습니다:
