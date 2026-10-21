@@ -1,11 +1,13 @@
 # 하드웨어 추상화 계층 (`std::hal`)
 
 `std/hal/`은 흔히 쓰이는 임베디드 주변장치를, 해당 주변장치의 MMIO 베이스
-주소를 담고 있는 구조체 인스턴스의 메서드로 감쌉니다 — 대응하는
-`*_init()` 함수로 인스턴스를 만든 다음 그 위에서 메서드를 호출하면 됩니다.
+주소를 담고 있는 구조체 인스턴스의 메서드로 감쌉니다 —
+[정적 메서드](/ko/reference/functions#static-methods) `new()`(`GpioPin::new(...)`,
+`Uart::new(...)`)로 인스턴스를 만든 다음 그 위에서 메서드를 호출하면 됩니다.
 각 드라이버는 그 주변장치의 레지스터를 아는 *칩 타입*에 대해 제네릭이며,
-칩 타입은 변수의 타입에서 컴파일 타임에 정해집니다(`BST<K, V, C>`의 순서
-관계와 같은 방식). 그래서 호출은 레지스터 직접 접근으로 컴파일됩니다.
+칩 타입은 변수의 타입에서 컴파일 타임에 정해지고(`BST<K, V, C>`의 순서
+관계와 같은 방식) [칩 트레이트](#chip-traits)로 검사됩니다. 그래서 호출은
+레지스터 직접 접근으로 컴파일됩니다.
 모든 모듈이 프리스탠딩 환경에서 안전하며(libc 의존성 없음), 일반적인
 `--target` 크로스 컴파일은 물론 `--freestanding`에서도 동작합니다.
 
@@ -14,10 +16,10 @@
 #include <std/hal/uart.h>
 
 void blink(&volatile unsigned int gpioa, &volatile unsigned int usart2) {
-    struct GpioPin<Stm32F4Gpio> led = std::gpio_init(gpioa, 5, GPIO_OUTPUT);
+    struct GpioPin<Stm32F4Gpio> led = std::GpioPin::new(gpioa, 5, GPIO_OUTPUT);
     led.write(1);
     led.toggle();
-    struct Uart<Stm32F4Usart> con = std::uart_init(usart2, 115200u, 42000000u);
+    struct Uart<Stm32F4Usart> con = std::Uart::new(usart2, 115200u, 42000000u);
     con.write_str("blink\n");
 }
 ```
@@ -32,25 +34,27 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 }
 ```
 
-생성자 함수는 네임스페이스가 적용되지만 구조체 *타입* 자체는 그렇지
-않다는 점에 유의합니다 — `struct std::GpioPin`이 아니라 `struct GpioPin`
-입니다([네임스페이스](/ko/reference/namespaces#what-gets-namespaced) 참고).
+정적 메서드는 네임스페이스를 거쳐 호출하지만 구조체 *타입* 자체에는
+네임스페이스가 적용되지 않는다는 점에 유의합니다 — 타입은 `struct GpioPin`이고,
+`namespace std` 밖에서의 호출은 `std::GpioPin::new(...)`입니다
+([네임스페이스](/ko/reference/namespaces#what-gets-namespaced) 참고). 칩 타입은
+선언된 변수에서 정해지므로 `new`에는 타입 인자를 주지 않습니다.
 
 ## 드라이버와 칩 {#generic-peripherals}
 
 | 모듈 | 헤더 | 타입 | 설명 |
 |---|---|---|---|
-| GPIO | `hal/gpio.h` | `GpioPin<C>` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus<C>` | `i2c_init(base, speed, clock_hz)`; `write`, `read`, `write_read`(쓰기 후 읽기), `probe`; 전송이 실패해도 STOP을 보내 버스를 해제합니다 |
-| SPI | `hal/spi.h` | `SpiDevice<C>` | `spi_init(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)`(`rx`는 `null`일 수 있음), `read` |
-| UART | `hal/uart.h` | `Uart<C>` | `uart_init(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
-| Timer | `hal/timer.h` | `Timer<C>` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
-| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `watchdog_init(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |
+| GPIO | `hal/gpio.h` | `GpioPin<C>` | `GpioPin::new(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
+| I2C | `hal/i2c.h` | `I2cBus<C>` | `I2cBus::new(base, speed, clock_hz)`; `write`, `read`, `write_read`(쓰기 후 읽기), `probe`; 전송이 실패해도 STOP을 보내 버스를 해제합니다 |
+| SPI | `hal/spi.h` | `SpiDevice<C>` | `SpiDevice::new(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)`(`rx`는 `null`일 수 있음), `read` |
+| UART | `hal/uart.h` | `Uart<C>` | `Uart::new(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
+| Timer | `hal/timer.h` | `Timer<C>` | `Timer::new(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
+| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `Watchdog::new(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |
 
 상수: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C 결과 `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3`(CPOL/CPHA = 00, 01, 10, 11).
 
 `clock_hz`는 주변장치의 입력 클록으로, 보 레이트나 버스 속도 분주값을
-계산하는 데 씁니다. `uart_init`에 `clock_hz = 0`을 주면 부트 펌웨어가 설정한
+계산하는 데 씁니다. `Uart::new`에 `clock_hz = 0`을 주면 부트 펌웨어가 설정한
 속도를 그대로 둡니다.
 
 ### 칩 타입 {#hal-chips}
@@ -67,14 +71,78 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 | `Stm32F4Tim` | STM32 범용 타이머(TIM2–TIM5): `PSC`, `ARR`, `CNT`, 업데이트 플래그 `UIF`. 카운터는 clock / (prescaler + 1)로 증가합니다 |
 | `Stm32F4Iwdg` | STM32 독립 워치독: `timeout`은 LSI / 256으로 세는 12비트 리로드 값(32 kHz에서 단위당 약 8 ms)이며, `caused_reset`은 STM32F4 RCC 주소의 `RCC_CSR.IWDGRSTF`를 읽습니다 |
 
-칩 타입은 주변장치의 기준 주소를 받아 레지스터 작업을 하는 메서드를 가진
-구조체입니다(각 헤더에 선언된 `init`, `put`/`get`, `transfer`, `write`/`read`
-등). 그래서 다른 부품은 그런 구조체를 하나 더 작성하면 지원됩니다.
+칩 타입은 주변장치의 기준 주소를 받아 레지스터 작업을 하는 메서드를,
+대응하는 [칩 트레이트](#chip-traits)가 나열한 대로 가진 구조체입니다. 그래서
+다른 부품은 그런 구조체를 하나 더 작성하면 지원됩니다.
 
 `Pl011`, `Ns16550`, `Stm32F4Usart`, `Stm32F4Tim`, `Stm32F4Spi` 칩은
 `tests/stdlib/baremetal/qemu/run.sh`에서 QEMU의 해당 주변장치 모델을 상대로
 실행되며, 모든 칩의 레지스터 시퀀스는 호스트 테스트에서 RAM 기반 레지스터로
 검사합니다.
+
+### 칩 트레이트 {#chip-traits}
+
+각 드라이버의 칩 파라미터는 드라이버가 호출하는 레지스터 연산을 나열한
+[트레이트](/ko/reference/generics#bounded-generic-structs)로 제한됩니다. 모든
+메서드는 주변장치의 기준 주소를 `unsigned long`으로 받으며 `const`입니다 —
+칩 타입은 자기 상태를 갖지 않습니다(`std`의 칩들은 쓰이지 않는 `int` 필드
+하나만 가집니다).
+
+| 트레이트 | 요구하는 메서드 | 제한하는 타입 | 만족하는 타입 |
+|---|---|---|---|
+| `GpioChip` | `set_direction(base, pin, direction)`, `write(base, pin, value)`, `read(base, pin)`, `toggle(base, pin)`, `set_pull(base, pin, pull)` | `GpioPin<C: GpioChip>` | `GpioGeneric`, `Stm32F4Gpio` |
+| `UartChip` | `init(base, baud, clock_hz)`, `tx_ready(base)`, `rx_ready(base)`, `put(base, c)`, `get(base)` | `Uart<C: UartChip>` | `UartGeneric`, `Pl011`, `Ns16550`, `Stm32F4Usart` |
+| `I2cChip` | `init(base, speed, clock_hz)`, `write(base, addr, data, len)`, `read(base, addr, data, len)`, `probe(base, addr)`(`I2C_*` 결과) | `I2cBus<C: I2cChip>` | `I2cGeneric`, `Stm32F4I2c` |
+| `SpiChip` | `init(base, mode)`, `transfer(base, tx)`, `cs(base, asserted)` | `SpiDevice<C: SpiChip>` | `SpiGeneric`, `Stm32F4Spi` |
+| `TimerChip` | `init(base, prescaler)`, `set_period(base, period)`, `run(base, on)`, `count(base)`, `flag(base)`, `clear_flag(base)` | `Timer<C: TimerChip>` | `TimerGeneric`, `Stm32F4Tim` |
+| `WatchdogChip` | `init(base, timeout)`, `enable(base)`, `feed(base)`, `caused_reset(base)` | `Watchdog<C: WatchdogChip>` | `WatchdogGeneric`, `Stm32F4Iwdg` |
+
+메서드가 하나라도 빠진 칩으로 드라이버를 지정하면 드라이버 내부 깊은 곳이
+아니라 선언한 자리에서 오류가 납니다:
+
+```text
+struct Uart<Stm32F4Gpio> con = Uart::new(base, 115200u, 0u);
+error: type 'Stm32F4Gpio' does not satisfy constraint 'UartChip' for generic
+       parameter 'C' of struct 'Uart' (no method 'init')
+```
+
+직접 만든 부품은 메서드를 갖추는 것만으로 트레이트를 만족합니다 — 트레이트에
+대해 따로 선언할 것은 없습니다. 트레이트에 대해 작성한 코드는 모든 칩에서
+동작합니다:
+
+```c
+#include <std/hal/uart.h>
+
+// base + 0에 쓰기 전용 데이터 레지스터 하나가 있는 디버그 포트.
+struct DebugPort {
+    int           unused_;
+    void          init(unsigned long base, unsigned int baud, unsigned int clock_hz) const;
+    int           tx_ready(unsigned long base) const;
+    int           rx_ready(unsigned long base) const;
+    void          put(unsigned long base, unsigned char c) const;
+    unsigned char get(unsigned long base) const;
+};
+void DebugPort::init(unsigned long base, unsigned int baud, unsigned int clock_hz) const { }
+int  DebugPort::tx_ready(unsigned long base) const { return 1; }
+int  DebugPort::rx_ready(unsigned long base) const { return 0; }
+void DebugPort::put(unsigned long base, unsigned char c) const {
+    unsafe { *(&volatile unsigned int)base = (unsigned int)c; }
+}
+unsigned char DebugPort::get(unsigned long base) const { return (unsigned char)0; }
+
+// 모든 UART 칩에 대해 한 번만 작성합니다.
+generic<C: UartChip>
+void banner(&Uart<C> con) {
+    con.write_str("boot\n");
+}
+
+int main() {
+    unsigned int reg = 0u;
+    struct Uart<DebugPort> con = Uart::new(&reg, 0u, 0u);
+    banner(&con);
+    return reg == 10u ? 0 : 1;   // 마지막으로 쓴 바이트는 '\n'
+}
+```
 
 ### 기준 레이아웃 {#hal-generic-layouts}
 

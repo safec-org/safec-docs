@@ -11,7 +11,7 @@ static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 // GPT-2 small's parameter tensors (148, 124.4M)
 static struct Vec<unsigned long> gpt2_sizes() {
-    struct Vec<unsigned long> s = std::vec_with_cap(160UL);
+    struct Vec<unsigned long> s = std::Vec::with_cap(160UL);
     s.push(50257UL * 768UL); s.push(1024UL * 768UL);
     int l = 0;
     while (l < 12) {
@@ -65,7 +65,7 @@ static int run_op() {
     if (g_op == 5) return std::cuda_half_bias(g_a, g_bias, g_p[0], g_p[1], g_p[2], 1);
     if (g_op == 6) return std::cuda_half_maxpool2d(g_a, g_o, g_p[0], g_p[1], g_p[2], g_p[3], g_p[4], g_p[5]);
     if (g_op == 7) return std::cuda_half_avgpool2d(g_a, g_o, g_p[0], g_p[1], g_p[2], g_p[3], g_p[4], g_p[5]);
-    if (g_op == 8) return std::cuda_half_conv2d_relu(&g_conv, g_a, g_o, g_p[0], g_p[2], g_p[3]);
+    if (g_op == 8) return g_conv.forward_relu(g_a, g_o, g_p[0], g_p[2], g_p[3]);
     return 0;
 }
 
@@ -82,31 +82,31 @@ static double timeit(int op, int iters) {
 }
 
 static void fill(struct CudaHalfBuf b) {
-    struct CudaBuf z = std::cuda_alloc(b.len);
+    struct CudaBuf z = CudaBuf::alloc(b.len);
     std::cuda_zero(z);
     std::cuda_to_half(z, b);
     std::cuda_sync();
-    std::cuda_free(&z);
+    z.free();
 }
 
 int main() {
     if (!std::cuda_available()) return 0;
     struct Vec<unsigned long> sz = gpt2_sizes();
-    g_w = std::vec_with_cap(sz.length()); g_m = std::vec_with_cap(sz.length()); g_v = std::vec_with_cap(sz.length());
-    g_g = std::vec_with_cap(sz.length()); g_h = std::vec_with_cap(sz.length());
+    g_w = std::Vec::with_cap(sz.length()); g_m = std::Vec::with_cap(sz.length()); g_v = std::Vec::with_cap(sz.length());
+    g_g = std::Vec::with_cap(sz.length()); g_h = std::Vec::with_cap(sz.length());
     unsigned long total = 0UL;
     unsigned long i = 0UL;
     while (i < sz.length()) {
         unsigned long n = *sz.at(i);
         total = total + n;
-        struct CudaBuf w = std::cuda_alloc(n); std::cuda_zero(w); g_w.push(w);
-        struct CudaBuf m = std::cuda_alloc(n); std::cuda_zero(m); g_m.push(m);
-        struct CudaBuf v = std::cuda_alloc(n); std::cuda_zero(v); g_v.push(v);
-        struct CudaBuf g = std::cuda_alloc(n); std::cuda_zero(g); g_g.push(g);
-        g_h.push(std::cuda_half_alloc(n, CUDA_BF16));
+        struct CudaBuf w = CudaBuf::alloc(n); std::cuda_zero(w); g_w.push(w);
+        struct CudaBuf m = CudaBuf::alloc(n); std::cuda_zero(m); g_m.push(m);
+        struct CudaBuf v = CudaBuf::alloc(n); std::cuda_zero(v); g_v.push(v);
+        struct CudaBuf g = CudaBuf::alloc(n); std::cuda_zero(g); g_g.push(g);
+        g_h.push(CudaHalfBuf::alloc(n, CUDA_BF16));
         i = i + 1UL;
     }
-    g_flag = std::cuda_alloc(1UL); std::cuda_zero(g_flag);
+    g_flag = CudaBuf::alloc(1UL); std::cuda_zero(g_flag);
     unsafe { printf("model: %lu tensors, %lu params\n", sz.length(), total); }
     unsafe { printf("[mp adamw+bf16 copy] us=%.1f\n", timeit(0, 20)); }
     unsafe { printf("[mp adamw many+bf16 copy] us=%.1f\n", timeit(9, 20)); }
@@ -114,11 +114,11 @@ int main() {
     unsafe { printf("[mp to_bf16 many] us=%.1f\n", timeit(2, 20)); }
 
     unsigned long big = 64UL * 1024UL * 1024UL;
-    g_a = std::cuda_half_alloc(big, CUDA_BF16); g_b = std::cuda_half_alloc(big, CUDA_BF16); g_o = std::cuda_half_alloc(big, CUDA_BF16);
+    g_a = CudaHalfBuf::alloc(big, CUDA_BF16); g_b = CudaHalfBuf::alloc(big, CUDA_BF16); g_o = CudaHalfBuf::alloc(big, CUDA_BF16);
     fill(g_a); fill(g_b);
     unsafe { printf("[half add 64M] us=%.1f\n", timeit(3, 50)); }
     unsafe { printf("[half axpy 64M] us=%.1f\n", timeit(4, 50)); }
-    g_bias = std::cuda_half_alloc(256UL, CUDA_BF16); fill(g_bias);
+    g_bias = CudaHalfBuf::alloc(256UL, CUDA_BF16); fill(g_bias);
     g_p[0] = 64UL; g_p[1] = 256UL; g_p[2] = 56UL * 56UL;
     unsafe { printf("[half bias+relu 64x256x56x56] us=%.1f\n", timeit(5, 50)); }
     g_p[0] = 64UL; g_p[1] = 64UL; g_p[2] = 112UL; g_p[3] = 112UL; g_p[4] = 3UL; g_p[5] = 2UL;
@@ -134,16 +134,16 @@ int main() {
     cs[15] = 256UL; cs[16] = 64UL; cs[17] = 1UL; cs[18] = 0UL; cs[19] = 56UL;
     int c = 0;
     while (c < 4) {
-        struct Conv2D layer = std::conv2d_new(cs[c * 5], cs[c * 5 + 1], cs[c * 5 + 2], cs[c * 5 + 2], 1UL, cs[c * 5 + 3]);
-        g_conv = std::cuda_half_conv2d_upload(&layer, CUDA_BF16);
+        struct Conv2D layer = Conv2D::new(cs[c * 5], cs[c * 5 + 1], cs[c * 5 + 2], cs[c * 5 + 2], 1UL, cs[c * 5 + 3]);
+        g_conv = CudaHalfConv2D::upload(&layer, CUDA_BF16);
         g_p[0] = 32UL; g_p[2] = cs[c * 5 + 4]; g_p[3] = cs[c * 5 + 4];
         double us = timeit(8, 50);
         double hw = (double)cs[c * 5 + 4];
         double fl = 2.0 * 32.0 * hw * hw * (double)(cs[c * 5] * cs[c * 5 + 1] * cs[c * 5 + 2] * cs[c * 5 + 2]);
         unsafe { printf("[half conv+relu %lu->%lu k%lu %lux%lu b32] us=%.1f tflops=%.1f\n", cs[c * 5], cs[c * 5 + 1],
                         cs[c * 5 + 2], cs[c * 5 + 4], cs[c * 5 + 4], us, fl / (us * 1.0e6)); }
-        std::cuda_half_conv2d_free(&g_conv);
-        std::conv2d_free(&layer);
+        g_conv.free();
+        layer.free();
         c = c + 1;
     }
     return 0;

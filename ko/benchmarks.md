@@ -252,7 +252,7 @@ SafeC는 C, C++와 비슷한 속도로 컴파일합니다. Zig의 콜드 빌드�
 
 [`std/dsp`](/ko/stdlib/dsp)를 SciPy, KFR 7, float biquad에서는 오디오 라이브러리 Q와 madronalib, 리샘플링에서는 dasp와 비교합니다. 각 작업은 무작위 샘플 1,048,576개(`conv2d`는 1024×1024 이미지)에서 돌리며, 워밍업 호출 한 번 뒤 호출당 ms, 3번 실행 중 최솟값입니다. "SafeC + oneMKL"은 oneMKL의 FFT와 BLAS를 링크한 것입니다(M1 Pro에는 없으며, 그곳에서 SafeC는 FIR에 Accelerate의 vDSP를 씁니다).
 
-- `fir stream`: 호출 사이에 상태를 유지하는 127탭 스트리밍 FIR(SafeC `fir_process_block`, SciPy `lfilter`, KFR `fir_filter`). 할당도 스레드도 없는 실시간 경로입니다.
+- `fir stream`: 호출 사이에 상태를 유지하는 127탭 스트리밍 FIR(SafeC `FirFilter::process_block`, SciPy `lfilter`, KFR `fir_filter`). 할당도 스레드도 없는 실시간 경로입니다.
 - `fir block`: 같은 필터를 합성곱 한 번으로(`conv_direct`, `np.convolve`).
 - `fftconv`: 4,096탭 커널(`conv_fft`, `fftconvolve`, KFR `convolve_filter`).
 - `biquad`: RBJ 저역 통과 섹션 하나(48 kHz, f0 1 kHz, Q 0.7071). 실시간 필터처럼 단일 스레드로 돕니다.

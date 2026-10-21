@@ -42,7 +42,7 @@ struct PacketBuf {
 }
 ```
 
-**NetIf** — an abstract network interface. It has no `rx`/`tx` buffers of its own: build each frame into your own `struct PacketBuf` (via `udp_frame`/`eth_build`/…, below) and pass it to `tx()`. Create one with `netif_new`, which takes your driver context and a transmit callback typed against it; the interface stores both type-erased (a stack can run interfaces from different drivers), and `netif_new` is the only writer, so the pairing is checked at compile time.
+**NetIf** — an abstract network interface. It has no `rx`/`tx` buffers of its own: build each frame into your own `struct PacketBuf` (via `udp_frame`/`eth_build`/…, below) and pass it to `tx()`. Create one with `NetIf::new` over your driver, any type with a `transmit` method ([`NetDriver`](#net-driver)); then fill in `mac` and the addresses.
 
 ```c
 struct NetIf {
@@ -51,26 +51,42 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    int  tx(&PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
-};
+    // An interface whose tx() calls drv.transmit(frame, len); drv must outlive it.
+    generic<T: NetDriver>
+    static struct NetIf new(&T drv);
 
-generic<T>
-struct NetIf netif_new(&T ctx, fn int(&T, const &unsigned char, unsigned long) tx);
+    int  tx(&PacketBuf pkt);   // the driver's transmit(pkt.data, pkt.len); 0 on success
+};
 ```
 
-```c
-struct Enc28j60 { int cs_pin; unsigned long sent; };
+### Network drivers: `NetDriver` {#net-driver}
 
-static int enc_tx(&Enc28j60 nic, const &unsigned char frame, unsigned long len) {
+`NetIf::new` is bounded by one single-capability [trait](/reference/generics#composing-traits):
+
+| Trait | Requires | Used by |
+|---|---|---|
+| `NetDriver` | `int transmit(const &unsigned char frame, unsigned long len)`: send one frame, 0 on success | `NetIf::new` |
+
+std ships no driver; a type conforms by having the method, with no declaration. `NetIf::new<T>` builds the interface's transmit entry from `T::transmit` at compile time and stores it with the driver type-erased, so one stack can run interfaces over different drivers, and passing a type without `transmit` is an error at the `NetIf::new` call. (Block devices follow the same pattern with [`BlockDriver`](/stdlib/fs#block-driver).)
+
+```c
+struct Enc28j60 {
+    int           cs_pin;
+    unsigned long sent;
+
+    int transmit(const &unsigned char frame, unsigned long len);
+};
+
+int Enc28j60::transmit(const &unsigned char frame, unsigned long len) {
     // ... push `len` bytes of `frame` to the chip over SPI ...
-    nic.sent = nic.sent + 1UL;
+    self.sent = self.sent + 1UL;
     return 0;
 }
 
 static struct Enc28j60 g_nic;
 
 void net_setup() {
-    struct NetIf eth0 = std::netif_new(&g_nic, enc_tx);
+    struct NetIf eth0 = std::NetIf::new(&g_nic);
     eth0.ip4 = std::net_ip4(192, 168, 1, 50);
 }
 ```
@@ -481,10 +497,14 @@ extern int printf(const char* fmt, ...);
 
 // A real driver would hand these bytes to hardware/a socket; this one just
 // reports how many bytes it was asked to send.
-struct LoopbackNic { unsigned long frames; };
+struct LoopbackNic {
+    unsigned long frames;
 
-static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long len) {
-    nic.frames = nic.frames + 1UL;
+    int transmit(const &unsigned char frame, unsigned long len);   // NetDriver
+};
+
+int LoopbackNic::transmit(const &unsigned char frame, unsigned long len) {
+    self.frames = self.frames + 1UL;
     unsafe { printf("driver: sending %lu bytes\n", len); }
     return 0;
 }
@@ -492,7 +512,7 @@ static int loop_send(&LoopbackNic nic, const &unsigned char frame, unsigned long
 static struct LoopbackNic g_nic;
 
 int main() {
-    struct NetIf iface = std::netif_new(&g_nic, loop_send);
+    struct NetIf iface = std::NetIf::new(&g_nic);
     unsafe {
         iface.mac[0] = 0xAA; iface.mac[1] = 0xBB; iface.mac[2] = 0xCC;
         iface.mac[3] = 0xDD; iface.mac[4] = 0xEE; iface.mac[5] = 0xFF;

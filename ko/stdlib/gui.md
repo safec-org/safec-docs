@@ -36,7 +36,7 @@ OS 백엔드는 시스템 라이브러리를 호출하므로, `[build] libs`로 
 | Win32 | `user32`, `gdi32` |
 | X11 | `X11` |
 
-GPU 경로는 없습니다. 매 프레임 `gui_present()`가 픽셀 버퍼를 화면으로 복사합니다(Cocoa는 `CGImage`를 레이어의 contents로 설정, Win32는 `StretchDIBits`, X11은 `XPutImage`, 베어메탈은 픽셀 포맷을 변환하며 복사). Rust의 `minifb`/`softbuffer`와 같은 범위입니다.
+GPU 경로는 없습니다. 매 프레임 `win.present()`가 픽셀 버퍼를 화면으로 복사합니다(Cocoa는 `CGImage`를 레이어의 contents로 설정, Win32는 `StretchDIBits`, X11은 `XPutImage`, 베어메탈은 픽셀 포맷을 변환하며 복사). Rust의 `minifb`/`softbuffer`와 같은 범위입니다.
 
 ---
 
@@ -49,6 +49,19 @@ struct GuiWindow {
     int                  width;
     int                  height;
     int                  shouldClose; // set when the platform close control is used
+
+    static struct GuiWindow create(const &char title, int width, int height);
+    int  poll_event(&GuiEvent outEvent);   // 1 = got an event, 0 = queue empty; never blocks
+    void present();                        // blit pixels to the screen
+    void set_pixel(int x, int y, unsigned int rgba); // 0xRRGGBBAA; out of bounds = no-op
+    void destroy();
+
+    // drawing, see gui_draw.h and gui_svg.h
+    void fill_rect(int x, int y, int w, int h, struct GuiColor color);
+    void draw_rect_border(int x, int y, int w, int h, struct GuiColor color, int thickness);
+    void draw_line(int x0, int y0, int x1, int y1, struct GuiColor color);
+    int  draw_text(int x, int y, const &char text, struct GuiColor color, int scale);
+    int  draw_svg(int ox, int oy, const &char svgText);
 };
 
 struct GuiEvent {
@@ -59,17 +72,20 @@ struct GuiEvent {
     unsigned int codepoint;  // the typed character (GUI_EVENT_KEY_DOWN / GUI_EVENT_CHAR)
     double       scrollDx, scrollDy;
     int          width, height;      // GUI_EVENT_RESIZE
-    int          defaultPrevented;   // see gui_event_prevent_default()
+    int          defaultPrevented;   // see prevent_default()
+
+    void prevent_default();  // skip the widget tree's default key action
 };
 
-struct GuiWindow gui_create_window(const &char title, int width, int height);
-int  gui_poll_event(&GuiWindow win, &GuiEvent outEvent);  // 1 = got an event, 0 = queue empty; never blocks
-void gui_present(&GuiWindow win);                          // blit pixels to the screen
-void gui_set_pixel(&GuiWindow win, int x, int y, unsigned int rgba); // 0xRRGGBBAA; out of bounds = no-op
-void gui_destroy_window(&GuiWindow win);
+struct GuiColor {
+    unsigned char r, g, b, a;
+
+    static struct GuiColor rgba(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
+    static struct GuiColor rgb(unsigned char r, unsigned char g, unsigned char b);  // a = 255
+};
 ```
 
-`gui_create_window`는 실패하면 `platform == null`이고 크기가 0인 창을 반환합니다 — 사용 전에 확인합니다.
+`GuiWindow::create`는 실패하면 `platform == null`이고 크기가 0인 창을 반환합니다 — 사용 전에 확인합니다.
 
 이벤트와 키 상수는 `#define`이므로 어느 네임스페이스에서나 쓸 수 있습니다:
 
@@ -80,7 +96,7 @@ void gui_destroy_window(&GuiWindow win);
 | `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_KEY_UP`, `GUI_EVENT_CHAR` | `GUI_KEY_BACKSPACE`, `GUI_KEY_SPACE`, `GUI_KEY_DELETE` |
 | `GUI_EVENT_SCROLL` | `GUI_KEY_UNKNOWN` |
 
-각 백엔드가 네이티브 키 코드를 `GUI_KEY_*`로 변환하므로, 애플리케이션 코드는 플랫폼별 키 코드를 보지 않습니다. 문자를 입력한 키 누름은 그 문자를 `codepoint`(출력 가능한 ASCII)에 담습니다. 크기가 바뀌면 `gui_poll_event`는 `GUI_EVENT_RESIZE`를 반환하기 전에 `win.pixels`, `win.width`, `win.height`를 새 클라이언트 영역에 맞게 바꾸므로, 그 뒤에는 전체를 다시 그립니다.
+각 백엔드가 네이티브 키 코드를 `GUI_KEY_*`로 변환하므로, 애플리케이션 코드는 플랫폼별 키 코드를 보지 않습니다. 문자를 입력한 키 누름은 그 문자를 `codepoint`(출력 가능한 ASCII)에 담습니다. 크기가 바뀌면 `poll_event`는 `GUI_EVENT_RESIZE`를 반환하기 전에 `win.pixels`, `win.width`, `win.height`를 새 클라이언트 영역에 맞게 바꾸므로, 그 뒤에는 전체를 다시 그립니다.
 
 ### 예제 — 직접 그리는 루프 {#example-raw-drawing-loop}
 
@@ -89,22 +105,22 @@ void gui_destroy_window(&GuiWindow win);
 #include <std/gui/gui_draw.h>
 
 int main() {
-    struct GuiWindow win = std::gui_create_window("Hello", 320, 200);
+    struct GuiWindow win = std::GuiWindow::create("Hello", 320, 200);
     if (win.platform.is_null()) { return 1; }
 
     struct GuiEvent ev;
     while (!win.shouldClose) {
-        while (std::gui_poll_event(&win, &ev)) {
+        while (win.poll_event(&ev)) {
             if (ev.kind == GUI_EVENT_KEY_DOWN && ev.keycode == GUI_KEY_ESCAPE) {
                 win.shouldClose = 1;
             }
         }
-        std::gui_fill_rect(&win, 0, 0, win.width, win.height, std::gui_rgb(30, 30, 40));
-        std::gui_draw_rect_border(&win, 10, 10, 300, 180, std::gui_rgb(200, 200, 220), 2);
-        std::gui_draw_text(&win, 24, 24, "Hello, SafeC", std::gui_rgb(255, 255, 255), 2);
-        std::gui_present(&win);
+        win.fill_rect(0, 0, win.width, win.height, std::GuiColor::rgb(30, 30, 40));
+        win.draw_rect_border(10, 10, 300, 180, std::GuiColor::rgb(200, 200, 220), 2);
+        win.draw_text(24, 24, "Hello, SafeC", std::GuiColor::rgb(255, 255, 255), 2);
+        win.present();
     }
-    std::gui_destroy_window(&win);
+    win.destroy();
     return 0;
 }
 ```
@@ -113,19 +129,23 @@ int main() {
 
 ## 그리기 — `gui_draw.h` {#drawing-gui-draw-h}
 
+그리기 기본 연산은 `GuiWindow`의 메서드로, `gui.h`에 `GuiColor`와 함께
+선언되고 `gui_draw.sc`에 정의됩니다. 모두 `set_pixel`을 거쳐 쓰므로 모든
+백엔드에서 동작하며, 범위를 벗어난 픽셀은 잘립니다.
+
 ```c
-struct GuiColor { unsigned char r, g, b, a; };
-
-struct GuiColor gui_rgba(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-struct GuiColor gui_rgb(unsigned char r, unsigned char g, unsigned char b);
-
-void gui_fill_rect(&GuiWindow win, int x, int y, int w, int h, struct GuiColor color);
-void gui_draw_rect_border(&GuiWindow win, int x, int y, int w, int h, struct GuiColor color, int thickness);
-void gui_draw_line(&GuiWindow win, int x0, int y0, int x1, int y1, struct GuiColor color);
+win.fill_rect(x, y, w, h, color);
+win.draw_rect_border(x, y, w, h, color, thickness);
+win.draw_line(x0, y0, x1, y1, color);
 
 // Built-in 8x8 font, printable ASCII (0x20-0x7E); other bytes draw as a blank cell.
 // Each glyph is 8*scale x 8*scale pixels. Returns the pixel width drawn.
-int gui_draw_text(&GuiWindow win, int x, int y, const &char text, struct GuiColor color, int scale);
+int n = win.draw_text(x, y, "text", GuiColor::rgb(255, 255, 255), scale);
+```
+
+`gui_draw.h`는 그리지 않고 크기를 재는 내장 폰트 메트릭을 더합니다:
+
+```c
 int gui_text_width(const &char text, int scale);
 int gui_text_height(int scale);
 ```
@@ -134,7 +154,7 @@ int gui_text_height(int scale);
 
 ## 폰트 — `gui_font.h` {#fonts-gui-font-h}
 
-`GuiFont`는 임의 글리프 크기의 비트 패킹된 글리프 비트맵입니다. 코드로 만들고, 저장하고, 다시 로드하고, `_ex` 함수로 그립니다.
+`GuiFont`는 임의 글리프 크기의 비트 패킹된 글리프 비트맵입니다. 코드로 만들고, 저장하고, 다시 로드하고, 폰트 자신의 `draw_text`로 그립니다.
 
 ```c
 struct GuiFont {
@@ -142,23 +162,27 @@ struct GuiFont {
     int first;                  // first codepoint covered
     int count;                  // codepoints first .. first+count-1
     &heap unsigned char bitmap;
+
+    static struct GuiFont new(int glyphW, int glyphH, int first, int count); // blank
+    static struct GuiFont default();          // heap copy of the built-in 8x8 font
+
+    int  get_bit(int cp, int px, int py) const;   // (0,0) = glyph top-left
+    void set_bit(int cp, int px, int py, int value);
+
+    int  save(const &char path) const;  // 1 = ok
+    int  load(const &char path);        // 1 = ok; overwrites without freeing, untouched on failure
+    void free();
+
+    int  draw_text(&GuiWindow win, int x, int y, const &char text,
+                   struct GuiColor color, int scale) const;
+    int  text_width(const &char text, int scale) const;
+    int  text_height(int scale) const;
 };
-
-struct GuiFont gui_font_new(int glyphW, int glyphH, int first, int count); // blank
-struct GuiFont gui_font_default();                                         // copy of the built-in 8x8 font
-
-int  gui_font_get_bit(const &GuiFont font, int cp, int px, int py);        // (0,0) = glyph top-left
-void gui_font_set_bit(&GuiFont font, int cp, int px, int py, int value);
-
-int  gui_font_save(const &GuiFont font, const &char path);  // 1 = ok
-int  gui_font_load(&GuiFont outFont, const &char path);     // 1 = ok
-void gui_font_free(&GuiFont font);
-
-int gui_draw_text_ex(&GuiWindow win, int x, int y, const &char text,
-                     struct GuiColor color, int scale, const &GuiFont font);
-int gui_text_width_ex(const &char text, int scale, const &GuiFont font);
-int gui_text_height_ex(int scale, const &GuiFont font);
 ```
+
+범위를 벗어난 코드포인트나 픽셀은 읽으면 0이고 쓰기는 무시됩니다. `load`는
+폰트의 이전 비트맵을 해제하지 않으므로 새 `struct GuiFont f;`에 대해(또는
+`free()` 다음에) 호출합니다.
 
 파일 포맷은 `SCXF` 버전 1, 리틀 엔디언입니다:
 
@@ -186,25 +210,36 @@ struct GuiImage {
     &heap unsigned char pixels; // width*height*4, RGBA8888
     int width;
     int height;
-};
 
-int  gui_load_png(const &unsigned char data, unsigned long size, &GuiImage out); // 1 = ok, 0 = failed (out zeroed)
-void gui_draw_image(&GuiWindow win, int x, int y, const &GuiImage img);
-void gui_image_free(&GuiImage img);
+    int  load_png(const &unsigned char data, unsigned long size); // in place; 1 = ok, 0 = failed (image zeroed)
+    void draw(&GuiWindow win, int x, int y) const;                 // straight copy, no blending
+    void free();
+};
+```
+
+```c
+struct GuiImage img;
+if (img.load_png(data, size)) {
+    img.draw(&win, 10, 10);
+    img.free();
+}
 ```
 
 지원: 채널당 8비트, 비인터레이스, 컬러 타입 0(그레이스케일), 2(RGB), 6(RGBA), 다섯 가지 스캔라인 필터 전부. 미지원: 팔레트 이미지(타입 3), 16비트 깊이, Adam7 인터레이스, `tRNS`/`gAMA` 같은 보조 청크. 지원하지 않는 파일은 잘못 디코딩하지 않고 `0`으로 실패합니다. 청크 CRC는 검사하지 않습니다.
 
-`gui_load_png`는 이미 메모리에 있는 바이트를 받습니다; 파일은 먼저 직접 읽습니다(예: `std/io_file.h`).
+`load_png`는 이미 메모리에 있는 바이트를 받습니다; 파일은 먼저 직접 읽습니다(예: `std/io_file.h`).
 
 ---
 
 ## SVG — `gui_svg.h` {#svg-gui-svg-h}
 
+렌더러는 `gui.h`에 선언되고 `gui_svg.sc`에 정의된 `GuiWindow`의
+메서드입니다. 유지되는 SVG 객체는 없습니다.
+
 ```c
 // Parses a complete <svg>...</svg> document and draws it with its top-left at (ox, oy).
 // Returns 1 if the <svg> root parsed, 0 on malformed or unsupported input.
-int gui_draw_svg(&GuiWindow win, int ox, int oy, const &char svgText);
+int GuiWindow::draw_svg(int ox, int oy, const &char svgText);
 ```
 
 지원 요소: `<svg>`, `<g>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, 그리고 `M`/`L`/`H`/`V`/`C`/`Z` 명령을 쓰는 `<path>`(3차 곡선은 선분으로 평탄화). `fill`/`stroke`는 `#rrggbb`, `none`, 그리고 black, white, red, green, blue, yellow, cyan, magenta, gray, transparent 이름을 받습니다.
@@ -218,60 +253,71 @@ int gui_draw_svg(&GuiWindow win, int ox, int oy, const &char svgText);
 리테인드 모드 위젯 트리입니다. 한 번 만들고, 매 프레임 레이아웃, 이벤트 디스패치, 렌더링을 합니다:
 
 ```c
-std::gui_layout(root, 0, 0, win.width, win.height);
-while (std::gui_poll_event(&win, &ev)) { std::gui_dispatch_event(root, &ev); }
-std::gui_render(&win, root);
-std::gui_present(&win);
+root.layout(0, 0, win.width, win.height);
+while (win.poll_event(&ev)) { root.dispatch_event(&ev); }
+root.render(&win);
+win.present();
 ```
 
 ### 내장 위젯 {#built-in-widgets}
 
 | 생성자 | 종류 | 비고 |
 |-------------|------|-------|
-| `widget_vstack()` | `WIDGET_VSTACK` | 자식을 위에서 아래로 배치 |
-| `widget_hstack()` | `WIDGET_HSTACK` | 자식을 왼쪽에서 오른쪽으로 배치 |
-| `widget_button(text)` | `WIDGET_BUTTON` | 안에서 눌렀다 떼면 `onClick` 호출 |
-| `widget_label(text)` | `WIDGET_LABEL` | 정적 텍스트 |
-| `widget_checkbox(text, checked)` | `WIDGET_CHECKBOX` | `checked`를 토글하고 `onChange` 호출 |
-| `widget_textinput(placeholder)` | `WIDGET_TEXTINPUT` | 한 줄 편집; `text`와 `caret`; `onChange` 호출 |
-| `widget_slider(min, max, value)` | `WIDGET_SLIDER` | 드래그로 `sliderValue` 설정; `onChange` 호출 |
-| `widget_spacer()` | `WIDGET_SPACER` | 빈 공간; stretch를 주면 형제를 밀어냄 |
-| `widget_custom(draw, layout, eventFn, userData)` | `WIDGET_CUSTOM` | 직접 구현하는 그리기, 레이아웃, 이벤트 처리 |
+| `Widget::vstack()` | `WIDGET_VSTACK` | 자식을 위에서 아래로 배치 |
+| `Widget::hstack()` | `WIDGET_HSTACK` | 자식을 왼쪽에서 오른쪽으로 배치 |
+| `Widget::button(text)` | `WIDGET_BUTTON` | 안에서 눌렀다 떼면 `onClick` 호출 |
+| `Widget::label(text)` | `WIDGET_LABEL` | 정적 텍스트 |
+| `Widget::checkbox(text, checked)` | `WIDGET_CHECKBOX` | `checked`를 토글하고 `onChange` 호출 |
+| `Widget::textinput(placeholder)` | `WIDGET_TEXTINPUT` | 한 줄 편집; `text`와 `caret`; `onChange` 호출 |
+| `Widget::slider(min, max, value)` | `WIDGET_SLIDER` | 드래그로 `sliderValue` 설정; `onChange` 호출 |
+| `Widget::spacer()` | `WIDGET_SPACER` | 빈 공간; stretch를 주면 형제를 밀어냄 |
+| `Widget::custom(draw, layout, eventFn, userData)` | `WIDGET_CUSTOM` | 직접 구현하는 그리기, 레이아웃, 이벤트 처리 |
 
-모든 생성자는 기본 스타일이 적용된, null이 아닌 힙 할당 `&Widget`을 반환합니다. `widget_add_child(parent, child)`로 트리를 만들고, `widget_free(root)`로 서브트리 전체를 해제합니다.
+모든 생성자는 기본 스타일이 적용된, null이 아닌 힙 할당 `&Widget`을 반환하는 [정적 메서드](/ko/reference/functions#static-methods)입니다. `parent.add_child(child)`로 트리를 만들고, `root.free()`로 서브트리 전체를 해제합니다.
 
 ### 커스터마이즈 {#customization}
 
-모든 setter는 같은 위젯을 반환하므로 호출을 이어 쓸 수 있습니다:
+모든 setter는 같은 위젯을 반환하므로 호출을 이어 쓸 수 있습니다
+(`Widget::button("Go").set_padding(8).set_bg(60, 120, 200, 255)`):
 
 ```c
-&Widget widget_set_bg(&Widget w, unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-&Widget widget_set_fg(&Widget w, unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-&Widget widget_set_border(&Widget w, unsigned char r, unsigned char g, unsigned char b, unsigned char a, int width);
-&Widget widget_set_padding(&Widget w, int padding);
-&Widget widget_set_spacing(&Widget w, int spacing);     // gap between children of a stack
-&Widget widget_set_pref_size(&Widget w, int prefW, int prefH); // 0 = size to content
-&Widget widget_set_stretch(&Widget w, int stretch);     // 0 = natural size, >0 = flex weight
-&Widget widget_set_alignment(&Widget w, int alignment); // cross axis: WIDGET_ALIGN_START, _CENTER, _END, _STRETCH
-&Widget widget_set_font_scale(&Widget w, int scale);
-&Widget widget_set_font(&Widget w, const ?&GuiFont font); // null = built-in font
-&Widget widget_set_visible(&Widget w, int visible);
-&Widget widget_set_enabled(&Widget w, int enabled);
-&Widget widget_set_text(&Widget w, const &char text);
+struct Widget {
+    // ...
+    void    add_child(&Widget child);
 
-generic<T> &Widget widget_on_click(&Widget w, fn void(&Widget, ?&T) cb, ?&T userData);
-generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T userData);
+    &Widget set_bg(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
+    &Widget set_fg(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
+    &Widget set_border(unsigned char r, unsigned char g, unsigned char b, unsigned char a, int width);
+    &Widget set_padding(int padding);
+    &Widget set_spacing(int spacing);         // gap between children of a stack
+    &Widget set_pref_size(int prefW, int prefH); // 0 = size to content
+    &Widget set_stretch(int stretch);         // 0 = natural size, >0 = flex weight
+    &Widget set_alignment(int alignment);     // cross axis: WIDGET_ALIGN_START, _CENTER, _END, _STRETCH
+    &Widget set_font_scale(int scale);
+    &Widget set_font(const ?&GuiFont font);   // null = built-in font
+    &Widget set_visible(int visible);
+    &Widget set_enabled(int enabled);
+    &Widget set_text(const &char text);
+
+    generic<T> &Widget on_click(fn void(&Widget, ?&T) cb, ?&T userData);
+    generic<T> &Widget on_change(fn void(&Widget, ?&T) cb, ?&T userData);
+
+    void layout(int x, int y, int w, int h);
+    void render(&GuiWindow win);
+    int  dispatch_event(&GuiEvent ev);
+    void free();                              // the whole subtree
+};
 ```
 
-`widget_on_click`/`widget_on_change`는 콜백을 컨텍스트 타입에 맞춰 컴파일 타임에 검사합니다. 위젯은 이 쌍을 타입 소거해 저장하는데, 하나의 트리가 서로 무관한 컨텍스트 타입을 가진 버튼, 슬라이더, 커스텀 위젯을 함께 담기 때문입니다([제네릭 패턴](/ko/stdlib/#generic-pattern) 참고).
+`on_click`/`on_change`는 [자체 타입 파라미터를 갖는 메서드](/ko/reference/generics#methods-with-their-own-type-parameters)입니다: `T`는 콜백에서 추론되며, 콜백을 컨텍스트 타입에 맞춰 컴파일 타임에 검사합니다. 위젯은 이 쌍을 타입 소거해 저장하는데, 하나의 트리가 서로 무관한 컨텍스트 타입을 가진 버튼, 슬라이더, 커스텀 위젯을 함께 담기 때문입니다([제네릭 패턴](/ko/stdlib/#generic-pattern) 참고).
 
 ### 레이아웃 {#layout}
 
-`gui_layout(root, x, y, w, h)`는 트리 전체를 박스 안에 배치합니다. 스택은 먼저 `stretch == 0`인 각 자식에게 선호 크기나 자연 크기를 주고, 남은 공간을 stretch된 자식들에게 가중치대로 나눕니다. `padding`은 컨테이너 안쪽에, `spacing`은 자식 사이에 적용되며, `alignment`는 각 자식을 교차 축에 배치합니다.
+`root.layout(x, y, w, h)`는 트리 전체를 박스 안에 배치합니다. 스택은 먼저 `stretch == 0`인 각 자식에게 선호 크기나 자연 크기를 주고, 남은 공간을 stretch된 자식들에게 가중치대로 나눕니다. `padding`은 컨테이너 안쪽에, `spacing`은 자식 사이에 적용되며, `alignment`는 각 자식을 교차 축에 배치합니다.
 
 ### 이벤트와 키보드 기본 동작 {#events-and-keyboard-defaults}
 
-`gui_dispatch_event(root, &ev)`는 이벤트를 커서 아래 가장 깊은 위젯부터 전달하고, `hover`/`pressed`/`focused`를 갱신하고, `onClick`/`onChange`를 호출하고, 커스텀 위젯의 이벤트 훅을 부릅니다. 어떤 위젯이 이벤트를 사용했으면 1을 반환합니다.
+`root.dispatch_event(&ev)`는 이벤트를 커서 아래 가장 깊은 위젯부터 전달하고, `hover`/`pressed`/`focused`를 갱신하고, `onClick`/`onChange`를 호출하고, 커스텀 위젯의 이벤트 훅을 부릅니다. 어떤 위젯이 이벤트를 사용했으면 1을 반환합니다.
 
 `GUI_EVENT_KEY_DOWN`이면 그다음 브라우저의 키 기본 동작처럼 기본 동작이 실행됩니다:
 
@@ -282,7 +328,7 @@ generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T use
 | Escape | 포커스 해제 |
 | Left / Right | 포커스된 슬라이더를 범위의 5%만큼 이동 |
 
-이 동작은 위젯이 이미 이벤트를 처리했어도 실행됩니다. 막으려면 커스텀 위젯의 이벤트 훅에서 `gui_event_prevent_default(&ev)`를 호출합니다.
+이 동작은 위젯이 이미 이벤트를 처리했어도 실행됩니다. 막으려면 커스텀 위젯의 이벤트 훅에서 `ev.prevent_default()`를 호출합니다.
 
 ### 커스텀 위젯 {#custom-widgets}
 
@@ -291,12 +337,29 @@ typedef fn void(&GuiWindow, &Widget) WidgetDrawFn;               // draw inside 
 typedef fn void(&Widget, int, int, int, int) WidgetLayoutFn;      // set widget.x/y/w/h, lay out children
 typedef fn int(&Widget, &GuiEvent) WidgetCustomEventFn;           // 1 = handled, stop dispatch
 
-generic<T>
-&Widget widget_custom(WidgetDrawFn draw, WidgetLayoutFn layout,
-                      WidgetCustomEventFn eventFn, ?&T userData);
+struct Widget {
+    // ...
+    generic<T>
+    static &Widget custom(WidgetDrawFn draw, WidgetLayoutFn layout,
+                          WidgetCustomEventFn eventFn, ?&T userData);
+};
 ```
 
-`draw`와 `layout`은 필수입니다. `eventFn`은 null이어도 됩니다: 그러면 위젯은 버튼과 같은 hover, press, click 처리를 받습니다. 캔버스의 드래그 변화량처럼 원시 이벤트가 필요할 때만 설정합니다.
+`draw`와 `layout`은 필수입니다. `eventFn`은 null이어도 됩니다: 그러면 위젯은 버튼과 같은 hover, press, click 처리를 받습니다. 캔버스의 드래그 변화량처럼 원시 이벤트가 필요할 때만 설정합니다:
+
+```c
+static int canvas_event(&Widget w, &GuiEvent ev) {
+    if (ev.kind == GUI_EVENT_KEY_DOWN && ev.keycode == GUI_KEY_TAB) {
+        ev.prevent_default();   // keep focus here: no default Tab action
+        return 1;
+    }
+    return 0;
+}
+
+struct Canvas c;
+&Widget canvas;
+unsafe { canvas = std::Widget::custom(canvas_draw, canvas_layout, canvas_event, (?&Canvas)&c); }
+```
 
 ### 예제 — 카운터 {#example-counter}
 
@@ -312,38 +375,38 @@ static void on_click(&Widget w, ?&Counter ctx) {
     match (ctx) {
         case some(c): {
             c.clicks = c.clicks + 1;
-            std::widget_set_text(c.label, c.clicks == 1 ? "Clicked once" : "Clicked again");
+            c.label.set_text(c.clicks == 1 ? "Clicked once" : "Clicked again");
         }
         case null: { }
     }
 }
 
 int main() {
-    struct GuiWindow win = std::gui_create_window("Counter", 320, 160);
+    struct GuiWindow win = std::GuiWindow::create("Counter", 320, 160);
     if (win.platform.is_null()) { return 1; }
 
-    &Widget root  = std::widget_set_spacing(std::widget_set_padding(std::widget_vstack(), 12), 8);
-    &Widget label = std::widget_label("Not clicked");
-    &Widget button = std::widget_set_bg(std::widget_button("Click me"), 60, 120, 200, 255);
+    &Widget root   = std::Widget::vstack().set_padding(12).set_spacing(8);
+    &Widget label  = std::Widget::label("Not clicked");
+    &Widget button = std::Widget::button("Click me").set_bg(60, 120, 200, 255);
 
     struct Counter counter;
     counter.clicks = 0;
     counter.label = label;
-    unsafe { std::widget_on_click(button, on_click, (?&Counter)&counter); }
+    unsafe { button.on_click(on_click, (?&Counter)&counter); }
 
-    std::widget_add_child(root, label);
-    std::widget_add_child(root, button);
+    root.add_child(label);
+    root.add_child(button);
 
     struct GuiEvent ev;
     while (!win.shouldClose) {
-        std::gui_layout(root, 0, 0, win.width, win.height);
-        while (std::gui_poll_event(&win, &ev)) { std::gui_dispatch_event(root, &ev); }
-        std::gui_render(&win, root);
-        std::gui_present(&win);
+        root.layout(0, 0, win.width, win.height);
+        while (win.poll_event(&ev)) { root.dispatch_event(&ev); }
+        root.render(&win);
+        win.present();
     }
 
-    std::widget_free(root);
-    std::gui_destroy_window(&win);
+    root.free();
+    win.destroy();
     return 0;
 }
 ```
@@ -366,10 +429,10 @@ struct GuiFbConfig {
     int redShift; int greenShift; int blueShift; // channel bit positions, 32 bpp only
 };
 
-void gui_fb_configure(struct GuiFbConfig cfg);                 // call once, before gui_create_window()
+void gui_fb_configure(struct GuiFbConfig cfg);                 // call once, before GuiWindow::create()
 void gui_fb_inject_event(&GuiWindow win, struct GuiEvent ev);  // call from your keyboard/mouse/touch ISR
 ```
 
-값은 보통 부트로더에서 옵니다. 예를 들어 Multiboot2 프레임버퍼 태그(`framebuffer_addr`, `framebuffer_pitch`, `framebuffer_bpp`)나 VESA VBE 모드입니다. `gui_fb_configure` 없이는 `gui_create_window`가 실패합니다(`platform`이 null). 주입된 이벤트는 `gui_poll_event`가 비우는 32칸 큐(`GUI_FB_QUEUE_CAP`)에 들어가며, 큐가 가득 차면 버려집니다. `gui_present`는 복사하면서 RGBA 버퍼를 프레임버퍼의 픽셀 포맷으로 변환합니다.
+값은 보통 부트로더에서 옵니다. 예를 들어 Multiboot2 프레임버퍼 태그(`framebuffer_addr`, `framebuffer_pitch`, `framebuffer_bpp`)나 VESA VBE 모드입니다. `gui_fb_configure` 없이는 `GuiWindow::create`가 실패합니다(`platform`이 null). 주입된 이벤트는 `win.poll_event`가 비우는 32칸 큐(`GUI_FB_QUEUE_CAP`)에 들어가며, 큐가 가득 차면 버려집니다. `win.present()`는 복사하면서 RGBA 버퍼를 프레임버퍼의 픽셀 포맷으로 변환합니다.
 
 타깃과 링크는 [베어메탈](/ko/reference/baremetal)을 참고하십시오.

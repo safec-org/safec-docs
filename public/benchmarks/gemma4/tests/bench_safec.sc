@@ -45,7 +45,7 @@ static void batch_stream_token_noop(void* ctxRaw, unsigned long seqIdx, int toke
 }
 
 int main(int argc, char** argv) {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
     std::sys_srand(7U);
 
     int forceCpu = 0;

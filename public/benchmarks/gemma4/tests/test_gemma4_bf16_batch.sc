@@ -43,7 +43,7 @@ static void batch_token_cb(void* ctxRaw, unsigned long seqIdx, int tokenId) {
 }
 
 int main() {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
 
     struct Gemma4Bf16Model model = std::gemma4_bf16_model_load("/tmp/gemma4_synthetic.safetensors");
 

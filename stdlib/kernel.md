@@ -19,8 +19,8 @@ void kernel_setup() {
     frames.init(1024);              // 1024 4K frames = 4 MiB tracked
     long long f = frames.alloc();   // -1 on OOM
 
-    struct PCB p = std::pcb_init(1, 0x1000, 0x8000, 0);   // pid, entry, sp, page_table
-    struct Scheduler sched = std::sched_init();
+    struct PCB p = std::PCB::new(1, 0x1000, 0x8000, 0);   // pid, entry, sp, page_table
+    struct Scheduler sched = std::Scheduler::new();
     unsafe { sched.spawn_proc(&p); }
     int next = sched.next();        // highest-priority READY process index
 }
@@ -51,9 +51,9 @@ Flags: `PAGE_PRESENT`, `PAGE_WRITABLE`, `PAGE_USER`, `PAGE_WRITE_THRU`,
 
 ## MMU Context (`kernel/mmu.h`) {#mmu-context-kernelmmuh}
 
-`MmuContext<F>` builds the page tables the CPU itself walks. `F` is a
-page-table format type chosen at compile time (the same pattern as
-`BST<K, V, C>`'s ordering), one per architecture:
+`MmuContext<F: MmuFormat>` builds the page tables the CPU itself walks. `F` is a
+page-table [format type](#mmu-format) chosen at compile time (the same
+pattern as `BST<K, V, C: Order>`'s ordering), one per architecture:
 
 | Format | Tables |
 |---|---|
@@ -77,14 +77,14 @@ static struct FrameAllocator g_frames;
 
 void vm_setup(unsigned long root) {           // a zeroed, 4 KiB-aligned table
     g_frames.init_at(0x80400000UL, 256UL);
-    struct MmuContext<MmuNative> m = std::mmu_init(root, &g_frames, 0UL);
+    struct MmuContext<MmuNative> m = std::MmuContext::new(root, &g_frames, 0UL);
     m.map(0x80000000UL, 0x80000000UL, MMU_WRITE | MMU_EXEC);   // identity: kernel image
     m.map(0x10000000UL, 0x10000000UL, MMU_WRITE | MMU_DEVICE); // a UART
     m.activate();                             // satp / CR3 / TTBR0
 }
 ```
 
-- `mmu_init(root, frames, phys_offset)`: `root` is the physical address of
+- `MmuContext::new(root, frames, phys_offset)` (a [static method](/reference/functions#static-methods); `F` is inferred from the declared type): `root` is the physical address of
   a zeroed root table (4 KiB aligned; 16 KiB for `MmuArmV7`), `frames` a
   live `&static` `FrameAllocator` that supplies one frame per new
   intermediate table, and the tables are read and written at physical
@@ -107,18 +107,71 @@ translation on — Sv39 and Sv32 from S-mode, AArch64 and ARMv7 with the MMU
 enabled, x86 32-bit paging and x86-64 long mode — reading and writing a
 page through an alias mapping.
 
+### Page-table formats: `MmuFormat` {#mmu-format}
+
+`MmuContext` is a [bounded generic struct](/reference/generics#bounded-generic-structs):
+its format parameter must satisfy the `MmuFormat` trait, so a type that
+isn't a page-table format is an error where `MmuContext<...>` is named
+(`type 'X' does not satisfy constraint 'MmuFormat' ... (no method
+'levels')`), not deep inside `map()`.
+
+| Trait | Requires | Satisfied by |
+|---|---|---|
+| `MmuFormat` | `levels()`; `shift(l)` (the VA bit where level `l`'s index starts, `l` = 0 at the root); `entries(l)`; `esize()` (4 or 8 bytes per entry); `table_desc(phys)` and `leaf_desc(phys, flags)` (an entry pointing at a next-level table / a 4 KiB page with `MMU_*` flags); `valid(e)`, `is_leaf(e, l)`, `addr(e, l)`; `load_root(root)`, `flush_all()`, `flush_page(virt)` (1 if they ran, 0 if this isn't the running CPU's format). All `const` | `MmuX86_64`, `MmuX86_32`, `MmuSv39`, `MmuSv32`, `MmuAArch64`, `MmuArmV7` (and so `MmuNative`) |
+
+Every step of `map`, `unmap`, `walk` and `entry` is a direct, inlinable
+call to these methods. A new architecture's format conforms by having
+them; nothing else in `mmu.h` changes. Code over page tables is written
+once with the same bound. This builds RISC-V Sv39 tables in a host buffer
+(the physical address is the host address, so `phys_offset` is 0) and
+walks them:
+
+```c
+#include <std/kernel/mmu.h>
+
+// Written once for every page-table format.
+generic<F: MmuFormat>
+int map_range(&MmuContext<F> m, unsigned long virt, unsigned long phys,
+              unsigned long pages, unsigned int flags) {
+    unsigned long i = 0UL;
+    while (i < pages) {
+        if (!m.map(virt + i * 4096UL, phys + i * 4096UL, flags)) return 0;
+        i = i + 1UL;
+    }
+    return 1;
+}
+
+static unsigned char g_mem[17 * 4096];       // 16 frames + alignment slack
+static struct FrameAllocator g_frames;
+
+int main() {
+    // On the host, build RISC-V Sv39 tables in g_mem (phys == host address).
+    unsigned long base = 0UL;
+    unsafe { base = ((unsigned long)&g_mem[0] + 4095UL) & ~4095UL; }
+    g_frames.init_at(base, 16UL);
+    g_frames.mark_range(0UL, 1UL);           // frame 0 is the root table
+
+    struct MmuContext<MmuSv39> m = std::MmuContext::new(base, &g_frames, 0UL);
+    if (!map_range(&m, 0x40000000UL, 0x80000000UL, 4UL, MMU_WRITE)) return 1;
+
+    unsigned long phys = 0UL;
+    if (!m.walk(0x40002010UL, &phys) || phys != 0x80002010UL) return 2;
+    return m.activate();                     // 0: Sv39 isn't this CPU's MMU
+}
+```
+
 ## Process Control Block (`kernel/process.h`) {#process-control-block-kernelprocessh}
 
 `PCB` — `pid`, `state` (`PROC_READY`/`PROC_RUNNING`/`PROC_BLOCKED`/
 `PROC_ZOMBIE`), `priority`, saved `stack_ptr`/`pc`, `page_table` (physical
-root address), `parent_pid`, `exit_code`. `pcb_init(pid, entry, sp,
+root address), `parent_pid`, `exit_code`. `PCB::new(pid, entry, sp,
 page_table)`; methods `set_state`, `set_priority`, `save_context(sp, pc)`,
 `exit(code)` (transitions to `PROC_ZOMBIE`).
 
 ## Scheduler (`kernel/scheduler.h`) {#scheduler-kernelschedulerh}
 
 `Scheduler` — priority round-robin over up to `SCHED_MAX_PROCS` (256)
-PCBs. `sched_init()`; `spawn_proc(&PCB)` (returns index or `-1` if
+PCBs. `Scheduler::new()`; `spawn_proc(&PCB)` (returns index or `-1` if
 full), `next()` (select highest-priority READY process), `yield()` (mark
 current READY, select next), `block_current()`, `unblock(idx)`,
 `remove(idx)` (reap a zombie), `ready_count()`. `next()` takes the highest
@@ -128,7 +181,7 @@ process (`-1` if it was the one removed).
 
 ## IPC Mailbox (`kernel/ipc.h`) {#ipc-mailbox-kernelipch}
 
-`Mailbox` (via `mailbox_init(owner_pid)`) — a fixed-capacity
+`Mailbox` (via `Mailbox::new(owner_pid)`) — a fixed-capacity
 (`MAILBOX_CAPACITY` = 64 messages, `MSG_MAX_SIZE` = 256 bytes payload)
 message queue. `send(sender_pid, type, payload, size)` (`payload` is a
 `const ?&unsigned char`; pass `null` with `size` 0 for a signal-only message), `recv(&Message out)`,
@@ -137,7 +190,7 @@ message queue. `send(sender_pid, type, payload, size)` (`payload` is a
 
 ## Syscall Table (`kernel/syscall.h`) {#syscall-table-kernelsyscallh}
 
-`SyscallTable` (via `syscall_init()`) — up to `SYSCALL_MAX` (256)
+`SyscallTable` (via `SyscallTable::new()`) — up to `SYSCALL_MAX` (256)
 handlers typed `fn long long(long long, long long, long long)`.
 `register_(num, handler)`/`unregister_(num)` (trailing underscore:
 `register` is a C keyword), `dispatch(num, arg0, arg1, arg2)` (returns the

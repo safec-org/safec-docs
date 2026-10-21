@@ -13,7 +13,7 @@ extern unsigned long strtoul(const char* s, char** endptr, int base);
 #include <std/sys.h>
 
 int main(int argc, char** argv) {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
     std::sys_srand(1U);
 
     const char* checkpointPath = "/Users/minjaekim/SafeC/models/gemma4-e2b/model.safetensors";

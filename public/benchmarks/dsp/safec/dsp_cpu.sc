@@ -6,7 +6,7 @@
 //              block conv_direct (SIMD dot products on the thread pool)
 //   fftconv    1,048,576 samples convolved with a 4,096-tap kernel (conv_fft)
 //   biquad     1,048,576 samples through one RBJ low-pass section
-//              (biquad_process_block)
+//              (Biquad::process_block)
 //   stft       1,048,576 samples, 1,024-point Hann frames, hop 256
 //   resample   1,048,576 samples from 44.1 kHz to 48 kHz (windowed sinc,
 //              16 taps each side)
@@ -76,11 +76,11 @@ int main() {
         double* y = (double*)malloc((n + 8192UL) * 8UL);
         int it = 0;
         int iters = 3;
-        struct FirFilter f = std::fir_init((const double*)h, taps, hist);
+        struct FirFilter f = std::FirFilter::new((const double*)h, taps, hist);
         f.reset();
-        std::fir_process_block(&f, (const double*)x, y, n);
+        f.process_block((const double*)x, y, n);
         double t0 = now_ms();
-        while (it < iters) { f.reset(); std::fir_process_block(&f, (const double*)x, y, n); it = it + 1; }
+        while (it < iters) { f.reset(); f.process_block((const double*)x, y, n); it = it + 1; }
         printf("[fir stream n=1048576 taps=127] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum(y, n));
 
         // fir: block conv_direct
@@ -102,11 +102,11 @@ int main() {
         printf("[fftconv n=1048576 taps=4096] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum(yf, n + ktaps - 1UL));
 
         // biquad
-        struct Biquad bq = std::biquad_lowpass(48000.0, 1000.0, 0.7071);
-        std::biquad_process_block(&bq, (const double*)x, y, n);
+        struct Biquad bq = std::Biquad::lowpass(48000.0, 1000.0, 0.7071);
+        bq.process_block((const double*)x, y, n);
         t0 = now_ms();
         it = 0;
-        while (it < iters) { bq.reset(); std::biquad_process_block(&bq, (const double*)x, y, n); it = it + 1; }
+        while (it < iters) { bq.reset(); bq.process_block((const double*)x, y, n); it = it + 1; }
         printf("[biquad n=1048576] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum(y, n));
 
         // stft
@@ -146,12 +146,12 @@ int main() {
         float* hf = to_f32(h, taps);
         float* histf = (float*)malloc(taps * 4UL);
         float* yff = (float*)malloc((n + 8192UL) * 4UL);
-        struct FirFilter32 ff = std::fir_init_f32((const float*)hf, taps, histf);
+        struct FirFilter32 ff = std::FirFilter32::new((const float*)hf, taps, histf);
         ff.reset();
-        std::fir_process_block_f32(&ff, (const float*)xf, yff, n);
+        ff.process_block((const float*)xf, yff, n);
         t0 = now_ms();
         it = 0;
-        while (it < iters) { ff.reset(); std::fir_process_block_f32(&ff, (const float*)xf, yff, n); it = it + 1; }
+        while (it < iters) { ff.reset(); ff.process_block((const float*)xf, yff, n); it = it + 1; }
         printf("[fir stream n=1048576 taps=127 f32] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum32(yff, n));
 
         float* ycf = (float*)malloc((n + taps) * 4UL);
@@ -169,11 +169,11 @@ int main() {
         while (it < iters) { std::conv_fft_f32((const float*)xf, n, (const float*)kf, ktaps, yfc); it = it + 1; }
         printf("[fftconv n=1048576 taps=4096 f32] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum32(yfc, n + ktaps - 1UL));
 
-        struct Biquad32 bqf = std::biquad_to_f32(std::biquad_lowpass(48000.0, 1000.0, 0.7071));
-        std::biquad_process_block_f32(&bqf, (const float*)xf, yff, n);
+        struct Biquad32 bqf = std::Biquad32::from(std::Biquad::lowpass(48000.0, 1000.0, 0.7071));
+        bqf.process_block((const float*)xf, yff, n);
         t0 = now_ms();
         it = 0;
-        while (it < iters) { bqf.reset(); std::biquad_process_block_f32(&bqf, (const float*)xf, yff, n); it = it + 1; }
+        while (it < iters) { bqf.reset(); bqf.process_block((const float*)xf, yff, n); it = it + 1; }
         printf("[biquad n=1048576 f32] ms_per_call=%.3f checksum=%.6f\n", (now_ms() - t0) / (double)iters, sum32(yff, n));
 
         struct Complex32* specf = (struct Complex32*)malloc(frames * frame * 8UL);

@@ -264,9 +264,9 @@ The struct body and the definition must agree on the number of type parameters. 
 There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned, or the function's return type in a `return` statement:
 
 ```c
-struct Vec<int> v = std::vec_new();                  // T from the declaration
-struct HashMap<int, long long> m = std::map_new();   // K and V likewise
-?&heap Packet p = std::pool_alloc_t(&pool);          // T = Packet
+struct Vec<int> v = std::Vec::new();                  // T from the declaration
+struct HashMap<int, long long> m = std::HashMap::new();   // K and V likewise
+?&heap Packet p = std::alloc_t(&pool);               // T = Packet (A = PoolAllocator, from &pool)
 ```
 
 A call with no target (a bare statement, a `match` subject, an argument to another generic) can't infer a parameter that appears only in the return type: bind it to a typed variable first.

@@ -10,7 +10,7 @@ WebSocket; 그 위의 RPC와 "서버 함수"; 그리고 클라이언트 측을 �
 
 그 아래의 논블로킹 소켓 계층(`std/sched/io_nb.h`)은 플랫폼마다 하나의 백엔드(`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`)를 가지며, `safeguard`가 타깃에 맞는 것을 `libsafec_std.a`에 컴파일해 넣으므로 직접 포함하거나 선택할 것이 없습니다.
 
-범위: 본문은 `Content-Length`로 구분되며(청크 전송 인코딩은 디코딩되지 않은 채 반환), TLS는 없습니다 — 평문 HTTP입니다. HTML 템플릿은 [scx](/ko/advanced/scx)를 참고하십시오.
+범위: 본문은 `Content-Length`로 구분되며(청크 전송 인코딩은 디코딩되지 않은 채 반환), TLS는 없습니다 — 평문 HTTP입니다. 헤더와 본문은 연결의 [`TcpStream`](#tcp-streams) 위에 놓인 [`BufReader`](/ko/stdlib/io#buffered-io)로 읽습니다. HTML 템플릿은 [scx](/ko/advanced/scx)를 참고하십시오.
 
 ## 서버 {#server}
 
@@ -18,8 +18,8 @@ WebSocket; 그 위의 RPC와 "서버 함수"; 그리고 클라이언트 측을 �
 struct HttpResponse handle(&HttpRequest req) {
     struct HttpResponse resp;
     resp.status = 200;
-    resp.headers = std::string_new();
-    resp.body = std::string_from("hello");
+    resp.headers = std::String::new();
+    resp.body = std::String::from("hello");
     return resp;
 }
 
@@ -78,6 +78,14 @@ struct HttpResponse http_request(const &char host, unsigned short port,
                                  const ?&char extra_headers,
                                  const ?&unsigned char body, unsigned long body_len,
                                  ?&int ok);
+// http_request with limits: connect_timeout_ms bounds the TCP connect, io_timeout_ms
+// each send/receive (not the whole transfer). <= 0 means no limit; DNS is not covered.
+struct HttpResponse http_request_timeout(const &char host, unsigned short port,
+                                         const &char method, const &char path,
+                                         const ?&char extra_headers,
+                                         const ?&unsigned char body, unsigned long body_len,
+                                         int connect_timeout_ms, int io_timeout_ms,
+                                         ?&int ok);
 struct HttpResponse http_get(const &char host, unsigned short port, const &char path, ?&int ok);
 struct HttpResponse http_post(const &char host, unsigned short port, const &char path,
                               const &char content_type,
@@ -101,7 +109,52 @@ struct String http_build_response(int status, const &char content_type,
 const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
 ```
 
-`ok`는 DNS, 연결, 파싱 실패 시 0이 됩니다. 필요 없으면 `null`을 넘깁니다.
+`ok`는 DNS, 연결, 파싱 실패 시 0이 됩니다. 필요 없으면 `null`을 넘깁니다. `http_request`는 연결을 `HTTP_DEFAULT_CONNECT_TIMEOUT_MS`(30초) 후에 포기하지만 응답 읽기에는 제한이 없습니다. 이를 제한하려면 `http_request_timeout`을 사용합니다.
+
+본문은 정확히 `Content-Length` 바이트입니다: `http_request`, `http_serve`, `http_serve_threaded`는 거기서 읽기를 멈추며, 상대가 그 뒤에 보낸 바이트는 `body`에 포함되지 않습니다. `Content-Length`가 없으면 헤더 블록과 함께 도착한 바이트가 본문입니다.
+
+### TCP 스트림 {#tcp-streams}
+
+평문 TCP 연결 위에서 자체 프로토콜을 쓰려면 연결된 소켓을 `TcpStream`으로 감쌉니다. `http_request`와 `WsConn`이 사용하는 스트림이며 [`Stream`](/ko/stdlib/io#io-traits)(`Reader + Writer`)이므로 `read_exact`, `write_all`, `copy_stream`, [`BufReader`와 `BufWriter`](/ko/stdlib/io#buffered-io)를 그대로 쓸 수 있습니다. 쓰기는 `SIGPIPE`를 일으키지 않으며, 상대가 사라졌으면 -1을 반환합니다.
+
+```c
+struct TcpStream {
+    int fd;
+
+    static struct TcpStream from_fd(int fd);   // the stream owns fd from then on
+
+    long long read(&unsigned char buf, unsigned long n);         // count, 0 once the peer closed, -1 on error
+    long long write(const &unsigned char buf, unsigned long n);  // count, -1 on error
+    int       close();                                            // 0 on success
+};
+```
+
+소켓은 블로킹이어야 합니다: `tcp_connect_timeout`은 블로킹 소켓을 반환하며, `tcp_accept_nb`로 받은 소켓은 `fd_set_blocking`으로 전환합니다(둘 다 `std/sched/io_nb.h`).
+
+```c
+#include <std/http/http.h>
+#include <std/io_buf.h>
+#include <std/sched/io_nb.h>
+
+int main() {
+    unsigned int addr = 0U;
+    if (!std::http_resolve_host("127.0.0.1", &addr)) return 1;
+    int fd = std::tcp_connect_timeout(addr, 7000, 2000);   // a blocking socket, or -1
+    if (fd < 0) return 1;
+    struct TcpStream s = std::TcpStream::from_fd(fd);
+
+    struct BufWriter<TcpStream> out = std::BufWriter::over(&s);
+    unsigned char ping[5] = { 'P', 'I', 'N', 'G', '\n' };
+    int ok = std::write_all(&out, &ping[0], 5UL) && out.flush() == 0;
+
+    struct BufReader<TcpStream> in = std::BufReader::over(&s);
+    struct String line = std::String::new();
+    ok = ok && in.read_until(&line, "\n");      // one reply line
+    line.free();
+    s.close();
+    return ok ? 0 : 1;
+}
+```
 
 ## CORS {#cors}
 
@@ -143,8 +196,8 @@ struct HttpResponse cors_preflight_response(const &char allowedOrigin,
 serialization) JWT.
 
 ```c
-struct Value claims = std::value_object();
-std::value_object_set(&claims, "sub", std::value_string("alice"));
+struct Value claims = std::Value::object();
+claims.object_set("sub", std::Value::from_str("alice"));
 struct String token = std::jwt_sign(&claims, "my-secret-key");
 
 int ok;
@@ -153,7 +206,7 @@ struct Value decoded = std::jwt_verify(token.as_ptr(), "my-secret-key", &ok);
 
 ```c
 struct String jwt_sign(const &Value claims, const &char secret);
-// The decoded payload (free with value_free()), or VAL_NULL with *ok = 0.
+// The decoded payload (release with .free()), or VAL_NULL with *ok = 0.
 struct Value  jwt_verify(const &char token, const &char secret, ?&int ok);
 ```
 
@@ -173,17 +226,17 @@ OAuth2 토큰 엔드포인트라면 어디든 동작합니다:
 
 ```c
 int ok;
-struct OAuth2Token t = std::oauth2_exchange_code(
+struct OAuth2Token t = std::OAuth2Token::exchange_code(
     "accounts.example.com", 443, "/oauth/token",
     clientId, clientSecret, code, redirectUri, &ok);
 // t.accessToken, t.refreshToken, t.tokenType, t.expiresIn
 
-struct OAuth2Token refreshed = std::oauth2_refresh(
+struct OAuth2Token refreshed = std::OAuth2Token::refresh(
     "accounts.example.com", 443, "/oauth/token",
     clientId, clientSecret, t.refreshToken.as_ptr(), &ok);
 
-std::oauth2_token_free(&t);
-std::oauth2_token_free(&refreshed);
+t.free();
+refreshed.free();
 ```
 
 ```c
@@ -192,16 +245,19 @@ struct OAuth2Token {
     struct String refreshToken;  // empty if the provider didn't send one
     struct String tokenType;     // usually "Bearer"
     long long     expiresIn;     // seconds; 0 if not sent
-};
 
-struct OAuth2Token oauth2_exchange_code(const &char tokenHost, unsigned short tokenPort,
-                                        const &char tokenPath, const &char clientId,
-                                        const &char clientSecret, const &char code,
-                                        const &char redirectUri, ?&int ok);
-struct OAuth2Token oauth2_refresh(const &char tokenHost, unsigned short tokenPort,
-                                  const &char tokenPath, const &char clientId,
-                                  const &char clientSecret, const &char refreshToken, ?&int ok);
-void oauth2_token_free(&OAuth2Token t);
+    // Each POSTs the grant to <tokenHost>:<tokenPort><tokenPath>; *ok = 0 on
+    // any transport, HTTP-status or JSON-shape failure.
+    static struct OAuth2Token exchange_code(const &char tokenHost, unsigned short tokenPort,
+                                            const &char tokenPath, const &char clientId,
+                                            const &char clientSecret, const &char code,
+                                            const &char redirectUri, ?&int ok);
+    static struct OAuth2Token refresh(const &char tokenHost, unsigned short tokenPort,
+                                      const &char tokenPath, const &char clientId,
+                                      const &char clientSecret, const &char refreshToken, ?&int ok);
+
+    void free();                 // releases the three strings
+};
 ```
 
 로컬 모의(mock) 토큰 엔드포인트에 대해 종단 간(end-to-end) 검증되었습니다.
@@ -214,7 +270,9 @@ void oauth2_token_free(&OAuth2Token t);
 #include <std/http/websocket.h>
 ```
 
-`http.h`와 같은 블로킹 소켓 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. 조각난 메시지(FIN = 0)는 재조립하지 않습니다: `ws_recv`는 프레임 하나를 메시지 하나로 반환합니다. 핑은 자동으로 응답하지 않고 돌려주므로 `ws_send_pong`으로 직접 응답합니다.
+`http.h`와 같은 블로킹 소켓 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. 조각난 메시지(FIN = 0)는 재조립하지 않습니다: `conn.recv()`는 프레임 하나를 메시지 하나로 반환합니다. 핑은 자동으로 응답하지 않고 돌려주므로 `conn.send_pong()`으로 직접 응답합니다.
+
+핸드셰이크는 연결의 [`TcpStream`](#tcp-streams) 위에 놓인 [`BufReader`](/ko/stdlib/io#buffered-io)로 읽고, 각 프레임은 `BufWriter`를 거쳐 씁니다: 헤더, 마스크 키, 버퍼에 들어가는 페이로드가 한 번의 쓰기로 나가며, 더 큰 페이로드는 그 뒤에 이어서 흘려 보냅니다.
 
 ```c
 #define WS_OPCODE_CONTINUATION 0x0
@@ -224,7 +282,6 @@ void oauth2_token_free(&OAuth2Token t);
 #define WS_OPCODE_PING         0x9
 #define WS_OPCODE_PONG         0xA
 
-struct WsConn    { int fd; int is_server; };
 struct WsMessage {
     int                  opcode;   // WS_OPCODE_*
     ?&heap unsigned char data;     // null for an empty frame
@@ -232,21 +289,35 @@ struct WsMessage {
     void free();
 };
 
-// Client: TCP connect + Upgrade handshake, verifying Sec-WebSocket-Accept.
-struct WsConn ws_connect(const &char host, unsigned short port, const &char path, ?&int ok);
+struct WsConn {
+    int fd;
+    int is_server;   // 1: accepted server-side (sends unmasked, expects masked)
 
-// Server
-int ws_listen(unsigned short port);           // listening fd, or -1
-int ws_accept(int listenFd, &WsConn out);     // 1 once a client completes the handshake
+    // Client: TCP connect + Upgrade handshake, verifying Sec-WebSocket-Accept.
+    // connect limits the connect and the handshake to WS_DEFAULT_TIMEOUT_MS
+    // (30 s); connect_timeout takes the limit (<= 0: none). The limit is
+    // cleared once the handshake succeeds.
+    static struct WsConn connect(const &char host, unsigned short port, const &char path, ?&int ok);
+    static struct WsConn connect_timeout(const &char host, unsigned short port, const &char path,
+                                         int timeout_ms, ?&int ok);
 
-int  ws_send_text(&WsConn conn, const &char text);
-int  ws_send_binary(&WsConn conn, const &unsigned char data, unsigned long len);
-int  ws_send_ping(&WsConn conn);
-int  ws_send_pong(&WsConn conn);
-int  ws_send_close(&WsConn conn);             // close frame only; the socket stays open
-int  ws_recv(&WsConn conn, &WsMessage out);   // 1 on success, 0 on error/EOF
-void ws_close(&WsConn conn);                  // close frame + close the socket
+    // Server: fills this connection in place; 1 once a client completes the
+    // handshake, 0 if it failed (the client's socket is already closed).
+    int  accept(int listenFd);
+
+    int  send_text(const &char text);
+    int  send_binary(const &unsigned char data, unsigned long len);
+    int  send_ping();
+    int  send_pong();
+    int  send_close();                  // close frame only; the socket stays open
+    int  recv(&WsMessage out);          // 1 on success, 0 on error/EOF/malformed frame
+    void close();                       // close frame + close the socket
+};
+
+int ws_listen(unsigned short port);     // listening fd for accept(), or -1
 ```
+
+`WsConn`은 메시지 단위(`recv`가 프레임 전체를 돌려줌)이므로 바이트 스트림 [`Reader`/`Writer`](/ko/stdlib/io#io-traits)가 아닙니다. 그 아래의 `TcpStream`이 바이트 스트림입니다.
 
 ```c
 #include <std/http/websocket.h>
@@ -254,15 +325,15 @@ void ws_close(&WsConn conn);                  // close frame + close the socket
 int main() {
     int listener = std::ws_listen(9001);
     struct WsConn conn;
-    while (std::ws_accept(listener, &conn)) {
+    while (conn.accept(listener)) {
         struct WsMessage msg;
-        while (std::ws_recv(&conn, &msg)) {
+        while (conn.recv(&msg)) {
             if (msg.opcode == WS_OPCODE_CLOSE) { msg.free(); break; }
-            if (msg.opcode == WS_OPCODE_PING)  { std::ws_send_pong(&conn); }
-            if (msg.opcode == WS_OPCODE_TEXT)  { std::ws_send_text(&conn, "echo"); }
+            if (msg.opcode == WS_OPCODE_PING)  { conn.send_pong(); }
+            if (msg.opcode == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
             msg.free();
         }
-        std::ws_close(&conn);
+        conn.close();
     }
     return 0;
 }
@@ -321,16 +392,16 @@ struct Value server_fn_call(const &char host, unsigned short port, const &char n
 struct Value add_fn(const &Value args) {
     long long a = std::expect_ref(args.object_get("a"), "missing a").as_int();
     long long b = std::expect_ref(args.object_get("b"), "missing b").as_int();
-    return std::value_int(a + b);
+    return std::Value::from_int(a + b);
 }
 std::server_fn_register("add", add_fn);
 std::server_fn_serve(8080);
 
 // Client
 int ok;
-struct Value args = std::value_object();
-std::value_object_set(&args, "a", std::value_int(2));
-std::value_object_set(&args, "b", std::value_int(3));
+struct Value args = std::Value::object();
+args.object_set("a", std::Value::from_int(2));
+args.object_set("b", std::Value::from_int(3));
 struct Value result = std::server_fn_call("localhost", 8080, "add", &args, &ok);   // 5
 ```
 
@@ -348,6 +419,8 @@ struct Signal {
     T             value;
     unsigned long version;          // bumped on every set()
 
+    static struct Signal<T> new(T val);   // version 0, no subscribers
+
     T             get() const;
     &T            get_ref();        // mutate in place, then call notify()
     void          set(T val);       // store, bump version, notify
@@ -358,9 +431,8 @@ struct Signal {
     void          free();
 };
 
-generic<T> struct Signal<T> signal_new(T val);
-
 // listener(userdata) runs on every later set()/notify() — not for the current value.
+// A free function: a generic struct's methods can't add type parameters (U) of their own yet.
 generic<T, U> void signal_subscribe(&Signal<T> s, fn void(?&U) listener, ?&U userdata);
 ```
 
@@ -377,7 +449,7 @@ static void on_change(?&Log log) {
 }
 
 int main() {
-    struct Signal<int> count = std::signal_new(0);
+    struct Signal<int> count = std::Signal::new(0);
     struct Log log;
     log.calls = 0;
     unsafe { std::signal_subscribe(&count, on_change, (?&Log)&log); }
@@ -440,7 +512,7 @@ static void on_click(?&int unused) { g_count.set(g_count.get() + 1); }
 
 __attribute__((export_name("start")))
 void start() {
-    g_count = std::signal_new(0);
+    g_count = std::Signal::new(0);
     std::hydrate_bind_text_int(&g_count, "#count");
     std::dom_on_click("#inc", on_click, null);
 }

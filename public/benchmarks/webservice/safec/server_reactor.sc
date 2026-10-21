@@ -12,8 +12,8 @@ extern int printf(const char* fmt, ...);
 struct HttpResponse handle(struct HttpRequest* req) {
     struct HttpResponse resp;
     resp.status = 200;
-    resp.headers = std::string_from("Content-Type: application/json\r\n");
-    resp.body = std::string_from("{\"message\":\"Hello, World!\"}");
+    resp.headers = std::String::from("Content-Type: application/json\r\n");
+    resp.body = std::String::from("{\"message\":\"Hello, World!\"}");
     return resp;
 }
 

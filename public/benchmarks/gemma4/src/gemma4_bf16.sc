@@ -55,7 +55,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_from_f32(const &Tensor t) {
 
 struct Tensor* gemma4_bf16_to_f32(const &Gemma4Bf16Tensor t) {
     struct Tensor* out;
-    if (t.ndim > 1UL) { out = tensor_new_2d(t.shape0, t.shape1, 0); } else { out = tensor_new_1d(t.shape0, 0); }
+    if (t.ndim > 1UL) { out = Tensor::new_2d(t.shape0, t.shape1, 0); } else { out = Tensor::new_1d(t.shape0, 0); }
     unsafe { bf16_to_f32_bulk(t.data, (float*)out->data, t.size); }
     return out;
 }
@@ -81,7 +81,7 @@ static int __g4bf16_weightBufCacheInit = 0;
 
 static void __g4bf16_ensure_weight_cache() {
     if (!__g4bf16_weightBufCacheInit) {
-        __g4bf16_weightBufCache = map_new();
+        __g4bf16_weightBufCache = HashMap::new();
         __g4bf16_weightBufCacheInit = 1;
     }
 }
@@ -144,7 +144,7 @@ extern void cblas_sgemm(int order, int transA, int transB,
 // trick std/ml/tensor_blas.sc's own backward pass uses), narrow the f32
 // result back to bf16.
 // CPU path for a few rows (decode; speculative verification; a short
-// prompt's prefill): one std::half_gemv_batch over the bf16 weight as stored
+// prompt's prefill): one HalfTensor::gemv_batch over the bf16 weight as stored
 // -- no float32 copy of the matrix, which __g4bf16_linear_cpu_blas makes on
 // every call (1.6 GB for the tied LM head) -- reading the weights once for
 // all the rows.
@@ -160,7 +160,7 @@ static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_gemv(const &Gemma4Bf16Tensor 
         xF = (float*)malloc(sizeof(float) * inF * rows);
         yF = (float*)malloc(sizeof(float) * outF * rows);
         bf16_to_f32_bulk(&x.data[0], xF, inF * rows);
-        half_gemv_batch(&wv, (const &float)xF, rows, (&float)yF);
+        wv.gemv_batch((const &float)xF, rows, (&float)yF);
         f32_to_bf16_bulk((const float*)yF, &result.data[0], outF * rows);
         free((void*)xF); free((void*)yF);
     }
@@ -318,7 +318,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_scale(const &Gemma4Bf16Tensor x, float k) {
     struct Tensor* xF = gemma4_bf16_to_f32(x);
     struct Gemma4Bf16Tensor result;
     unsafe {
-        &Tensor outF = tensor_scale(xF, k);
+        &Tensor outF = xF->scale(k);
         xF->free();
         result = gemma4_bf16_from_f32(outF);
         outF.free();

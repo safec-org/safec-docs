@@ -122,7 +122,7 @@ HTML 이스케이프됩니다. 정적 콘텐츠의 연속 구간마다 단일
 생성된 코드는 다음과 같이 보입니다:
 
 ```c
-struct String __scx0 = std::string_new();
+struct String __scx0 = std::String::new();
 unsafe {
     __scx0.push("<h1>Hello, ");
     std::scx_append_esc(&__scx0, (visitor_name));

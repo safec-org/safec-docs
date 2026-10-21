@@ -108,7 +108,7 @@ int main() {
     if (!std::mps_available()) { unsafe { printf("no Metal GPU -- skipping\n"); } return 0; }
     // One host buffer large enough for q, k and v of the largest case.
     unsigned long maxn = BATCH * HEADS * 16384UL * 64UL;   // = 4 x 32 x 4096 x 128, the GQA query
-    struct Vec<float> host = std::vec_with_cap(3UL * maxn);
+    struct Vec<float> host = std::Vec::with_cap(3UL * maxn);
     unsigned long x = 88172645463325252UL;
     unsigned long i = 0UL;
     while (i < 3UL * maxn) {

@@ -329,7 +329,7 @@ How big an array can be decided depends on where it lives:
 | heap | `&heap int h = new int[n];` | any runtime `n`; free with `std::dealloc(h)` |
 | arena | `&arena<R> int a = new<R> int[n];` | any runtime `n`, but it must fit in `R`'s remaining capacity — otherwise the program aborts |
 
-`new` returns a reference to the first element. A reference carries no length and can't be indexed, so pass and walk arrays as a bounds-checked [`Slice<T>`](/stdlib/collections#slice) (`std::slice_of(first, n)`) or a `[]T` slice. Arrays of references work the same way — `&T items[N]` on the stack, `Slice<&T>` across function boundaries — which is what replaces C's `T**` "array of pointers":
+`new` returns a reference to the first element. A reference carries no length and can't be indexed, so pass and walk arrays as a bounds-checked [`Slice<T>`](/stdlib/collections#slice) (`std::Slice::of(first, n)`) or a `[]T` slice. Arrays of references work the same way — `&T items[N]` on the stack, `Slice<&T>` across function boundaries — which is what replaces C's `T**` "array of pointers":
 
 ```c
 #include <std/collections/slice.h>
@@ -348,10 +348,10 @@ int arrays(unsigned long n) {
     &heap int h = new int[n];                // heap: runtime size
     &arena<Frame> int a = new<Frame> int[n]; // arena: runtime size, within Frame's 4096 bytes
 
-    fill(std::slice_of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
-    fill(std::slice_of(h, n), 2);
-    fill(std::slice_of(a, n), 3);
-    int t = local[7] + *std::slice_of(h, n).at(n - 1UL) + *std::slice_of(a, n).at(0UL) + g_table[0];
+    fill(std::Slice::of(&local[0], 8UL), 1);  // view each one through a bounds-checked Slice
+    fill(std::Slice::of(h, n), 2);
+    fill(std::Slice::of(a, n), 3);
+    int t = local[7] + *std::Slice::of(h, n).at(n - 1UL) + *std::Slice::of(a, n).at(0UL) + g_table[0];
 
     std::dealloc(h);
     arena_reset<Frame>();
@@ -365,7 +365,7 @@ int main() {
     struct Sample a; a.v = 1;
     struct Sample b; b.v = 2;
     &Sample fixed[2] = { &a, &b };           // stack array of references
-    int c = count_live(std::slice_of(&fixed[0], 2UL));
+    int c = count_live(std::Slice::of(&fixed[0], 2UL));
     return arrays(4UL) == 6 && c == 2 ? 0 : 1;
 }
 ```

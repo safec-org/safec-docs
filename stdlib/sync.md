@@ -7,8 +7,8 @@ SafeC provides six synchronization modules in `std/sync/` for both hosted (OS-ba
 #include <std/sync/lockfree.h>     // LFQueue<T>
 #include <std/sync/channel.h>      // Chan<T>
 #include <std/sync/mpsc.h>         // MpscQueue<T>
-#include <std/sync/task.h>         // TaskScheduler, task_spawn
-#include <std/sync/thread_bare.h>  // ThreadSched, thread_spawn
+#include <std/sync/task.h>         // TaskScheduler, the TaskRunner trait, run_rounds
+#include <std/sync/thread_bare.h>  // ThreadSched
 #include <std/sync/parallel.h>     // parallel_for (thread pool)
 ```
 
@@ -38,7 +38,7 @@ struct Spinlock {
 ### Constructor {#constructor}
 
 ```c
-struct Spinlock spinlock_init();  // an unlocked spinlock
+static struct Spinlock Spinlock::new();  // an unlocked spinlock: std::Spinlock::new()
 ```
 
 ### Methods {#methods}
@@ -66,7 +66,7 @@ void increment() {
 }
 
 int main() {
-    g_lock = std::spinlock_init();
+    g_lock = std::Spinlock::new();
     increment();
     increment();
     std::println_int(g_counter);  // 2
@@ -87,20 +87,20 @@ A bounded single-producer / single-consumer queue. `head`/`tail` are monotonical
 ```c
 generic<T>
 struct LFQueue {
+    static struct LFQueue<T> new(unsigned long cap);                    // cap rounded UP to a power of two
+    static struct LFQueue<T> over(&heap T buffer, unsigned long cap);   // caller's buffer; cap rounded DOWN
+
     int           enqueue(T val);   // producer; 1 on success, 0 if full
     ?T            dequeue();        // consumer; null if empty
     int           is_empty() const;
     int           is_full() const;
-    unsigned long len() const;
-    void          destroy();        // frees the buffer if lfq_new allocated it
+    unsigned long length() const;
+    void          destroy();        // frees the buffer if LFQueue::new allocated it
 };
-
-generic<T> struct LFQueue<T> lfq_new(unsigned long cap);                  // cap rounded UP to a power of two
-generic<T> struct LFQueue<T> lfq_init(&heap T buffer, unsigned long cap); // caller's buffer; cap rounded DOWN
 ```
 
 ```c
-struct LFQueue<long long> q = std::lfq_new(64UL);
+struct LFQueue<long long> q = std::LFQueue::new(64UL);   // T from the declared variable
 q.enqueue(5LL);                               // producer thread
 match (q.dequeue()) {                         // consumer thread
     case some(v): use(v);
@@ -111,6 +111,8 @@ q.destroy();
 
 Exactly one producer and one consumer; for several producers use `MpscQueue`.
 
+`LFQueue`, `MpscQueue` and `Chan` share the queue protocol of [`std/collections/traits.h`](/stdlib/collections#traits): all three are a `Fifo` (`enqueue` / `dequeue`), and the two non-blocking queues are also a `CountedFifo` (plus `length()` / `is_empty()`). Code written against those traits — `std::enqueue_all`, `std::drain_into`, or your own `generic<Q: Fifo>` function — takes any of them, or a `std::Queue` / `RingBuffer`.
+
 ---
 
 ## Chan\<T\> — Bounded Blocking Channel {#channel}
@@ -120,12 +122,15 @@ The language's `chan_create`/`chan_send`/`chan_recv`/`chan_close` built-ins are 
 ```c
 generic<T>
 struct Chan {
+    static struct Chan<T> new(int cap);   // cap < 1 is clamped to 1
+
     int  send(T val);   // blocks while full; 0 once closed
     ?T   recv();        // blocks while empty; null once closed *and* drained
     void close();       // wakes every blocked sender/receiver
-};
 
-generic<T> struct Chan<T> chan_new(int cap);   // cap < 1 is clamped to 1
+    int  enqueue(T val);   // send under the Fifo name (blocks too)
+    ?T   dequeue();        // recv under the Fifo name (blocks too)
+};
 ```
 
 ```c
@@ -142,7 +147,7 @@ static ?&int producer(?&int unused) {
 }
 
 int main() {
-    g_ch = std::chan_new(8);
+    g_ch = std::Chan::new(8);                           // T from the assignment target
     unsigned long long tid = 0ULL;
     std::thread_create(&tid, producer, null);
     long long total = 0LL;
@@ -169,15 +174,15 @@ The multi-producer sibling of `LFQueue`: still bounded and non-blocking (`enqueu
 ```c
 generic<T>
 struct MpscQueue {
+    static struct MpscQueue<T> new(unsigned long cap);   // any cap (not just powers of two)
+
     int           enqueue(T val);   // any thread; 1 on success, 0 if full
     ?T            dequeue();        // null if empty
     int           is_empty() const;
     int           is_full() const;
-    unsigned long len() const;
+    unsigned long length() const;
     void          destroy();
 };
-
-generic<T> struct MpscQueue<T> mpsc_new(unsigned long cap);   // any cap (not just powers of two)
 ```
 
 ```c
@@ -206,6 +211,11 @@ struct TaskScheduler {
     int         count;
     int         current;
 
+    static struct TaskScheduler new();   // no tasks
+
+    // Spawn func(arg, resume_point). Returns the task index, or -1 if full.
+    generic<T> int spawn(fn int(?&T, int) func, ?&T arg);
+
     int  tick();                    // one round; returns the number of still-active tasks
     void run_all();                 // round-robin until every task is done
     int  active_count() const;
@@ -216,14 +226,9 @@ struct TaskScheduler {
     int  has_blocked() const;
     int  has_ready() const;
 };
-
-struct TaskScheduler task_sched_init();
-
-// Spawn func(arg, resume_point). Returns the task index, or -1 if full.
-generic<T> int task_spawn(&TaskScheduler s, fn int(?&T, int) func, ?&T arg);
 ```
 
-A task's argument type is whatever its function takes: `task_spawn` infers `T` from the function, so a mismatched argument is a compile error rather than a bad cast at run time. A `null` argument is fine — `T` still comes from the function.
+`spawn` is a [method with its own type parameter](/reference/generics#methods-with-their-own-type-parameters): a task's argument type is whatever its function takes, and `spawn` infers `T` from the function, so a mismatched argument is a compile error rather than a bad cast at run time. A `null` argument is fine — `T` still comes from the function.
 
 ```c
 #include <std/sync/task.h>
@@ -245,12 +250,12 @@ static int hello(?&int unused, int step) {
 }
 
 int main() {
-    struct TaskScheduler sched = std::task_sched_init();
+    struct TaskScheduler sched = std::TaskScheduler::new();
     struct Blinker b;
     b.led = 13;
     b.times = 0;
-    unsafe { std::task_spawn(&sched, blink, (?&Blinker)&b); }
-    std::task_spawn(&sched, hello, null);
+    unsafe { sched.spawn(blink, (?&Blinker)&b); }
+    sched.spawn(hello, null);
     sched.run_all();
     return b.times == 3 ? 0 : 1;
 }
@@ -275,16 +280,18 @@ struct ThreadSched {
     struct TaskScheduler inner;
     int                  priority[THREAD_MAX];   // THREAD_MAX = TASK_MAX
 
+    static struct ThreadSched new();   // all slots empty
+
+    // Same protocol as TaskScheduler::spawn; priority >= 0, higher runs earlier
+    // in each tick. Returns the Thread, or THREAD_NONE if the table is full.
+    generic<T> Thread spawn(fn int(?&T, int) func, ?&T arg, int priority);
+
     int  tick();                      // one pass in descending-priority order
     void run_all();
     int  is_active(Thread t) const;
     void join_thread(Thread t);       // cooperative join: tick() until t is done
     int  active_count() const;
 };
-
-struct ThreadSched thread_sched_init();
-
-generic<T> Thread thread_spawn(&ThreadSched s, fn int(?&T, int) func, ?&T arg, int priority);
 ```
 
 ```c
@@ -292,15 +299,72 @@ static int urgent(?&int unused, int step)     { return 0; }
 static int background(?&int unused, int step) { return 0; }
 
 void run() {
-    struct ThreadSched s = std::thread_sched_init();
-    Thread hi = std::thread_spawn(&s, urgent, null, 10);
-    std::thread_spawn(&s, background, null, 1);
+    struct ThreadSched s = std::ThreadSched::new();
+    Thread hi = s.spawn(urgent, null, 10);
+    s.spawn(background, null, 1);
     s.join_thread(hi);
     s.run_all();
 }
 ```
 
 A `ThreadSched` holds `TASK_MAX` task slots inline (tens of KB); on small targets keep it in static storage.
+
+---
+
+## TaskRunner — Driving Either Scheduler {#taskrunner}
+
+`TaskScheduler` and `ThreadSched` have the same driving interface, named by the `TaskRunner` trait in `task.h`:
+
+```c
+trait TaskRunner {
+    int  tick();                 // one round; returns the still-active count
+    void run_all();              // until every task is done
+    int  active_count() const;
+}
+
+// At most max_rounds rounds of s (a bounded run_all); returns the tasks still active.
+generic<S: TaskRunner> int run_rounds(&S s, int max_rounds);
+```
+
+| Type | Conforms | Round order |
+|---|---|---|
+| `TaskScheduler` | `TaskRunner` | spawn order |
+| `ThreadSched` | `TaskRunner` | descending priority |
+
+A main loop written once against `TaskRunner` — `std::run_rounds`, or your own `generic<S: TaskRunner>` function (see [Combining bounds](/reference/generics#combining-bounds)) — runs either scheduler. Spawning is deliberately not part of the trait: `ThreadSched::spawn` takes a priority that `TaskScheduler::spawn` has no place for. (The trait isn't called `Scheduler` because that name is [`std/kernel/scheduler.h`](/stdlib/kernel)'s preemptive scheduler struct.)
+
+```c
+#include <std/sync/task.h>
+#include <std/sync/thread_bare.h>
+
+static int countdown(?&int left, int step) {
+    match (left) {
+        case some(n): { *n = *n - 1; return *n > 0 ? step + 1 : 0; }
+        case null:    return 0;
+    }
+    return 0;
+}
+
+// One watchdog-fed main loop for any scheduler: a few rounds per kick.
+generic<S: TaskRunner>
+int drive(&S s) {
+    int kicks = 0;
+    while (std::run_rounds(s, 4) > 0) { kicks = kicks + 1; }   // feed the watchdog here
+    return kicks;
+}
+
+int main() {
+    int a = 10;
+    int b = 10;
+    struct TaskScheduler ts = std::TaskScheduler::new();
+    unsafe { ts.spawn(countdown, (?&int)&a); }
+    struct ThreadSched th = std::ThreadSched::new();
+    unsafe { th.spawn(countdown, (?&int)&b, 5); }
+    int k1 = drive(&ts);
+    int k2 = drive(&th);
+    return a == 0 && b == 0 && k1 == 2 && k2 == 2 ? 0 : 1;
+}
+```
 
 ---
 

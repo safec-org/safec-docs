@@ -41,6 +41,8 @@ struct PerfCounter {
     unsigned long long end_val;
     unsigned long long freq_hz;  // 초당 CPU 사이클 수
 
+    static struct PerfCounter new();    // 0으로 초기화, freq_hz 감지 (아래 참고)
+
     void               start();
     void               stop();
     unsigned long long ticks() const;   // end_val - start_val
@@ -51,7 +53,7 @@ struct PerfCounter {
 ### 생성자 {#constructor}
 
 ```c
-PerfCounter perf_counter_init();
+struct PerfCounter pc = std::PerfCounter::new();   // 정적 메서드
 ```
 
 **호스티드**: `POSIX clock()` 기준 약 10ms 동안 스핀하며 그 구간의 CPU 사이클 수를 세어 `freq_hz`를 보정합니다.
@@ -74,15 +76,15 @@ unsigned long long perf_read_ns();      // hosted: time_mono_ns(); 0 on freestan
 #include <std/io.h>
 
 int main() {
-    struct PerfCounter pc = perf_counter_init();
+    struct PerfCounter pc = std::PerfCounter::new();
 
     pc.start();
     // 측정할 작업
     for (int i = 0; i < 1000000; i++) {}
     pc.stop();
 
-    print("ticks: "); println_int(pc.ticks());
-    print("ns:    "); println_int(pc.ns());
+    std::print("ticks: "); std::println_int((long long)pc.ticks());
+    std::print("ns:    "); std::println_int((long long)pc.ns());
     return 0;
 }
 ```

@@ -24,7 +24,7 @@ extern void srand48(long seed);
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 static struct FeatureMap random_map(unsigned long c, unsigned long h, unsigned long w) {
-    struct FeatureMap fm = std::feature_map_new(c, h, w);
+    struct FeatureMap fm = FeatureMap::new(c, h, w);
     unsigned long n = c * h * w;
     unsigned long i = 0UL;
     unsafe { while (i < n) { fm.data[i] = (float)(drand48() * 2.0 - 1.0); i = i + 1UL; } }
@@ -41,53 +41,53 @@ static double checksum(const &FeatureMap fm) {
 
 int main() {
     unsafe { srand48(42L); }
-    struct Conv2D layer = std::conv2d_new(64UL, 64UL, 3UL, 3UL, 1UL, 1UL);
+    struct Conv2D layer = Conv2D::new(64UL, 64UL, 3UL, 3UL, 1UL, 1UL);
     struct FeatureMap x = random_map(64UL, 56UL, 56UL);
-    struct TensorArena imageArena = std::tensor_arena_new(0UL);
-    std::tensor_arena_begin(&imageArena);
-    struct FeatureMap warm = std::conv2d_forward(&layer, &x);
+    struct TensorArena imageArena = TensorArena::new(0UL);
+    imageArena.begin();
+    struct FeatureMap warm = layer.forward(&x);
     std::tensor_arena_end();
-    std::tensor_arena_reset(&imageArena);
+    imageArena.reset();
     unsigned long images = 3UL;
     double sum = 0.0;
     double t0 = now_ms();
     unsigned long i = 0UL;
     while (i < images) {
-        std::tensor_arena_begin(&imageArena);
-        struct FeatureMap y = std::conv2d_forward(&layer, &x);
+        imageArena.begin();
+        struct FeatureMap y = layer.forward(&x);
         sum = sum + checksum(&y);
         std::tensor_arena_end();
-        std::tensor_arena_reset(&imageArena);
+        imageArena.reset();
         i = i + 1UL;
     }
     double ms = (now_ms() - t0) / (double)images;
     unsafe { printf("[conv64 b=1 cpu] ms_per_image=%.3f checksum=%.4f\n", ms, sum / (double)images); }
 
-    struct UNet net = std::unet_new(3UL, 32UL, 64UL, 3UL);
+    struct UNet net = UNet::new(3UL, 32UL, 64UL, 3UL);
     struct FeatureMap img = random_map(3UL, 128UL, 128UL);
-    std::tensor_arena_begin(&imageArena);
-    struct FeatureMap uwarm = std::unet_forward(&net, &img);
+    imageArena.begin();
+    struct FeatureMap uwarm = net.forward(&img);
     std::tensor_arena_end();
-    std::tensor_arena_reset(&imageArena);
+    imageArena.reset();
     images = 2UL;
     sum = 0.0;
     t0 = now_ms();
     i = 0UL;
     while (i < images) {
-        std::tensor_arena_begin(&imageArena);
-        struct FeatureMap y = std::unet_forward(&net, &img);
+        imageArena.begin();
+        struct FeatureMap y = net.forward(&img);
         sum = sum + checksum(&y);
         std::tensor_arena_end();
-        std::tensor_arena_reset(&imageArena);
+        imageArena.reset();
         i = i + 1UL;
     }
     ms = (now_ms() - t0) / (double)images;
     unsafe { printf("[unet128 b=1 cpu] ms_per_image=%.3f checksum=%.4f\n", ms, sum / (double)images); }
 
-    std::tensor_arena_free(&imageArena);
-    std::feature_map_free(&img);
-    std::unet_free(&net);
-    std::feature_map_free(&x);
-    std::conv2d_free(&layer);
+    imageArena.free();
+    img.free();
+    net.free();
+    x.free();
+    layer.free();
     return 0;
 }

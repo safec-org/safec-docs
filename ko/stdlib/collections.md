@@ -5,12 +5,13 @@
 - 원소 접근은 `?&T`를 반환합니다. 이는 사용 전에 좁혀야 하는 nullable 참조입니다 — `match`, `.default(x)`, `.is_null()`, 또는 `std::expect_ref`로 좁힙니다([Nullable 참조](/ko/reference/types#reading-a-nullable-value) 참고).
 - 제거는 `?T`를 반환합니다(옵셔널 값: 제거할 것이 없었으면 `null`).
 - 콜백은 타입이 지정된 `fn` 값이고, 순서 관계는 컴파일 타임 타입입니다([순서 관계](#orderings) 참고).
+- 같은 기능을 가진 컨테이너는 그 기능을 같은 메서드 이름으로 제공하며, [`traits.h`](#traits)가 각 기능을 트레이트로 이름 붙이므로 한 번 작성한 제네릭 코드(`push_all`, `enqueue_all`, `drain_into`, 또는 직접 만든 것)가 그 기능을 가진 모든 컨테이너를 받습니다.
 
 각 컨테이너는 헤더 전용입니다: `#include <std/collections/vec.h>`만 있으면 되며, 모든 메서드는 여러분의 원소 타입에 대해 단형화되므로 원소 접근은 평범한 load/store로 인라인됩니다. 타입 인자는 변수에 쓰고, 생성자가 그 대상 타입으로부터 추론합니다:
 
 ```c
-struct Vec<int> v = std::vec_new();                 // T = int, from the declaration
-struct HashMap<int, long long> m = std::map_new();  // K, V from the declaration
+struct Vec<int> v = std::Vec::new();                 // T = int, from the declaration
+struct HashMap<int, long long> m = std::HashMap::new();  // K, V from the declaration
 ```
 
 ::: tip 컨테이너 안을 가리키는 참조는 수명이 짧습니다
@@ -33,6 +34,7 @@ struct HashMap<int, long long> m = std::map_new();  // K, V from the declaration
 | `string.h` | `String` | 힙, NUL 종료 | 40개 이상의 메서드 |
 | `ringbuffer.h` | `RingBuffer` | 호출자가 제공한 static 바이트 | SPSC, 락프리 |
 | `node_pool.h` | `NodePool<N>` | 청크 단위 아레나 + 프리 리스트 | `List`/`BST`의 노드 얼로케이터 |
+| `traits.h` | 기능 트레이트 | — | `Sequence`, `Lifo`, `Fifo`, `CountedFifo`, `Map`; 이들에 대한 제네릭 헬퍼 |
 
 ## 순서 관계 {#orderings}
 
@@ -40,19 +42,147 @@ struct HashMap<int, long long> m = std::map_new();  // K, V from the declaration
 #include <std/cmp.h>
 ```
 
-*순서 관계(ordering)*는 `<0`, `0`, `>0`을 반환하는 `int cmp(const &T a, const &T b) const`를 가진 임의의 구조체입니다. 정렬된 컨테이너와 알고리즘은 순서 관계를 **타입 매개변수**로 받으므로, 단형화 후 각 비교는 옵티마이저가 인라인하는 직접 호출이 됩니다 — 핫 패스에 함수 포인터가 없습니다.
+*순서 관계(ordering)*는 `<0`, `0`, `>0`을 반환하는 `int cmp(const &T a, const &T b) const`를 가진 임의의 구조체이며, 이것이 `Order` 트레이트입니다. 정렬된 컨테이너와 알고리즘은 순서 관계를 **`Order`로 바운드된 타입 매개변수**로 받으므로(`BST<K, V, C: Order>`, `vec_sort_by<T, C: Order>`), `cmp`가 없는 타입은 그 타입을 쓴 자리에서 거부되고, 단형화 후 각 비교는 옵티마이저가 인라인하는 직접 호출이 됩니다 — 핫 패스에 함수 포인터가 없습니다.
 
 ```c
+trait Order {
+    int cmp(const &Elem_ a, const &Elem_ b) const;   // <0: a first, 0: equivalent, >0: b first
+}
+
 generic<T> struct Less    { int cmp(const &T a, const &T b) const; };   // ascending, by < / >
 generic<T> struct Greater { int cmp(const &T a, const &T b) const; };   // descending
 generic<T> struct FnOrder { fn int(const &T, const &T) f; int cmp(...) const; };  // run-time comparator
 
-generic<T> struct Less<T>    order_less();
-generic<T> struct Greater<T> order_greater();
-generic<T> struct FnOrder<T> order_fn(fn int(const &T, const &T) f);
+// Values, when one is needed (stateless orderings are usually just a type argument):
+static struct Less<T>    Less::new();
+static struct Greater<T> Greater::new();
+static struct FnOrder<T> FnOrder::of(fn int(const &T, const &T) f);
 ```
 
-예를 들어 레코드를 한 필드로 정렬하려면 `cmp` 메서드를 가진 구조체로 순서 관계를 직접 작성하면 되고, 똑같이 인라인됩니다. `FnOrder`는 비교 함수가 런타임에 선택될 때만 사용합니다.
+`Elem_`은 "원소 타입"을 뜻합니다: 트레이트는 각 메서드의 이름, 정적 여부, 매개변수 개수를 고정하고, 매개변수 타입은 각 순서 관계의 것을 따릅니다(제네릭 본문이 인스턴스화되는 자리에서 검사됩니다). 예를 들어 레코드를 한 필드로 정렬하려면 `cmp` 메서드를 가진 구조체로 순서 관계를 직접 작성하면 되고, 그것은 똑같이 인라인되는 `Order`입니다. `FnOrder`는 비교 함수가 런타임에 선택될 때만 사용합니다.
+
+```c
+#include <std/collections/vec.h>
+#include <std/collections/bst.h>
+
+struct Job { int priority; int id; };
+
+// An Order of your own: higher priority first. No function pointer anywhere.
+struct ByPriority {
+    int unused_;
+    int cmp(const &Job a, const &Job b) const;
+};
+int ByPriority::cmp(const &Job a, const &Job b) const { return b.priority - a.priority; }
+
+int main() {
+    struct Vec<struct Job> jobs = std::Vec::new();
+    struct Job j;
+    j.priority = 1; j.id = 10; jobs.push(j);
+    j.priority = 5; j.id = 11; jobs.push(j);
+    j.priority = 3; j.id = 12; jobs.push(j);
+
+    struct ByPriority ord;
+    ord.unused_ = 0;
+    std::vec_sort_by(&jobs, ord);                   // ids 11, 12, 10
+
+    struct BST<int, int, Greater<int>> desc = std::BST::new();   // largest key first
+    desc.insert(1, 100); desc.insert(7, 700);
+    int top = desc.min_key().default(0);            // 7: "min" under Greater
+
+    int ok = jobs.at(0UL).id == 11 && top == 7;
+    desc.free();
+    jobs.free();
+    return ok ? 0 : 1;
+}
+```
+
+## 기능 트레이트 {#traits}
+
+```c
+#include <std/collections/traits.h>
+```
+
+컨테이너들은 공통으로 가진 기능을 같은 메서드 이름으로 제공합니다. `traits.h`는 그 기능 각각을 하나씩 [트레이트](/ko/reference/generics#composing-traits)로 이름 붙이고, 이를 제네릭 코드가 요구하는 역할로 합성합니다. 컨테이너는 메서드를 가지는 것만으로 트레이트를 준수하며 — 따로 선언할 것이 없습니다 — 트레이트로 바운드된 제네릭 코드는 준수하는 모든 컨테이너를 받고, 각 호출은 컴파일 타임에 결정됩니다.
+
+| 트레이트 | 요구 사항 | 준수하는 타입 |
+|---|---|---|
+| `Len` | `length()`, `is_empty()` | 이 페이지의 `NodePool`을 제외한 모든 컨테이너, 그리고 `MpscQueue`와 `LFQueue` |
+| `Clear` | `clear()` | `Vec`, `Stack`, `Queue`, `List`, `HashMap`, `StrMap`, `BST`, `BTree`, `StaticVec`, `StaticMap`, `RingBuffer`, `String` |
+| `Get` | `get(i) -> ?&T`(맵: `get(key)`), 없으면 null | |
+| `Push` | `push(x)`: 1, 가득 찼거나 메모리가 부족하면 0 | |
+| `Pop` | `pop() -> ?T`, 비어 있으면 null | |
+| `Enqueue` | `enqueue(x)`: 1, 가득 차면 0 (`Chan`: 블로킹, 닫힌 뒤에는 0) | |
+| `Dequeue` | `dequeue() -> ?T`, 비어 있으면 null (`Chan`: 블로킹, 닫히고 다 비워지면 null) | |
+| `Insert`, `Contains`, `Remove` | `insert(k, v)`, `contains(k)`, `remove(k) -> ?V` | |
+| `Sequence` | `Len + Get + Push` | `Vec`, `StaticVec` |
+| `Lifo` | `Len + Push + Pop` | `Vec`, `Stack`, `StaticVec` |
+| `Fifo` | `Enqueue + Dequeue` | `Queue`, `RingBuffer`(한 바이트씩), 그리고 [`std/sync`](/ko/stdlib/sync)의 `Chan`, `MpscQueue`, `LFQueue` |
+| `CountedFifo` | `Fifo + Len` | `Queue`, `RingBuffer`, `MpscQueue`, `LFQueue` |
+| `Map` | `Len + Insert + Get + Contains + Remove` | `HashMap`, `StrMap`, `BST`, `BTree` (`StaticMap`은 `remove`가 없어 `Len + Insert + Get + Contains`입니다) |
+
+모든 맵의 `insert`는 성공하면 0이 아닌 값을, 가득 찼거나 메모리가 부족하면 0을 반환합니다.
+
+헬퍼는 자신이 쓰는 기능만 요구합니다:
+
+| 함수 | 바운드 | 동작 |
+|---|---|---|
+| `push_all(&s, items, n)` | `S: Push` | `items[0..n)`을 순서대로 push하고, 처음 거부된 원소에서 멈춥니다. 들어간 개수를 반환합니다 |
+| `enqueue_all(&q, items, n)` | `Q: Enqueue` | `enqueue`로 같은 일을 합니다(가득 차거나 `Chan`이 닫히면 멈춤) |
+| `drain_into(&q, &out)` | `Q: Dequeue`, `S: Push` | `q`가 빌 때까지(`Chan`이면 닫히고 다 비워질 때까지) dequeue하여 각 원소를 순서대로 `out`에 push합니다. 옮긴 개수를 반환합니다. `Vec`처럼 늘어날 수 있는 `out`을 위한 것입니다 |
+
+```c
+#include <std/collections/traits.h>
+#include <std/collections/vec.h>
+#include <std/collections/stack.h>
+#include <std/collections/queue.h>
+#include <std/collections/map.h>
+#include <std/collections/bst.h>
+#include <std/sync/lockfree.h>
+
+// Any FIFO with a length: Queue, MpscQueue, LFQueue, RingBuffer.
+generic<Q: CountedFifo>
+unsigned long backlog_after(&Q q, const &int items, unsigned long n) {
+    std::enqueue_all(q, items, n);
+    q.dequeue();                       // one consumed
+    return q.length();
+}
+
+// Any map: HashMap, StrMap, BST, BTree.
+generic<M: Map>
+int squares(&M m) {
+    int i = 0;
+    while (i < 10) { m.insert(i, i * i); i = i + 1; }
+    m.remove(3);
+    return m.contains(3) ? -1 : (int)m.length();
+}
+
+int main() {
+    int xs[4] = {1, 2, 3, 4};
+
+    struct Queue<int> q = std::Queue::new();
+    struct LFQueue<int> lf = std::LFQueue::new(8UL);
+    unsigned long b1 = backlog_after(&q, &xs[0], 4UL);    // 3
+    unsigned long b2 = backlog_after(&lf, &xs[0], 4UL);   // 3
+
+    struct Vec<int> got = std::Vec::new();
+    unsigned long moved = std::drain_into(&q, &got);       // 3: q -> got, in order
+
+    struct Stack<int> st = std::Stack::new();
+    std::push_all(&st, &xs[0], 4UL);                       // a Lifo: pop() gives 4 first
+
+    struct HashMap<int, int> hm = std::HashMap::new();
+    struct BST<int, int, Less<int>> t = std::BST::new();
+    int n1 = squares(&hm);                                 // 9
+    int n2 = squares(&t);                                  // 9
+
+    int ok = b1 == 3UL && b2 == 3UL && moved == 3UL && got.get(0UL).default(0) == 2
+          && st.pop().default(0) == 4 && n1 == 9 && n2 == 9;
+    t.free(); hm.free(); st.free(); got.free(); lf.destroy(); q.free();
+    return ok ? 0 : 1;
+}
+```
+
+트레이트는 각 메서드의 이름, 정적 여부, 매개변수 개수를 검사하고, 매개변수 타입은 제네릭 본문이 인스턴스화되는 자리에서 검사됩니다. 그래서 `Vec`의 `contains(key, cmp)`(매개변수 두 개)는 `Vec`을 `Contains`와 `Map`에서 제외하지만, `String`의 `push(cstr)`는 여전히 `Push`로 셉니다 — `String`에 대한 `push_all`은 `char`를 넘기는 자리에서 실패합니다. 반복은 트레이트가 아닙니다: `foreach`는 대부분의 컨테이너에 있지만 콜백 형태가 컨테이너마다 다릅니다(`Vec`: `(&T, index)`, `List`: `(&T)`, 맵: `(const &K, &V)`).
 
 
 
@@ -68,6 +198,10 @@ struct Vec {
     ?&heap T      data;   // null while cap == 0
     unsigned long len;
     unsigned long cap;
+
+    static struct Vec<T> new();                                        // empty, no allocation
+    static struct Vec<T> with_cap(unsigned long cap);
+    static struct Vec<T> from_arr(const &T items, unsigned long len);  // copies len elements
 
     int           reserve(unsigned long new_cap);    // 0 on OOM
     void          shrink();                           // cap := len
@@ -98,12 +232,9 @@ struct Vec {
     void          free();
 };
 
-generic<T>    struct Vec<T> vec_new();
-generic<T>    struct Vec<T> vec_with_cap(unsigned long cap);
-generic<T>    struct Vec<T> vec_from_arr(const &T items, unsigned long len);
 generic<T, U> struct Vec<U> vec_map(const &Vec<T> v, fn U(const &T) f);
 
-generic<T, C> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, inlined
+generic<T, C: Order> void vec_sort_by(&Vec<T> v, C ord);   // compile-time ordering, inlined
 generic<T>    void vec_sort(&Vec<T> v);              // vec_sort_by(v, Less<T>)
 ```
 
@@ -116,7 +247,7 @@ extern int printf(const char* fmt, ...);
 static int is_even(const &int x) { return *x % 2 == 0; }
 
 int main() {
-    struct Vec<int> v = std::vec_new();
+    struct Vec<int> v = std::Vec::new();
     int i = 0;
     while (i < 10) { v.push(9 - i); i = i + 1; }
     std::vec_sort(&v);                          // 0 1 2 ... 9
@@ -148,6 +279,9 @@ int main() {
 ```c
 generic<K, V>
 struct HashMap {
+    static struct HashMap<K, V> new();                        // empty, no allocation
+    static struct HashMap<K, V> with_cap(unsigned long cap);  // room for cap entries
+
     int           insert(K key, V val);      // insert or overwrite; 0 on OOM
     ?&V           get(K key) const;          // null if missing
     int           contains(K key) const;
@@ -159,9 +293,6 @@ struct HashMap {
     int           reserve(unsigned long n);  // room for n entries without resizing
     void          free();
 };
-
-generic<K, V> struct HashMap<K, V> map_new();
-generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 ```
 
 키는 **바이트 단위로** 해싱되고 비교되므로, `K`는 자신의 바이트로 완전히 기술되어야 합니다: 정수, 열거형, 포인터, 패딩 없는 구조체. 1, 2, 4, 8바이트 키의 경우 맵은 키를 하나의 워드로 읽어 murmur3의 64비트 finalizer로 해싱하고 단 한 번의 정수 비교로 비교합니다 — 크기 검사는 `if const`이므로 인스턴스화마다 컴파일 타임에 결정됩니다. 그 밖의 크기는 FNV-1a와 바이트 비교를 사용합니다. 텍스트 키에는 `StrMap`을 씁니다.
@@ -171,6 +302,7 @@ generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 ```c
 generic<V>
 struct StrMap {
+    static struct StrMap<V> new();
     int           insert(const &char key, V val);   // copies the key
     ?&V           get(const &char key) const;
     int           contains(const &char key) const;
@@ -181,8 +313,6 @@ struct StrMap {
     void          foreach(fn void(const &char, &V) func);
     void          free();
 };
-
-generic<V> struct StrMap<V> str_map_new();
 ```
 
 ```c
@@ -190,7 +320,7 @@ generic<V> struct StrMap<V> str_map_new();
 extern int printf(const char* fmt, ...);
 
 int main() {
-    struct HashMap<int, long long> sq = std::map_new();
+    struct HashMap<int, long long> sq = std::HashMap::new();
     int i = 0;
     while (i < 1000) { sq.insert(i, (long long)i * (long long)i); i = i + 1; }
     match (sq.get(12)) {
@@ -199,7 +329,7 @@ int main() {
     }
     long long gone = sq.remove(3).default(-1LL);   // 9
 
-    struct StrMap<int> ages = std::str_map_new();
+    struct StrMap<int> ages = std::StrMap::new();
     ages.insert("ada", 36);
     unsafe { printf("%lld %lld %d\n", sq.get(12).default(0LL), gone, ages.get("ada").default(0)); }
     ages.free();
@@ -219,6 +349,7 @@ int main() {
 ```c
 generic<T>
 struct List {
+    static struct List<T> new();
     int           push_front(T value);
     int           push_back(T value);
     ?T            pop_front();
@@ -235,8 +366,6 @@ struct List {
     void          clear();
     void          free();
 };
-
-generic<T> struct List<T> list_new();
 ```
 
 노드는 리스트 자신의 [`NodePool`](#node-pool)에서 나옵니다: push가 원소마다 얼로케이터를 호출하지 않고, pop된 노드는 재활용되며, `free()`는 리스트를 순회하는 대신 청크 단위로 통째로 해제합니다. 원소 1,000,000개를 push한 뒤 pop하는 작업은 노드마다 C `malloc`/`free`를 쓰는 리스트보다 약 2배 빠릅니다.
@@ -253,27 +382,25 @@ generic<T> struct List<T> list_new();
 ```c
 generic<T>
 struct Stack {
+    static struct Stack<T> new();  static struct Stack<T> with_cap(unsigned long cap);
     int push(T value);  ?T pop();  ?&T peek() const;
     unsigned long length() const;  int is_empty() const;
     void clear();  int reserve(unsigned long n);  void free();
 };
-generic<T> struct Stack<T> stack_new();
-generic<T> struct Stack<T> stack_with_cap(unsigned long cap);
 
 generic<T>
 struct Queue {
+    static struct Queue<T> new();  static struct Queue<T> with_cap(unsigned long cap);
     int enqueue(T value);  ?T dequeue();  ?&T front() const;  ?&T back() const;
     unsigned long length() const;  int is_empty() const;
     void clear();  int reserve(unsigned long n);  void free();
 };
-generic<T> struct Queue<T> queue_new();
-generic<T> struct Queue<T> queue_with_cap(unsigned long cap);
 ```
 
 `Queue`는 2의 거듭제곱 링 버퍼입니다: 인덱스는 마스크로 순환하며, 성장할 때 원소를 선형으로 다시 배치합니다.
 
 ```c
-struct Queue<int> q = std::queue_new();
+struct Queue<int> q = std::Queue::new();
 q.enqueue(1); q.enqueue(2);
 int first = q.dequeue().default(0);    // 1
 q.free();
@@ -288,8 +415,11 @@ q.free();
 ```
 
 ```c
-generic<K, V, C>          // C: an ordering type, see #orderings
+generic<K, V, C: Order>   // C: an ordering type, see #orderings
 struct BST {
+    static struct BST<K, V, C> new();            // stateless C (Less, Greater)
+    static struct BST<K, V, C> new_with(C ord);  // e.g. FnOrder::of(my_cmp)
+
     int           insert(K key, V val);    // insert or overwrite
     ?&V           get(K key) const;
     int           contains(K key) const;
@@ -302,9 +432,6 @@ struct BST {
     void          clear();
     void          free();
 };
-
-generic<K, V, C> struct BST<K, V, C> bst_new();             // stateless C (Less, Greater)
-generic<K, V, C> struct BST<K, V, C> bst_new_with(C ord);   // e.g. order_fn(my_cmp)
 ```
 
 균형을 잡지 않지만 모든 연산이 **반복적**입니다: 퇴화된(정렬된 순서로 삽입된) 트리는 조회마다 O(n)이 들지만, 작은 베어메탈 스택을 넘치게 하는 일은 결코 없습니다. 중위 순회는 Morris 순회입니다(추가 공간 O(1), 순회 후 트리는 복원됩니다). 노드는 트리별 [`NodePool`](#node-pool)에서 나옵니다.
@@ -316,7 +443,7 @@ extern int printf(const char* fmt, ...);
 static void show(const &int k, &int v) { unsafe { printf("%d=%d ", *k, *v); } }
 
 int main() {
-    struct BST<int, int, Less<int>> t = std::bst_new();
+    struct BST<int, int, Less<int>> t = std::BST::new();
     t.insert(50, 5); t.insert(30, 3); t.insert(70, 7);
     t.foreach_inorder(show);                       // 30=3 50=5 70=7
     unsafe { printf("\nmin=%d removed=%d\n", t.min_key().default(0), t.remove(50).default(0)); }
@@ -338,16 +465,16 @@ int main() {
 ```c
 generic<V>
 struct BTree {
-    int           insert(unsigned long key, V val);   // 0 ok, -1 if the pool is full
+    void          init();   // empty tree, in place (scalar fields only, no pool copy)
+    int           insert(unsigned long key, V val);   // insert or overwrite; 0 if the pool is full
     ?&V           get(unsigned long key) const;
     int           contains(unsigned long key) const;
     ?V            remove(unsigned long key);
-    unsigned long len() const;
+    unsigned long length() const;
+    int           is_empty() const;
     void          foreach(fn void(unsigned long, &V) cb);   // ascending
     void          clear();
 };
-
-generic<V> void btree_init(&BTree<V> t);
 ```
 
 풀 때문에 `BTree`는 크므로(수십 KB), 스택에 두지 말고 정적 저장소에 두거나 할당합니다:
@@ -356,7 +483,7 @@ generic<V> void btree_init(&BTree<V> t);
 static struct BTree<int> g_index;
 
 void setup() {
-    std::btree_init(&g_index);
+    g_index.init();
     g_index.insert(42UL, 7);
     int v = g_index.get(42UL).default(0);
 }
@@ -376,6 +503,9 @@ struct Slice {
     ?&T           ptr;   // first element; null for an empty slice
     unsigned long len;
 
+    static struct Slice<T> of(&T first, unsigned long len);   // a view
+    static struct Slice<T> alloc(unsigned long len);          // zeroed heap slice
+
     int             in_bounds(unsigned long idx) const;
     ?&T             get(unsigned long idx) const;
     &T              at(unsigned long idx) const;          // panics if out of range
@@ -383,11 +513,8 @@ struct Slice {
     struct Slice<T> sub(unsigned long start, unsigned long end) const;  // [start, end)
     unsigned long   length() const;
     int             is_empty() const;
-    void            free();                                // only for slice_alloc()
+    void            free();                                // only for Slice::alloc()
 };
-
-generic<T> struct Slice<T> slice_of(&T first, unsigned long len);
-generic<T> struct Slice<T> slice_alloc(unsigned long len);    // zeroed heap slice
 
 // The same checks on a bare (first element, length) pair:
 generic<T> ?&T  arr_at(&T first, unsigned long len, unsigned long idx);
@@ -401,7 +528,7 @@ generic<T> void arr_reverse(&T first, unsigned long len);
 
 ```c
 int arr[8];
-struct Slice<int> s = std::slice_of(&arr[0], 8UL);
+struct Slice<int> s = std::Slice::of(&arr[0], 8UL);
 struct Slice<int> mid = s.sub(2UL, 5UL);   // elements 2, 3, 4
 int x = mid.get(0UL).default(0);
 ```
@@ -419,19 +546,19 @@ int x = mid.get(0UL).default(0);
 ```c
 generic<T>
 struct StaticVec {
+    static struct StaticVec<T> over(&T storage, unsigned long cap);
     int push(T val);  ?T pop();  ?&T top() const;  ?&T get(unsigned long idx) const;
     unsigned long length() const;  int is_empty() const;  int is_full() const;  void clear();
 };
-generic<T> struct StaticVec<T> static_vec_init(&T storage, unsigned long cap);
 
 generic<V> struct StaticMapSlot { unsigned long key; V val; int used; };
 generic<V>
 struct StaticMap {
+    static struct StaticMap<V> over(&StaticMapSlot<V> storage, unsigned long cap);
     int insert(unsigned long key, V val);   // 0 if full
     ?&V get(unsigned long key) const;  int contains(unsigned long key) const;
-    unsigned long length() const;  void clear();
+    unsigned long length() const;  int is_empty() const;  void clear();
 };
-generic<V> struct StaticMap<V> static_map_init(&StaticMapSlot<V> storage, unsigned long cap);
 ```
 
 ```c
@@ -439,9 +566,9 @@ static int g_buf[32];
 static struct StaticMapSlot<int> g_slots[64];
 
 void demo() {
-    struct StaticVec<int> v = std::static_vec_init(&g_buf[0], 32UL);
+    struct StaticVec<int> v = std::StaticVec::over(&g_buf[0], 32UL);
     v.push(42);
-    struct StaticMap<int> m = std::static_map_init(&g_slots[0], 64UL);
+    struct StaticMap<int> m = std::StaticMap::over(&g_slots[0], 64UL);
     m.insert(5UL, 100);
     int hundred = m.get(5UL).default(0);
 }
@@ -462,11 +589,11 @@ void demo() {
 ```c
 generic<N>
 struct NodePool {
+    static struct NodePool<N> new();
     ?&heap N take();              // an uninitialised node; null on OOM
     void     give(&heap N node);  // recycle a node
     void     free_all();
 };
-generic<N> struct NodePool<N> node_pool_new();
 ```
 
 노드마다 `std::alloc`을 한 번씩 호출하는 것과 비교하면, 노드마다 붙던 얼로케이터의 16바이트 안전 헤더와 크기 클래스 패딩이 사라지고 컨테이너 해체가 O(청크 수)가 됩니다. `give()`로 돌려준 노드는 다음 `take()`에서 재사용됩니다: 제거된 원소에 대한 참조를 붙들고 있으면 `dealloc()` 이후와 똑같이 댕글링됩니다.
@@ -577,12 +704,14 @@ struct String {
 ### 생성자 {#constructors}
 
 ```c
-struct String string_new();
-struct String string_from(const &char s);
-struct String string_from_n(const &char s, unsigned long n);
-struct String string_with_cap(unsigned long cap);
-struct String string_repeat(const &char s, unsigned long n);
-struct String string_join(const &char sep, &String parts, unsigned long count);
+// static methods of String: String::new(), std::String::from("x") from outside namespace std
+static struct String String::new();
+static struct String String::from(const &char s);
+static struct String String::from_n(const &char s, unsigned long n);
+static struct String String::with_cap(unsigned long cap);
+static struct String String::repeat_str(const &char s, unsigned long n);   // s repeated n times
+// parts[0..count) concatenated with sep between each (null sep: none)
+static struct String String::join(const &char sep, &String parts, unsigned long count);
 ```
 
 ### 예제 {#example}
@@ -594,7 +723,7 @@ struct String string_join(const &char sep, &String parts, unsigned long count);
 extern int printf(const char* fmt, ...);
 
 int main() {
-    struct String s = std::string_from("Hello");
+    struct String s = std::String::from("Hello");
     s.push(", SafeC!");
     printf("%s\n", s.as_ptr());              // Hello, SafeC!
     printf("contains=%d\n", s.contains("SafeC"));  // 1
@@ -602,7 +731,7 @@ int main() {
     struct String upper = s.to_upper();
     printf("%s\n", upper.as_ptr());          // HELLO, SAFEC!
 
-    struct String num = std::string_new();
+    struct String num = std::String::new();
     num.push("value = ");
     num.push_int(42LL);
     printf("%s\n", num.as_ptr());            // value = 42
@@ -636,7 +765,11 @@ struct RingBuffer {
     volatile unsigned long head; // write position (producer)
     volatile unsigned long tail; // read position (consumer)
 
-    unsigned long readable() const;          // bytes available to read
+    // Initialise over an existing static-lifetime backing store;
+    // `cap` is rounded down to a power of two.
+    static struct RingBuffer over(&static unsigned char buf, unsigned long cap);
+
+    unsigned long length() const;            // bytes available to read
     unsigned long writable() const;          // bytes that can be written
     int           is_empty() const;
     int           is_full() const;
@@ -644,13 +777,14 @@ struct RingBuffer {
     unsigned long write(const &unsigned char data, unsigned long len);
     unsigned long read(&unsigned char out, unsigned long len);
     unsigned long peek(&unsigned char out, unsigned long len) const;
+
+    // One byte at a time (the Fifo protocol, see #traits)
+    int            enqueue(unsigned char b);   // 1, or 0 if full
+    ?unsigned char dequeue();                  // null if empty
+
     unsigned long discard(unsigned long len);
     void          clear();
 };
-
-// Initialise with an existing static-lifetime backing store.
-// `cap` must be a power of two.
-struct RingBuffer ring_init(&static unsigned char buf, unsigned long cap);
 ```
 
 ### 예제 {#example-1}
@@ -662,11 +796,11 @@ extern int printf(const char* fmt, ...);
 static unsigned char g_storage[128];        // static backing store, no heap
 
 int main() {
-    struct RingBuffer rb = std::ring_init(&g_storage[0], 128UL);
+    struct RingBuffer rb = std::RingBuffer::over(&g_storage[0], 128UL);
     unsigned char tx[5];
     unsafe { tx[0] = 'H'; tx[1] = 'e'; tx[2] = 'l'; tx[3] = 'l'; tx[4] = 'o'; }
     rb.write(&tx[0], 5UL);
-    unsafe { printf("readable: %lu\n", rb.readable()); }   // 5
+    unsafe { printf("readable: %lu\n", rb.length()); }     // 5
 
     unsigned char rx[5];
     rb.read(&rx[0], 5UL);

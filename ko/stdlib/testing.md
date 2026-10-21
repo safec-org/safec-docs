@@ -19,7 +19,7 @@ void addition_works() {
 }
 
 int main(void) {
-    struct TestSuite t = std::test_suite_init();
+    struct TestSuite t = std::TestSuite::new();
     t.add("addition works", addition_works);
     t.run();
     return t.all_passed() ? 0 : 1;
@@ -28,7 +28,7 @@ int main(void) {
 
 ## 단위 테스트 (`test/test.h`) {#unit-testing-testtesth}
 
-`TestSuite`(`test_suite_init()`로 생성, 용량 `TEST_MAX` = 256개 케이스):
+`TestSuite`(`TestSuite::new()`로 생성, 용량 `TEST_MAX` = 256개 케이스):
 `add(name, func)`(`func`: `fn void()`), `run()`(등록된 모든
 테스트를 실행하며 각 결과를 출력), `print_summary()`(`"N passed, M
 failed."`), `all_passed()`. `test_run_and_exit(&suite)`는 실행 후
@@ -52,10 +52,12 @@ failed."`), `all_passed()`. `test_run_and_exit(&suite)`는 실행 후
 
 ## 벤치마킹 (`test/bench.h`) {#benchmarking-testbenchh}
 
-`BenchSuite`(`bench_suite_init()`로 생성, 용량 `BENCH_MAX` = 64개
-케이스): `bench_add(&suite, name, func, arg, iters)`는 케이스를
+`BenchSuite`(`BenchSuite::new()`로 생성, 용량 `BENCH_MAX` = 64개
+케이스): `suite.add(name, func, arg, iters)`는 케이스를
 등록합니다 — `func`는 `fn void(?&T)`이고 `arg`는 그에 맞는 `?&T`(또는
-`null`)이며, 실행당 `iters`번 호출됩니다. `run()`은 모든 케이스를 실행하고
+`null`)이며, 실행당 `iters`번 호출됩니다(`add`는 [자기 타입 매개변수를
+가진 메서드](/ko/reference/generics#methods-with-their-own-type-parameters)이므로
+`T`는 `func`에서 오고, 맞지 않는 `arg`는 컴파일 오류가 됩니다). `run()`은 모든 케이스를 실행하고
 각 `BenchCase`에 `elapsed_s`/`ops_per_s`를 기록하며, `print_results()`는
 결과 표를 출력합니다.
 
@@ -65,9 +67,9 @@ static void push_pop(?&Stack<int> s) {
 }
 
 void bench() {
-    struct Stack<int> st = std::stack_new();
-    struct BenchSuite b = std::bench_suite_init();
-    unsafe { std::bench_add(&b, "stack push/pop", push_pop, (?&Stack<int>)&st, 1000000UL); }
+    struct Stack<int> st = std::Stack::new();
+    struct BenchSuite b = std::BenchSuite::new();
+    unsafe { b.add("stack push/pop", push_pop, (?&Stack<int>)&st, 1000000UL); }
     b.run();
     b.print_results();
     st.free();
@@ -78,7 +80,7 @@ void bench() {
 
 ## 퍼징 (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
-`FuzzTarget`(`fuzz_target_init(func, iters)`로 생성, `func`:
+`FuzzTarget`(`FuzzTarget::new(func, iters)`로 생성, `func`:
 `fn void(const &unsigned char data, unsigned long size)`) — 구조를
 인식하지 못하는 경량 인프로세스 뮤테이터입니다: `run(corpus, corpus_size)`는
 시드 코퍼스에서 시작해 `iters`번의 무작위 변이를 적용하고, 각 결과를

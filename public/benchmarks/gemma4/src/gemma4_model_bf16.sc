@@ -21,7 +21,7 @@ extern void* malloc(unsigned long size);
 extern void  free(void* ptr);
 
 static struct String __g4mbf16_layer_name(unsigned long layerIdx, const char* suffix) {
-    struct String s = string_from("model.language_model.layers.");
+    struct String s = String::from("model.language_model.layers.");
     s.push_int((long long)layerIdx);
     s.push(".");
     unsafe { s.push(suffix); }
@@ -155,7 +155,7 @@ struct Gemma4Bf16KvCache gemma4_bf16_kvcache_new(&Gemma4Bf16Model model) {
         cache.pages = (struct Vec<struct Gemma4Bf16KvPage>*)malloc(sizeof(struct Vec<struct Gemma4Bf16KvPage>) * cache.numCachedLayers);
         unsigned long i = 0UL;
         while (i < cache.numCachedLayers) {
-            cache.pages[i] = vec_new();
+            cache.pages[i] = Vec::new();
             i = i + 1UL;
         }
     }
@@ -419,14 +419,14 @@ struct Gemma4Bf16Model gemma4_bf16_model_load(const char* path) {
         model.layers = (&heap struct Gemma4Bf16LayerWeights)malloc(sizeof(struct Gemma4Bf16LayerWeights) * model.numLayers);
     }
 
-    struct Vec<struct Gemma4Bf16LoadJob> jobs = vec_new();
+    struct Vec<struct Gemma4Bf16LoadJob> jobs = Vec::new();
 
     unsafe {
-        __g4mbf16_push_job(&jobs, string_from("model.language_model.embed_tokens.weight"), &model.embedTokensW);
-        __g4mbf16_push_job(&jobs, string_from("model.language_model.embed_tokens_per_layer.weight"), &model.embedTokensPerLayerW);
-        __g4mbf16_push_job(&jobs, string_from("model.language_model.per_layer_model_projection.weight"), &model.perLayerModelProjectionW);
-        __g4mbf16_push_job(&jobs, string_from("model.language_model.per_layer_projection_norm.weight"), &model.perLayerProjectionNormW);
-        __g4mbf16_push_job(&jobs, string_from("model.language_model.norm.weight"), &model.finalNormW);
+        __g4mbf16_push_job(&jobs, String::from("model.language_model.embed_tokens.weight"), &model.embedTokensW);
+        __g4mbf16_push_job(&jobs, String::from("model.language_model.embed_tokens_per_layer.weight"), &model.embedTokensPerLayerW);
+        __g4mbf16_push_job(&jobs, String::from("model.language_model.per_layer_model_projection.weight"), &model.perLayerModelProjectionW);
+        __g4mbf16_push_job(&jobs, String::from("model.language_model.per_layer_projection_norm.weight"), &model.perLayerProjectionNormW);
+        __g4mbf16_push_job(&jobs, String::from("model.language_model.norm.weight"), &model.finalNormW);
     }
 
     unsigned long i = 0UL;
@@ -895,13 +895,13 @@ static struct Gemma4Bf16Tensor __g4mbf16_layer_tail_chained(
         struct Gemma4Bf16Tensor residual3 = afterFfn;
         struct Gemma4Bf16Tensor pleSlice = gemma4_bf16_ple_slice_layer(&pleAll, li, model.pleDim);
         struct Gemma4Bf16Tensor gateH = gemma4_bf16_linear(&afterFfn, &perLayerGateW);
-        // GELU: widen -> existing verified F32 tensor_gelu_fwd -> narrow
+        // GELU: widen -> existing verified F32 Tensor::gelu_fwd -> narrow
         // (see gemma4_bf16_ffn_forward_fused's identical reasoning).
         struct Tensor* gateHF = gemma4_bf16_to_f32(&gateH);
         gemma4_bf16_free(&gateH);
         struct Gemma4Bf16Tensor gateAct;
         unsafe {
-            &Tensor gateActF = tensor_gelu_fwd(gateHF);
+            &Tensor gateActF = gateHF->gelu_fwd();
             gateHF->free();
             gateAct = gemma4_bf16_from_f32(gateActF);
             gateActF.free();
@@ -1147,7 +1147,7 @@ static struct Gemma4Bf16Tensor __g4mbf16_layer_tail_chained(
         gemma4_bf16_free(&gateH);
         struct Gemma4Bf16Tensor gateAct;
         unsafe {
-            &Tensor gateActF = tensor_gelu_fwd(gateHF);
+            &Tensor gateActF = gateHF->gelu_fwd();
             gateHF->free();
             gateAct = gemma4_bf16_from_f32(gateActF);
             gateActF.free();

@@ -23,27 +23,29 @@ Handles are `long long` uniformly across platforms: a POSIX pipe fd fits directl
 struct Pipe {
     long long read_fd;
     long long write_fd;
+
+    int  init();                     // creates the pipe in place; 0 on success, -1 on failure
+
+    // Returns bytes read (0 = write end closed and pipe drained: EOF), -1 on error.
+    long long read(&unsigned char buf, unsigned long count);
+
+    // Returns bytes written, or -1 on error.
+    long long write(const &unsigned char buf, unsigned long count);
+
+    // Non-blocking mode (pairs with std::Reactor — await_fd(fd, SCHED_READ/WRITE)).
+    int  set_read_nonblocking();
+    int  set_write_nonblocking();
+
+    // Closing the write end wakes a reader blocked in read() (or awaiting
+    // SCHED_READ) with EOF once the pipe drains. Safe to call each end's
+    // close exactly once — closing twice is undefined, the same as any
+    // double-close(2).
+    int  close_read();
+    int  close_write();
 };
-
-int  pipe_create(&Pipe out);          // 0 on success, -1 on failure
-
-// Returns bytes read (0 = write end closed and pipe drained: EOF), -1 on error.
-long long pipe_read(&Pipe p, &unsigned char buf, unsigned long count);
-
-// Returns bytes written, or -1 on error.
-long long pipe_write(&Pipe p, const &unsigned char buf, unsigned long count);
-
-// Non-blocking mode (pairs with std::Reactor — await_fd(fd, SCHED_READ/WRITE)).
-int  pipe_set_read_nonblocking(&Pipe p);
-int  pipe_set_write_nonblocking(&Pipe p);
-
-// Closing the write end wakes a reader blocked in pipe_read (or awaiting
-// SCHED_READ) with EOF once the pipe drains. Safe to call each end's
-// close exactly once — closing twice is undefined, the same as any
-// double-close(2).
-int  pipe_close_read(&Pipe p);
-int  pipe_close_write(&Pipe p);
 ```
+
+`Pipe` is a [`Stream`](/stdlib/io#io-traits) (`Reader + Writer`: `read` takes from the read end, `write` puts into the write end), so `read_exact`, `write_all`, `copy_stream` and [`BufReader` / `BufWriter`](/stdlib/io#buffered-io) work on it.
 
 ### Example {#example}
 
@@ -53,17 +55,17 @@ int  pipe_close_write(&Pipe p);
 
 int main() {
     struct Pipe p;
-    if (std::pipe_create(&p) != 0) { std::println("pipe_create failed"); return 1; }
+    if (p.init() != 0) { std::println("pipe init failed"); return 1; }
 
     unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
-    std::pipe_write(&p, &msg[0], 5UL);
+    p.write(&msg[0], 5UL);
 
     unsigned char buf[5];
-    long long n = std::pipe_read(&p, &buf[0], 5UL);
+    long long n = p.read(&buf[0], 5UL);
     std::print("read "); std::print_int(n); std::println(" bytes");   // read 5 bytes
 
-    std::pipe_close_read(&p);
-    std::pipe_close_write(&p);
+    p.close_read();
+    p.close_write();
     return (n == 5LL && buf[4] == 'o') ? 0 : 1;
 }
 ```

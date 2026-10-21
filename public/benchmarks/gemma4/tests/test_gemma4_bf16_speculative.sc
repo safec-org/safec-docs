@@ -28,7 +28,7 @@ static void collect_token(void* ctxRaw, int tokenId) {
 }
 
 int main() {
-    tensor_set_grad_enabled(0);
+    Autograd::get().set_enabled(0);
     std::sys_srand(42U);
 
     struct Gemma4Bf16Model model = std::gemma4_bf16_model_load("/tmp/gemma4_synthetic.safetensors");

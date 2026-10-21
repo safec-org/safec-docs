@@ -15,7 +15,7 @@ extern int printf(const char* fmt, ...);
 static unsigned long long __st_read_u64_le(&File f) {
     unsigned char buf[8];
     unsigned long got;
-    unsafe { got = file_read(f, &buf[0], 8UL); }
+    unsafe { got = f.read(&buf[0], 8UL); }
     if (got != 8UL) { return 0xFFFFFFFFFFFFFFFFULL; }
     unsigned long long v = 0ULL;
     int i = 7;
@@ -50,12 +50,12 @@ struct Tensor* SafetensorsFile::load(const char* name) {
     unsafe {
         e = (struct SafetensorsEntry*)self.entries.at((unsigned long)idx);
         byteLen = e->dataOffsetEnd - e->dataOffsetStart;
-        file_seek(f, (long long)(self.dataBaseOffset + e->dataOffsetStart), 0);
+        f.seek((long long)(self.dataBaseOffset + e->dataOffsetStart), 0);
     }
     unsigned char* raw;
     unsafe { raw = (unsigned char*)malloc(byteLen); }
     unsigned long got;
-    unsafe { got = file_read(f, raw, byteLen); }
+    unsafe { got = f.read(raw, byteLen); }
     if (got != byteLen) {
         printf("safetensors: short read for %s (wanted %lu, got %lu)\n", name, byteLen, got);
         unsafe { free((void*)raw); }
@@ -122,12 +122,12 @@ struct Gemma4Bf16Tensor SafetensorsFile::load_bf16(const char* name) {
         ndim = e->ndim;
         s0 = e->shape[0];
         if (ndim > 1UL) { s1 = e->shape[1]; } else { s1 = 0UL; }
-        file_seek(f, (long long)(self.dataBaseOffset + e->dataOffsetStart), 0);
+        f.seek((long long)(self.dataBaseOffset + e->dataOffsetStart), 0);
     }
     unsigned char* raw;
     unsafe { raw = (unsigned char*)malloc(byteLen); }
     unsigned long got;
-    unsafe { got = file_read(f, raw, byteLen); }
+    unsafe { got = f.read(raw, byteLen); }
     if (got != byteLen) {
         printf("safetensors: short read for %s (wanted %lu, got %lu)\n", name, byteLen, got);
         unsafe { free((void*)raw); }
@@ -180,7 +180,7 @@ struct Gemma4Bf16Tensor SafetensorsFile::load_bf16(const char* name) {
 
 void SafetensorsFile::close_() {
     match (self.handle) {
-        case some(f): file_close(f);
+        case some(f): f.close();
         case null: { }
     }
     self.handle = null;
@@ -198,10 +198,10 @@ struct SafetensorsFile safetensors_open(const char* path) {
     struct SafetensorsFile st;
     st.handle = null;
     st.dataBaseOffset = 0UL;
-    st.entries = vec_new();
+    st.entries = Vec::new();
 
     ?&File fq;
-    unsafe { fq = file_open(path, "rb"); }
+    unsafe { fq = File::open(path, "rb"); }
     if (fq.is_null()) {
         printf("safetensors: could not open %s\n", path);
         return st;
@@ -211,18 +211,18 @@ struct SafetensorsFile safetensors_open(const char* path) {
     unsigned long long headerLen = __st_read_u64_le(f);
     if (headerLen == 0xFFFFFFFFFFFFFFFFULL || headerLen == 0ULL) {
         printf("safetensors: bad header length in %s\n", path);
-        file_close(f);
+        f.close();
         return st;
     }
 
     char* headerBuf;
     unsafe { headerBuf = (char*)malloc((unsigned long)headerLen + 1UL); }
     unsigned long got;
-    unsafe { got = file_read(f, (unsigned char*)headerBuf, (unsigned long)headerLen); }
+    unsafe { got = f.read((unsigned char*)headerBuf, (unsigned long)headerLen); }
     if (got != (unsigned long)headerLen) {
         printf("safetensors: short header read in %s\n", path);
         unsafe { free((void*)headerBuf); }
-        file_close(f);
+        f.close();
         return st;
     }
     unsafe { headerBuf[headerLen] = (char)0; }
@@ -233,7 +233,7 @@ struct SafetensorsFile safetensors_open(const char* path) {
     unsafe { free((void*)headerBuf); }
     if (!ok) {
         printf("safetensors: header JSON parse failed in %s\n", path);
-        file_close(f);
+        f.close();
         return st;
     }
 
@@ -244,10 +244,10 @@ struct SafetensorsFile safetensors_open(const char* path) {
             const char* key = (const char*)oe->key;
             if (key != (const char*)0 && str_eq(key, "__metadata__") == 0) {
                 struct SafetensorsEntry se;
-                se.name = string_from(key);
+                se.name = String::from(key);
 
                 struct Value* dtypeV = oe->val.object_get("dtype");
-                se.dtype = string_from(dtypeV->as_string());
+                se.dtype = String::from(dtypeV->as_string());
 
                 struct Value* shapeV = oe->val.object_get("shape");
                 unsigned long nd = shapeV->array_len();
@@ -274,7 +274,7 @@ struct SafetensorsFile safetensors_open(const char* path) {
         }
         i = i + 1UL;
     }
-    value_free(&header);
+    header.free();
 
     st.handle = fq;
     st.dataBaseOffset = 8UL + (unsigned long)headerLen;

@@ -40,10 +40,10 @@ static &heap Complex random_complex(unsigned long n) {
 }
 
 static struct CudaBuf random_buf(unsigned long n) {
-    struct Vec<float> v = std::vec_with_cap(n);
+    struct Vec<float> v = std::Vec::with_cap(n);
     unsigned long i = 0UL;
     while (i < n) { unsafe { v.push((float)(drand48() * 2.0 - 1.0)); } i = i + 1UL; }
-    struct CudaBuf b = std::cuda_upload(v.at(0UL), n);
+    struct CudaBuf b = CudaBuf::upload(v.at(0UL), n);
     v.free();
     return b;
 }
@@ -75,7 +75,7 @@ int main() {
     unsigned long rows = 1024UL;
     unsigned long len = 4096UL;
     struct CudaBuf din = random_buf(2UL * rows * len);
-    struct CudaBuf dout = std::cuda_alloc(2UL * rows * len);
+    struct CudaBuf dout = CudaBuf::alloc(2UL * rows * len);
     iters = 1000;
     int w = 0;
     while (w < 5) { std::cuda_fft_c2c(din, dout, len, rows, 0); w = w + 1; }
@@ -97,8 +97,8 @@ int main() {
     std::cuda_sync();
     ms = (now_ms() - t0) / (double)iters;
     unsafe { printf("[rfft 1024x4096 r2c cuda] ms_per_call=%.4f\n", ms); }
-    std::cuda_free(&din);
-    std::cuda_free(&dout);
-    std::cuda_free(&rin);
+    din.free();
+    dout.free();
+    rin.free();
     return 0;
 }

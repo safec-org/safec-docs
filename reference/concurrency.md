@@ -244,7 +244,7 @@ static struct WorkItem w2;
 
 int main() {
     unsigned long n = 10000UL;
-    struct Slice<int> data = std::slice_alloc(n);      // heap, runtime-sized
+    struct Slice<int> data = std::Slice::alloc(n);      // heap, runtime-sized
     for (unsigned long i = 0UL; i < n; i = i + 1UL) data.set(i, (int)i);
 
     w1.data = data; w1.start = 0UL;    w1.end = n / 2UL; w1.result = 0LL;

@@ -321,9 +321,9 @@ n.on(handler, &point);                  // cb와 data에서 T = Pt
 `f<int>(...)` 같은 호출 문법은 없습니다. 타입 인자는 항상 추론됩니다. 먼저 인자를 매개변수와 대조하고, 그래도 바인딩되지 않은 타입 매개변수는 호출의 *대상 타입* — 초기화되거나 대입되는 변수의 선언 타입, 또는 `return` 문에서는 함수의 반환 타입 — 에서 가져옵니다:
 
 ```c
-struct Vec<int> v = std::vec_new();                  // T from the declaration
-struct HashMap<int, long long> m = std::map_new();   // K and V likewise
-?&heap Packet p = std::pool_alloc_t(&pool);          // T = Packet
+struct Vec<int> v = std::Vec::new();                  // T from the declaration
+struct HashMap<int, long long> m = std::HashMap::new();   // K and V likewise
+?&heap Packet p = std::alloc_t(&pool);               // T = Packet (A = PoolAllocator, from &pool)
 ```
 
 대상이 없는 호출(단독 문장, `match` 대상, 다른 제네릭의 인자)은 반환 타입에만 나타나는 매개변수를 추론할 수 없습니다: 먼저 타입이 지정된 변수에 바인딩합니다.

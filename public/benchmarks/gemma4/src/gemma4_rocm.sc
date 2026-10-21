@@ -142,7 +142,7 @@ static void* g_g4r_exec = (void*)0;
 // ── Uploads ──────────────────────────────────────────────────────────────────
 
 static struct RocmHalfBuf g4r_up_(const &Gemma4Bf16Tensor t, &int ok) {
-    struct RocmHalfBuf b = rocm_half_alloc(t.size, ROCM_BF16);
+    struct RocmHalfBuf b = RocmHalfBuf::alloc(t.size, ROCM_BF16);
     if (b.dev == 0UL) { *ok = 0; return b; }
     unsafe {
         if (!rocm_half_write(b, (const &unsigned short)t.data, t.size)) *ok = 0;
@@ -155,7 +155,7 @@ static struct RocmHalfBuf g4r_up_(const &Gemma4Bf16Tensor t, &int ok) {
 static struct RocmHalfBuf g4r_up_interleaved_(const &Gemma4Bf16Tensor g, const &Gemma4Bf16Tensor u, &int ok) {
     unsigned long rows = g.shape0;
     unsigned long cols = g.shape1;
-    struct RocmHalfBuf b = rocm_half_alloc(2UL * rows * cols, ROCM_BF16);
+    struct RocmHalfBuf b = RocmHalfBuf::alloc(2UL * rows * cols, ROCM_BF16);
     if (b.dev == 0UL) { *ok = 0; return b; }
     unsafe {
         unsigned short* tmp = (unsigned short*)malloc(2UL * rows * cols * 2UL);
@@ -178,7 +178,7 @@ static struct RocmHalfBuf g4r_up_interleaved_(const &Gemma4Bf16Tensor g, const &
 }
 
 static struct RocmBuf g4r_buf_(unsigned long n, &int ok) {
-    struct RocmBuf b = rocm_alloc(n);
+    struct RocmBuf b = RocmBuf::alloc(n);
     if (b.dev == 0UL) *ok = 0;
     return b;
 }
@@ -576,27 +576,27 @@ void gemma4_rocm_free() {
         if (g_g4r_exec != (void*)0) { hipGraphExecDestroy(g_g4r_exec); g_g4r_exec = (void*)0; }
         if (g_g4r_graph != (void*)0) { hipGraphDestroy(g_g4r_graph); g_g4r_graph = (void*)0; }
     }
-    rocm_half_free(&g_g4r_embed); rocm_half_free(&g_g4r_embedPle); rocm_half_free(&g_g4r_pleModelProj);
-    rocm_half_free(&g_g4r_pleProjNorm); rocm_half_free(&g_g4r_finalNorm);
+    g_g4r_embed.free(); g_g4r_embedPle.free(); g_g4r_pleModelProj.free();
+    g_g4r_pleProjNorm.free(); g_g4r_finalNorm.free();
     unsigned long li = 0UL;
     while (li < g_g4r_nl) {
         unsafe {
-            rocm_half_free(&g_g4r_l[li].inLn); rocm_half_free(&g_g4r_l[li].postAttnLn);
-            rocm_half_free(&g_g4r_l[li].preFfLn); rocm_half_free(&g_g4r_l[li].postFfLn);
-            rocm_half_free(&g_g4r_l[li].qkv); rocm_half_free(&g_g4r_l[li].qNorm);
-            if (g_g4r_l[li].kNorm.dev != 0UL) rocm_half_free(&g_g4r_l[li].kNorm);
-            rocm_half_free(&g_g4r_l[li].o); rocm_half_free(&g_g4r_l[li].gateUp);
-            rocm_half_free(&g_g4r_l[li].down); rocm_half_free(&g_g4r_l[li].pleGate);
-            rocm_half_free(&g_g4r_l[li].pleProj); rocm_half_free(&g_g4r_l[li].postPleLn);
-            if (g_g4r_l[li].kc.dev != 0UL) { rocm_free(&g_g4r_l[li].kc); rocm_free(&g_g4r_l[li].vc); }
+            g_g4r_l[li].inLn.free(); g_g4r_l[li].postAttnLn.free();
+            g_g4r_l[li].preFfLn.free(); g_g4r_l[li].postFfLn.free();
+            g_g4r_l[li].qkv.free(); g_g4r_l[li].qNorm.free();
+            if (g_g4r_l[li].kNorm.dev != 0UL) g_g4r_l[li].kNorm.free();
+            g_g4r_l[li].o.free(); g_g4r_l[li].gateUp.free();
+            g_g4r_l[li].down.free(); g_g4r_l[li].pleGate.free();
+            g_g4r_l[li].pleProj.free(); g_g4r_l[li].postPleLn.free();
+            if (g_g4r_l[li].kc.dev != 0UL) { g_g4r_l[li].kc.free(); g_g4r_l[li].vc.free(); }
         }
         li = li + 1UL;
     }
-    rocm_free(&g_g4r_x); rocm_free(&g_g4r_h); rocm_free(&g_g4r_qkv); rocm_free(&g_g4r_attn);
-    rocm_free(&g_g4r_o); rocm_free(&g_g4r_gu); rocm_free(&g_g4r_g); rocm_free(&g_g4r_f);
-    rocm_free(&g_g4r_pg); rocm_free(&g_g4r_pg2); rocm_free(&g_g4r_pp); rocm_free(&g_g4r_pleAll);
-    rocm_free(&g_g4r_pleRaw); rocm_free(&g_g4r_logits); rocm_free(&g_g4r_part); rocm_free(&g_g4r_amv);
-    rocm_free(&g_g4r_ami); rocm_free(&g_g4r_tok); rocm_free(&g_g4r_posb); rocm_free(&g_g4r_out);
+    g_g4r_x.free(); g_g4r_h.free(); g_g4r_qkv.free(); g_g4r_attn.free();
+    g_g4r_o.free(); g_g4r_gu.free(); g_g4r_g.free(); g_g4r_f.free();
+    g_g4r_pg.free(); g_g4r_pg2.free(); g_g4r_pp.free(); g_g4r_pleAll.free();
+    g_g4r_pleRaw.free(); g_g4r_logits.free(); g_g4r_part.free(); g_g4r_amv.free();
+    g_g4r_ami.free(); g_g4r_tok.free(); g_g4r_posb.free(); g_g4r_out.free();
     g_g4r_ready = 0;
 }
 

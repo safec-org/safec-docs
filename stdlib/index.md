@@ -19,6 +19,8 @@ int main() {
 |--------|--------|-------------|
 | [mem](/stdlib/mem) | `mem.h` | Allocation, deallocation, safe memcpy/memmove/memset/memcmp; cache-line helpers, alignment utilities |
 | [io](/stdlib/io) | `io.h` | Formatted output (stdout/stderr), stdin input, buffer formatting |
+| [io_traits](/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` traits composed into `Stream` / `SeekableStream`; `read_exact`, `write_all`, `copy_stream` over any stream |
+| [io_buf](/stdlib/io) | `io_buf.h` | `BufReader<R>` / `BufWriter<W>` buffering over any `Reader` / `Writer` (themselves a `Reader` / `Writer`) |
 | [str](/stdlib/str) | `str.h` | String length, comparison, copy, search, tokenisation, duplication |
 | [math](/stdlib/math) | `math.h` | Constants (PI, E, …), float/double math, classification |
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
@@ -28,7 +30,7 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| value | `serial/value.h` | Format-agnostic `Value` tree (Null/Bool/Int/Float/String/Array/Object) |
+| value | `serial/value.h` | Format-agnostic `Value` tree (Null/Bool/Int/Float/String/Array/Object); the `Format` trait behind `v.encode(f)` / `Value::decode(f, ...)` |
 | json | `serial/json.h` | JSON writer + parser, exact round-trip |
 | xml | `serial/xml.h` | XML writer + parser (own-grammar round-trip) |
 | html | `serial/html.h` | HTML fragment writer + parser (`<dl>`/`<ul>` shape) |
@@ -49,11 +51,13 @@ int main() {
 | ringbuffer | `collections/ringbuffer.h` | SPSC lock-free power-of-two byte ring |
 | node_pool | `collections/node_pool.h` | `NodePool<N>` per-container node arena |
 | static_vec | `collections/static_vec.h` | `StaticVec<T>` / `StaticMap<V>` over caller storage (zero heap) |
+| traits | `collections/traits.h` | Container capability traits (`Len`, `Push`, `Enqueue`, …) composed into `Sequence` / `Lifo` / `Fifo` / `CountedFifo` / `Map`; `push_all`, `enqueue_all`, `drain_into` |
 
 ### [Allocators](/stdlib/allocators) {#allocators}
 
 | Module | Header | Description |
 |--------|--------|-------------|
+| allocator | `alloc/allocator.h` | `Allocate` / `Deallocate` traits composed into `Allocator` / `ArenaAllocator`; `alloc_t` / `alloc_array_t` / `dealloc_t` and `CountingAllocator<A>` over any allocator |
 | bump | `alloc/bump.h` | Linear bump-pointer arena; O(1) alloc, reset-only free |
 | slab | `alloc/slab.h` | Freelist slab for fixed-size objects; O(1) alloc/dealloc |
 | pool | `alloc/pool.h` | Variable-size first-fit pool with coalescing |
@@ -67,7 +71,7 @@ int main() {
 | lockfree | `sync/lockfree.h` | `LFQueue<T>` lock-free SPSC ring buffer |
 | channel | `sync/channel.h` | `Chan<T>`: typed bounded blocking MPMC channel over the `chan_*` built-ins |
 | mpsc | `sync/mpsc.h` | `MpscQueue<T>` spinlock-guarded MPSC ring, non-blocking |
-| task | `sync/task.h` | Cooperative scheduler; typed `task_spawn` |
+| task | `sync/task.h` | Cooperative scheduler; typed `TaskScheduler::spawn`; `TaskRunner` trait + `run_rounds` |
 | thread_bare | `sync/thread_bare.h` | Priority-ordered freestanding threads (no OS) |
 | bare_spawn | `sync/bare_spawn.sc` | Reference "Hook" backend for the `spawn`/`join` language keywords on freestanding targets |
 
@@ -150,6 +154,7 @@ int main() {
 | fft | `dsp/fft.h` | In-place radix-2 Cooley-Tukey FFT/IFFT, O(n log n), power-of-two length (float + Q8.24) |
 | convolution | `dsp/convolution.h` | Linear convolution — direct O(len_x·len_h) (SIMD-accelerated) and FFT-based O(n log n) |
 | window | `dsp/window.h` | Rectangular/Hann/Hamming/Blackman analysis windows |
+| sample_filter | `dsp/sample_filter.h` | `SampleProcessor` / `BlockProcessor` / `Resettable` traits composed into `SampleFilter` (all 15 filters); `FilterChain`, generic impulse/step response |
 | filter | `dsp/filter.h` | General streaming FIR/IIR (feedforward/feedback) difference-equation filters (float + Q8.24) |
 | biquad | `dsp/biquad.h` | 2nd-order IIR sections + RBJ "Audio EQ Cookbook" designers + general bilinear transform |
 | dct | `dsp/dct.h` | DCT-II/DCT-III (JPEG/MPEG-style discrete cosine transform), float + Q8.24 |
@@ -170,10 +175,12 @@ int main() {
 |--------|--------|-------------|
 | aes | `crypto/aes.h` | AES-128/256 ECB + CBC; full S-box + key expansion |
 | sha256 | `crypto/sha256.h` | SHA-256/224; streaming and one-shot API |
+| hash | `crypto/hash.h` | `Hasher` / `BlockHash` traits; `hash_bytes` over any hash |
+| hmac | `crypto/hmac.h` | `Hmac<H>` over any `BlockHash`; one-shot `hmac_sha256` |
 | rng | `crypto/rng.h` | ChaCha20 CSPRNG; `rdrand`/`/dev/urandom` seeding |
 | secure_alloc | `crypto/secure_alloc.h` | Slab allocator with zeroing-on-free |
 | x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, wildcard hostname, validity |
-| tls | `crypto/tls.h` | TLS 1.3 record layer; AES-CBC + PKCS#7 + nonce XOR seq |
+| tls | `crypto/tls.h` | TLS 1.3 record layer; AES-256-GCM record protection (RFC 8446 §5.2), nonce XOR seq |
 
 ### [Debugging & Profiling](/stdlib/debug) {#debugging-profiling}
 
@@ -248,13 +255,15 @@ int main() {
 | Header | Description |
 |--------|-------------|
 | `bit.h` | Bit manipulation (C23 `<stdbit.h>` + popcount/clz/ctz/bswap builtins) |
+| `cmp.h` | Compile-time orderings: the `Order` trait, `Less` / `Greater` / `FnOrder` (see [Orderings](/stdlib/collections#orderings)) |
+| `traits.h` | Capability traits shared across modules: `Resettable` (arena allocators, DSP filters) |
 | `convert.h` | String ↔ number parsing (C11/C17), `*ok` success flag on failure |
 | `dma.h` | Cache-coherent DMA buffer descriptors (64-byte aligned) |
 | `fmt.h` | Safe `snprintf`-based formatting into caller-supplied buffers |
 | `heap.h` | Unified heap: TLSF-backed static buffer (freestanding) or malloc/free/realloc (hosted) |
 | `log.h` | Configurable logging, zero overhead when `LOG_LEVEL` is 0 |
 | `panic.h` | Opt-in panic handler — infinite loop (freestanding) or `abort()` (hosted) by default |
-| `result.h` | Explicit `Result` error-propagation type (heap-allocated, mirrors `?T` optional) |
+| `result.h` | `Result<T, E>`: a value or an error, stored inline (`Result::new_ok` / `Result::new_err`) |
 | `sys.h` | Process-control constants (`EXIT_SUCCESS`/`EXIT_FAILURE`), PRNG constants |
 | `complex.h` | Complex numbers (C99 `<complex.h>`) as `[real, imag]` float/double pairs |
 
@@ -285,7 +294,7 @@ Containers and other value-holding APIs are generic structs and functions, monom
 #include <std/collections/vec.h>
 
 int main() {
-    struct Vec<int> v = std::vec_new();
+    struct Vec<int> v = std::Vec::new();
     v.push(42);
     v.push(100);
     match (v.get(0UL)) {
@@ -298,7 +307,7 @@ int main() {
 }
 ```
 
-Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic function that takes a matching `fn(?&T)` and `?&T` — `timer_add`, `widget_on_click`, `vfs_mount`, `task_spawn` — so every call is still checked at compile time. The remaining `void*` declarations in `std/` are C ABI boundaries: libc/OS externs, `mem.h`'s raw byte allocator, MMIO base addresses, and GPU/WASM foreign interfaces.
+Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic method that takes a matching `fn(?&T)` and `?&T` — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — so every call is still checked at compile time. The remaining `void*` declarations in `std/` are C ABI boundaries: libc/OS externs, `mem.h`'s raw byte allocator, MMIO base addresses, and GPU/WASM foreign interfaces.
 
 ## Including the Standard Library {#including-the-standard-library}
 

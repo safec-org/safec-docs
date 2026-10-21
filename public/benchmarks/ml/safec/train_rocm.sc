@@ -28,7 +28,7 @@ extern void srand48(long seed);
 static double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 
 static struct Vec<float> random_vec(unsigned long n, double scale) {
-    struct Vec<float> v = std::vec_with_cap(n);
+    struct Vec<float> v = std::Vec::with_cap(n);
     unsigned long i = 0UL;
     while (i < n) { unsafe { v.push((float)((drand48() - 0.5) * scale)); } i = i + 1UL; }
     return v;
@@ -50,24 +50,24 @@ static struct Mlp mlp_new(unsigned long B, unsigned long I, unsigned long H, uns
     struct Vec<float> t = random_vec(B * O, 1.0);
     struct Vec<float> w1 = random_vec(I * H, 0.1);
     struct Vec<float> w2 = random_vec(H * O, 0.1);
-    m.X = std::rocm_upload(x.at(0UL), B * I);
-    m.T = std::rocm_upload(t.at(0UL), B * O);
-    m.W1 = std::rocm_upload(w1.at(0UL), I * H);
-    m.W2 = std::rocm_upload(w2.at(0UL), H * O);
+    m.X = RocmBuf::upload(x.at(0UL), B * I);
+    m.T = RocmBuf::upload(t.at(0UL), B * O);
+    m.W1 = RocmBuf::upload(w1.at(0UL), I * H);
+    m.W2 = RocmBuf::upload(w2.at(0UL), H * O);
     x.free(); t.free(); w1.free(); w2.free();
-    m.Z1 = std::rocm_alloc(B * H);  m.Hh = std::rocm_alloc(B * H);
-    m.Y = std::rocm_alloc(B * O);   m.dY = std::rocm_alloc(B * O);
-    m.dW2 = std::rocm_alloc(H * O); m.dH = std::rocm_alloc(B * H);
-    m.dZ1 = std::rocm_alloc(B * H); m.dW1 = std::rocm_alloc(I * H);
-    m.loss = std::rocm_alloc(1UL);
+    m.Z1 = RocmBuf::alloc(B * H);  m.Hh = RocmBuf::alloc(B * H);
+    m.Y = RocmBuf::alloc(B * O);   m.dY = RocmBuf::alloc(B * O);
+    m.dW2 = RocmBuf::alloc(H * O); m.dH = RocmBuf::alloc(B * H);
+    m.dZ1 = RocmBuf::alloc(B * H); m.dW1 = RocmBuf::alloc(I * H);
+    m.loss = RocmBuf::alloc(1UL);
     return m;
 }
 
 static void mlp_free(&Mlp m) {
-    std::rocm_free(&m.X); std::rocm_free(&m.T); std::rocm_free(&m.W1); std::rocm_free(&m.W2);
-    std::rocm_free(&m.Z1); std::rocm_free(&m.Hh); std::rocm_free(&m.Y); std::rocm_free(&m.dY);
-    std::rocm_free(&m.dW2); std::rocm_free(&m.dH); std::rocm_free(&m.dZ1); std::rocm_free(&m.dW1);
-    std::rocm_free(&m.loss);
+    m.X.free(); m.T.free(); m.W1.free(); m.W2.free();
+    m.Z1.free(); m.Hh.free(); m.Y.free(); m.dY.free();
+    m.dW2.free(); m.dH.free(); m.dZ1.free(); m.dW1.free();
+    m.loss.free();
 }
 
 static void forward(&Mlp m) {
@@ -138,8 +138,8 @@ static void run(const char* label, unsigned long B, unsigned long I, unsigned lo
                label, useGraph ? "graph" : "plain", t1 - t0, (double)lossHost[0],
                (double)(steps * B) / ((t1 - t0) / 1000.0), passes, t2 - t1, checksum);
     }
-    std::rocm_graph_free(&stepGraph);
-    std::rocm_graph_free(&fwdGraph);
+    stepGraph.free();
+    fwdGraph.free();
     mlp_free(&m);
 }
 
@@ -161,24 +161,24 @@ static struct HalfMlp half_new(unsigned long B, unsigned long I, unsigned long H
     struct Vec<float> t = random_vec(B * O, 1.0);
     struct Vec<float> w1 = random_vec(I * H, 0.1);
     struct Vec<float> w2 = random_vec(H * O, 0.1);
-    m.X = std::rocm_half_upload(x.at(0UL), B * I, dt);
-    m.T = std::rocm_half_upload(t.at(0UL), B * O, dt);
-    m.W1 = std::rocm_half_upload(w1.at(0UL), I * H, dt);
-    m.W2 = std::rocm_half_upload(w2.at(0UL), H * O, dt);
+    m.X = RocmHalfBuf::upload(x.at(0UL), B * I, dt);
+    m.T = RocmHalfBuf::upload(t.at(0UL), B * O, dt);
+    m.W1 = RocmHalfBuf::upload(w1.at(0UL), I * H, dt);
+    m.W2 = RocmHalfBuf::upload(w2.at(0UL), H * O, dt);
     x.free(); t.free(); w1.free(); w2.free();
-    m.Hh = std::rocm_half_alloc(B * H, dt);  m.Y = std::rocm_half_alloc(B * O, dt);
-    m.dY = std::rocm_half_alloc(B * O, dt);  m.dW2 = std::rocm_half_alloc(H * O, dt);
-    m.dH = std::rocm_half_alloc(B * H, dt);  m.dZ1 = std::rocm_half_alloc(B * H, dt);
-    m.dW1 = std::rocm_half_alloc(I * H, dt);
-    m.loss = std::rocm_alloc(1UL);
+    m.Hh = RocmHalfBuf::alloc(B * H, dt);  m.Y = RocmHalfBuf::alloc(B * O, dt);
+    m.dY = RocmHalfBuf::alloc(B * O, dt);  m.dW2 = RocmHalfBuf::alloc(H * O, dt);
+    m.dH = RocmHalfBuf::alloc(B * H, dt);  m.dZ1 = RocmHalfBuf::alloc(B * H, dt);
+    m.dW1 = RocmHalfBuf::alloc(I * H, dt);
+    m.loss = RocmBuf::alloc(1UL);
     return m;
 }
 
 static void half_free(&HalfMlp m) {
-    std::rocm_half_free(&m.X); std::rocm_half_free(&m.T); std::rocm_half_free(&m.W1); std::rocm_half_free(&m.W2);
-    std::rocm_half_free(&m.Hh); std::rocm_half_free(&m.Y); std::rocm_half_free(&m.dY);
-    std::rocm_half_free(&m.dW2); std::rocm_half_free(&m.dH); std::rocm_half_free(&m.dZ1);
-    std::rocm_half_free(&m.dW1); std::rocm_free(&m.loss);
+    m.X.free(); m.T.free(); m.W1.free(); m.W2.free();
+    m.Hh.free(); m.Y.free(); m.dY.free();
+    m.dW2.free(); m.dH.free(); m.dZ1.free();
+    m.dW1.free(); m.loss.free();
 }
 
 static void half_forward(&HalfMlp m) {
@@ -240,8 +240,8 @@ static void run_half(const char* label, unsigned long B, unsigned long I, unsign
                label, dt == ROCM_BF16 ? "bf16" : "fp16", t1 - t0, (double)lossHost[0],
                (double)(steps * B) / ((t1 - t0) / 1000.0), passes, t2 - t1, checksum);
     }
-    std::rocm_graph_free(&stepGraph);
-    std::rocm_graph_free(&fwdGraph);
+    stepGraph.free();
+    fwdGraph.free();
     half_free(&m);
 }
 

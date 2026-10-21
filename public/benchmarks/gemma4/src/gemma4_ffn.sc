@@ -13,7 +13,7 @@ extern void  free(void* ptr);
 // CPU-GELU fallback path: both matmuls (gate/up and down -- the dominant
 // FLOP cost here) run as real bf16 GPU/BLAS compute via gemma4_bf16_linear,
 // but each is its OWN separate GPU round trip (or CPU+BLAS call), with
-// GELU done on the CPU (std::ml's generic F32 tensor_gelu_fwd/tensor_mul --
+// GELU done on the CPU (std::ml's generic F32 Tensor::gelu_fwd/tensor_mul --
 // widen the gate/up split, compute, narrow back) in between. Used when the
 // fully-chained GPU path below isn't available (no Metal device, forced
 // CPU mode, or a weight buffer upload failed) -- see
@@ -30,7 +30,7 @@ static struct Gemma4Bf16Tensor __g4ffn_forward_cpu_gelu(const &Gemma4Bf16Tensor 
     gemma4_bf16_free(&gate); gemma4_bf16_free(&up);
     struct Gemma4Bf16Tensor gated;
     unsafe {
-        &Tensor gateActF = tensor_gelu_fwd(gateF);
+        &Tensor gateActF = gateF->gelu_fwd();
         gateF->free();
         &Tensor gatedF = tensor_mul(gateActF, upF);
         gateActF->free(); upF->free();

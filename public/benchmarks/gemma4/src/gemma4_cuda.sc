@@ -880,7 +880,7 @@ int gemma4_cuda_prompt_logits(&Gemma4Cuda m, const int* prompt, unsigned long pr
 }
 
 void gemma4_cuda_free(&Gemma4Cuda m) {
-    if (m.graph.exec != 0UL) cuda_graph_free(&m.graph);
+    if (m.graph.exec != 0UL) m.graph.free();
     unsafe {
         unsigned long* bufs[21];
         bufs[0] = &m.embW; bufs[1] = &m.pleW; bufs[2] = &m.pleProjW; bufs[3] = &m.pleNormW; bufs[4] = &m.finalNormW;

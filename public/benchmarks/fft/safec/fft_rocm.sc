@@ -40,10 +40,10 @@ static &heap Complex random_complex(unsigned long n) {
 }
 
 static struct RocmBuf random_buf(unsigned long n) {
-    struct Vec<float> v = std::vec_with_cap(n);
+    struct Vec<float> v = std::Vec::with_cap(n);
     unsigned long i = 0UL;
     while (i < n) { unsafe { v.push((float)(drand48() * 2.0 - 1.0)); } i = i + 1UL; }
-    struct RocmBuf b = std::rocm_upload(v.at(0UL), n);
+    struct RocmBuf b = RocmBuf::upload(v.at(0UL), n);
     v.free();
     return b;
 }
@@ -75,7 +75,7 @@ int main() {
     unsigned long rows = 1024UL;
     unsigned long len = 4096UL;
     struct RocmBuf din = random_buf(2UL * rows * len);
-    struct RocmBuf dout = std::rocm_alloc(2UL * rows * len);
+    struct RocmBuf dout = RocmBuf::alloc(2UL * rows * len);
     iters = 1000;
     int w = 0;
     while (w < 5) { std::rocm_fft_c2c(din, dout, len, rows, 0); w = w + 1; }
@@ -97,8 +97,8 @@ int main() {
     std::rocm_sync();
     ms = (now_ms() - t0) / (double)iters;
     unsafe { printf("[rfft 1024x4096 r2c rocm] ms_per_call=%.4f\n", ms); }
-    std::rocm_free(&din);
-    std::rocm_free(&dout);
-    std::rocm_free(&rin);
+    din.free();
+    dout.free();
+    rin.free();
     return 0;
 }

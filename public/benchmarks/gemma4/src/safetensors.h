@@ -37,7 +37,7 @@ struct SafetensorsEntry {
 };
 
 struct SafetensorsFile {
-    ?&File        handle;          // std::file_open handle, kept open for lazy loads
+    ?&File        handle;          // std::File::open handle, kept open for lazy loads
     unsigned long dataBaseOffset;  // absolute file offset where tensor data begins
     struct Vec<struct SafetensorsEntry> entries;
 
