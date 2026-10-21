@@ -441,6 +441,10 @@ def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_sr
     return res
 
 
+# nn_rocm.h's device-resident training (MIOpen for the convolutions)
+ROCM_TRAIN_LIBS = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas", "-lMIOpen"]
+
+
 def bench_ml_nn(runs):
     """The std::ml training stack (nn.h, trainer.h, autoencoder.h, gan.h, rl.h,
     lora.h, convnet.h) on its test-suite workloads, against PyTorch."""
@@ -448,8 +452,7 @@ def bench_ml_nn(runs):
     cases = [("safec_cpu", "ml_nn/safec/train_nn.sc", [])]
     cases += [(f"safec_cpu_{v}", "ml_nn/safec/train_nn.sc", flags) for v, flags in vendor_blas().items()]
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
-        cases.append(("safec_rocm_per_op", "ml_nn/safec/train_nn_rocm.sc",
-                      [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas"]))
+        cases.append(("safec_rocm", "ml_nn/safec/train_nn_rocm.sc", ROCM_TRAIN_LIBS))
     for key, src, libs in cases:
         out = os.path.join(BUILD, "ml_nn", key)
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -466,6 +469,34 @@ def bench_ml_nn(runs):
         except Exception as e:
             res[key] = {"error": str(e).splitlines()[0][:200]}
         print(f"  ml_nn {key} {res[key]}", flush=True)
+    return res
+
+
+def bench_ml_nn_gpu(runs):
+    """Bigger training workloads (an MLP, CNN, ResNet, U-Net, DCGAN and conv
+    VAE): SafeC's CPU path (ml_nn/safec/train_big.sc) and nn_rocm.h's device
+    path in fp32 / fp16 / bf16 (train_big_rocm.sc), against PyTorch on the GPU
+    in fp32 and with autocast (ml_nn/pytorch/train_big.py)."""
+    res = {}
+    cases = [("safec_cpu", "ml_nn/safec/train_big.sc", [])]
+    if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
+        cases.append(("safec_rocm", "ml_nn/safec/train_big_rocm.sc", ROCM_TRAIN_LIBS))
+    for key, src, libs in cases:
+        out = os.path.join(BUILD, "ml_nn_gpu", key)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        try:
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
+            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  ml_nn_gpu {key} {res[key]}", flush=True)
+    for dev in [d for d in torch_devices() if d != "cpu"]:
+        key = f"pytorch_{dev}"
+        try:
+            res[key] = best_labeled([sh([MLPY, os.path.join(HERE, "ml_nn/pytorch/train_big.py"), dev]) for _ in range(runs)])
+        except Exception as e:
+            res[key] = {"error": str(e).splitlines()[0][:200]}
+        print(f"  ml_nn_gpu {key} {res[key]}", flush=True)
     return res
 
 
@@ -743,6 +774,7 @@ BENCHES = {
     "memalloc": bench_memalloc,
     "ml": bench_ml,
     "ml_nn": bench_ml_nn,
+    "ml_nn_gpu": bench_ml_nn_gpu,
     "conv": bench_conv,
     "fft": bench_fft,
     "attention": bench_attention,

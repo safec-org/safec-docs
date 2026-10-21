@@ -692,6 +692,10 @@ Every op's gradient is checked against central differences in the tests.
 The optimizers are checked to converge, and an MLP trained on moons
 reaches more than 95% accuracy.
 
+On an AMD GPU, [`nn_rocm.h`](#rocm-training) trains these models (and the
+conv nets, autoencoders, GANs and RL agents below) with everything kept in
+GPU memory: `rocm_trainer_fit` is `trainer_fit` on the device.
+
 ## Normalization: LayerNorm and AdaLN {#norm}
 
 ```c
@@ -1268,8 +1272,10 @@ discrete memory model needs.
   combinations, graphs, the host-array API and the fp16/bf16 buffers
   (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
   results (325 checks, including the mixed-precision ops), plus the [MIOpen and hipFFT
-  libraries](#rocm-miopen-hipfft) (73 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
-  train to the same loss as the CPU and MPS paths.
+  libraries](#rocm-miopen-hipfft) (73 checks), and [device-resident
+  training](#rocm-training) (`nn_rocm.h`, 387 checks against the CPU training
+  stack); the [ML benchmarks](/benchmarks#ml-mlp) train to the same loss as
+  the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
   combinations with and without the fused ReLU, graphs, the host-array and
@@ -1391,6 +1397,124 @@ the same GPU ([full results](/benchmarks#ml-attention)):
 | linear | 64 | 4096 | no | 0.464 | 1.40 |
 | linear | 64 | 16384 | yes | 2.76 | 14.6 |
 | linear | 128 | 4096 | yes | 2.84 | 8.73 |
+
+### Device-resident training on ROCm — `nn_rocm.h` {#rocm-training}
+
+```c
+#include <std/ml/nn_rocm.h>   // link: the gpu_rocm libraries, plus -lMIOpen for MIOpen convolutions
+```
+
+[`nn.h`](#training), [`trainer.h`](#training), [`convnet.h`](#convnet),
+[`autoencoder.h`](#autoencoders), [`gan.h`](#gans) and [`rl.h`](#rl) train
+on the CPU with autograd. `nn_rocm.h` trains the same models on an AMD GPU
+and keeps everything in GPU memory: parameters, activations, gradients,
+optimizer state, the dataset and the running loss. A training step moves
+nothing between host and device. The models are built from the host ones
+and copied back with the `_download` functions, so the rest of `std::ml`
+(evaluation, sampling, saving) works on the result.
+
+```c
+struct Mlp net = mlp_new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
+struct RocmNet dnet = rocm_net_from_mlp(&net, 128UL);           // batches of up to 128 rows
+struct RocmOptimizer opt = rocm_optimizer_new(OPT_ADAM, (float)0.001);
+rocm_optimizer_add_net(&opt, &dnet);
+struct TrainReport rep = rocm_trainer_fit(&dnet, rocm_net_ce_step, &opt, &train, &cfg);
+rocm_net_download(&dnet, &net.params);                          // back into the host Mlp
+```
+
+| Part | Functions |
+|---|---|
+| Nets | `RocmNet`: `rocm_net_from_mlp`, `rocm_net_from_convnet` (every `ConvNet` layer kind, its running statistics and training mode), or `rocm_net_new` + `rocm_net_add_linear` / `_conv2d(_ex)` / `_conv_transpose2d(_ex)` / `_maxpool` / `_avgpool` / `_global_pool` / `_upsample` / `_resize` / `_reshape` / `_batchnorm` / `_groupnorm` / `_dropout`, `rocm_net_spectral_norm`, and skips (`rocm_net_add_save`, then `_skip` (add, optional 1×1 projection) or `_concat`) |
+| Passes | `rocm_net_forward`, `rocm_net_grad_output`, `rocm_net_backward`; `rocm_net_set_training` (batch norm statistics, dropout) |
+| Losses | `rocm_cross_entropy` (class indices), `rocm_bce_logits`, `rocm_mse`: each writes its gradient and adds to a loss sum on the GPU |
+| Steps | `rocm_net_ce_step`, `_mse_step`, `_bce_step`, `_recon_bce_step`, `_recon_mse_step`: forward, loss and backward |
+| Optimizer | `RocmOptimizer` (`rocm_optimizer_new`, `rocm_optimizer_from` an `Optimizer`, `rocm_optimizer_add_net`, `rocm_optimizer_step`): every `OPT_*` kind with `optimizer_step`'s arithmetic, gradient-norm clipping (`clipNorm`) and weight clamping (`clampWeights`) |
+| Training loop | `rocm_trainer_fit(&model, step, &opt, &data, &cfg)`: `trainer_fit` with the same batch order |
+| Models | `rocm_vae_new` / `rocm_conv_vae_new` (+ conditional), `rocm_conv_autoencoder_new`, `rocm_gan_new` / `rocm_dcgan_new` with `rocm_gan_train` (every GAN loss, gradient penalty, conditional models, the averaged generator), `rocm_dqn_new`, `rocm_pg_new` (REINFORCE, A2C, PPO) |
+| Transfer | `rocm_net_download` / `_upload` (parameters), `_download_stats` / `_upload_stats` (running statistics, spectral norms' `u`), `rocm_net_download_convnet`, and `_download` for every model |
+| Engine, precision | `rocm_conv_engine(ROCM_CONV_AUTO \| ROCM_CONV_IM2COL)`, `rocm_net_set_precision(&net, ROCM_FP16 \| ROCM_BF16)`, `rocm_net_set_loss_scale`, `rocm_net_loss_scale` |
+
+**How a step runs.** Every layer has a hand-written backward pass. Matmuls
+go to rocBLAS. Bias, activations, norms, pooling, resizing and their
+gradients are HIP kernels compiled with hiprtc on first use. Batches are
+NCHW rows, `convnet.h`'s layout.
+
+- **Training loop.** `rocm_trainer_fit` uploads the dataset once. Each
+  epoch it uploads only the shuffled row order, the same order
+  `trainer_fit` uses for that seed, and gathers the batches on the GPU. The
+  first step for each batch size runs eagerly, which also lets rocBLAS and
+  MIOpen pick their kernels. After that, `ROCM_TRAIN_CHUNK` (4) steps at a
+  time are recorded into a `RocmGraph` and replayed. The loss is read back
+  once per epoch.
+- **Optimizer state.** Hyperparameters and the step count live on the GPU,
+  so a recorded step stays correct when it is replayed.
+- **Convolutions.** They run on MIOpen when the program links `-lMIOpen`
+  (the symbols are weak), and otherwise on an im2col / col2im + rocBLAS
+  engine. The first pass of each fp32 shape times both engines and keeps
+  im2col when it is clearly faster. That happens for small convolutions,
+  where MIOpen's fixed cost per call dominates.
+- **Fusions.** Batch norm takes one launch for its statistics. It folds in
+  the bias of the convolution before it and applies its activation's
+  gradient in the same pass. Skip layers share their neighbours' buffers
+  instead of copying them. Long weight gradients use a split-K GEMM when
+  that is faster than rocBLAS for the shape.
+- **Small nets.** A small fully connected net (2-32-32-2 at batch 32, for
+  example) runs a whole step as one kernel, since the fixed cost of a
+  kernel, about 1.3 µs on an MI100 even inside a graph, outweighs its work.
+
+**Random numbers.** The GAN, DQN and policy-gradient agents draw every
+random choice from the host model's own `Rng`, so they act step for step
+like the CPU versions. The VAEs' reparameterization noise and the dropout
+masks are drawn on the GPU, so those differ from the CPU's draws.
+
+#### Mixed precision {#rocm-training-mixed-precision}
+
+`rocm_net_set_precision(&net, ROCM_FP16)` (or `ROCM_BF16`) switches a
+`RocmNet` to 16-bit activations. Call it after the last layer and before
+`rocm_optimizer_add_net`.
+
+- **Storage.** Activations and their gradients are stored in 16 bits, and
+  all arithmetic is fp32. Weights, gradients and optimizer state stay fp32;
+  the weights are rounded to 16 bits for each forward pass.
+- **Unchanged interface.** The input, the output and their gradients stay
+  fp32, so the losses, the step functions and `rocm_trainer_fit` work
+  without changes.
+- **Engines.** Linear layers use 16-bit rocBLAS GEMMs. 16-bit convolutions
+  need MIOpen; `rocm_net_set_precision` returns 0 without it.
+- **fp16 loss scale.** fp16 adds a dynamic loss scale that lives on the
+  GPU, like PyTorch's `GradScaler`. It starts at 65536 and multiplies the
+  output gradient, and the optimizer divides it back out. A step whose
+  gradients overflowed is skipped and halves the scale; 2000 good steps in
+  a row double it. All of this happens on the GPU, so it works inside
+  replayed graphs. `rocm_net_loss_scale` reads the scale.
+- **Scope.** GAN, VAE and RL models stay fp32.
+
+On an MI100, fp16 is the faster 16-bit type: MIOpen's fp16 kernels use the
+matrix cores, while its bf16 convolutions run at about fp32 speed.
+
+MI100, ms per training run, against PyTorch 2.9.1 on ROCm on the same
+GPU ([all workloads](/benchmarks#ml-training-gpu)):
+
+| Workload | SafeC fp32 | SafeC fp16 | SafeC bf16 | PyTorch fp32 | PyTorch AMP fp16 | PyTorch AMP bf16 |
+|---|---:|---:|---:|---:|---:|---:|
+| ResNet (3 residual blocks), 3×32×32, batch 128, 16 steps | 75.3 | **57.9** | 79.5 | 98.9 | 74.3 | 271 |
+| U-Net, 1×32×32, batch 32, 32 steps | 50.5 | **44.7** | 69.8 | 146 | 154 | 277 |
+| CNN + batch norm, 1×28×28, batch 128, 32 steps | 31.2 | **29.6** | 32.5 | 60.7 | 58.3 | 94.0 |
+| MLP 784→1024→1024→10, batch 256, 64 steps | 27.6 | 26.6 | **25.7** | 56.6 | 70.2 | 63.3 |
+| DCGAN, 28×28, batch 64, 32 D + 32 G steps | **56.1** | — | — | 106 | — | — |
+| Conv VAE, 28×28, batch 64, 32 steps | **26.8** | — | — | 53.3 | — | — |
+
+::: tip Verification
+`tests/stdlib/rocm/nn_rocm_check.sc` (in `tests/stdlib/rocm/run.sh`)
+compares every layer kind's gradients, every optimizer, `rocm_trainer_fit`,
+the conv autoencoder and the GAN, DQN and policy-gradient steps against the
+CPU code. They agree to about 1e-7 on both convolution engines. The VAEs
+are compared on loss levels and dropout on its statistics, since their
+random draws differ. The gradient cases run again in fp16 (2% tolerance)
+and bf16 (10%). Short ResNet trainings check that 16-bit losses track fp32,
+and an fp16 run that starts with an overflowing loss scale recovers. 387
+checks in total.
+:::
 
 ### CUDA (NVIDIA) {#cuda}
 
