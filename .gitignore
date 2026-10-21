@@ -8,6 +8,7 @@ public/benchmarks/build/
 # gemma4 benchmark project: publish only the files the benchmarks pages link
 public/benchmarks/gemma4/*
 !public/benchmarks/gemma4/DESIGN_NOTES.md
+!public/benchmarks/gemma4/build_cuda.sh
 !public/benchmarks/gemma4/src/
 !public/benchmarks/gemma4/linux/
 public/benchmarks/gemma4/linux/build/
@@ -16,6 +17,7 @@ public/benchmarks/gemma4/linux/build/
 public/benchmarks/gemma4/tests/*
 !public/benchmarks/gemma4/tests/bench_mlx.py
 !public/benchmarks/gemma4/tests/bench_pytorch.py
+!public/benchmarks/gemma4/tests/bench_pytorch_cuda.py
 !public/benchmarks/gemma4/tests/bench_safec.sc
 !public/benchmarks/gemma4/tests/bench_mps_roundtrip.sc
 !public/benchmarks/gemma4/tests/test_gemma4_bf16_batch.sc
