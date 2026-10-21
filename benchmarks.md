@@ -271,9 +271,11 @@ Every mechanism was verified in isolation against hand-computed reference values
 | PyTorch | MPS | 7.5s | 85ms |
 | PyTorch | CPU | 0.5s | 285ms |
 | SafeC | MPS, BF16 | 6.5s | 127ms |
-| SafeC | CPU, Accelerate BLAS, BF16 | 6.5s | 14.1s |
+| SafeC | CPU, `half_gemv_batch`, BF16, 8 threads | 6.1s | 136ms |
 
 SafeC's 127ms is four independently-measured, independently-verified techniques stacked on the original 297ms baseline: a dedicated GEMV kernel for the `M==1` decode-step matmuls, a fully GPU-chained FFN block, whole-layer GPU chaining (RMSNorm/residual-add/GELU as GPU-resident kernels, collapsing ~150-180 GPU round trips/token toward roughly 70-84, confirmed via a controlled on/off A/B averaging ~1.32x), and speculative (prompt-lookup) decoding — see [DESIGN_NOTES.md](/benchmarks/gemma4/DESIGN_NOTES.md) for each technique's own before/after measurement. Neither MLX nor PyTorch's `mps` backend uses the Apple Neural Engine either (both confirmed GPU-only) — whole-layer chaining was pursued specifically after reading `mlx_lm`'s own decode loop, which fuses an entire decode step into one lazy graph materialized by a single `mx.eval()` call; a from-scratch CoreML/ANE proof of concept was also attempted separately and found to measure *slower* than this project's own hand-written GPU kernels even where the Neural Engine genuinely engaged (see DESIGN_NOTES.md's ANE section).
+
+The CPU row reads the bf16 weights as stored through [`std::half_gemv_batch`](/stdlib/ml#half-precision-tensors): an AArch64 kernel widens each weight in registers and uses it for every row of the step, so the prompt's prefill reads the weights once, not once per token. The pool runs on the 8 performance cores. Before this change, the CPU path widened every weight to float32 for each matmul and took 14.1 s/token. The first `half_gemv` port, at one call per row on all 10 cores, took 283 ms/token. The CPU number is from the instruction-tuned checkpoint (`google/gemma-4-E2B-it`), through `tests/bench_safec.sc cpu`. It produces " Paris." and then end-of-turn tokens, 7 tokens with the prefill included. [`macos/build.sh`](/benchmarks/gemma4/macos/build.sh) builds it: `macos/build.sh tests/bench_safec.sc /tmp/bench_safec`, then `/tmp/bench_safec cpu 1 <model-dir>`.
 
 ### Gemma 4 E2B on the MI100 (ROCm) {#gemma4-rocm}
 

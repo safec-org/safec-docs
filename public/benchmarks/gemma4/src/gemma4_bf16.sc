@@ -143,10 +143,11 @@ extern void cblas_sgemm(int order, int transA, int transB,
 // as its transpose without ever physically materializing w^T, the same
 // trick std/ml/tensor_blas.sc's own backward pass uses), narrow the f32
 // result back to bf16.
-// CPU path for a few rows (decode; speculative verification): each row is
-// one std::half_gemv over the bf16 weight as stored -- no float32 copy of
-// the matrix, which __g4bf16_linear_cpu_blas makes on every call (1.6 GB
-// for the tied LM head). Bound by reading the weights once per row.
+// CPU path for a few rows (decode; speculative verification; a short
+// prompt's prefill): one std::half_gemv_batch over the bf16 weight as stored
+// -- no float32 copy of the matrix, which __g4bf16_linear_cpu_blas makes on
+// every call (1.6 GB for the tied LM head) -- reading the weights once for
+// all the rows.
 #define G4BF16_GEMV_MAX_ROWS 8UL
 static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_gemv(const &Gemma4Bf16Tensor x, const &Gemma4Bf16Tensor w,
                                                           unsigned long rows, unsigned long inF, unsigned long outF) {
@@ -156,15 +157,11 @@ static struct Gemma4Bf16Tensor __g4bf16_linear_cpu_gemv(const &Gemma4Bf16Tensor 
     unsafe {
         wv.data = (&heap unsigned short)w.data;
         wv.shape[0] = outF; wv.shape[1] = inF; wv.ndim = 2UL; wv.size = outF * inF; wv.dtype = TENSOR_BF16;
-        xF = (float*)malloc(sizeof(float) * inF);
-        yF = (float*)malloc(sizeof(float) * outF);
-        unsigned long r = 0UL;
-        while (r < rows) {
-            bf16_to_f32_bulk(&x.data[r * inF], xF, inF);
-            half_gemv(&wv, (const &float)xF, (&float)yF);
-            f32_to_bf16_bulk((const float*)yF, &result.data[r * outF], outF);
-            r = r + 1UL;
-        }
+        xF = (float*)malloc(sizeof(float) * inF * rows);
+        yF = (float*)malloc(sizeof(float) * outF * rows);
+        bf16_to_f32_bulk(&x.data[0], xF, inF * rows);
+        half_gemv_batch(&wv, (const &float)xF, rows, (&float)yF);
+        f32_to_bf16_bulk((const float*)yF, &result.data[0], outF * rows);
         free((void*)xF); free((void*)yF);
     }
     return result;

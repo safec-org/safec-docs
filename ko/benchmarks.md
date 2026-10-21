@@ -272,9 +272,11 @@ CPU에서는 이 크기에서 AOCL-BLAS를 쓴 SafeC가 가장 빠릅니다: 학
 | PyTorch | CPU | 0.5초 | 285ms |
 | SafeC, 일반 그리디 디코딩 | MPS, BF16 | 6.5초 | 180ms |
 | **SafeC, 일반 + 추측(prompt-lookup) 디코딩** | MPS, BF16 | 6.5초 | **127ms (원래 297ms 기준 대비 약 2.34배)** |
-| SafeC | CPU, Accelerate BLAS, BF16 | 6.5초 | 14.1초 |
+| SafeC | CPU, `half_gemv_batch`, BF16, 8스레드 | 6.1초 | 136ms |
 
 297ms→180ms로 줄어든 일반 디코딩 성능은 독립적으로 측정한 세 가지 개선을 함께 적용한 결과입니다: `M==1`인 디코딩 단계 행렬곱 전용 GEMV 커널, 완전히 GPU에 체이닝된 FFN 블록, 그리고 레이어 전체를 GPU에 체이닝한 작업(RMSNorm/잔차 덧셈/GELU를 GPU 상주 커널로 옮겨 토큰당 GPU 왕복 횟수를 약 150-180회에서 약 70-84회로 줄임 — 같은 세션에서 체이닝을 켜고 끄며 번갈아 측정한 결과 평균 약 1.32배 향상을 확인). 이 세 번째 개선은 MLX와 PyTorch의 `mps` 백엔드도 Neural Engine을 전혀 사용하지 않는다는 사실을 직접 확인한 뒤(`mlx.core.default_device()`가 `Device(gpu, 0)`을 보고함), `mlx_lm`의 실제 디코딩 루프를 읽고 나서 착수했습니다 — MLX는 한 디코딩 스텝 전체(임베딩부터 모든 레이어, RMSNorm, RoPE, 어텐션, FFN, 최종 정규화, lm head, softmax, 샘플링까지)를 하나의 지연 계산 그래프로 만들어 `mx.eval()` 호출 한 번으로 실행합니다. 별도로 시도한 CoreML/ANE 프로토타입은 Neural Engine이 실제로 관여한 경우에도 이 프로젝트가 직접 작성한 GPU 커널보다 느리게 측정되어 채택하지 않았습니다. 각 기법의 전후 비교와 상세 내용은 [DESIGN_NOTES.md](/benchmarks/gemma4/DESIGN_NOTES.md)의 "A dedicated GEMV kernel for the M==1 decode step", "Chaining the FFN", "Whole-layer GPU chaining" 절을 참고하세요. 위 세 가지가 모두 활성화된 상태에서 측정한 추측 디코딩 자체의 배율은 1.42배(127ms/180ms)입니다. 결합된 수치(약 2.34배)는 개별 배율을 곱하는 대신 원래 기준선(297ms) 대비로 보고합니다 — 여러 기법이 겹치는 호출당 오버헤드를 함께 상쇄하기 때문입니다.
+
+CPU 행은 bf16 가중치를 저장된 그대로 [`std::half_gemv_batch`](/ko/stdlib/ml#half-precision-tensors)로 읽습니다. AArch64 커널이 각 가중치를 레지스터에서 넓혀 그 단계의 모든 행에 사용합니다. 그래서 프롬프트 프리필도 토큰마다가 아니라 한 번만 가중치를 읽습니다. 스레드 풀은 성능 코어 8개에서 실행됩니다. 이 변경 전에는 CPU 경로가 행렬곱마다 모든 가중치를 float32로 넓혀 토큰당 14.1초가 걸렸습니다. 행마다 한 번씩 10개 코어 전부에서 호출하던 첫 `half_gemv` 포팅은 토큰당 283ms였습니다. CPU 수치는 명령어 튜닝 체크포인트(`google/gemma-4-E2B-it`)를 `tests/bench_safec.sc cpu`로 측정한 값입니다. 출력은 " Paris." 다음에 턴 종료 토큰이 이어지며, 프리필을 포함해 7토큰입니다. 빌드는 [`macos/build.sh`](/benchmarks/gemma4/macos/build.sh)로 합니다. `macos/build.sh tests/bench_safec.sc /tmp/bench_safec`를 실행한 다음 `/tmp/bench_safec cpu 1 <model-dir>`를 실행합니다.
 
 ### MI100(ROCm)의 Gemma 4 E2B {#gemma4-rocm}
 
