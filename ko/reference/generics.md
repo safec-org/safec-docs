@@ -295,7 +295,7 @@ struct Holder<struct Box> h;       // Box가 Shape(따라서 Sized도)를 만족
 
 ### 타입 인자는 대상으로부터 추론됩니다 {#type-arguments-are-inferred-from-the-target}
 
-`f<int>(...)` 같은 호출 문법은 없습니다. 타입 인자는 항상 추론됩니다. 먼저 인자를 매개변수와 대조하고, 그래도 바인딩되지 않은 타입 매개변수는 호출의 *대상 타입* — 초기화되거나 대입되는 변수의 선언 타입 — 에서 가져옵니다:
+`f<int>(...)` 같은 호출 문법은 없습니다. 타입 인자는 항상 추론됩니다. 먼저 인자를 매개변수와 대조하고, 그래도 바인딩되지 않은 타입 매개변수는 호출의 *대상 타입* — 초기화되거나 대입되는 변수의 선언 타입, 또는 `return` 문에서는 함수의 반환 타입 — 에서 가져옵니다:
 
 ```c
 struct Vec<int> v = std::vec_new();                  // T from the declaration

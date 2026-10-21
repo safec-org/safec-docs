@@ -238,7 +238,7 @@ Repeat the bound on each out-of-line method's `generic<...>` line. A bounded gen
 
 ### Type arguments are inferred from the target {#type-arguments-are-inferred-from-the-target}
 
-There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned:
+There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned, or the function's return type in a `return` statement:
 
 ```c
 struct Vec<int> v = std::vec_new();                  // T from the declaration

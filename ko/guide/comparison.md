@@ -123,7 +123,7 @@ int greet(const &String name, &String out) {
 
 ### 암묵적 특수 멤버 함수 없음 {#no-implicit-special-member-functions}
 
-C++는 생성자, 소멸자, 복사/이동 연산자를 암묵적으로 생성합니다. SafeC는 그렇게 하지 않습니다. 구조체 생성은 항상 애그리게이트 초기화이거나 필드별 할당입니다. 정리는 항상 명시적입니다.
+C++는 생성자, 소멸자, 복사/이동 연산자를 암묵적으로 생성합니다. SafeC는 그렇게 하지 않습니다. 구조체 생성은 항상 애그리게이트 초기화이거나 필드별 할당이며, 보통 직접 호출하는 `File::open(...)` 같은 명시적인 [정적 메서드](/ko/reference/functions#static-methods)로 감쌉니다. 정리는 항상 명시적입니다.
 
 ```c
 struct Buffer {
