@@ -42,8 +42,8 @@ struct BlockDevice {
     unsigned long  sector_count;
     unsigned long  sector_size;   // typically 512
 
-    int  read(unsigned long lba, &stack unsigned char buf, unsigned long count);         // 0 on success
-    int  write(unsigned long lba, const &stack unsigned char buf, unsigned long count);
+    int  read(unsigned long lba, &unsigned char buf, unsigned long count);         // 0 on success
+    int  write(unsigned long lba, const &unsigned char buf, unsigned long count);
     int  valid() const;
 };
 
@@ -148,7 +148,7 @@ The table a filesystem driver fills in (`tmpfs_ops()`, `fat_ops()`, `ext2_ops()`
 struct VfsOps {
     fn int(?&void ctx, unsigned long size) mount;
     fn int(?&void ctx) unmount;
-    fn int(?&void ctx, const &char path, int flags, &stack VfsNode node_out) open;
+    fn int(?&void ctx, const &char path, int flags, &VfsNode node_out) open;
     fn int(?&void ctx, const &char path) unlink;
     fn int(?&void ctx, const &char path) mkdir;
     fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
@@ -170,8 +170,8 @@ struct VfsNode {
     unsigned long inode;
     ?&void        fs_ctx;    // driver-internal: the owning VfsMount
 
-    unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
-    unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);
+    unsigned long read(unsigned long offset, &unsigned char buf, unsigned long len);
+    unsigned long write(unsigned long offset, const &unsigned char buf, unsigned long len);
 }
 
 // Calls cb(entry, user) for each child of directory `dir`; returns the count, -1 on error.
@@ -191,7 +191,7 @@ generic<T> int vfs_mount(&Vfs v, const &char mountpoint, struct VfsOps ops, &T c
 
 struct Vfs {
     int  unmount(const &char mountpoint);
-    int  open(const &char path, int flags, &stack VfsNode node_out);
+    int  open(const &char path, int flags, &VfsNode node_out);
     int  unlink(const &char path);
     int  mkdir(const &char path);
 }
@@ -228,7 +228,7 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // Read a cluster into `buf` (must be >= bytes_per_cluster bytes).
-    int read_cluster(unsigned long cluster, &stack unsigned char buf);
+    int read_cluster(unsigned long cluster, &unsigned char buf);
 
     // Follow the FAT chain to the cluster at position `idx` from `start_cluster`.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
@@ -290,10 +290,10 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // Read block `block_no` into `buf` (must be >= block_size bytes).
-    int  read_block(unsigned long block_no, &stack unsigned char buf);
+    int  read_block(unsigned long block_no, &unsigned char buf);
 
     // Read inode `ino` into `inode_out`.
-    int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
+    int  read_inode(unsigned long ino, &Ext2Inode inode_out);
 
     // Read file data for inode `ino` at byte `offset` into `buf` for `len` bytes.
     unsigned long read_file(unsigned long ino, unsigned long offset,

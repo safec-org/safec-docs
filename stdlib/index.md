@@ -194,12 +194,12 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| gpio | `hal/gpio.h` | `GpioPin`: direction, read/write/toggle, pull-up/down |
-| i2c | `hal/i2c.h` | `I2cBus`: polling master — write/read/write_read/probe |
-| spi | `hal/spi.h` | `SpiDevice`: polling master — transfer/write/read, chip-select |
-| uart | `hal/uart.h` | `Uart`: polling serial — byte/string I/O, ready flags |
-| timer | `hal/timer.h` | `Timer`: period/start/stop/read/flag |
-| watchdog | `hal/watchdog.h` | `Watchdog`: enable/feed/caused_reset |
+| gpio | `hal/gpio.h` | `GpioPin<C>`: direction, read/write/toggle, pull-up/down (`GpioGeneric`, `Stm32F4Gpio`) |
+| i2c | `hal/i2c.h` | `I2cBus<C>`: polling master — write/read/write_read/probe (`I2cGeneric`, `Stm32F4I2c`) |
+| spi | `hal/spi.h` | `SpiDevice<C>`: polling master — transfer/write/read, chip-select (`SpiGeneric`, `Stm32F4Spi`) |
+| uart | `hal/uart.h` | `Uart<C>`: polling serial — byte/string I/O, ready flags (`UartGeneric`, `Pl011`, `Ns16550`, `Stm32F4Usart`) |
+| timer | `hal/timer.h` | `Timer<C>`: period/start/stop/read/flag (`TimerGeneric`, `Stm32F4Tim`) |
+| watchdog | `hal/watchdog.h` | `Watchdog<C>`: enable/feed/caused_reset (`WatchdogGeneric`, `Stm32F4Iwdg`) |
 | cortex_m | `hal/cortex_m.h` | NVIC, SysTick, SCB (ARM Cortex-M) |
 | aarch64 | `hal/aarch64.h` | System registers, Generic Timer, GICv2 (ARMv8-A) |
 | riscv | `hal/riscv.h` | CSR access, CLINT, PLIC |
@@ -220,7 +220,7 @@ int main() {
 |--------|--------|-------------|
 | frame | `kernel/frame.h` | Bitmap physical frame allocator (4 KiB frames) |
 | paging | `kernel/paging.h` | `PageEntry`/`PageTable` — raw page table manipulation |
-| mmu | `kernel/mmu.h` | `MmuContext` — 2-level virtual memory, map/unmap/walk/TLB/activate |
+| mmu | `kernel/mmu.h` | `MmuContext<F>` — real page tables (x86-64, x86, Sv39, Sv32, AArch64, ARMv7-A): map/unmap/walk/TLB/activate |
 | process | `kernel/process.h` | `PCB` — process control block |
 | scheduler | `kernel/scheduler.h` | Priority round-robin scheduler over PCBs |
 | ipc | `kernel/ipc.h` | `Mailbox` — fixed-capacity message queue |

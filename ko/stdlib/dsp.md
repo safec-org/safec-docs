@@ -8,7 +8,7 @@
 
 의미 있는 고정소수점 형태를 갖는 모든 변환/필터는 **두 가지** 구현을 제공합니다 — `double` 정밀도 경로와, 이에 대응하는 Q8.24(`Fixed`) 경로(함수/타입 이름에 `f` 접두어가 붙습니다, 예: `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — 하나의 일관된 설계를 따릅니다: 한 번만 계산하면 되는 계수(FFT 트위들 팩터, 필터 계수)는 항상 `std/math.h`의 실제 초월함수를 사용해 `double` 정밀도로 유도된 다음 한 번에 `Fixed`로 양자화되고, 실제 샘플 단위 신호 처리 루프는 전부 Q8.24 산술로 실행됩니다. 이는 표준적인 관행입니다 — 하드웨어 FFT 가속기조차도 트위들 테이블을 오프라인에서 부동소수점으로 미리 계산합니다. 몇몇 더 새롭고 특수한 변환(STFT, CQT, CWT, 최소 위상, 이미징)은 `double` 전용입니다: 가우시안 윈도우 웨이블릿 커널이나 준동형 켑스트럼에는 자연스러운 고정소수점 형태가 없습니다 — 고정소수점 `sin()`이 없는 것과 마찬가지입니다.
 
-신호 처리 경로는 단정밀도(`float`)로도 제공됩니다. 아래 [단정밀도](#single-precision-float)를 참고하세요.
+신호 처리 경로는 단정밀도(`float`)로도 제공됩니다. 아래 [단정밀도](#single-precision-float)를 참고하십시오.
 
 ---
 
@@ -18,7 +18,7 @@ FFT, 필터, 컨볼루션, 윈도우, STFT, 리샘플링, DCT/DFT, 이미징은 
 
 - **두 정밀도에 하나의 구현.** FFT, 컨볼루션, 리샘플링, 2D 코드는 내부 코어 헤더(`fft_core.h`, `conv_core.h`, `resample_core.h`, `imaging_core.h`)에 한 번만 작성되어 있습니다. 각 코어는 `fft.sc`와 `fft_f32.sc` 등에서 정밀도마다 한 번씩, 두 번 컴파일됩니다. 따라서 float FFT도 radix-4 패스, 16점 코드렛, 캐시 블로킹, 스레드, ISA별 빌드를 그대로 갖습니다. oneMKL이 링크되면 DFTI의 단정밀도 변환을 사용합니다.
 - **정밀도가 필요한 곳은 double.** 트위들 팩터와 윈도우 값은 `double`로 계산한 뒤 float로 한 번 반올림합니다. 필터 계수는 `double`로 설계하고(`biquad_lowpass` 등) `biquad_to_f32`로 변환합니다. O(n²)인 `dct2_f32`/`dft_f32`와 `resample_sinc_f32`의 sinc 커널은 `double`로 합산하므로, 입력과 출력만 float입니다.
-- **실시간.** `fft_serial_f32`/`ifft_serial_f32`는 double 버전과 마찬가지로 메모리 할당이나 잠금을 하지 않습니다. 4096점까지는 컴파일 타임 float 트위들 테이블을 읽고, 그보다 긴 길이는 `fft_prepare_f32(maxN)`을 먼저 호출하세요. `fft_prepare`는 double 테이블만 채웁니다.
+- **실시간.** `fft_serial_f32`/`ifft_serial_f32`는 double 버전과 마찬가지로 메모리 할당이나 잠금을 하지 않습니다. 4096점까지는 컴파일 타임 float 트위들 테이블을 읽고, 그보다 긴 길이는 `fft_prepare_f32(maxN)`을 먼저 호출합니다. `fft_prepare`는 double 테이블만 채웁니다.
 
 ```c
 // complex_dsp.h
@@ -79,7 +79,7 @@ void fft2d_f32(&Complex32 img, unsigned long h, unsigned long w);    // and ifft
 분석 전용 모듈(CQT, CWT, 최소 위상, z-변환 설계)은 `double`만 지원합니다.
 
 ::: warning float에서의 고차 IIR
-`IirFilter32`는 직접형 필터라서, 차수가 높을수록 계수의 float 반올림 오차가 커집니다. 2차보다 가파른 필터는 `Biquad32` 섹션을 직렬로 연결하세요.
+`IirFilter32`는 직접형 필터라서, 차수가 높을수록 계수의 float 반올림 오차가 커집니다. 2차보다 가파른 필터는 `Biquad32` 섹션을 직렬로 연결합니다.
 :::
 
 ---
@@ -153,11 +153,11 @@ int main() {
 
 ```c
 Fixed dsp_dot(const &Fixed a, const &Fixed b, unsigned long n);           // a[i]*b[i]의 합
-void  dsp_scale(&stack Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
+void  dsp_scale(&Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
 void  dsp_add(const &Fixed a, const &Fixed b, &Fixed out, unsigned long n); // out[i] = a[i]+b[i]
-void  dsp_clip(&stack Fixed a, Fixed lo, Fixed hi, unsigned long n);      // [lo, hi]로 클램프
+void  dsp_clip(&Fixed a, Fixed lo, Fixed hi, unsigned long n);      // [lo, hi]로 클램프
 Fixed dsp_peak(const &Fixed a, unsigned long n);                          // max |a[i]|
-Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
+Fixed dsp_rms(&Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
 
 // SIMD FMA로 가속되는 두 *double* 배열의 내적 (simd.h 참고) --
 // simd_fma_f64x4를 통해 반복당 4개 원소씩, n % 4에 대한 스칼라 나머지 처리.
@@ -249,7 +249,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 #include <std/dsp/fft.h>
 ```
 
-제자리(in-place), 반복적인 시간 데시메이션 FFT입니다: `dft.h`의 O(n²) 대신 O(n log n)이지만, 그 대가로 `n`이 2의 거듭제곱이어야 합니다(그렇지 않으면 함수들은 0을 반환하고 `data`를 수정하지 않은 채로 둡니다 — 임의 길이에는 `dft.h`를 사용하세요).
+제자리(in-place), 반복적인 시간 데시메이션 FFT입니다: `dft.h`의 O(n²) 대신 O(n log n)이지만, 그 대가로 `n`이 2의 거듭제곱이어야 합니다(그렇지 않으면 함수들은 0을 반환하고 `data`를 수정하지 않은 채로 둡니다 — 임의 길이에는 `dft.h`를 사용합니다).
 
 실행 방식:
 
@@ -264,7 +264,7 @@ void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 역�
 - **Apple: FIR은 vDSP, FFT는 자체 구현.** macOS에서 Accelerate를 링크한 프로그램(그곳에서 safeguard의 기본값)은 `dsp_sliding_dot_f64`/`_f32`를 — 따라서 그 위에 만든 `fir_process_block`, `conv_direct` 등 FIR 경로도 — `vDSP_convD`/`vDSP_conv`로 실행합니다. M1 Pro에서 std의 NEON 커널보다 스레드 유무와 관계없이 1.2–1.4배 빨랐습니다([벤치마크](/ko/benchmarks#dsp)). vDSP의 컨볼루션은 메모리를 할당하거나 락을 잡거나 스레드를 띄우지 않으므로 `fir_process_block`의 실시간 특성은 그대로입니다. FFT는 std 자체 변환을 씁니다: oneMKL은 Apple Silicon용이 없고, std의 FFT가 vDSP보다 빠르며 vDSP의 스레드 double 배치만 예외입니다. Accelerate가 없으면 std 커널이 돕니다(Apple 링커는 약한 참조도 링크 시점에 해석하므로 safeguard가 `-U`를 넘깁니다).
 
 ::: tip 실시간 사용
-오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 쓰세요. 이들은 메모리 할당, 락, 스레드 풀 사용, 벤더 라이브러리 호출을 전혀 하지 않습니다. oneMKL이 링크되어 있으면 `fft`/`ifft`는 실시간 코드용이 아닙니다: 길이마다 첫 호출이 DFTI 디스크립터를 만듭니다.
+오디오 콜백에서는 미리 한 번 `fft_prepare(maxN)`을 호출한 뒤 `fft_serial`/`ifft_serial`을 씁니다. 이들은 메모리 할당, 락, 스레드 풀 사용, 벤더 라이브러리 호출을 전혀 하지 않습니다. oneMKL이 링크되어 있으면 `fft`/`ifft`는 실시간 코드용이 아닙니다: 길이마다 첫 호출이 DFTI 디스크립터를 만듭니다.
 :::
 
 NVIDIA GPU에서는 [`fft_cuda.h`](/ko/stdlib/ml#cuda-cudnn-cufft)가 같은 변환과 2D 변환을 cuFFT로 실행하며, 길이 제한이 없습니다. AMD GPU에서는 [`fft_rocm.h`](/ko/stdlib/ml#rocm-miopen-hipfft)가 같은 일을 hipFFT로 합니다.
@@ -435,7 +435,7 @@ z1'  = b1*x[n] - a1*y[n] + z2
 z2'  = b2*x[n] - a2*y[n]
 ```
 
-더 높은 차수의 필터를 만들려면 여러 개를 종속 연결(cascade)하세요 — 각각에 대해 순서대로 `process()`를 호출하면 됩니다.
+더 높은 차수의 필터를 만들려면 여러 개를 종속 연결(cascade)합니다 — 각각에 대해 순서대로 `process()`를 호출하면 됩니다.
 
 ```c
 struct Biquad {
@@ -469,8 +469,8 @@ struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
 
 // freqHz에서의 Z영역 주파수 응답: 크기(선형)와 위상(라디안).
-double biquad_response_mag(const &stack Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &stack Biquad bq, double fs, double freqHz);
+double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
+double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
 
 struct FBiquad {   // Q8.24 대응 버전
     Fixed b0, b1, b2, a1, a2, z1, z2;
@@ -526,7 +526,7 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 역변�
 #include <std/dsp/stft.h>
 ```
 
-`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. 프레임들은 `fft_real_batch_inplace`로 제자리에서 실수 변환으로 함께 변환되며(복소 변환의 절반 작업), 호스트에서는 스레드 풀에서 실행됩니다. 스트리밍에서는 프레임을 하나씩 윈도우 처리하고 `fft_serial`을 쓰세요. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
+`stft_forward`는 윈도우가 적용된 프레임을 신호를 따라 슬라이드시키며 각각을 FFT하여(`frameSize`는 2의 거듭제곱이어야 함) 스펙트로그램을 만듭니다. 프레임들은 `fft_real_batch_inplace`로 제자리에서 실수 변환으로 함께 변환되며(복소 변환의 절반 작업), 호스트에서는 스레드 풀에서 실행됩니다. 스트리밍에서는 프레임을 하나씩 윈도우 처리하고 `fft_serial`을 씁니다. `stft_inverse`는 윈도우가 적용된 오버랩-애드 방식으로 신호를 재구성하며, 누적된 분석 윈도우 제곱값으로 정규화합니다 — 윈도우/홉 조합이 상수 오버랩-애드 조건을 만족할 때(예: 50%/75% 오버랩의 Hann) 정확합니다.
 
 ```c
 #define STFT_WIN_RECTANGULAR 0
@@ -763,7 +763,7 @@ void sobel_y_kernel(&double kernel);
 #include <std/dsp/audio_buffer.h>
 ```
 
-인터리빙된 다중 채널 Q8.24(`Fixed`) 프레임을 인라인으로 저장하는 단일 생산자/단일 소비자 링입니다 — 힙을 쓰지 않습니다. 용량은 최대 `AUDIO_MAX_CHANNELS`(8)채널의 `AUDIO_BUF_FRAMES`(512)프레임이므로 구조체가 큽니다(16 KB). 작은 타깃에서는 정적 저장소에 두세요.
+인터리빙된 다중 채널 Q8.24(`Fixed`) 프레임을 인라인으로 저장하는 단일 생산자/단일 소비자 링입니다 — 힙을 쓰지 않습니다. 용량은 최대 `AUDIO_MAX_CHANNELS`(8)채널의 `AUDIO_BUF_FRAMES`(512)프레임이므로 구조체가 큽니다(16 KB). 작은 타깃에서는 정적 저장소에 둡니다.
 
 ### 구조체 {#struct}
 
@@ -777,10 +777,10 @@ struct AudioBuffer {
 
     unsigned long readable_frames() const;
     unsigned long writable_frames() const;
-    unsigned long write_frames(&stack Fixed src, unsigned long n);   // returns frames written
-    unsigned long read_frames(&stack Fixed dst, unsigned long n);    // returns frames read
-    unsigned long peek_frames(&stack Fixed dst, unsigned long n) const;
-    void          mix_frames(&stack Fixed src, unsigned long n);
+    unsigned long write_frames(&Fixed src, unsigned long n);   // returns frames written
+    unsigned long read_frames(&Fixed dst, unsigned long n);    // returns frames read
+    unsigned long peek_frames(&Fixed dst, unsigned long n) const;
+    void          mix_frames(&Fixed src, unsigned long n);
     void          clear();
     int           is_empty() const;
     int           is_full() const;
@@ -820,7 +820,7 @@ int main() {
 ```
 
 ::: info
-`mix_frames`는 현재 쓰기 위치에서 기존 버퍼 내용에 `frames`를 더할 뿐, `head`를 **전진시키지는 않습니다**. 이는 하나의 출력 버퍼로 커밋하기 전에 여러 소스를 믹싱하기 위한 것입니다. 커서를 전진시키려면 이후에 `write_frames`를 호출하세요.
+`mix_frames`는 현재 쓰기 위치에서 기존 버퍼 내용에 `frames`를 더할 뿐, `head`를 **전진시키지는 않습니다**. 이는 하나의 출력 버퍼로 커밋하기 전에 여러 소스를 믹싱하기 위한 것입니다. 커서를 전진시키려면 이후에 `write_frames`를 호출합니다.
 :::
 
 ---
@@ -887,5 +887,5 @@ int main() {
 ```
 
 ::: warning
-타이머 만료는 `expires == current_tick`으로 확인됩니다. `tick()`이 예상보다 드물게 호출되면(예: 인터럽트 지연 스파이크 이후) 타이머가 누락될 수 있습니다. 중요한 데드라인에는 대신 `expires <= current_tick`으로 폴링하거나, 하드웨어 타이머 ISR로 `tick()`을 구동하세요.
+타이머 만료는 `expires == current_tick`으로 확인됩니다. `tick()`이 예상보다 드물게 호출되면(예: 인터럽트 지연 스파이크 이후) 타이머가 누락될 수 있습니다. 중요한 데드라인에는 대신 `expires <= current_tick`으로 폴링하거나, 하드웨어 타이머 ISR로 `tick()`을 구동합니다.
 :::

@@ -11,7 +11,7 @@ ASCII 검사와 대소문자 변환, UTF-8 인코드/디코드, URL 퍼센트 �
 #include <std/encoding/base64.h>
 ```
 
-`std/prelude.h`는 이 헤더들을 포함하지 않습니다 — 직접 include하세요.
+`std/prelude.h`는 이 헤더들을 포함하지 않습니다 — 직접 include합니다.
 
 잘못된 입력에서 실패할 수 있는 함수는 `convert.h`와 같은 규칙으로 `int* ok` 출력 매개변수를 받습니다: 성공하면 1, 실패하면 0이 설정되며, 필요 없으면 null을 넘겨도 됩니다.
 
@@ -35,7 +35,7 @@ char ascii_to_upper(char c);  // unchanged unless a-z
 char ascii_to_lower(char c);  // unchanged unless A-Z
 ```
 
-ASCII만 보고 로케일은 무시합니다. C 스타일 `ctype` 함수는 [개요](/ko/stdlib/#c-compatibility-headers)의 `ctype.h`를 참고하세요.
+ASCII만 보고 로케일은 무시합니다. C 스타일 `ctype` 함수는 [개요](/ko/stdlib/#c-compatibility-headers)의 `ctype.h`를 참고하십시오.
 
 ---
 
@@ -58,7 +58,7 @@ unsigned long utf8_len(const &char s);            // codepoints, not bytes; 0 if
 int           utf8_encoded_len(unsigned int cp);  // 1-4, or 0 if invalid
 ```
 
-`utf8_len`은 빈 문자열과 잘못된 문자열 모두에 0을 반환합니다; 둘을 구분해야 하면 먼저 `utf8_is_valid`를 호출하세요.
+`utf8_len`은 빈 문자열과 잘못된 문자열 모두에 0을 반환합니다; 둘을 구분해야 하면 먼저 `utf8_is_valid`를 호출합니다.
 
 ### 예제 — 코드포인트 순회 {#example-walk-the-codepoints}
 
@@ -99,7 +99,7 @@ struct String url_decode(const &char s, ?&int ok);
 
 `+`는 양방향 모두 공백으로 취급하지 않습니다 — 그것은 `application/x-www-form-urlencoded` 규칙이지 RFC 3986의 일부가 아닙니다. 폼 디코더는 `url_decode`를 호출하기 전에 `+`를 공백으로 바꿔야 합니다.
 
-둘 다 힙 `String`을 반환합니다; `.free()`로 해제하세요([컬렉션](/ko/stdlib/collections) 참고).
+둘 다 힙 `String`을 반환합니다; `.free()`로 해제합니다([컬렉션](/ko/stdlib/collections) 참고).
 
 ---
 
@@ -116,7 +116,7 @@ struct String base64_encode(const &unsigned char data, unsigned long len);
 struct Vec<unsigned char> base64_decode(const &char s, ?&int ok);
 ```
 
-결과는 다른 `String`이나 `Vec`처럼 `.free()`로 해제하세요.
+결과는 다른 `String`이나 `Vec`처럼 `.free()`로 해제합니다.
 
 ### 예제 — 왕복 변환 {#example-round-trip}
 

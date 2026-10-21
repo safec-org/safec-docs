@@ -23,7 +23,7 @@ SafeC는 시스템 프로그래밍 언어의 설계 공간 안에서 특정한 �
 | 구조체 메서드 | No | Classes | impl blocks | Methods | Struct methods |
 | 연산자 오버로딩 | No | Yes | Traits | No | Yes |
 
-위 "메모리 안전성" 행은 필연적으로 단순한 예/아니오 표시입니다 — 각 언어가 실제로 무엇을(공간 안전성, use-after-free, 이중 해제, null 안전성, 데이터 레이스 등) 속성별로 검사하는지, 그리고 그 검사가 컴파일 타임에 일어나는지, 런타임에 일어나는지, 아니면 옵트인 빌드 모드로 일어나는지에 대한 세부 분석은 [형식 안전 모델의 메모리 안전성 비교](/ko/advanced/safety-model#memory-safety-compared-to-c-c-rust-and-zig)를 참고하세요.
+위 "메모리 안전성" 행은 필연적으로 단순한 예/아니오 표시입니다 — 각 언어가 실제로 무엇을(공간 안전성, use-after-free, 이중 해제, null 안전성, 데이터 레이스 등) 속성별로 검사하는지, 그리고 그 검사가 컴파일 타임에 일어나는지, 런타임에 일어나는지, 아니면 옵트인 빌드 모드로 일어나는지에 대한 세부 분석은 [형식 안전 모델의 메모리 안전성 비교](/ko/advanced/safety-model#memory-safety-compared-to-c-c-rust-and-zig)를 참고하십시오.
 
 ## C와 비교 {#compared-to-c}
 
@@ -155,7 +155,7 @@ if (result != 0) {
 
 ### RTTI나 가상 디스패치 없음 {#no-rtti-or-virtual-dispatch}
 
-SafeC에는 `virtual` 함수도, `dynamic_cast`도, vtable도 없습니다. 다형성은 제네릭(컴파일 타임에 단형화됨)이나 함수 포인터(명시적)를 통해 달성됩니다 — `fn_eval`(vtable 없는 타입별 메서드 결정)을 포함해 이 전체 그림, 그리고 실제로 필요할 때 명시적 런타임 디스패치를 구축하는 방법은 [다형성과 OOP](/ko/reference/polymorphism)를 참고하세요.
+SafeC에는 `virtual` 함수도, `dynamic_cast`도, vtable도 없습니다. 다형성은 제네릭(컴파일 타임에 단형화됨)이나 함수 포인터(명시적)를 통해 달성됩니다 — `fn_eval`(vtable 없는 타입별 메서드 결정)을 포함해 이 전체 그림, 그리고 실제로 필요할 때 명시적 런타임 디스패치를 구축하는 방법은 [다형성과 OOP](/ko/reference/polymorphism)를 참고하십시오.
 
 ### SafeC가 C++에서 유지하는 것 {#what-safec-keeps-from-c}
 
@@ -209,7 +209,7 @@ fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
 }
 ```
 
-함수가 호출자가 넘긴 데이터에 대한 참조를 정말로 되돌려줘야 할 때는, `&stack` 대신 `&arena<R>`(또는 `&static`)을 사용하세요 — 추적되는 것은 라이프타임 관계가 아니라 리전 소속이므로, 모두가 동일한 리전에 동의하는 한 arena 참조는 자유롭게 반환되고, 저장되고, 전달될 수 있습니다:
+함수가 호출자가 넘긴 데이터에 대한 참조를 정말로 되돌려줘야 할 때는, `&stack` 대신 `&arena<R>`(또는 `&static`)을 사용합니다 — 추적되는 것은 라이프타임 관계가 아니라 리전 소속이므로, 모두가 동일한 리전에 동의하는 한 arena 참조는 자유롭게 반환되고, 저장되고, 전달될 수 있습니다:
 
 ```c
 region Pool { capacity: 8192 }

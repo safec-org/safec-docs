@@ -10,7 +10,7 @@ SafeC는 `std/fs/`에 계층화된 파일시스템 스택을 제공합니다 —
 다른 일부 std 모듈과 달리, 모든 모듈의 구현을 하나로 묶은 단일 `fs.sc`는 존재하지
 않습니다 — 아래 예제들이 하는 것과 마찬가지로, `fs.h`와 함께 실제로 필요한 개별
 `.sc` 파일(`block.sc`, `partition.sc`, `vfs.sc`, `fat.sc`, `ext.sc`, `tmpfs.sc`)을
-직접 include하세요.
+직접 include합니다.
 :::
 
 ## 아키텍처 {#architecture}
@@ -42,8 +42,8 @@ struct BlockDevice {
     unsigned long  sector_count;
     unsigned long  sector_size;   // typically 512
 
-    int  read(unsigned long lba, &stack unsigned char buf, unsigned long count);         // 0 on success
-    int  write(unsigned long lba, const &stack unsigned char buf, unsigned long count);
+    int  read(unsigned long lba, &unsigned char buf, unsigned long count);         // 0 on success
+    int  write(unsigned long lba, const &unsigned char buf, unsigned long count);
     int  valid() const;
 };
 
@@ -118,7 +118,7 @@ struct PartTable {
 int partition_read(&BlockDevice dev, &PartTable table_out);
 ```
 
-`get()`은 널 가능(nullable) 참조를 반환합니다 — 필드로 곧장 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑하세요:
+`get()`은 널 가능(nullable) 참조를 반환합니다 — 필드로 곧장 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑합니다:
 
 ```c
 unsigned long lba = 0;
@@ -148,7 +148,7 @@ VFS 계층은 최장 접두사 매칭(longest-prefix matching)을 사용해 경�
 struct VfsOps {
     fn int(?&void ctx, unsigned long size) mount;
     fn int(?&void ctx) unmount;
-    fn int(?&void ctx, const &char path, int flags, &stack VfsNode node_out) open;
+    fn int(?&void ctx, const &char path, int flags, &VfsNode node_out) open;
     fn int(?&void ctx, const &char path) unlink;
     fn int(?&void ctx, const &char path) mkdir;
     fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
@@ -170,8 +170,8 @@ struct VfsNode {
     unsigned long inode;
     ?&void        fs_ctx;    // driver-internal: the owning VfsMount
 
-    unsigned long read(unsigned long offset, &stack unsigned char buf, unsigned long len);
-    unsigned long write(unsigned long offset, const &stack unsigned char buf, unsigned long len);
+    unsigned long read(unsigned long offset, &unsigned char buf, unsigned long len);
+    unsigned long write(unsigned long offset, const &unsigned char buf, unsigned long len);
 }
 
 // Calls cb(entry, user) for each child of directory `dir`; returns the count, -1 on error.
@@ -191,7 +191,7 @@ generic<T> int vfs_mount(&Vfs v, const &char mountpoint, struct VfsOps ops, &T c
 
 struct Vfs {
     int  unmount(const &char mountpoint);
-    int  open(const &char path, int flags, &stack VfsNode node_out);
+    int  open(const &char path, int flags, &VfsNode node_out);
     int  unlink(const &char path);
     int  mkdir(const &char path);
 }
@@ -228,7 +228,7 @@ struct FatCtx {
     unsigned long  bytes_per_cluster;
 
     // 클러스터를 `buf`로 읽어들인다 (bytes_per_cluster 바이트 이상이어야 함).
-    int read_cluster(unsigned long cluster, &stack unsigned char buf);
+    int read_cluster(unsigned long cluster, &unsigned char buf);
 
     // FAT 체인을 따라가 `start_cluster`로부터 위치 `idx`에 있는 클러스터를 찾는다.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
@@ -290,10 +290,10 @@ struct Ext2Ctx {
     unsigned long      group_count;
 
     // 블록 `block_no`를 `buf`로 읽어들인다 (block_size 바이트 이상이어야 함).
-    int  read_block(unsigned long block_no, &stack unsigned char buf);
+    int  read_block(unsigned long block_no, &unsigned char buf);
 
     // 아이노드 `ino`를 `inode_out`으로 읽어들인다.
-    int  read_inode(unsigned long ino, &stack Ext2Inode inode_out);
+    int  read_inode(unsigned long ino, &Ext2Inode inode_out);
 
     // 아이노드 `ino`의 파일 데이터를 바이트 오프셋 `offset`부터 `len` 바이트만큼 `buf`로 읽는다.
     unsigned long read_file(unsigned long ino, unsigned long offset,

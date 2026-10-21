@@ -143,22 +143,22 @@ kind: (not found, as expected)
 
 - **영속성**: `free()` 시점에 [`std::csv`](/ko/reference/generics)나
   [`std::json`](/ko/stdlib/serial)으로 `entries`를 디스크에
-  직렬화하고, `init()` 시점에 다시 불러오세요.
+  직렬화하고, `init()` 시점에 다시 불러옵니다.
 - **동시성**: [`std::sync`](/ko/stdlib/sync)의 뮤텍스로 `entries`에
   대한 접근을 감싸고, `std::spawn`으로 생성한 스레드들 사이에서
-  하나의 `Store`를 공유하세요([동시성](/ko/reference/concurrency)
+  하나의 `Store`를 공유합니다([동시성](/ko/reference/concurrency)
   참고).
 - **진짜 아레나**: 항목들이 짧게 살고 일괄적으로 함께 지워진다면
   (예: 요청 단위 캐시), 힙 기반 `String` 값을 `&arena<R>`로 할당된
   것으로 바꾸고, 항목을 하나씩 해제하는 대신 배치 사이마다 아레나를
-  리셋하세요 — [5장](/ko/book/ch05-understanding-regions)이 정확히 이
+  리셋합니다 — [5장](/ko/book/ch05-understanding-regions)이 정확히 이
   트레이드오프를 다뤘습니다.
 
 여기서부터는, 이 책이 소개한 어느 한 기능에 대한 완전한 세부 사항이
 필요하다면 [레퍼런스](/ko/reference/types) 섹션으로, 이 장이 기댔던
 `HashMap`/`String` 조합을 넘어 `std::`가 제공하는 모든 것 — 컬렉션,
 네트워킹, 암호화, 직렬화 등등 — 을 확인하려면 [표준
-라이브러리](/ko/stdlib/) 섹션으로 가세요. 모두 지금 여러분이 속속들이
+라이브러리](/ko/stdlib/) 섹션으로 갑니다. 모두 지금 여러분이 속속들이
 알게 된 것과 정확히 같은 리전 및 안전성 규칙 위에 만들어져 있습니다.
 
-읽어 주셔서 감사합니다 — 즐거운 개발 되세요.
+읽어 주셔서 감사합니다 — 즐겁게 개발하시기 바랍니다.

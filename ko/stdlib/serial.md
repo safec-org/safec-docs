@@ -57,10 +57,10 @@ void value_free(&Value v);
 ```
 
 ::: warning 소유권
-`value_array_push`/`value_object_set`은 전달받은 `Value`의 **소유권을 가져갑니다** — 그 이후에는 직접 해제하지 마세요. 자신만의 복사본이 여전히 필요하다면 먼저 `value_clone()`을 호출하세요. `value_free()`는 트리 전체(문자열, 배열 요소, 객체 항목)를 재귀적으로 해제합니다.
+`value_array_push`/`value_object_set`은 전달받은 `Value`의 **소유권을 가져갑니다** — 그 이후에는 직접 해제하면 안 됩니다. 자신만의 복사본이 여전히 필요하다면 먼저 `value_clone()`을 호출합니다. `value_free()`는 트리 전체(문자열, 배열 요소, 객체 항목)를 재귀적으로 해제합니다.
 :::
 
-`object_get`은 *널이 될 수 있는* 참조를 반환합니다 — 필드나 메서드로 바로 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑하세요. 이는 SafeC의 모든 `?&T`에 적용되는 것과 동일한 규칙입니다([안전성](/ko/reference/safety#nullability-enforcement) 참고).
+`object_get`은 *널이 될 수 있는* 참조를 반환합니다 — 필드나 메서드로 바로 체이닝하지 말고 `match`(또는 `.is_null()`/`.default()`)로 언래핑합니다. 이는 SafeC의 모든 `?&T`에 적용되는 것과 동일한 규칙입니다([안전성](/ko/reference/safety#nullability-enforcement) 참고).
 
 ```c
 long long age = 0;
@@ -74,7 +74,7 @@ match (parsed.object_get("age")) {
 
 ## 구조체를 직렬화 가능하게 만들기 {#making-a-struct-serializable}
 
-구조체 필드로부터 `Value` 트리를 만드는 `to_value()` 메서드를 작성하세요.
+구조체 필드로부터 `Value` 트리를 만드는 `to_value()` 메서드를 작성합니다.
 
 ```c
 #include <std/serial/value.h>
@@ -217,7 +217,7 @@ value_free(&v);
 #include <std/serial/csv.h>
 ```
 
-CSV 문서는 행(row)들의 `VAL_ARRAY`이며, 각 행 자체는 `VAL_STRING` 필드들의 `VAL_ARRAY`입니다 — CSV는 고유한 타입 체계가 없으므로(모든 필드가 텍스트), `json_parse`와 달리 int/float/bool 추론이 없습니다. 어떤 열이 숫자를 담고 있다고 알고 있다면 각 필드를 직접 변환하세요(`String::parse_int()`/`parse_float()`).
+CSV 문서는 행(row)들의 `VAL_ARRAY`이며, 각 행 자체는 `VAL_STRING` 필드들의 `VAL_ARRAY`입니다 — CSV는 고유한 타입 체계가 없으므로(모든 필드가 텍스트), `json_parse`와 달리 int/float/bool 추론이 없습니다. 어떤 열이 숫자를 담고 있다고 알고 있다면 각 필드를 직접 변환합니다(`String::parse_int()`/`parse_float()`).
 
 ```c
 void csv_write(const &Value v, &String out);   // 'v'는 반드시 VAL_ARRAY의 VAL_ARRAY여야 함
@@ -331,7 +331,7 @@ int main() {
 #include <std/serial/protobuf.h>
 ```
 
-Protocol Buffers proto3 바이너리 와이어 포맷입니다 — 바린트, 태그, 지그재그, 길이 구분, fixed32/fixed64 — `protoc`이 생성한 코드와 정확히 같으므로 다른 언어의 protobuf와 상호 운용됩니다. `.proto` 컴파일러는 없습니다: 스키마의 필드 번호를 써서 `to_proto()`/`from_proto()`를 직접 작성하세요. [RPC](/ko/stdlib/http#rpc)와 함께 씁니다.
+Protocol Buffers proto3 바이너리 와이어 포맷입니다 — 바린트, 태그, 지그재그, 길이 구분, fixed32/fixed64 — `protoc`이 생성한 코드와 정확히 같으므로 다른 언어의 protobuf와 상호 운용됩니다. `.proto` 컴파일러는 없습니다: 스키마의 필드 번호를 써서 `to_proto()`/`from_proto()`를 직접 작성합니다. [RPC](/ko/stdlib/http#rpc)와 함께 씁니다.
 
 ```c
 #define PB_WIRE_VARINT  0   // int32/int64/uint32/uint64/sint32/sint64/bool/enum
@@ -376,7 +376,7 @@ int pb_read_length_delimited(&PbReader r, &&const unsigned char dataOut, &unsign
 int pb_skip_field(&PbReader r, int wire_type);   // skip an unknown field (forward compatibility)
 ```
 
-`pb_read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사하세요.
+`pb_read_length_delimited`는 `dataOut`(참조에 대한 참조)을 통해 리더 자신의 버퍼 안을 가리키는 참조를 씁니다 — 버퍼를 별칭으로 가리키므로, 버퍼보다 오래 살아야 하면 바이트를 복사합니다.
 
 ```c
 #include <std/serial/protobuf.h>
@@ -408,11 +408,11 @@ int main() {
 }
 ```
 
-`std/serial/serial.h`는 `value.h`, `json.h`, `xml.h`, `html.h`만 포함합니다. `csv.h`, `yaml.h`, `markdown.h`, `protobuf.h`는 직접 include하세요.
+`std/serial/serial.h`는 `value.h`, `json.h`, `xml.h`, `html.h`만 포함합니다. `csv.h`, `yaml.h`, `markdown.h`, `protobuf.h`는 직접 include합니다.
 
 ## 왕복 변환 충실도 {#round-trip-fidelity}
 
-JSON은 구조적 모호함이 없습니다 — 임의의 문자열 내용을 정확히 왕복시키는 것이 중요하다면 항상 JSON을 우선하세요. XML과 HTML은 모든 `Value` 종류를 평문 태그 텍스트로 매핑하는 데서 비롯된 두 가지 고유한 모호함을 공유합니다.
+JSON은 구조적 모호함이 없습니다 — 임의의 문자열 내용을 정확히 왕복시키는 것이 중요하다면 항상 JSON을 우선합니다. XML과 HTML은 모든 `Value` 종류를 평문 태그 텍스트로 매핑하는 데서 비롯된 두 가지 고유한 모호함을 공유합니다.
 
 - **빈 문자열 대 빈 컨테이너.** `<t></t>`(자식도 텍스트도 없음)는 빈 문자열일 수도, 빈 객체/배열일 수도 있습니다. 두 파서 모두 항상 이를 `VAL_STRING ""`으로 해석합니다.
 - **숫자/불린처럼 보이는 텍스트.** 숫자나 `true`/`false`처럼 보이는 텍스트 내용은, 실제로 그렇게 직렬화되었을 때와 마찬가지로 `VAL_INT`/`VAL_FLOAT`/`VAL_BOOL`로 다시 디코딩됩니다 — 값이 우연히 `"42"`인 문자열 필드는 XML/HTML을 거쳐 문자열 `"42"`가 아니라 정수 `42`로 왕복됩니다.

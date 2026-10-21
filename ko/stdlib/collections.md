@@ -52,7 +52,7 @@ generic<T> struct Greater<T> order_greater();
 generic<T> struct FnOrder<T> order_fn(fn int(const &T, const &T) f);
 ```
 
-예를 들어 레코드를 한 필드로 정렬하려면 `cmp` 메서드를 가진 구조체로 순서 관계를 직접 작성하면 되고, 똑같이 인라인됩니다. `FnOrder`는 비교 함수가 런타임에 선택될 때만 사용하세요.
+예를 들어 레코드를 한 필드로 정렬하려면 `cmp` 메서드를 가진 구조체로 순서 관계를 직접 작성하면 되고, 똑같이 인라인됩니다. `FnOrder`는 비교 함수가 런타임에 선택될 때만 사용합니다.
 
 
 
@@ -164,7 +164,7 @@ generic<K, V> struct HashMap<K, V> map_new();
 generic<K, V> struct HashMap<K, V> map_with_cap(unsigned long cap);
 ```
 
-키는 **바이트 단위로** 해싱되고 비교되므로, `K`는 자신의 바이트로 완전히 기술되어야 합니다: 정수, 열거형, 포인터, 패딩 없는 구조체. 1, 2, 4, 8바이트 키의 경우 맵은 키를 하나의 워드로 읽어 murmur3의 64비트 finalizer로 해싱하고 단 한 번의 정수 비교로 비교합니다 — 크기 검사는 `if const`이므로 인스턴스화마다 컴파일 타임에 결정됩니다. 그 밖의 크기는 FNV-1a와 바이트 비교를 사용합니다. 텍스트 키에는 `StrMap`을 쓰세요.
+키는 **바이트 단위로** 해싱되고 비교되므로, `K`는 자신의 바이트로 완전히 기술되어야 합니다: 정수, 열거형, 포인터, 패딩 없는 구조체. 1, 2, 4, 8바이트 키의 경우 맵은 키를 하나의 워드로 읽어 murmur3의 64비트 finalizer로 해싱하고 단 한 번의 정수 비교로 비교합니다 — 크기 검사는 `if const`이므로 인스턴스화마다 컴파일 타임에 결정됩니다. 그 밖의 크기는 FNV-1a와 바이트 비교를 사용합니다. 텍스트 키에는 `StrMap`을 씁니다.
 
 ### StrMap\<V\> {#strmap-v}
 
@@ -350,7 +350,7 @@ struct BTree {
 generic<V> void btree_init(&BTree<V> t);
 ```
 
-풀 때문에 `BTree`는 크므로(수십 KB), 스택에 두지 말고 정적 저장소에 두거나 할당하세요:
+풀 때문에 `BTree`는 크므로(수십 KB), 스택에 두지 말고 정적 저장소에 두거나 할당합니다:
 
 ```c
 static struct BTree<int> g_index;
@@ -504,7 +504,7 @@ struct String {
     int            push_char(char c);
     int            push(const &char cstr);
     int            push_n(const &char data, unsigned long n);  // n raw bytes, need not be NUL-terminated
-    int            push_str(&stack String other);
+    int            push_str(&String other);
     int            push_int(long long v);
     int            push_uint(unsigned long long v);
     int            push_float(double v, int decimals);
@@ -547,17 +547,17 @@ struct String {
 
     // Split -- writes into caller-provided 'out' array (max slots); returns
     // items written; overflow puts the remainder in the last slot
-    unsigned long  split(const &char delim, &stack String out, unsigned long max) const;
-    unsigned long  split_lines(&stack String out, unsigned long max) const;
-    unsigned long  split_whitespace(&stack String out, unsigned long max) const;
+    unsigned long  split(const &char delim, &String out, unsigned long max) const;
+    unsigned long  split_lines(&String out, unsigned long max) const;
+    unsigned long  split_whitespace(&String out, unsigned long max) const;
 
     // Comparison
-    int            eq(&stack String other) const;
+    int            eq(&String other) const;
     int            eq_cstr(const &char other) const;
-    int            cmp(&stack String other) const;         // <0, 0, >0
-    int            lt(&stack String other) const;
-    int            gt(&stack String other) const;
-    int            eq_ignore_case(&stack String other) const;
+    int            cmp(&String other) const;         // <0, 0, >0
+    int            lt(&String other) const;
+    int            gt(&String other) const;
+    int            eq_ignore_case(&String other) const;
     int            eq_cstr_ignore_case(const &char other) const;
 
     // Query
@@ -582,7 +582,7 @@ struct String string_from(const &char s);
 struct String string_from_n(const &char s, unsigned long n);
 struct String string_with_cap(unsigned long cap);
 struct String string_repeat(const &char s, unsigned long n);
-struct String string_join(const &char sep, &stack String parts, unsigned long count);
+struct String string_join(const &char sep, &String parts, unsigned long count);
 ```
 
 ### 예제 {#example}
@@ -624,7 +624,7 @@ int main() {
 
 단일 생산자/단일 소비자 **바이트 지향** 2의 거듭제곱 링 버퍼입니다. OS 락 없이 올바른 생산자/소비자 순서를 보장하기 위해 `head`/`tail`에 원자적 load/store를 사용합니다. ISR에서 태스크로의 데이터 전달과 오디오 파이프라인에 적합합니다.
 
-다른 컬렉션 타입과 달리 `RingBuffer`는 원소 기반이 아닙니다 — 원시 바이트 스트림을 다룹니다. `unsigned char` 버퍼와 함께 사용하세요.
+다른 컬렉션 타입과 달리 `RingBuffer`는 원소 기반이 아닙니다 — 원시 바이트 스트림을 다룹니다. `unsigned char` 버퍼와 함께 사용합니다.
 
 ### 구조체 {#struct}
 
@@ -641,9 +641,9 @@ struct RingBuffer {
     int           is_empty() const;
     int           is_full() const;
 
-    unsigned long write(const &stack unsigned char data, unsigned long len);
-    unsigned long read(&stack unsigned char out, unsigned long len);
-    unsigned long peek(&stack unsigned char out, unsigned long len) const;
+    unsigned long write(const &unsigned char data, unsigned long len);
+    unsigned long read(&unsigned char out, unsigned long len);
+    unsigned long peek(&unsigned char out, unsigned long len) const;
     unsigned long discard(unsigned long len);
     void          clear();
 };
@@ -678,7 +678,7 @@ int main() {
 `RING_STATIC(name, N)`(저장 공간 + 링을 한 줄로 선언)은 함수형 매크로이므로 `--compat-preprocessor`에서만 사용할 수 있습니다.
 
 ::: info
-`buf`의 리전은 `&static unsigned char`입니다 — 백킹 저장소는 `RingBuffer` 구조체 자체보다 오래 살아야 합니다. 임베디드 전역에는 `RING_STATIC`을 사용하세요. 힙 기반으로 사용하려면 `unsafe {}` 블록 안에서 캐스트하고 수명 관리를 직접 책임지세요.
+`buf`의 리전은 `&static unsigned char`입니다 — 백킹 저장소는 `RingBuffer` 구조체 자체보다 오래 살아야 합니다. 임베디드 전역에는 `RING_STATIC`을 사용합니다. 힙 기반으로 사용하려면 `unsafe {}` 블록 안에서 캐스트하고 수명 관리를 직접 책임집니다.
 :::
 
-`RING_DEFAULT_CAP`(4096바이트)이 기본 용량입니다. 바꾸려면 헤더를 include하기 전에 정의하세요.
+`RING_DEFAULT_CAP`(4096바이트)이 기본 용량입니다. 바꾸려면 헤더를 include하기 전에 정의합니다.

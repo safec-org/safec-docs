@@ -55,10 +55,10 @@ ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a lib
 
 타깃마다 달라지는 것:
 
-- **아키텍처 매크로.** 컴파일러는 clang과 같은 아키텍처 매크로를 미리 정의하므로 `#if` 블록으로 ISA별 코드를 고를 수 있습니다: `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__`, `__riscv`와 `__riscv_xlen`(32 또는 64), `__wasm__`과 `__wasm32__`/`__wasm64__`, 그리고 32비트 ARM에서는 `__arm__`, `__ARM_ARCH`(6, 7, 8), `__ARM_ARCH_PROFILE`(`'A'`, `'R'`, `'M'`), `__ARM_ARCH_<name>__`(`__ARM_ARCH_6M__`, `__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, `__ARM_ARCH_7A__`, …), `__thumb__`, 그리고 ARMv7(및 ARMv6T2)부터 `__thumb2__`. 모든 베어메탈 타깃은 `__SAFEC_FREESTANDING__`도 정의하며, OS 매크로(`__linux__`, `__APPLE__`, `_WIN32`)는 어느 것도 정의하지 않습니다. [전처리기](/ko/reference/preprocessor#predefined-macros)를 참고하세요.
+- **아키텍처 매크로.** 컴파일러는 clang과 같은 아키텍처 매크로를 미리 정의하므로 `#if` 블록으로 ISA별 코드를 고를 수 있습니다: `__x86_64__`/`__amd64__`, `__i386__`, `__aarch64__`, `__riscv`와 `__riscv_xlen`(32 또는 64), `__wasm__`과 `__wasm32__`/`__wasm64__`, 그리고 32비트 ARM에서는 `__arm__`, `__ARM_ARCH`(6, 7, 8), `__ARM_ARCH_PROFILE`(`'A'`, `'R'`, `'M'`), `__ARM_ARCH_<name>__`(`__ARM_ARCH_6M__`, `__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, `__ARM_ARCH_7A__`, …), `__thumb__`, 그리고 ARMv7(및 ARMv6T2)부터 `__thumb2__`. 모든 베어메탈 타깃은 `__SAFEC_FREESTANDING__`도 정의하며, OS 매크로(`__linux__`, `__APPLE__`, `_WIN32`)는 어느 것도 정의하지 않습니다. [전처리기](/ko/reference/preprocessor#predefined-macros)를 참고하십시오.
 - **포인터 너비.** `size_t`, `ptrdiff_t`, `uintptr_t`, `__SIZEOF_POINTER__`는 타깃을 따릅니다(위의 32비트 타깃에서는 4바이트). SafeC의 `long`은 항상 64비트이므로, 포인터 크기 정수가 필요한 코드는 `long`이 아니라 `size_t`/`uintptr_t`를 써야 합니다.
 - **C 구조체 반환 ABI.** 값으로 반환되는 집합체는 타깃의 규약으로 lowering됩니다: i386은 항상 숨겨진 포인터로 구조체를 반환하고, AAPCS32는 4바이트 초과일 때, RISC-V는 2×XLEN 초과일 때, x86-64와 AArch64는 16바이트 초과일 때(AArch64는 동종 부동소수점 집합체 제외), Win64는 1, 2, 4, 8바이트 이외의 모든 크기에서 그렇게 합니다. 큰 구조체 복사는 `memcpy`/`memset` 호출로 생성되며, 런타임이 이를 제공해야 합니다.
-- **런타임 헬퍼.** 하드웨어 곱셈/나눗셈이나 원자적 연산이 없는 타깃은 compiler-rt 내장 함수(`__muldi3`, `__udivdi3`, …)와 `__atomic_*` 라이브러리 함수를 호출합니다: 해당 타깃용 `libclang_rt.builtins.a`를 링크하고 원자적 연산을 제공하세요(단일 코어 런타임은 인터럽트를 마스킹한 채로 구현할 수 있습니다).
+- **런타임 헬퍼.** 하드웨어 곱셈/나눗셈이나 원자적 연산이 없는 타깃은 compiler-rt 내장 함수(`__muldi3`, `__udivdi3`, …)와 `__atomic_*` 라이브러리 함수를 호출합니다: 해당 타깃용 `libclang_rt.builtins.a`를 링크하고 원자적 연산을 제공합니다(단일 코어 런타임은 인터럽트를 마스킹한 채로 구현할 수 있습니다).
 
 ### libc 이름에 대한 프리스탠딩 호출 {#provides}
 
@@ -67,6 +67,8 @@ ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a lib
 ### 베어메탈에서 테스트하기 {#testing}
 
 표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). wasm32와 wasm64 이미지는 `wasm-ld`로 링크해 Node에서 실행합니다(`run_wasm.mjs`). 현재 16개 타깃 모두 모든 검사를 통과합니다.
+
+`tests/stdlib/baremetal/qemu/run.sh`는 한 단계 더 나아가 QEMU의 에뮬레이션 하드웨어에서 작은 프로그램을 부팅합니다: 주소 변환을 실제로 켠 네이티브 [`MmuContext`](/ko/stdlib/kernel#mmu-context-kernelmmuh) 형식(S 모드의 RISC-V Sv39/Sv32, MMU를 켠 AArch64와 ARMv7-A, x86 32비트 페이징과 x86-64 롱 모드), 그리고 QEMU의 주변장치 모델을 상대로 한 [HAL 칩](/ko/stdlib/hal#hal-chips) PL011, 16550, STM32F4 USART/TIM/SPI입니다. x86에서는 LLVM의 i686 코드가 SSE를 쓰므로 시작 코드가 SSE도 켭니다(`CR0`/`CR4`).
 
 ## WebAssembly {#wasm}
 
@@ -341,7 +343,7 @@ void f() {
 }
 ```
 
-`volatile`은 컴파일러가 접근을 제거하거나, 합치거나, 서로의 순서를 바꾸지 못하게 합니다. 스레드 사이의 메모리 배리어는 아닙니다. 그 용도로는 [`std::atomic`](/ko/stdlib/atomic)을 쓰세요. `std::mem_zero_secure`는 이 volatile 스토어에 의존하므로, 키를 지우는 코드가 `-O2`의 dead-store 제거에서도 살아남습니다.
+`volatile`은 컴파일러가 접근을 제거하거나, 합치거나, 서로의 순서를 바꾸지 못하게 합니다. 스레드 사이의 메모리 배리어는 아닙니다. 그 용도로는 [`std::atomic`](/ko/stdlib/atomic)을 씁니다. `std::mem_zero_secure`는 이 volatile 스토어에 의존하므로, 키를 지우는 코드가 `-O2`의 dead-store 제거에서도 살아남습니다.
 
 ### Volatile Load와 Store {#volatile-load-and-store}
 

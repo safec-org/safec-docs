@@ -54,5 +54,5 @@ int main() {
 ```
 
 ::: tip 번역 안내
-이 문서는 SafeC 공식 문서의 한국어 번역입니다. `region`(리전), `trait`(트레이트), `monomorphization`(단형화) 등 고유한 개념어는 확립된 한국어 기술 문서 관행을 따랐으며, `vtable`처럼 흔히 번역하지 않는 용어는 원어 그대로 두었습니다. 코드, 키워드, 식별자는 번역하지 않았습니다. 오역이나 어색한 표현을 발견하시면 [GitHub](https://github.com/safec-org/SafeC)로 알려주세요.
+이 문서는 SafeC 공식 문서의 한국어 번역입니다. `region`(리전), `trait`(트레이트), `monomorphization`(단형화) 등 고유한 개념어는 확립된 한국어 기술 문서 관행을 따랐으며, `vtable`처럼 흔히 번역하지 않는 용어는 원어 그대로 두었습니다. 코드, 키워드, 식별자는 번역하지 않았습니다. 오역이나 어색한 표현을 발견하시면 [GitHub](https://github.com/safec-org/SafeC)로 알려줍니다.
 :::

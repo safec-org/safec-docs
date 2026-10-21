@@ -2,17 +2,23 @@
 
 `std/hal/` wraps common embedded peripherals as methods on a struct
 instance holding the peripheral's MMIO base address — construct one with
-the matching `*_init()` function, then call methods on it. Every module is
-freestanding-safe (no libc dependency) and works with plain `--target`
-cross-compilation as well as `--freestanding`.
+the matching `*_init()` function, then call methods on it. Each driver is
+generic over a *chip type* that knows that peripheral's registers, picked
+at compile time from the variable's type (the same pattern as
+`BST<K, V, C>`'s ordering), so the calls compile down to direct register
+accesses. Every module is freestanding-safe (no libc dependency) and works
+with plain `--target` cross-compilation as well as `--freestanding`.
 
 ```c
 #include <std/hal/gpio.h>
+#include <std/hal/uart.h>
 
-void blink(&volatile unsigned int gpio_base, int pin) {
-    struct GpioPin led = std::gpio_init(gpio_base, pin, GPIO_OUTPUT);
+void blink(&volatile unsigned int gpioa, &volatile unsigned int usart2) {
+    struct GpioPin<Stm32F4Gpio> led = std::gpio_init(gpioa, 5, GPIO_OUTPUT);
     led.write(1);
     led.toggle();
+    struct Uart<Stm32F4Usart> con = std::uart_init(usart2, 115200u, 42000000u);
+    con.write_str("blink\n");
 }
 ```
 
@@ -30,18 +36,60 @@ Remember that struct *types* aren't namespaced even though the
 constructor functions are — `struct GpioPin`, not `struct std::GpioPin`
 (see [Namespaces](/reference/namespaces#what-gets-namespaced)).
 
-## Generic Peripherals {#generic-peripherals}
+## Drivers and Chips {#generic-peripherals}
 
 | Module | Header | Type | Description |
 |---|---|---|---|
-| GPIO | `hal/gpio.h` | `GpioPin` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
-| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
-| UART | `hal/uart.h` | `Uart` | `uart_init(base, baud)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` (all polling-based) |
-| Timer | `hal/timer.h` | `Timer` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
-| Watchdog | `hal/watchdog.h` | `Watchdog` | `watchdog_init(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
+| GPIO | `hal/gpio.h` | `GpioPin<C>` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
+| I2C | `hal/i2c.h` | `I2cBus<C>` | `i2c_init(base, speed, clock_hz)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
+| SPI | `hal/spi.h` | `SpiDevice<C>` | `spi_init(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
+| UART | `hal/uart.h` | `Uart<C>` | `uart_init(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
+| Timer | `hal/timer.h` | `Timer<C>` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
+| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `watchdog_init(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
 
 Constants: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C results `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3` (CPOL/CPHA = 00, 01, 10, 11).
+
+`clock_hz` is the peripheral's input clock, used to compute the baud-rate
+or bus-speed divider; `uart_init` with `clock_hz = 0` keeps the rate the
+boot firmware set.
+
+### Chip Types {#hal-chips}
+
+| Chip type | Peripheral |
+|---|---|
+| `GpioGeneric`, `UartGeneric`, `SpiGeneric`, `I2cGeneric`, `TimerGeneric`, `WatchdogGeneric` | The reference register layouts below — for an FPGA soft core or a simulator that implements them |
+| `Pl011` | ARM PrimeCell PL011 UART (QEMU `virt`, Raspberry Pi, many Arm SoCs) |
+| `Ns16550` | 16550-compatible UART with byte-wide registers at consecutive addresses (QEMU RISC-V `virt`, many SoCs) |
+| `Stm32F4Gpio` | STM32 GPIO port (`MODER`/`PUPDR`/`IDR`/`ODR`/`BSRR`; the F2/F4/F7/L4/G0/H7 layout). `write` uses `BSRR`, so it needs no read-modify-write |
+| `Stm32F4Usart` | STM32F1/F2/F4 USART (`SR`/`DR`/`BRR`/`CR1`) |
+| `Stm32F4Spi` | STM32F1/F2/F4 SPI as master, software NSS, fPCLK/16. Chip select is an ordinary GPIO there: `cs_assert`/`cs_deassert` do nothing — drive a `GpioPin` |
+| `Stm32F4I2c` | STM32F1/F2/F4 I2C ("v1": `CR1`/`CR2`/`DR`/`SR1`/`SR2`/`CCR`/`TRISE`), standard and fast mode |
+| `Stm32F4Tim` | STM32 general-purpose timer (TIM2–TIM5): `PSC`, `ARR`, `CNT`, update flag `UIF`. The counter runs at clock / (prescaler + 1) |
+| `Stm32F4Iwdg` | STM32 independent watchdog: `timeout` is the 12-bit reload value counted at LSI / 256 (about 8 ms per unit at 32 kHz); `caused_reset` reads `RCC_CSR.IWDGRSTF` at the STM32F4 RCC address |
+
+A chip type is a struct whose methods take the peripheral's base address
+and do the register work — `init`, `put`/`get`, `transfer`, `write`/`read`
+and so on, as declared in each header — so another part is supported by
+writing one more such struct.
+
+The `Pl011`, `Ns16550`, `Stm32F4Usart`, `Stm32F4Tim` and `Stm32F4Spi` chips
+run against QEMU's models of those peripherals in
+`tests/stdlib/baremetal/qemu/run.sh`, and every chip's register sequence is
+checked against RAM-backed registers in the hosted tests.
+
+### Reference Layouts {#hal-generic-layouts}
+
+The `*Generic` chips use these registers (byte offsets from `base`, 32-bit
+registers, one bit per pin for GPIO):
+
+| Chip | Registers |
+|---|---|
+| `GpioGeneric` | `DIR` +0x00 (1 = output), `OUT` +0x04, `IN` +0x08, `PULL_EN` +0x0C, `PULL_SEL` +0x10 (1 = up, 0 = down) |
+| `UartGeneric` | `DATA` +0x00, `STATUS` +0x04 (bit 0 RX ready, bit 1 TX ready), `BAUD` +0x08 (written with `baud`) |
+| `SpiGeneric` | `DATA` +0x00, `STATUS` +0x04 (bit 0 busy, bit 1 TX ready), `CTRL` +0x08 (`mode` \| 0x80 enable), `CS` +0x0C (0 = asserted) |
+| `I2cGeneric` | `DATA` +0x00, `STATUS` +0x04 (bit 0 busy, bit 1 ACK, bit 2 error), `CTRL` +0x08 (1 START, 2 STOP, 4 SEND, 8 READ+ACK, 16 READ+NACK), `ADDR` +0x0C, `SPEED` +0x10 |
+| `TimerGeneric` | `CTRL` +0x00 (bit 0 enable), `PRESCALER` +0x04, `PERIOD` +0x08, `COUNT` +0x0C, `STATUS` +0x10 (bit 0 flag) |
+| `WatchdogGeneric` | `CTRL` +0x00 (bit 0 enable), `TIMEOUT` +0x04, `FEED` +0x08 (write 0x6969), `STATUS` +0x0C (bit 0: last reset was a watchdog reset) |
 
 All are polling-based drivers (no interrupt-driven variants) operating
 directly on raw MMIO addresses — see [`std::interrupt`](/stdlib/interrupt)

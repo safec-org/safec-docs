@@ -50,7 +50,7 @@ struct String render_home(const &char visitor_name) {
 
 모든 `{expr}`/`{!expr}` 표현식은 C 문자열, 즉 `const &char`로
 평가되어야 합니다 — 문자열 리터럴, `const &char` 매개변수, 또는
-`String`의 `as_ptr()`. 숫자는 먼저 버퍼에 서식화하세요(예:
+`String`의 `as_ptr()`. 숫자는 먼저 버퍼에 서식화합니다(예:
 [`std::fmt_int`](/ko/stdlib/utilities#fmt-formatting-into-buffers)). scx는 자체적으로 타입 검사를 하지 않으므로(Sema가 실행되기 전에
 텍스트 수준 패스로 실행됩니다), 타입 불일치는 생성된 코드에 대한
 평범한 `safec` 컴파일 오류로 나타나며, 합성된 호출 지점을 가리킵니다.
@@ -175,7 +175,7 @@ int main() {
 ```
 
 이 예제가 바탕으로 하는 완전하고 실제로 동작하는 프로젝트는 SafeC
-저장소의 `examples/fullstack_demo/`를 참고하세요 — `frontend`/`backend`/`fullstack`
+저장소의 `examples/fullstack_demo/`를 참고하십시오 — `frontend`/`backend`/`fullstack`
 기능을 갖춘 `Package.toml`, 세 개의 렌더링된 페이지를 가진
 `src/pages.scx`, 그리고 `fullstack`/`backend` 모드에서는 HTTP로
 페이지를 제공하고 `frontend` 전용 모드에서는 표준 출력으로 하나를

@@ -18,7 +18,7 @@ SafeC's crypto modules provide correct algorithm implementations. They do not cu
 #include <std/crypto/aes.h>
 ```
 
-AES-128 and AES-256 block cipher with ECB and CBC modes. Full S-box, key expansion, and MixColumns implementation.
+AES-128 and AES-256 block cipher with ECB, CBC and GCM modes. Full S-box, key expansion, and MixColumns implementation.
 
 | Constant | Value |
 |----------|-------|
@@ -36,20 +36,33 @@ struct AesCtx {
     unsigned char iv[16];             // CBC initialisation vector
 
     // ECB — encrypt/decrypt one 16-byte block in-place
-    void encrypt_block(&stack unsigned char block);
-    void decrypt_block(&stack unsigned char block);
+    void encrypt_block(&unsigned char block);
+    void decrypt_block(&unsigned char block);
 
     // CBC — `len` must be a multiple of 16; updates self.iv in-place
-    void cbc_encrypt(&stack unsigned char data, unsigned long len);
-    void cbc_decrypt(&stack unsigned char data, unsigned long len);
+    void cbc_encrypt(&unsigned char data, unsigned long len);
+    void cbc_decrypt(&unsigned char data, unsigned long len);
 
     // Set the CBC IV
-    void set_iv(const &stack unsigned char iv);
+    void set_iv(const &unsigned char iv);
+
+    // GCM (NIST SP 800-38D), 12-byte IV, 16-byte tag. Encrypts data in place
+    // and writes the tag over aad[0..aad_len) and the ciphertext; aad may be
+    // null when aad_len is 0. Never reuse an IV with the same key.
+    void gcm_encrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
+                     &unsigned char data, unsigned long len, &unsigned char tag);
+    // Checks the tag in constant time; only if it matches, decrypts in place.
+    // 1 if authentic, 0 if not (data is left as the ciphertext).
+    int  gcm_decrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
+                     &unsigned char data, unsigned long len, const &unsigned char tag);
+
+    // Wipe the key schedule and IV (volatile stores) when done.
+    void destroy();
 }
 
-// Constructors — key parameter is a safe stack reference
-struct AesCtx aes128_init(const &stack unsigned char key);  // key: 16 bytes
-struct AesCtx aes256_init(const &stack unsigned char key);  // key: 32 bytes
+// Constructors
+struct AesCtx aes128_init(const &unsigned char key);  // key: 16 bytes
+struct AesCtx aes256_init(const &unsigned char key);  // key: 32 bytes
 ```
 
 ::: info
@@ -101,10 +114,10 @@ struct Sha256Ctx {
     int           is224;          // 1 = SHA-224 variant
 
     // Feed bytes into the hash (streaming)
-    void update(const &stack unsigned char data, unsigned long len);
+    void update(const &unsigned char data, unsigned long len);
 
     // Finalise and write digest: 32 bytes for SHA-256, 28 for SHA-224
-    void finish(&stack unsigned char digest);
+    void finish(&unsigned char digest);
 }
 
 // Constructors
@@ -112,8 +125,8 @@ struct Sha256Ctx sha256_init();   // SHA-256
 struct Sha256Ctx sha224_init();   // SHA-224
 
 // One-shot convenience
-void sha256(const &stack unsigned char data, unsigned long len,
-            &stack unsigned char digest);
+void sha256(const &unsigned char data, unsigned long len,
+            &unsigned char digest);
 
 #define SHA256_DIGEST_SIZE  32   // bytes
 #define SHA224_DIGEST_SIZE  28
@@ -165,15 +178,15 @@ struct Sha512Ctx {
     unsigned long long total_bytes;   // 64-bit count; the high half of the 128-bit length is written as 0
     int                is384;         // 1 = SHA-384
 
-    void update(const &stack unsigned char data, unsigned long len);
-    void finish(&stack unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
+    void update(const &unsigned char data, unsigned long len);
+    void finish(&unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
 };
 
 struct Sha512Ctx sha512_init();
 struct Sha512Ctx sha384_init();
 
-void sha512(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
-void sha384(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+void sha512(const &unsigned char data, unsigned long len, &unsigned char digest);
+void sha384(const &unsigned char data, unsigned long len, &unsigned char digest);
 ```
 
 ---
@@ -197,12 +210,12 @@ struct Sha1Ctx {
     unsigned char buf[SHA1_BLOCK_SIZE];
     unsigned long total_bytes;
 
-    void update(const &stack unsigned char data, unsigned long len);
-    void finish(&stack unsigned char digest);   // 20 bytes
+    void update(const &unsigned char data, unsigned long len);
+    void finish(&unsigned char digest);   // 20 bytes
 };
 
 struct Sha1Ctx sha1_init();
-void sha1(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+void sha1(const &unsigned char data, unsigned long len, &unsigned char digest);
 ```
 
 ---
@@ -323,7 +336,7 @@ Fixed limits: `X509_MAX_NAME_LEN` (128 bytes per name), `X509_MAX_SAN` (8 SAN en
 
 ```c
 struct X509Validity {
-    unsigned long long not_before;  // Unix timestamp
+    unsigned long long not_before;  // Unix timestamp (dates before 1970 clamp to 0)
     unsigned long long not_after;
 }
 
@@ -362,12 +375,12 @@ struct X509Cert {
 // Parse a DER-encoded certificate.
 // Returns 0 on success, negative on error.
 int x509_parse_der(const &unsigned char der, unsigned long len,
-                   &stack X509Cert out);
+                   &X509Cert out);
 
 // Structural issuer/subject name match only.
 // Does NOT verify cryptographic signature.
-int x509_verify_chain(const &stack X509Cert cert,
-                      const &stack X509Cert ca);
+int x509_verify_chain(const &X509Cert cert,
+                      const &X509Cert ca);
 ```
 
 ### Example {#example-3}
@@ -411,9 +424,7 @@ void check_cert(const &unsigned char der, unsigned long len,
 
 Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encryption, and decryption of TLS records. Key scheduling and the handshake protocol are **not** included — supply keys after completing the handshake externally.
 
-::: warning
-Record protection is AES-256-CBC with PKCS#7 padding and **no MAC**, in place of TLS 1.3's AES-GCM AEAD. Records are not authenticated (an active attacker can alter them, and padding errors are observable), and the wire format does not interoperate with real TLS 1.3 peers. Use it for framing experiments, not to protect traffic.
-:::
+Record protection is the AES-256-GCM AEAD of RFC 8446 §5.2 (the `TLS_AES_256_GCM_SHA384` cipher suite's record layer): given the same traffic keys, protected records are byte-for-byte what other TLS 1.3 stacks produce. The test suite checks a record against an independent AES-GCM implementation.
 
 ### Constants {#constants}
 
@@ -433,6 +444,7 @@ Record protection is AES-256-CBC with PKCS#7 padding and **no MAC**, in place of
 #define TLS_MAX_RECORD_LEN  16384   // max plaintext per record
 #define TLS_KEY_LEN         32      // AES-256
 #define TLS_IV_LEN          12      // per RFC 8446 §5.3
+#define TLS_TAG_LEN         16      // GCM tag
 ```
 
 ### Structs {#structs-1}
@@ -456,17 +468,20 @@ struct TlsSession {
     struct TlsTranscript transcript;
 
     // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
-    // after install_keys: AES-256-CBC + PKCS#7, no MAC (see the warning).
-    // Returns bytes written, 0 on error; a record that doesn't fit out_cap
-    // doesn't consume a sequence number.
+    // after install_keys: TLSInnerPlaintext (payload || content type) sealed
+    // with AES-256-GCM, outer type application_data, 16-byte tag. Returns
+    // bytes written, 0 on error; a record that doesn't fit out_cap doesn't
+    // consume a sequence number.
     unsigned long encode_record(unsigned char content_type,
                                 const &unsigned char payload, unsigned long payload_len,
                                 &unsigned char out, unsigned long out_cap);
 
-    // Decode one record from data[0..data_len); writes the plaintext to out.
-    // Returns the payload length, 0 on error or incomplete input.
+    // Decode one record from data[0..data_len); writes the plaintext to out
+    // and the inner content type to *content_type_out. Protected records are
+    // authenticated first: a forged or corrupted record returns 0 (as does
+    // incomplete input) and doesn't advance read_seq.
     unsigned long decode_record(const &unsigned char data, unsigned long data_len,
-                                &stack unsigned char content_type_out,
+                                &unsigned char content_type_out,
                                 &unsigned char out, unsigned long out_cap);
 
     unsigned long build_alert(unsigned char level, unsigned char desc,

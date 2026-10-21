@@ -153,11 +153,11 @@ Basic array-level building blocks shared by the rest of `std/dsp/`. All operate 
 
 ```c
 Fixed dsp_dot(const &Fixed a, const &Fixed b, unsigned long n);           // sum of a[i]*b[i]
-void  dsp_scale(&stack Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
+void  dsp_scale(&Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
 void  dsp_add(const &Fixed a, const &Fixed b, &Fixed out, unsigned long n); // out[i] = a[i]+b[i]
-void  dsp_clip(&stack Fixed a, Fixed lo, Fixed hi, unsigned long n);      // clamp to [lo, hi]
+void  dsp_clip(&Fixed a, Fixed lo, Fixed hi, unsigned long n);      // clamp to [lo, hi]
 Fixed dsp_peak(const &Fixed a, unsigned long n);                          // max |a[i]|
-Fixed dsp_rms(&stack Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
+Fixed dsp_rms(&Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
 
 // SIMD FMA-accelerated dot product of two *double* arrays (see simd.h) —
 // 4 elements/iteration via simd_fma_f64x4, scalar remainder for n % 4.
@@ -466,8 +466,8 @@ struct Biquad bilinear_2nd_order(double B0, double B1, double B2,
                                   double A0, double A1, double A2, double fs);
 
 // Z-domain frequency response at freqHz: magnitude (linear) and phase (radians).
-double biquad_response_mag(const &stack Biquad bq, double fs, double freqHz);
-double biquad_response_phase(const &stack Biquad bq, double fs, double freqHz);
+double biquad_response_mag(const &Biquad bq, double fs, double freqHz);
+double biquad_response_phase(const &Biquad bq, double fs, double freqHz);
 
 struct FBiquad {   // Q8.24 counterpart
     Fixed b0, b1, b2, a1, a2, z1, z2;
@@ -774,10 +774,10 @@ struct AudioBuffer {
 
     unsigned long readable_frames() const;
     unsigned long writable_frames() const;
-    unsigned long write_frames(&stack Fixed src, unsigned long n);   // returns frames written
-    unsigned long read_frames(&stack Fixed dst, unsigned long n);    // returns frames read
-    unsigned long peek_frames(&stack Fixed dst, unsigned long n) const;
-    void          mix_frames(&stack Fixed src, unsigned long n);
+    unsigned long write_frames(&Fixed src, unsigned long n);   // returns frames written
+    unsigned long read_frames(&Fixed dst, unsigned long n);    // returns frames read
+    unsigned long peek_frames(&Fixed dst, unsigned long n) const;
+    void          mix_frames(&Fixed src, unsigned long n);
     void          clear();
     int           is_empty() const;
     int           is_full() const;

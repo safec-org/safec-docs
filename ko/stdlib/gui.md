@@ -11,7 +11,7 @@
 #include <std/gui/gui_widget.h>  // retained-mode widgets (includes gui.h, gui_draw.h, gui_font.h)
 ```
 
-`std/prelude.h`는 GUI 헤더를 포함하지 않습니다 — 직접 include하세요.
+`std/prelude.h`는 GUI 헤더를 포함하지 않습니다 — 직접 include합니다.
 
 ---
 
@@ -22,13 +22,13 @@
 | 백엔드 | 대상 | 상태 |
 |---------|--------|--------|
 | `gui_cocoa.sc` | macOS — Objective-C 런타임(`objc_msgSend`) + Core Graphics, 레이어 기반 `NSView` | 실제 하드웨어에서 빌드 및 실행됨 |
-| `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Win32 ABI에 맞춰 작성 및 타입 검사됨; Windows에서 아직 실행해 보지 않음 |
-| `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Xlib ABI에 맞춰 작성 및 타입 검사됨; X 서버에서 아직 실행해 보지 않음 |
+| `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Wine에서 실행됨(`tests/stdlib/win32/run.sh`): `GetPixel`로 읽은 그리기 결과, 키·텍스트·마우스·휠·크기 변경·닫기 이벤트; Windows 호스트에서는 아직 실행하지 않음 |
+| `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | X 서버(`tests/stdlib/x11/run.sh`, Xvfb)에서 실행됨: `XGetImage`로 읽은 그리기 결과, 키·텍스트·마우스·스크롤·크기 변경·닫기 이벤트 |
 | `gui_fb.sc` | 베어메탈 — 부트로더가 넘겨준 선형 프레임버퍼; 설정 함수는 `gui/gui_fb.h` | 빌드 및 실행됨; OS 의존성 없음 |
 
-백엔드는 `safeguard`가 골라 줍니다: 타깃의 std 아카이브에는 그 타깃에 맞는 변형만 들어갑니다(Apple은 `_cocoa`, Linux/BSD는 `_x11`, Windows는 `_win32`, 베어메탈 타깃은 `_fb`). [패키지 매니저](/ko/advanced/safeguard)를 참고하세요.
+백엔드는 `safeguard`가 골라 줍니다: 타깃의 std 아카이브에는 그 타깃에 맞는 변형만 들어갑니다(Apple은 `_cocoa`, Linux/BSD는 `_x11`, Windows는 `_win32`, 베어메탈 타깃은 `_fb`). [패키지 매니저](/ko/advanced/safeguard)를 참고하십시오.
 
-OS 백엔드는 시스템 라이브러리를 호출하므로, `[build] libs`로 최종 링크에 추가하세요:
+OS 백엔드는 시스템 라이브러리를 호출하므로, `[build] libs`로 최종 링크에 추가합니다:
 
 | 백엔드 | 라이브러리 |
 |---------|-----------|
@@ -56,7 +56,7 @@ struct GuiEvent {
     double       x, y;       // mouse position, window-local
     int          button;     // 0 = left, 1 = right, 2 = other
     int          keycode;    // GUI_KEY_*
-    unsigned int codepoint;  // GUI_EVENT_CHAR
+    unsigned int codepoint;  // the typed character (GUI_EVENT_KEY_DOWN / GUI_EVENT_CHAR)
     double       scrollDx, scrollDy;
     int          width, height;      // GUI_EVENT_RESIZE
     int          defaultPrevented;   // see gui_event_prevent_default()
@@ -69,7 +69,7 @@ void gui_set_pixel(&GuiWindow win, int x, int y, unsigned int rgba); // 0xRRGGBB
 void gui_destroy_window(&GuiWindow win);
 ```
 
-`gui_create_window`는 실패하면 `platform == null`이고 크기가 0인 창을 반환합니다 — 사용 전에 확인하세요.
+`gui_create_window`는 실패하면 `platform == null`이고 크기가 0인 창을 반환합니다 — 사용 전에 확인합니다.
 
 이벤트와 키 상수는 `#define`이므로 어느 네임스페이스에서나 쓸 수 있습니다:
 
@@ -80,7 +80,7 @@ void gui_destroy_window(&GuiWindow win);
 | `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_KEY_UP`, `GUI_EVENT_CHAR` | `GUI_KEY_BACKSPACE`, `GUI_KEY_SPACE`, `GUI_KEY_DELETE` |
 | `GUI_EVENT_SCROLL` | `GUI_KEY_UNKNOWN` |
 
-각 백엔드가 네이티브 키 코드를 `GUI_KEY_*`로 변환하므로, 애플리케이션 코드는 플랫폼별 키 코드를 보지 않습니다.
+각 백엔드가 네이티브 키 코드를 `GUI_KEY_*`로 변환하므로, 애플리케이션 코드는 플랫폼별 키 코드를 보지 않습니다. 문자를 입력한 키 누름은 그 문자를 `codepoint`(출력 가능한 ASCII)에 담습니다. 크기가 바뀌면 `gui_poll_event`는 `GUI_EVENT_RESIZE`를 반환하기 전에 `win.pixels`, `win.width`, `win.height`를 새 클라이언트 영역에 맞게 바꾸므로, 그 뒤에는 전체를 다시 그립니다.
 
 ### 예제 — 직접 그리는 루프 {#example-raw-drawing-loop}
 
@@ -195,7 +195,7 @@ void gui_image_free(&GuiImage img);
 
 지원: 채널당 8비트, 비인터레이스, 컬러 타입 0(그레이스케일), 2(RGB), 6(RGBA), 다섯 가지 스캔라인 필터 전부. 미지원: 팔레트 이미지(타입 3), 16비트 깊이, Adam7 인터레이스, `tRNS`/`gAMA` 같은 보조 청크. 지원하지 않는 파일은 잘못 디코딩하지 않고 `0`으로 실패합니다. 청크 CRC는 검사하지 않습니다.
 
-`gui_load_png`는 이미 메모리에 있는 바이트를 받습니다; 파일은 먼저 직접 읽으세요(예: `std/io_file.h`).
+`gui_load_png`는 이미 메모리에 있는 바이트를 받습니다; 파일은 먼저 직접 읽습니다(예: `std/io_file.h`).
 
 ---
 
@@ -282,7 +282,7 @@ generic<T> &Widget widget_on_change(&Widget w, fn void(&Widget, ?&T) cb, ?&T use
 | Escape | 포커스 해제 |
 | Left / Right | 포커스된 슬라이더를 범위의 5%만큼 이동 |
 
-이 동작은 위젯이 이미 이벤트를 처리했어도 실행됩니다. 막으려면 커스텀 위젯의 이벤트 훅에서 `gui_event_prevent_default(&ev)`를 호출하세요.
+이 동작은 위젯이 이미 이벤트를 처리했어도 실행됩니다. 막으려면 커스텀 위젯의 이벤트 훅에서 `gui_event_prevent_default(&ev)`를 호출합니다.
 
 ### 커스텀 위젯 {#custom-widgets}
 
@@ -296,7 +296,7 @@ generic<T>
                       WidgetCustomEventFn eventFn, ?&T userData);
 ```
 
-`draw`와 `layout`은 필수입니다. `eventFn`은 null이어도 됩니다: 그러면 위젯은 버튼과 같은 hover, press, click 처리를 받습니다. 캔버스의 드래그 변화량처럼 원시 이벤트가 필요할 때만 설정하세요.
+`draw`와 `layout`은 필수입니다. `eventFn`은 null이어도 됩니다: 그러면 위젯은 버튼과 같은 hover, press, click 처리를 받습니다. 캔버스의 드래그 변화량처럼 원시 이벤트가 필요할 때만 설정합니다.
 
 ### 예제 — 카운터 {#example-counter}
 
@@ -372,4 +372,4 @@ void gui_fb_inject_event(&GuiWindow win, struct GuiEvent ev);  // call from your
 
 값은 보통 부트로더에서 옵니다. 예를 들어 Multiboot2 프레임버퍼 태그(`framebuffer_addr`, `framebuffer_pitch`, `framebuffer_bpp`)나 VESA VBE 모드입니다. `gui_fb_configure` 없이는 `gui_create_window`가 실패합니다(`platform`이 null). 주입된 이벤트는 `gui_poll_event`가 비우는 32칸 큐(`GUI_FB_QUEUE_CAP`)에 들어가며, 큐가 가득 차면 버려집니다. `gui_present`는 복사하면서 RGBA 버퍼를 프레임버퍼의 픽셀 포맷으로 변환합니다.
 
-타깃과 링크는 [베어메탈](/ko/reference/baremetal)을 참고하세요.
+타깃과 링크는 [베어메탈](/ko/reference/baremetal)을 참고하십시오.

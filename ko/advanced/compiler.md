@@ -191,7 +191,7 @@ LLVM 타겟이 아닙니다. SPIR-V 출력에서의 유일한 상호운용 경�
 
 이 위에 구축된 SIMD 라이브러리는 [`std::simd`](/ko/stdlib/simd)를,
 ARM Cortex-M의 세부 사항(HAL, DSP 확장 내장 함수, MVE)은
-[베어메탈](/ko/reference/baremetal)을 참고하세요.
+[베어메탈](/ko/reference/baremetal)을 참고하십시오.
 
 ## 증분 컴파일 {#incremental-compilation}
 
@@ -207,7 +207,7 @@ ARM Cortex-M의 세부 사항(HAL, DSP 확장 내장 함수, MVE)은
 캐시 미스가 발생하면 전체 파이프라인이 실행되고 결과 비트코드가
 캐시 디렉터리에 기록됩니다.
 
-캐시된 모든 `.bc` 파일을 삭제하려면 `--clear-cache`를 사용하세요.
+캐시된 모든 `.bc` 파일을 삭제하려면 `--clear-cache`를 사용합니다.
 
 ## 디버그 정보 {#debug-info}
 

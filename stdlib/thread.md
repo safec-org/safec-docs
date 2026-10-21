@@ -123,6 +123,8 @@ Acquire or release the mutex. `mutex_lock` blocks if the mutex is held by anothe
 
 Attempt to acquire the mutex without blocking. Returns 0 if the lock was acquired, non-zero if busy.
 
+Don't re-lock a mutex the calling thread already holds: on Windows (a `CRITICAL_SECTION`) that succeeds, while a default POSIX mutex deadlocks in `mutex_lock` and reports busy from `mutex_trylock`.
+
 ## Condition Variable {#condition-variable}
 
 ```c
@@ -140,7 +142,7 @@ Atomically release mutex `*m` and block until the condition variable is signaled
 
 ### cond_timedwait_ms {#cond_timedwait_ms}
 
-Like `cond_wait`, but with a timeout in milliseconds. Returns non-zero on timeout.
+Like `cond_wait`, but waits at most `ms` milliseconds. Returns 0 if woken, `THREAD_TIMEDOUT` (1) if the time ran out, and -1 on another error — the same codes on every platform.
 
 ### cond_signal / cond_broadcast {#cond_signal-cond_broadcast}
 

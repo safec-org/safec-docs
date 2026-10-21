@@ -64,9 +64,9 @@ int  io_getchar();                        // read single char; returns SC_EOF on
 int  io_ungetc(int c);                    // push char back onto stdin
 int  io_read_line(&char buf, int n);      // read line (up to n-1 chars + NUL)
 int  io_read_token(&char buf, int n);     // read whitespace-delimited token
-int  io_scan_int(&stack long long out);           // parse decimal int from stdin
-int  io_scan_uint(&stack unsigned long long out); // parse unsigned int from stdin
-int  io_scan_float(&stack double out);            // parse float from stdin
+int  io_scan_int(&long long out);           // parse decimal int from stdin
+int  io_scan_uint(&unsigned long long out); // parse unsigned int from stdin
+int  io_scan_float(&double out);            // parse float from stdin
 ```
 
 `io_read_line` returns the number of characters read (excluding NUL), or -1 on EOF/error.

@@ -8,7 +8,7 @@ title: 시작하기
 
 ## 설치 {#installation}
 
-설치 스크립트를 실행하세요. 이 스크립트는 GitHub Releases에서 미리 빌드된 `safec`/`safeguard`/`sc-lsp` 릴리스를 다운로드하고 셸 환경을 구성합니다 — 설치 대상 머신에 LLVM이나 C++ 툴체인이 필요하지 않습니다.
+설치 스크립트를 실행합니다. 이 스크립트는 GitHub Releases에서 미리 빌드된 `safec`/`safeguard`/`sc-lsp` 릴리스를 다운로드하고 셸 환경을 구성합니다 — 설치 대상 머신에 LLVM이나 C++ 툴체인이 필요하지 않습니다.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash
@@ -25,13 +25,13 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 | `--version=<tag>` | 설치할 릴리스 태그, 예: `v0.2.0` (기본값: 최신) |
 | `--skip-env` | 셸 환경 구성 건너뛰기 |
 
-macOS/Linux는 `arm64`/`x86_64` 바이너리를 배포하며, Windows는 `x86_64`를 배포합니다. 전체 에셋 목록은 [Releases](https://github.com/safec-org/SafeC/releases)를 참고하세요.
+macOS/Linux는 `arm64`/`x86_64` 바이너리를 배포하며, Windows는 `x86_64`를 배포합니다. 전체 에셋 목록은 [Releases](https://github.com/safec-org/SafeC/releases)를 참고하십시오.
 
 ::: tip
-소스에서 빌드하는 것(릴리스 워크플로가 배포하지 않는 플랫폼을 위해 필요하거나, 릴리스되지 않은 커밋에서 빌드하기 위해 필요)도 여전히 가능합니다. `compiler/`, `safeguard/`, 그리고 자매 저장소인 `sc-language-server`의 각 구성 요소 자체 `CMakeLists.txt`를 통해서입니다 — [컴파일러 아키텍처](/ko/advanced/compiler)를 참고하세요.
+소스에서 빌드하는 것(릴리스 워크플로가 배포하지 않는 플랫폼을 위해 필요하거나, 릴리스되지 않은 커밋에서 빌드하기 위해 필요)도 여전히 가능합니다. `compiler/`, `safeguard/`, 그리고 자매 저장소인 `sc-language-server`의 각 구성 요소 자체 `CMakeLists.txt`를 통해서입니다 — [컴파일러 아키텍처](/ko/advanced/compiler)를 참고하십시오.
 :::
 
-설치를 확인하세요:
+설치를 확인합니다:
 
 ```bash
 safec --help
@@ -39,7 +39,7 @@ safec --help
 
 ## 첫 프로그램 {#your-first-program}
 
-`safeguard`로 새 프로젝트를 만드세요:
+`safeguard`로 새 프로젝트를 만듭니다:
 
 ```bash
 safeguard new hello
@@ -55,7 +55,7 @@ hello/
     main.sc
 ```
 
-`src/main.sc`를 다음으로 교체하세요:
+`src/main.sc`를 다음으로 교체합니다:
 
 ```c
 extern int printf(const char* fmt, ...);
@@ -66,7 +66,7 @@ int main() {
 }
 ```
 
-빌드하고 실행하세요:
+빌드하고 실행합니다:
 
 ```bash
 safeguard build
@@ -212,11 +212,11 @@ int main() {
 }
 ```
 
-자동 임포트는 포함된 헤더에 대해 `clang -ast-dump=json`을 호출하고 함수 및 typedef 선언을 추출하는 방식으로 동작합니다. 수동 `extern` 선언을 선호한다면 `--no-import-c-headers`로 비활성화하세요.
+자동 임포트는 포함된 헤더에 대해 `clang -ast-dump=json`을 호출하고 함수 및 typedef 선언을 추출하는 방식으로 동작합니다. 수동 `extern` 선언을 선호한다면 `--no-import-c-headers`로 비활성화합니다.
 
 ## 패키지 매니저 사용하기 {#using-the-package-manager}
 
-의존성이 있거나 여러 소스 파일이 있는 프로젝트라면 `safeguard`를 사용하세요. 설치 스크립트가 `safec`, `sc-lsp`와 함께 설치하므로 이미 사용할 수 있습니다.
+의존성이 있거나 여러 소스 파일이 있는 프로젝트라면 `safeguard`를 사용합니다. 설치 스크립트가 `safec`, `sc-lsp`와 함께 설치하므로 이미 사용할 수 있습니다.
 
 ```bash
 # 새 프로젝트 생성
@@ -237,7 +237,7 @@ myproject/
     main.sc          # 진입점
 ```
 
-설치 스크립트는 이미 `SAFEC_HOME`(설치 prefix, 기본값 `~/safec`)을 설정하고 이를 `PATH`에 추가하여 `safeguard`가 컴파일러와 표준 라이브러리를 자동으로 찾을 수 있도록 합니다 — 설치 후 셸을 다시 시작하거나 셸 rc 파일을 `source`하세요. 이 단계를 건너뛰었거나(`--skip-env`) 설치 위치를 옮겼다면 수동으로 설정하세요:
+설치 스크립트는 이미 `SAFEC_HOME`(설치 prefix, 기본값 `~/safec`)을 설정하고 이를 `PATH`에 추가하여 `safeguard`가 컴파일러와 표준 라이브러리를 자동으로 찾을 수 있도록 합니다 — 설치 후 셸을 다시 시작하거나 셸 rc 파일을 `source`합니다. 이 단계를 건너뛰었거나(`--skip-env`) 설치 위치를 옮겼다면 수동으로 설정합니다:
 
 ```bash
 export SAFEC_HOME=/path/to/safec

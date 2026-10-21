@@ -504,7 +504,7 @@ struct String {
     int            push_char(char c);
     int            push(const &char cstr);
     int            push_n(const &char data, unsigned long n);  // n raw bytes, need not be NUL-terminated
-    int            push_str(&stack String other);
+    int            push_str(&String other);
     int            push_int(long long v);
     int            push_uint(unsigned long long v);
     int            push_float(double v, int decimals);
@@ -547,17 +547,17 @@ struct String {
 
     // Split -- writes into caller-provided 'out' array (max slots); returns
     // items written; overflow puts the remainder in the last slot
-    unsigned long  split(const &char delim, &stack String out, unsigned long max) const;
-    unsigned long  split_lines(&stack String out, unsigned long max) const;
-    unsigned long  split_whitespace(&stack String out, unsigned long max) const;
+    unsigned long  split(const &char delim, &String out, unsigned long max) const;
+    unsigned long  split_lines(&String out, unsigned long max) const;
+    unsigned long  split_whitespace(&String out, unsigned long max) const;
 
     // Comparison
-    int            eq(&stack String other) const;
+    int            eq(&String other) const;
     int            eq_cstr(const &char other) const;
-    int            cmp(&stack String other) const;         // <0, 0, >0
-    int            lt(&stack String other) const;
-    int            gt(&stack String other) const;
-    int            eq_ignore_case(&stack String other) const;
+    int            cmp(&String other) const;         // <0, 0, >0
+    int            lt(&String other) const;
+    int            gt(&String other) const;
+    int            eq_ignore_case(&String other) const;
     int            eq_cstr_ignore_case(const &char other) const;
 
     // Query
@@ -582,7 +582,7 @@ struct String string_from(const &char s);
 struct String string_from_n(const &char s, unsigned long n);
 struct String string_with_cap(unsigned long cap);
 struct String string_repeat(const &char s, unsigned long n);
-struct String string_join(const &char sep, &stack String parts, unsigned long count);
+struct String string_join(const &char sep, &String parts, unsigned long count);
 ```
 
 ### Example {#example}
@@ -641,9 +641,9 @@ struct RingBuffer {
     int           is_empty() const;
     int           is_full() const;
 
-    unsigned long write(const &stack unsigned char data, unsigned long len);
-    unsigned long read(&stack unsigned char out, unsigned long len);
-    unsigned long peek(&stack unsigned char out, unsigned long len) const;
+    unsigned long write(const &unsigned char data, unsigned long len);
+    unsigned long read(&unsigned char out, unsigned long len);
+    unsigned long peek(&unsigned char out, unsigned long len) const;
     unsigned long discard(unsigned long len);
     void          clear();
 };

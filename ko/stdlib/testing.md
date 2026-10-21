@@ -31,7 +31,7 @@ int main(void) {
 `TestSuite`(`test_suite_init()`로 생성, 용량 `TEST_MAX` = 256개 케이스):
 `add(name, func)`(`func`: `fn void()`), `run()`(등록된 모든
 테스트를 실행하며 각 결과를 출력), `print_summary()`(`"N passed, M
-failed."`), `all_passed()`. `test_run_and_exit(&stack suite)`는 실행 후
+failed."`), `all_passed()`. `test_run_and_exit(&suite)`는 실행 후
 요약을 출력하고, 실패가 하나라도 있으면 `exit(1)`을 호출합니다 — 테스트용
 `main()`의 마지막 줄로 쓰기 편리합니다.
 

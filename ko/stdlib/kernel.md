@@ -34,7 +34,9 @@ void kernel_setup() {
 `free(frame)`, `is_used(frame)`, `mark_range(start, count)`(범위를 미리
 예약 — 예를 들어 커널 이미지 자체), `free_count()`. `init`은 `n`을 비트맵이
 추적하는 131072개 프레임으로 제한하며, 이미 해제된 프레임을 해제하면 아무
-일도 하지 않습니다.
+일도 하지 않습니다. `init_at(base, n)`은 프레임 0을 물리 주소 0이 아닌
+`base`에서 시작합니다(대부분의 Arm·RISC-V 보드는 RAM이 1~2 GiB에서
+시작합니다). `frame_addr(f)`는 프레임 `f`의 물리 주소를 줍니다.
 
 ## 페이징 (`kernel/paging.h`) {#paging-kernelpagingh}
 
@@ -50,22 +52,57 @@ void kernel_setup() {
 
 ## MMU 컨텍스트 (`kernel/mmu.h`) {#mmu-context-kernelmmuh}
 
-`MmuContext`는 `paging.h` + `frame.h` 위에 구축된 완전한 2단계
-(Sv30 스타일: 9+9+12비트, 컨텍스트당 1 GiB 주소 공간) 가상 메모리
-컨텍스트입니다 — `mmu_init(root, frames)`에서 `root`는 0으로 초기화된, 4
-KiB 정렬된 물리 페이지 테이블 주소이고 `frames`는 살아 있는
-`FrameAllocator`입니다. `map(virt, phys, flags)`(필요하면 `frames`에서 L2
-프레임을 할당), `unmap(virt)`, `walk(virt, &stack phys_out)`(수정 없이
-해석), `tlb_flush_all()`/`tlb_flush_page(virt)`, 그리고 `activate()` —
-마지막 세 함수는 각각 내부적으로 아키텍처별로 디스패치됩니다(x86-64:
-`CR3`/`invlpg`; RISC-V: `sfence.vma`/`satp`; AArch64: `TTBR0_EL1`/
-`TLBI`).
+`MmuContext<F>`는 CPU가 직접 탐색하는 페이지 테이블을 만듭니다. `F`는
+컴파일 타임에 고르는 페이지 테이블 형식 타입이며(`BST<K, V, C>`의 순서
+관계와 같은 방식), 아키텍처마다 하나씩 있습니다:
 
-컨텍스트 하나는 2단계 테이블을 최대 `MMU_L2_MAX`(512)개까지 보관합니다.
+| 형식 | 테이블 |
+|---|---|
+| `MmuX86_64` | x86-64 4단계 페이징, 48비트 VA, 8바이트 엔트리. 실행 불가 페이지는 NX를 설정하며 `EFER.NXE`가 필요합니다 |
+| `MmuX86_32` | PAE 없는 x86 32비트 페이징: 2단계, 4바이트 엔트리(NX 없음) |
+| `MmuSv39` | RISC-V Sv39(RV64): 3단계, 8바이트 PTE. 리프는 A와 D를 미리 설정합니다 |
+| `MmuSv32` | RISC-V Sv32(RV32): 2단계, 4바이트 PTE |
+| `MmuAArch64` | AArch64 stage 1, 4 KiB 그래뉼, 48비트 VA: 4단계. 리프는 일반 메모리에 MAIR 인덱스 0, 디바이스 메모리에 1을 씁니다(`MAIR_EL1`을 Attr0 = 0xFF, Attr1 = 0x04로 설정). `TCR_EL1`은 4 KiB 그래뉼과 T0SZ = 16이어야 합니다 |
+| `MmuArmV7` | ARMv7-A short descriptor: 16 KiB 정렬된 16 KiB L1 테이블과 1 KiB L2 테이블. 일반 메모리는 write-back(TEX=001 C B), 디바이스 메모리는 TEX=000 B |
 
-::: warning
-테이블은 `paging.h`의 x86 방식 플래그 비트를 쓰는 이 모듈 고유의 2단계 레이아웃입니다. 이 형식을 해석하는 실제 MMU는 없으므로(x86-64는 4단계, RISC-V Sv39는 자체 PTE 비트를 쓰는 3단계, AArch64는 자체 디스크립터) 하드웨어에서 `activate()`를 호출해도 주소 변환이 동작하지 않습니다. `map`/`unmap`/`walk`를 소프트웨어 페이지 테이블로 사용합니다.
-:::
+`MmuNative`는 컴파일 대상 CPU의 형식입니다(MPU만 있고 MMU가 없는 Cortex-M과
+wasm에는 없습니다). 모든 형식은 어느 대상에서든 만들고 탐색할 수 있지만(예:
+호스트의 테스트나 이미지 빌더), `activate()`와 TLB 함수는 형식이 실행 중인
+베어메탈 CPU의 것일 때만 동작하고 그 외에는 0을 반환합니다.
+
+```c
+#include <std/kernel/mmu.h>
+
+static struct FrameAllocator g_frames;
+
+void vm_setup(unsigned long root) {           // 0으로 채운 4 KiB 정렬 테이블
+    g_frames.init_at(0x80400000UL, 256UL);
+    struct MmuContext<MmuNative> m = std::mmu_init(root, &g_frames, 0UL);
+    m.map(0x80000000UL, 0x80000000UL, MMU_WRITE | MMU_EXEC);   // 항등 매핑: 커널 이미지
+    m.map(0x10000000UL, 0x10000000UL, MMU_WRITE | MMU_DEVICE); // UART
+    m.activate();                             // satp / CR3 / TTBR0
+}
+```
+
+- `mmu_init(root, frames, phys_offset)`: `root`는 0으로 채운 루트 테이블의
+  물리 주소(4 KiB 정렬, `MmuArmV7`은 16 KiB), `frames`는 새 중간 테이블마다
+  프레임 하나를 공급하는 살아 있는 `&static` `FrameAllocator`이며, 테이블은
+  물리 주소 + `phys_offset`에서 읽고 씁니다(항등 매핑 커널은 0, higher-half
+  커널은 direct map의 기준 주소).
+- `map(virt, phys, flags)`는 4 KiB 페이지 하나를 매핑합니다. `flags`는
+  `MMU_WRITE`, `MMU_EXEC`, `MMU_USER`, `MMU_DEVICE`입니다(모든 매핑은 읽을 수
+  있으며, RISC-V는 캐시 가능성을 PMA에 맡깁니다). 테이블 프레임을 할당할 수
+  없거나 더 큰 페이지가 이미 `virt`를 덮고 있으면 0을 반환합니다.
+- `unmap(virt)`, `walk(virt, &phys_out)`(더 큰 블록/슈퍼페이지 리프도
+  따라갑니다), `entry(virt, &entry_out)`(리프 엔트리 원본).
+- `tlb_flush_all()`, `tlb_flush_page(virt)`, `activate()`: x86은 `CR3` 재적재 /
+  `invlpg`, RISC-V는 `satp` 기록(S·U 모드 변환을 켭니다) / `sfence.vma`,
+  AArch64는 `TTBR0_EL1` 기록 / `TLBI`, ARMv7은 `TTBR0` 기록 / `TLBIALL`입니다.
+  페이징 켜기(`CR0.PG`, `SCTLR.M`)와 MAIR/TCR 설정은 부트 코드의 몫입니다.
+
+`tests/stdlib/baremetal/qemu/run.sh`는 모든 형식을 QEMU에서 변환을 켠 채로
+실행합니다 — S 모드의 Sv39와 Sv32, MMU를 켠 AArch64와 ARMv7, x86 32비트
+페이징과 x86-64 롱 모드 — 그리고 별칭 매핑을 통해 페이지를 읽고 씁니다.
 
 ## 프로세스 제어 블록 (`kernel/process.h`) {#process-control-block-kernelprocessh}
 
@@ -78,7 +115,7 @@ pc)`, `exit(code)`(`PROC_ZOMBIE`로 전이).
 ## 스케줄러 (`kernel/scheduler.h`) {#scheduler-kernelschedulerh}
 
 `Scheduler` — 최대 `SCHED_MAX_PROCS`(256)개의 PCB에 대한 우선순위
-기반 라운드 로빈. `sched_init()`; `spawn_proc(&stack PCB)`(인덱스 반환,
+기반 라운드 로빈. `sched_init()`; `spawn_proc(&PCB)`(인덱스 반환,
 가득 찼으면 `-1`), `next()`(우선순위가 가장 높은 READY 프로세스 선택),
 `yield()`(현재 프로세스를 READY로 표시하고 다음 프로세스 선택),
 `block_current()`, `unblock(idx)`, `remove(idx)`(좀비 회수),
@@ -92,8 +129,8 @@ pc)`, `exit(code)`(`PROC_ZOMBIE`로 전이).
 `Mailbox`(`mailbox_init(owner_pid)`로 생성) — 고정 용량
 (`MAILBOX_CAPACITY` = 64개 메시지, `MSG_MAX_SIZE` = 256바이트 페이로드)
 메시지 큐. `send(sender_pid, type, payload, size)`(`payload`는
-`const ?&unsigned char`이며, 신호 전용 메시지는 `size` 0과 함께 `null`을 전달), `recv(&stack
-Message out)`, `peek(&stack Message out)`(비파괴적), `has_msg()`,
+`const ?&unsigned char`이며, 신호 전용 메시지는 `size` 0과 함께 `null`을 전달), `recv(&Message out)`,
+`peek(&Message out)`(비파괴적), `has_msg()`,
 `length()`, `clear()`.
 
 ## 시스템 콜 테이블 (`kernel/syscall.h`) {#syscall-table-kernelsyscallh}
