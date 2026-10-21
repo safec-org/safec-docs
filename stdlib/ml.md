@@ -1267,8 +1267,8 @@ discrete memory model needs.
   `tests/stdlib/rocm/run.sh` checks every op, all four GEMM transpose
   combinations, graphs, the host-array API and the fp16/bf16 buffers
   (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
-  results (87 checks), plus the [MIOpen and hipFFT
-  libraries](#rocm-miopen-hipfft) (43 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
+  results (325 checks, including the mixed-precision ops), plus the [MIOpen and hipFFT
+  libraries](#rocm-miopen-hipfft) (73 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
   train to the same loss as the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
@@ -1304,6 +1304,7 @@ the backend picks the one with the most compute units.
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
 | fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
+| Mixed precision | `rocm_half_convert` (fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many` (up to 32 buffers per launch); `rocm_half_unscale_many` / `rocm_unscale_many` (gradients × 1/scale, with an overflow flag) and `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam` (fp32 master weights, also writing the 16-bit copy, skipped on the GPU when the flag is set); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias` (row or NCHW channel bias, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. See [mixed precision on the GPU](#gpu-mixed-precision) |
 | Attention | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)` (exact softmax attention, tiled, no score matrix), `rocm_linear_attention(...)` (φ(x) = elu(x) + 1 kernel attention, linear in sequence length); host-array forms `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)` (matrix cores on CDNA GPUs) |
 | Graphs | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | Interop | `rocm_stream_handle()`: the HIP stream every op is queued on, which MIOpen and hipFFT use too |
@@ -1434,6 +1435,7 @@ into graphs.
 | Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu` (tanh approximation), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
+| Mixed precision | The [ROCm mixed-precision ops](#gpu-mixed-precision) with `cuda_` names: `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`; queued, so they can be recorded into a `CudaGraph` |
 | Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm), taken from the [Gemma 4 CUDA engine](/benchmarks#ml-llm)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
@@ -1483,8 +1485,8 @@ switch the cuBLAS GEMMs use.
 
 | Group | Functions |
 |---|---|
-| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU, fused), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
+| Layers | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D` (weights rounded to fp16 / bf16), `cuda_half_conv2d_free` |
+| Queued ops | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (conv + bias + ReLU, fused), `cuda_half_conv2d` / `cuda_half_conv2d_relu` (16-bit `CudaHalfBuf`s: cuDNN's half / bfloat16 convolution with fp32 compute and tensor-op math, then the fused 16-bit bias kernel), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (two strided-copy kernels); in `gpu_cuda.h`: `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (2D strided copy, one kernel) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (weights and every activation preallocated), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | Host arrays | `conv2d_forward_cuda`, `unet_forward_cuda`: the signatures of `conv2d_forward`/`unet_forward`. They upload the weights on every call and fall back to the CPU when no GPU is usable |
 
@@ -1559,8 +1561,8 @@ shapes, so the bias add and ReLU run as one HIP kernel after the convolution
 
 | Group | Functions |
 |---|---|
-| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
-| Queued ops | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| Layers | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D` (weights rounded to fp16 / bf16), `rocm_half_conv2d_free` |
+| Queued ops | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_half_conv2d` / `rocm_half_conv2d_relu` (16-bit `RocmHalfBuf`s: MIOpen's half / bfloat16 convolution with fp32 accumulation, then the fused 16-bit bias kernel), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels` (one kernel for the whole batch); in `gpu_rocm.h`: `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
 | U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)` (each decoder step upsamples straight into its concat buffer), `rocm_unet_free` |
 | Host arrays | `conv2d_forward_rocm`, `unet_forward_rocm`, falling back to the CPU when no GPU is usable |
 
@@ -1573,9 +1575,12 @@ any length. Forward transforms are unnormalized and inverse ones include 1/N.
 | Queued, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r` (may overwrite its input) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc` runs the same checks as the CUDA
-suite against the CPU code (43 checks on an MI100): convolutions at stride 1
+suite against the CPU code (73 checks on an MI100): convolutions at stride 1
 and 2, batched, with ReLU and replayed from a graph; pooling, upsample and
-concat; a whole U-Net; and every FFT form.
+concat; a whole U-Net; every FFT form; and fp16 and bf16 convolutions and
+pooling against `cnn.h` on the same rounded inputs. 16-bit pooling is a HIP
+kernel in `gpu_rocm.h`, since MIOpen has no bfloat16 pooling solver on every
+GPU (none on the MI100).
 
 On the MI100, one 64-channel convolution takes 0.027 ms against PyTorch-ROCm's 0.063 ms and the batch-1 U-Net 0.227 ms against 0.315 ms; at batch 16–32 the two are within 2%. Device-resident FFTs are 1.4–1.7× faster than through PyTorch. See the [benchmarks](/benchmarks#ml-convolution).
 
@@ -1777,7 +1782,7 @@ void tensor_gpu_release_all_persistent();
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
-| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
+| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 325 + 73 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
 | CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#ml-mlp) and the [conv/FFT benchmarks](/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
@@ -1808,7 +1813,56 @@ void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+
+int         half_cpu_features();        // HALF_CPU_* bits, detected once
+const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
+
+**What the CPU does natively.** Every x86-64 CPU since 2012 converts fp16
+in hardware (F16C), and so does every AArch64 core (FCVTL / FCVTN). bf16 is
+newer and optional: AVX512-BF16 on Cooper Lake, Sapphire Rapids and Zen 4
+or later, and FEAT_BF16 on Armv8.6 cores (Neoverse V1 / N2, Apple M2 and
+later). fp16 arithmetic (AVX512-FP16, FEAT_FP16) is optional too.
+`half_cpu_features()` reports what this CPU has:
+
+| Bit | Meaning | x86-64 | AArch64 |
+|---|---|---|---|
+| `HALF_CPU_F16_CONVERT` | fp16 ↔ fp32 instructions | F16C | always |
+| `HALF_CPU_F16_ARITH` | fp16 arithmetic | AVX512-FP16 | FEAT_FP16 |
+| `HALF_CPU_BF16_CONVERT` | fp32 → bf16 instructions | AVX512-BF16 | FEAT_BF16 |
+| `HALF_CPU_BF16_DOT` | bf16 dot products | AVX512-BF16 (`VDPBF16PS`) | FEAT_BF16 (`BFDOT`) |
+
+Detection runs once: cpuid and xgetbv on x86-64, `getauxval` on Linux
+AArch64, `sysctl` on Apple. `SAFEC_HALF=soft` reports none and makes the
+bulk conversions use the portable code, for comparison.
+
+**Bulk conversions.**
+
+- fp16: F16C on x86-64 and FCVTL / FCVTN on AArch64.
+- fp32 → bf16: AVX512-BF16 where present, 16 values per instruction.
+  `VCVTNEPS2BF16` flushes fp32 subnormals to zero, so a block containing
+  one is spotted with `VFPCLASSPS` and converted in software instead.
+- Everywhere else: bf16 → fp32 is a shift, and fp32 → bf16 an integer
+  rounding, both in loops the compiler vectorizes.
+- Arrays of 256K values or more are split across the thread pool.
+
+The results are bit-identical to the scalar functions, except that NaNs
+may keep more of their payload. The tests compare every one of the 65,536
+fp16 patterns, and random fp32 patterns of every class, in both modes.
+
+On a Ryzen 7 7800X3D (one thread, 16M values, read + write bandwidth):
+
+| Conversion | Hardware | `SAFEC_HALF=soft` |
+|---|---|---|
+| fp32 → fp16 | 47 GB/s | 2.8 GB/s |
+| fp16 → fp32 | 43 GB/s | 7.0 GB/s |
+| fp32 → bf16 | 53 GB/s | 27 GB/s |
+| bf16 → fp32 | 39 GB/s (a shift either way) | 41 GB/s |
+
+Across all 16 threads, every conversion reaches 58–99 GB/s with the
+hardware paths.
 
 ### Half-precision tensors — `tensor_half.h` {#half-precision-tensors}
 
@@ -1859,6 +1913,16 @@ float             half_sum(const &HalfTensor a);                            // f
 int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // m vectors: x [m][k], y [m][n]
 
+// Mixed-precision batches: fp32 masters <-> 16-bit copies, 16-bit gradients back
+int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // into an existing copy
+int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
+int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
+struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
+int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
+int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
+void half_tensors_free(&Vec<struct HalfTensor> hs);
+int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = all finite
+
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
@@ -1871,6 +1935,7 @@ struct LossScaler {
 };
 struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
 int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+int  loss_scaler_unscale_all(&LossScaler s, &Vec<&Tensor> params);   // every tensor in a list
 void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
 ```
 
@@ -1944,6 +2009,51 @@ int main() {
 }
 ```
 
+
+### Mixed precision on the GPU {#gpu-mixed-precision}
+
+```c
+#include <std/ml/gpu_rocm.h>     // ROCm; gpu_cuda.h has the same functions with cuda_ names
+#include <std/ml/gpu_miopen.h>   // 16-bit convolution (gpu_cudnn.h on CUDA)
+```
+
+Mixed-precision training normally keeps:
+
+- fp32 master weights and optimizer state;
+- a 16-bit copy of the weights for the forward and backward passes;
+- gradients that carry the loss scale.
+
+ROCm and CUDA have the same queued ops for every part of the step:
+
+| Step | ROCm (`cuda_` on CUDA) |
+|---|---|
+| Copies of many tensors | `rocm_to_half_many(&f32s, &halves)`, `rocm_from_half_many`: up to 32 buffers per launch, one dtype per call |
+| fp16 ↔ bf16 | `rocm_half_convert(src, dst)` |
+| 16-bit compute | `rocm_half_gemm` / `_f32` / `_relu`, `rocm_half_conv2d` / `_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
+| Unscaling | `rocm_half_unscale_many(&g16, &g32, 1 / scale, flag)` (16-bit gradients → fp32), `rocm_unscale_many(&g32, &g32, …)` (fp32, in place): set `flag[0] = 1` on any inf / NaN; `rocm_zero(flag)` first |
+| Update | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)` (Adam / AdamW) and `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`'s `optimizer_step` arithmetic, the rounded weights also written to `w16`, and the whole update skipped on the GPU when `flag[0] != 0` |
+
+Because the skip happens on the GPU, an overflowed step needs no host round
+trip before the update. Read the 4-byte flag once per step, whenever it's
+convenient, to grow or back off the `LossScaler`. bf16 shares fp32's exponent
+range and usually trains without loss scaling; pass an invalid `flag`
+(`dev == 0`) to `rocm_mp_*` to never skip.
+
+Every kernel computes in fp32 and rounds once per stored value. Updates run
+without FMA contraction (`fp contract(off)` in HIP, `__fmul_rn`-style
+intrinsics in CUDA), so the results match the CPU arithmetic.
+`tests/stdlib/rocm/rocm_check.sc` checks this on an MI100:
+
+- fp16 ↔ bf16 over every 16-bit pattern;
+- 40 buffers through bf16 and back;
+- unscaling, and the overflow flag;
+- three Adam, AdamW and momentum-SGD steps against the CPU (within 1e-5)
+  with their bf16 copies, and a flagged step changing nothing;
+- every 16-bit elementwise op and the NCHW bias bit-for-bit.
+
+The CUDA versions have the same tests in `tests/stdlib/cuda/cuda_check.sc`.
+Their kernels compile (clang, sm_80) and the tests build, but they haven't
+yet run on an NVIDIA GPU.
 
 ## Device selection {#device-selection}
 

@@ -1219,8 +1219,8 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 - **ROCm**: AMD Instinct MI100(gfx908, ROCm 7.1)에서 검증되었다 —
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
   그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
-  반올림, 16비트 GEMM, SGD)를 CPU 결과와 비교하며(검사 87개), [MIOpen과
-  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 43개).
+  반올림, 16비트 GEMM, SGD, 혼합 정밀도 연산)를 CPU 결과와 비교하며(검사 325개), [MIOpen과
+  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사한다(검사 73개).
   [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 MPS 경로와 같은 손실까지 학습한다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했다 —
@@ -1256,6 +1256,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리다(MLX 자체의 셀링 포�
 | 학습 | `rocm_sgd(w, g, lr)`(제자리), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | 배치 | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`(U-Net 디코더 한 단계를 한 번에), `rocm_bias_channels(y, bias, batch, channels, plane, relu)`(채널별 바이어스와 선택적 ReLU, 제자리) |
 | fp16 / bf16 | `RocmHalfBuf`(`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read`(원시 비트), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm`(16비트 결과), `rocm_half_gemm_relu`, `rocm_half_gemm_f32`(fp32 결과); 학습 연산 `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad`(손실은 fp32), `rocm_half_sgd(w, g, lr)`, `rocm_half_sgd2`(갱신 두 번을 실행 한 번에). CUDA의 `CudaHalfBuf`와 같은 API이며, 원소별 연산은 fp32로 계산해 저장할 때 한 번 반올림하므로 `float16.h`와 비트 단위로 같다 |
+| 혼합 정밀도 | `rocm_half_convert`(fp16 ↔ bf16); `rocm_to_half_many` / `rocm_from_half_many`(실행 한 번에 버퍼 최대 32개); `rocm_half_unscale_many` / `rocm_unscale_many`(그래디언트 × 1/scale, 오버플로 플래그 포함)와 `rocm_zero`; `rocm_mp_sgd` / `rocm_mp_adam`(fp32 마스터 가중치, 16비트 사본도 기록, 플래그가 서 있으면 GPU에서 건너뜀); `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias`(행 또는 NCHW 채널 바이어스, ReLU); `rocm_half_maxpool2d` / `rocm_half_avgpool2d`. [GPU 혼합 정밀도](#gpu-mixed-precision) 참고 |
 | 어텐션 | `rocm_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`(정확한 softmax 어텐션, 타일 방식, 점수 행렬 없음), `rocm_linear_attention(...)`(φ(x) = elu(x) + 1 커널 어텐션, 시퀀스 길이에 선형); 호스트 배열 형태 `rocm_flash_attention_f32` / `rocm_linear_attention_f32`; `rocm_attention_use_mfma(on)`(CDNA GPU의 행렬 코어) |
 | 그래프 | `rocm_capture_begin` / `rocm_capture_end` → `RocmGraph`, `rocm_graph_launch`, `rocm_graph_free` |
 | 상호 운용 | `rocm_stream_handle()`: 모든 연산이 쌓이는 HIP 스트림. MIOpen과 hipFFT도 이 스트림을 씀 |
@@ -1382,6 +1383,7 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu`(tanh 근사), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
+| 혼합 정밀도 | `cuda_` 이름의 [ROCm 혼합 정밀도 연산](#gpu-mixed-precision): `cuda_half_convert`, `cuda_to_half_many` / `cuda_from_half_many`, `cuda_half_unscale_many` / `cuda_unscale_many`, `cuda_zero`, `cuda_mp_sgd` / `cuda_mp_adam`, `cuda_half_add` / `sub` / `mul` / `scale` / `axpy`, `cuda_half_bias`, `cuda_half_maxpool2d` / `cuda_half_avgpool2d`. 큐에 들어가므로 `CudaGraph`에 기록할 수 있습니다 |
 | 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#ml-llm)의 커널에서 가져왔습니다 |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
@@ -1429,8 +1431,8 @@ API의 최선 알고리즘(`cudnnFindConvolutionForwardAlgorithm`)을 그 호출
 
 | 분류 | 함수 |
 |---|---|
-| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim` |
-| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
+| 레이어 | `cuda_conv2d_upload(&Conv2D)` → `CudaConv2D`, `cuda_conv2d_free`, `cuda_conv_out_dim`; `cuda_half_conv2d_upload(&Conv2D, dtype)` → `CudaHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `cuda_half_conv2d_free` |
+| 큐 연산 | `cuda_conv2d(&layer, x, y, batch, h, w)`, `cuda_conv2d_relu` (합성곱 + 바이어스 + ReLU 융합), `cuda_half_conv2d` / `cuda_half_conv2d_relu`(16비트 `CudaHalfBuf`: fp32 계산과 tensor-op 수학으로 cuDNN의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `cuda_maxpool2d`, `cuda_avgpool2d`, `cuda_concat_channels` (strided 복사 커널 두 번); `gpu_cuda.h`에 `cuda_upsample2x_nearest`, `cuda_copy`, `cuda_copy_rows(src, srcOff, srcStride, dst, dstOff, dstStride, rowLen, rows)` (커널 하나로 하는 2D strided 복사) |
 | U-Net | `cuda_unet_new(&UNet, batch, h, w)` → `CudaUNet` (가중치와 모든 활성값을 미리 할당), `cuda_unet_forward(&g, x, y)`, `cuda_unet_free` |
 | 호스트 배열 | `conv2d_forward_cuda`, `unet_forward_cuda`: `conv2d_forward`/`unet_forward`와 같은 시그니처. 호출마다 가중치를 올리고, 쓸 수 있는 GPU가 없으면 CPU 구현으로 돌아간다 |
 
@@ -1500,8 +1502,8 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 
 | 그룹 | 함수 |
 |---|---|
-| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim` |
-| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
+| 계층 | `rocm_conv2d_upload(&Conv2D)` → `RocmConv2D`, `rocm_conv2d_free`, `rocm_conv_out_dim`; `rocm_half_conv2d_upload(&Conv2D, dtype)` → `RocmHalfConv2D`(가중치를 fp16 / bf16으로 반올림), `rocm_half_conv2d_free` |
+| 큐 연산 | `rocm_conv2d(&layer, x, y, batch, h, w)`, `rocm_conv2d_relu`, `rocm_half_conv2d` / `rocm_half_conv2d_relu`(16비트 `RocmHalfBuf`: fp32 누적으로 MIOpen의 half / bfloat16 합성곱, 이어서 융합 16비트 바이어스 커널), `rocm_maxpool2d`, `rocm_avgpool2d`, `rocm_concat_channels`(배치 전체를 커널 하나로); `gpu_rocm.h`의 `rocm_upsample2x_nearest`, `rocm_upsample2x_concat`, `rocm_copy` |
 | U-Net | `rocm_unet_new(&UNet, batch, h, w)` → `RocmUNet`, `rocm_unet_forward(&g, x, y)`(디코더 단계마다 연결 버퍼로 바로 업샘플), `rocm_unet_free` |
 | 호스트 배열 | `conv2d_forward_rocm`, `unet_forward_rocm`. GPU를 쓸 수 없으면 CPU로 대체 |
 
@@ -1514,8 +1516,11 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 | 큐, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r`(입력을 덮어쓸 수 있음) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc`는 CUDA 모음과 같은 검사를 CPU 코드와
-비교해 실행합니다(MI100에서 검사 43개): 스트라이드 1과 2, 배치, ReLU, 그래프
-재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태.
+비교해 실행합니다(MI100에서 검사 73개): 스트라이드 1과 2, 배치, ReLU, 그래프
+재생 합성곱; 풀링, 업샘플, 연결; U-Net 전체; 모든 FFT 형태; 같은 반올림 입력에서
+`cnn.h`와 비교한 fp16·bf16 합성곱과 풀링. MIOpen에는 모든 GPU에서 쓸 수 있는
+bfloat16 풀링 solver가 없으므로(MI100에는 없음), 16비트 풀링은 `gpu_rocm.h`의 HIP
+커널입니다.
 
 MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치 1 U-Net은 0.227 ms(0.315 ms)이며, 배치 16–32에서는 2% 이내입니다. 장치 상주 FFT는 PyTorch를 거칠 때보다 1.4–1.7배 빠릅니다. [벤치마크](/ko/benchmarks#ml-convolution)를 참고하세요.
 
@@ -1717,7 +1722,7 @@ void tensor_gpu_release_all_persistent();
 
 | 백엔드 | 원소별 연산 | 행렬곱 (std 커널) | 행렬곱 (벤더 BLAS) | 상태 |
 |---|---|---|---|---|
-| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 29개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
+| ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 325 + 73개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
 | CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#ml-mlp), [합성곱/FFT 벤치마크](/ko/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
 | WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
@@ -1748,7 +1753,55 @@ void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
 void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
 void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
+void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+
+int         half_cpu_features();        // HALF_CPU_* 비트, 한 번 감지
+const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
+
+**CPU가 직접 하는 것.** 2012년 이후의 모든 x86-64 CPU는 fp16을 하드웨어로
+변환하고(F16C), 모든 AArch64 코어도 마찬가지다(FCVTL / FCVTN). bf16은 더 새롭고
+선택 사항이다. Cooper Lake, Sapphire Rapids, Zen 4 이후의 AVX512-BF16, 그리고
+Armv8.6 코어(Neoverse V1 / N2, Apple M2 이후)의 FEAT_BF16에 있다. fp16 산술
+(AVX512-FP16, FEAT_FP16)도 선택 사항이다. `half_cpu_features()`가 이 CPU에 있는
+것을 알려 준다.
+
+| 비트 | 뜻 | x86-64 | AArch64 |
+|---|---|---|---|
+| `HALF_CPU_F16_CONVERT` | fp16 ↔ fp32 명령 | F16C | 항상 |
+| `HALF_CPU_F16_ARITH` | fp16 산술 | AVX512-FP16 | FEAT_FP16 |
+| `HALF_CPU_BF16_CONVERT` | fp32 → bf16 명령 | AVX512-BF16 | FEAT_BF16 |
+| `HALF_CPU_BF16_DOT` | bf16 내적 | AVX512-BF16(`VDPBF16PS`) | FEAT_BF16(`BFDOT`) |
+
+감지는 한 번만 한다. x86-64에서는 cpuid와 xgetbv, Linux AArch64에서는
+`getauxval`, Apple에서는 `sysctl`을 쓴다. `SAFEC_HALF=soft`는 아무것도 없다고
+보고하고, 비교할 수 있도록 일괄 변환이 이식 가능한 코드를 쓰게 한다.
+
+**일괄 변환.**
+
+- fp16: x86-64에서는 F16C, AArch64에서는 FCVTL / FCVTN을 쓴다.
+- fp32 → bf16: AVX512-BF16이 있으면 명령 하나에 값 16개를 바꾼다.
+  `VCVTNEPS2BF16`은 fp32 비정규수를 0으로 만들어 버리므로, 비정규수가 든 블록은
+  `VFPCLASSPS`로 찾아 소프트웨어로 대신 변환한다.
+- 그 밖에는 bf16 → fp32는 시프트이고 fp32 → bf16은 정수 반올림이며, 둘 다
+  컴파일러가 벡터화하는 루프다.
+- 값이 256K개 이상인 배열은 스레드 풀에 나눈다.
+
+결과는 NaN이 페이로드를 더 많이 유지할 수 있다는 점을 빼면 스칼라 함수와 비트
+단위로 같다. 테스트는 두 모드 모두에서 fp16 패턴 65,536개 전부와, 모든 종류의
+무작위 fp32 패턴을 비교한다.
+
+Ryzen 7 7800X3D에서(스레드 하나, 값 16M개, 읽기 + 쓰기 대역폭):
+
+| 변환 | 하드웨어 | `SAFEC_HALF=soft` |
+|---|---|---|
+| fp32 → fp16 | 47 GB/s | 2.8 GB/s |
+| fp16 → fp32 | 43 GB/s | 7.0 GB/s |
+| fp32 → bf16 | 53 GB/s | 27 GB/s |
+| bf16 → fp32 | 39 GB/s(어느 쪽이든 시프트) | 41 GB/s |
+
+스레드 16개 전부를 쓰면 하드웨어 경로에서 모든 변환이 58–99 GB/s에 이른다.
 
 
 ### 반정밀도 텐서 — `tensor_half.h` {#half-precision-tensors}
@@ -1800,6 +1853,16 @@ float             half_sum(const &HalfTensor a);                            // f
 int               half_gemv(const &HalfTensor w, const &float x, &float y); // y = w x, float32 x / y
 int               half_gemv_batch(const &HalfTensor w, const &float x, unsigned long m, &float y); // 벡터 m개: x [m][k], y [m][n]
 
+// 혼합 정밀도 일괄 변환: fp32 마스터 <-> 16비트 사본, 16비트 그래디언트 되돌리기
+int  tensor_to_half_into(const &Tensor t, &HalfTensor dst);                 // 기존 사본에
+int  half_to_tensor_into(const &HalfTensor h, &Tensor dst);
+int  half_convert(const &HalfTensor src, &HalfTensor dst);                  // fp16 <-> bf16
+struct Vec<struct HalfTensor> tensors_to_half(const &Vec<&Tensor> ts, int dtype);
+int  tensors_to_half_into(const &Vec<&Tensor> ts, &Vec<struct HalfTensor> dst);
+int  halves_to_tensors(const &Vec<struct HalfTensor> hs, &Vec<&Tensor> dst);
+void half_tensors_free(&Vec<struct HalfTensor> hs);
+int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> params, float invScale);  // 1 = 모두 유한
+
 &Tensor tensor_cast(const &Tensor a, int dtype);                            // straight-through gradient
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
@@ -1812,6 +1875,7 @@ struct LossScaler {
 };
 struct LossScaler loss_scaler_new();                       // scale 65536 (PyTorch GradScaler's defaults)
 int  loss_scaler_unscale(&LossScaler s, &Tensor p);        // divide p.grad by scale; 0 if any grad is inf/NaN
+int  loss_scaler_unscale_all(&LossScaler s, &Vec<&Tensor> params);   // 목록의 모든 텐서
 void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean steps, back off after overflow
 ```
 
@@ -1884,6 +1948,50 @@ int main() {
     return (ok && pred > (float)0.95 && pred < (float)1.05) ? 0 : 1;
 }
 ```
+
+### GPU 혼합 정밀도 {#gpu-mixed-precision}
+
+```c
+#include <std/ml/gpu_rocm.h>     // ROCm. gpu_cuda.h에는 cuda_ 이름으로 같은 함수가 있다
+#include <std/ml/gpu_miopen.h>   // 16비트 합성곱(CUDA에서는 gpu_cudnn.h)
+```
+
+혼합 정밀도 학습은 보통 다음을 둔다.
+
+- fp32 마스터 가중치와 옵티마이저 상태
+- 순전파와 역전파에 쓰는 가중치의 16비트 사본
+- 손실 스케일이 곱해진 그래디언트
+
+ROCm과 CUDA는 스텝의 모든 부분에 같은 큐 연산을 갖는다.
+
+| 단계 | ROCm(CUDA에서는 `cuda_`) |
+|---|---|
+| 여러 텐서의 사본 | `rocm_to_half_many(&f32s, &halves)`, `rocm_from_half_many`: 실행 한 번에 버퍼 최대 32개, 호출마다 dtype 하나 |
+| fp16 ↔ bf16 | `rocm_half_convert(src, dst)` |
+| 16비트 계산 | `rocm_half_gemm` / `_f32` / `_relu`, `rocm_half_conv2d` / `_relu`, `rocm_half_add` / `sub` / `mul` / `scale` / `axpy`, `rocm_half_bias(y, bias, rows, channels, plane, relu)`, `rocm_half_maxpool2d` / `avgpool2d`, `rocm_half_relu` / `_relu_grad` |
+| 스케일 되돌리기 | `rocm_half_unscale_many(&g16, &g32, 1 / scale, flag)`(16비트 그래디언트 → fp32), `rocm_unscale_many(&g32, &g32, …)`(fp32, 제자리): inf / NaN이 하나라도 있으면 `flag[0] = 1`. 먼저 `rocm_zero(flag)` |
+| 갱신 | `rocm_mp_adam(w32, m, v, g32, w16, lr, β1, β2, eps, weightDecay, decoupled, step, flag)`(Adam / AdamW)와 `rocm_mp_sgd(w32, g32, vel, w16, lr, momentum, weightDecay, flag)`: `nn.h`의 `optimizer_step`과 같은 산술이며, 반올림한 가중치를 `w16`에도 쓰고, `flag[0] != 0`이면 갱신 전체를 GPU에서 건너뛴다 |
+
+GPU에서 건너뛰므로, 오버플로가 난 스텝도 갱신 전에 호스트를 오갈 필요가 없다.
+`LossScaler`를 키우거나 줄이려면 스텝마다 편할 때 4바이트 플래그를 한 번 읽으면
+된다. bf16은 fp32와 지수 범위가 같아서 보통 손실 스케일링 없이 학습한다.
+`rocm_mp_*`에 무효한 `flag`(`dev == 0`)를 넘기면 건너뛰지 않는다.
+
+모든 커널은 fp32로 계산하고 저장할 값마다 한 번 반올림한다. 갱신은 FMA 축약
+없이 실행하므로(HIP에서는 `fp contract(off)`, CUDA에서는 `__fmul_rn` 계열
+intrinsic) CPU 산술과 결과가 같다. `tests/stdlib/rocm/rocm_check.sc`는 MI100에서
+다음을 확인한다.
+
+- 모든 16비트 패턴에서의 fp16 ↔ bf16
+- bf16을 거쳐 돌아오는 버퍼 40개
+- 스케일 되돌리기와 오버플로 플래그
+- CPU와 비교한 Adam·AdamW·모멘텀 SGD 세 스텝(1e-5 이내)과 그 bf16 사본, 그리고
+  플래그가 선 스텝이 아무것도 바꾸지 않는지
+- 모든 16비트 원소별 연산과 NCHW 바이어스가 비트 단위로 같은지
+
+CUDA 버전은 `tests/stdlib/cuda/cuda_check.sc`에 같은 테스트가 있다. 커널은
+컴파일되고(clang, sm_80) 테스트도 빌드되지만, 아직 NVIDIA GPU에서 실행하지는
+않았다.
 
 ## 장치 선택 {#device-selection}
 
