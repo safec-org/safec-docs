@@ -8,7 +8,7 @@
 |---------|-------------|
 | `safeguard new <name>` | `Package.toml`과 `src/main.sc`를 갖춘 새 프로젝트 디렉터리를 스캐폴딩 |
 | `safeguard init` | 현재 디렉터리에 `Package.toml` 초기화 |
-| `safeguard fetch` | `Package.toml`에 나열된 모든 의존성 다운로드 |
+| `safeguard fetch` | `Package.toml`에 나열된 git 의존성을 클론하고 소스 의존성을 빌드 |
 | `safeguard build [--release]` | 프로젝트와 모든 의존성 컴파일 |
 | `safeguard check` | 빠른 컴파일 전용 패스 — 오브젝트 어셈블이나 링킹 없이 오류만 보고 |
 | `safeguard test` | `tests/` 아래의 모든 파일을 독립적인 바이너리로 빌드하고 실행 |
@@ -148,7 +148,35 @@ version = "https://github.com/user/mylib"
 
 `[package]` 섹션은 프로젝트 이름과 버전을 정의합니다.
 
-각 `[[dependencies]]` 항목은 이름과 소스 URL로 의존성을 지정합니다. 의존성은 `safeguard fetch` 중에 빌드 디렉터리로 클론되는 git 저장소입니다.
+각 `[[dependencies]]` 항목은 의존성의 이름과 출처를 지정합니다([의존성](#dependencies) 참고).
+
+## 의존성 {#dependencies}
+
+의존성은 세 곳 중 하나에서 옵니다:
+
+```toml
+[[dependencies]]                              # git 저장소, deps/<name>으로 클론
+name    = "mylib"
+version = "https://github.com/user/mylib"
+
+[[dependencies]]                              # 로컬 디렉터리
+name    = "mylib"
+path    = "../mylib"
+
+[[dependencies]]                              # 미리 빌드된 라이브러리 파일
+name    = "mylib"
+lib     = ["vendor/libmylib.a"]               # .a, .so, .dylib 또는 .lib
+include = ["vendor/include"]                  # 헤더 디렉터리(선택)
+```
+
+디렉터리가 제공하는 것은 가져온 것이든 로컬이든 그 내용에 따라 정해집니다:
+
+| 디렉터리에 있는 것 | 종류 | safeguard의 동작 |
+|---|---|---|
+| `src/` | SafeC 패키지 | `src/`(`.sc`, `.c`, `.cpp`)를 `build/deps/lib<name>.a`로 빌드합니다. `include/`와 `src/`를 include 경로에 넣습니다 |
+| `src/` 없음 | 미리 빌드된 라이브러리 디렉터리 | `lib/`, `lib64/` 또는 디렉터리 자체에서 `lib<name>.a`, `lib<name>.so`, `lib<name>.dylib` 또는 `<name>.lib`를 정적 라이브러리 우선으로 링크합니다. 그 이름의 라이브러리가 없으면, 라이브러리가 있는 첫 디렉터리의 라이브러리를 모두 링크합니다(`openssl`이라는 의존성에 `libssl`과 `libcrypto`가 있는 설치 등). `include/`를 include 경로에 넣습니다 |
+
+`lib`는 라이브러리 파일을 직접 지정하며, 디렉터리 내용보다 우선합니다. `lib`와 `include` 경로는 의존성에 `version`이나 `path`가 있으면 그 디렉터리를, 없으면 프로젝트 루트를 기준으로 합니다. 가져온 저장소도 이렇게 미리 빌드된 라이브러리를 제공할 수 있습니다: `version = "https://..."`와 `lib = ["lib/macos-arm64/libmylib.a"]`. 공유 라이브러리에는 그 디렉터리로 rpath를 걸어 프로그램이 실행 시점에 찾을 수 있게 합니다. 로컬 `path`는 프로젝트 루트를 기준으로 합니다. 라이브러리, 디렉터리 또는 `include` 디렉터리가 없거나, 디렉터리에 `src/`도 라이브러리도 없으면 `safeguard fetch`와 `build`는 의존성 이름과 함께 실패합니다. 의존성 라이브러리는 표준 라이브러리보다 앞에 링크되므로 SafeC 패키지가 `std`를 쓸 수 있습니다.
 
 ## 기능 플래그 {#feature-flags}
 
@@ -327,7 +355,7 @@ blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 
 SafeC 표준 라이브러리(`std/`)는 자동으로 컴파일되어 `build/deps/libsafec_std.a`로 아카이브됩니다. 이 라이브러리는 별도의 수동 설정 없이 기본적으로 모든 프로젝트에 링크됩니다.
 
-각 의존성도 비슷하게 `build/deps/lib<name>.a`로 컴파일됩니다.
+소스에서 빌드하는 각 의존성도 비슷하게 `build/deps/lib<name>.a`로 컴파일되며, 미리 빌드된 의존성은 있는 위치에서 링크됩니다.
 
 ## 환경 설정 {#environment-setup}
 

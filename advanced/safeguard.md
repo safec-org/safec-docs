@@ -8,7 +8,7 @@
 |---------|-------------|
 | `safeguard new <name>` | Scaffold a new project directory with `Package.toml` and `src/main.sc` |
 | `safeguard init` | Initialize a `Package.toml` in the current directory |
-| `safeguard fetch` | Download all dependencies listed in `Package.toml` |
+| `safeguard fetch` | Clone the git dependencies listed in `Package.toml` and build the ones from source |
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
@@ -149,7 +149,35 @@ version = "https://github.com/user/mylib"
 
 The `[package]` section defines the project name and version.
 
-Each `[[dependencies]]` entry specifies a dependency by name and source URL. Dependencies are git repositories cloned into the build directory during `safeguard fetch`.
+Each `[[dependencies]]` entry names a dependency and where it comes from (see [Dependencies](#dependencies)).
+
+## Dependencies {#dependencies}
+
+A dependency comes from one of three places:
+
+```toml
+[[dependencies]]                              # a git repository, cloned to deps/<name>
+name    = "mylib"
+version = "https://github.com/user/mylib"
+
+[[dependencies]]                              # a local directory
+name    = "mylib"
+path    = "../mylib"
+
+[[dependencies]]                              # prebuilt library files
+name    = "mylib"
+lib     = ["vendor/libmylib.a"]               # .a, .so, .dylib or .lib
+include = ["vendor/include"]                  # optional header directories
+```
+
+What a directory provides, whether it's fetched or local, depends on what it contains:
+
+| The directory has | It is | safeguard |
+|---|---|---|
+| `src/` | a SafeC package | builds `src/` (`.sc`, `.c`, `.cpp`) into `build/deps/lib<name>.a`; `include/` and `src/` go on the include path |
+| no `src/` | a prebuilt library directory | links `lib<name>.a`, `lib<name>.so`, `lib<name>.dylib` or `<name>.lib` from `lib/`, `lib64/` or the directory itself, static first. Without one by that name, it links every library in the first of those that has any (an install with `libssl` and `libcrypto` for a dependency named `openssl`). `include/` goes on the include path |
+
+`lib` names the library files outright and takes precedence over what's in the directory. `lib` and `include` paths are relative to the dependency's directory when it has `version` or `path`, and to the project root otherwise. A fetched repository can ship prebuilt libraries this way too: `version = "https://..."` with `lib = ["lib/macos-arm64/libmylib.a"]`. Shared libraries get an rpath to their directory, so the program finds them at run time. A local `path` is resolved against the project root. `safeguard fetch` and `build` fail with the dependency's name when a library, a directory or an `include` directory doesn't exist, or when a directory has neither `src/` nor a library. Dependency libraries are linked before the standard library, so a SafeC package can use `std`.
 
 ## Feature Flags
 
@@ -326,7 +354,7 @@ directly produces a clear error rather than a confusing OS-level failure.
 
 The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed.
 
-Each dependency is similarly compiled to `build/deps/lib<name>.a`.
+Each dependency built from source is similarly compiled to `build/deps/lib<name>.a`; prebuilt ones are linked from where they are.
 
 ## Environment Setup
 
