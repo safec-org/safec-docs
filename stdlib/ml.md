@@ -49,13 +49,13 @@ functions (`tensor_matmul(a, b)`), and so do the step functions passed to
 CPU tensors (1D/2D, `float` — float32, like PyTorch's default and the
 only precision Metal supports) with reverse-mode autograd — PyTorch-style
 ergonomics: build a computation graph implicitly by calling ops on
-`requiresGrad` tensors, then call `tensor_backward()`. For fp16/bf16 storage
+`requiresGrad` tensors, then call `Tensor::backward()`. For fp16/bf16 storage
 and mixed-precision training, see [Half-precision tensors](#half-precision-tensors).
 
 ```c
 &Tensor x = tensor_from_1d(values, 3UL, /*requiresGrad=*/1);
 &Tensor y = tensor_sum(tensor_mul(x, x));  // y = sum(x^2)
-tensor_backward(y);                         // x.grad now holds 2x
+y.backward();                               // x.grad now holds 2x
 ```
 
 Ops: `tensor_add`/`tensor_sub`/`tensor_mul`/`tensor_scale`/`tensor_matmul`/
@@ -109,10 +109,22 @@ struct Tensor {
 &Tensor tensor_matmul(const &Tensor a, const &Tensor b);
 &Tensor tensor_sum(const &Tensor a);
 
-void tensor_backward(&Tensor t);
-void tensor_zero_grad(&Tensor t);
-int  tensor_is_grad_enabled();
-void tensor_set_grad_enabled(int enabled);   // 0 = inference: composed ops record no graph (leaf flags unchanged)
+void Tensor::backward();    // t: a scalar (a loss); accumulates every ancestor's grad
+void Tensor::zero_grad();
+
+// Gradient recording: the program's autograd state. Disabled (inference),
+// composed ops record no graph (leaf flags unchanged).
+struct GradGuard { int was; void restore(); };
+struct Autograd {
+    int  enabled() const;
+    void set_enabled(int enabled);
+    struct GradGuard no_grad();   // disables recording; restore() puts the mode back
+};
+&Autograd autograd();
+
+struct GradGuard g = autograd().no_grad();
+// ... forward passes record nothing ...
+g.restore();
 ```
 
 ### Tensor arenas {#tensor-arena}
@@ -130,7 +142,7 @@ unsigned long TensorArena::used() const;   // bytes since the last reset
 struct TensorArena step = tensor_arena_new(0UL);
 while (s < steps) {
     step.begin();
-    // ... forward, tensor_backward, optimizer update ...
+    // ... forward, Tensor::backward, optimizer update ...
     tensor_arena_end();
     step.reset();   // this step's tensors are gone
     s = s + 1;
@@ -901,7 +913,7 @@ label-swapped task that the frozen base gets wrong (accuracy below 70%):
 ```
 
 `cnn.h` runs convolutions forward on `FeatureMap`s. `convnet.h` makes them
-differentiable on `Tensor`s, so they train with `tensor_backward`, the
+differentiable on `Tensor`s, so they train with `Tensor::backward`, the
 optimizers and `trainer_fit` like `Mlp` does. Images are rows, as in every
 other model here: a batch is a `[batch, C*H*W]` tensor, and each row holds
 one image in CHW order. A 2D tensor doesn't carry the image geometry, so
@@ -2297,7 +2309,7 @@ int  half_grads_accumulate(const &Vec<struct HalfTensor> grads, &Vec<&Tensor> pa
 &Tensor tensor_matmul_lowp(const &Tensor a, const &Tensor b, int dtype);    // cast(cast(a) @ cast(b))
 
 struct LossScaler {
-    float scale;            // multiply the loss by this before tensor_backward()
+    float scale;            // multiply the loss by this before Tensor::backward()
     float growthFactor;     // 2.0
     float backoffFactor;    // 0.5
     int   growthInterval;   // 2000 clean steps
@@ -2350,17 +2362,17 @@ int train_step(&Tensor w, const &Tensor x, const &Tensor target, &LossScaler sca
     &Tensor y = std::tensor_matmul_lowp(x, w, TENSOR_FP16);
     &Tensor diff = std::tensor_sub(y, target);
     &Tensor loss = std::tensor_sum(std::tensor_mul(diff, diff));
-    std::tensor_backward(std::tensor_scale(loss, scaler.scale));
+    std::tensor_scale(loss, scaler.scale).backward();
 
-    int finite = std::loss_scaler_unscale(scaler, w);
+    int finite = scaler.unscale(w);
     if (finite) {
         struct Slice<float> g = std::slice_of(w.grad, w.size);
         for (unsigned long i = 0UL; i < w.size; i = i + 1UL) {
             w.set1(i, w.at1(i) - lr * *g.at(i));
         }
     }
-    std::loss_scaler_update(scaler, finite);
-    std::tensor_zero_grad(w);
+    scaler.update(finite);
+    w.zero_grad();
     return finite;
 }
 
