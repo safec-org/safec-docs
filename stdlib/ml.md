@@ -657,9 +657,10 @@ into graphs.
 | Device | `cuda_available`, `cuda_device_name`, `cuda_sync` |
 | Buffers | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free`; raw byte copies `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | Matmul | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu` (same arguments, fused ReLU) |
-| Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
+| Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu` (tanh approximation), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
+| Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm), taken from the [Gemma 4 CUDA engine](/benchmarks#gemma4-h200)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
 | Persistent buffers (`&void` handles) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
@@ -751,16 +752,17 @@ stream (so they order with the other ops and can be recorded into a
 - **Linear attention**, φ(x) = elu(x) + 1, in O(n d²): up to head dim 128, a per-head pass walks the 64-key chunks with the state φ(K)ᵀV in registers (storing it before each chunk when causal), then every chunk's outputs run at once. Exact fp32 arithmetic for every data type.
 - **Shapes**: the `cuda_flash_attention` / `cuda_linear_attention` / `_f32` forms take the same arguments as [ROCm's](#rocm-attention) `rocm_flash_attention` / `rocm_linear_attention` (fp32, `[heads][seq][dim]`). The `_ex` and `cuda_half_` forms take a `CudaAttnShape`: batch, grouped-query K/V (`kvHeads` dividing `heads`), and a sliding window. Head dims 32, 64, 96, 128, 256.
 - **Masking**: query i sits at position `kvLen - seqLen + i` (the last `seqLen` keys are the queries' own tokens, any before them a cache, as in [`mps_flash_attn_bf16`](#mps-attention)). `causal` hides later keys; `window` (flash only) also hides keys `window` or more positions back.
-- Each (kernel, dtype, head dim) variant is compiled by NVRTC on its first call, and cuDNN plans and the linear-attention workspace are made then too, so make one call per shape before capturing a graph.
+- **Decoding**: when `(heads / kvHeads) · seqLen ≤ 16` (one or a few new tokens against a KV cache), flash attention in any dtype runs a split-KV (flash-decoding) kernel pair instead: the keys are cut into 32-key-multiple splits, about eight blocks per SM, each block reading every key and value once for all the query heads that share it, and a second kernel merges the partial softmaxes. On the H200, against the cuDNN path it replaces, a bf16 32k-token decode with 8 query heads over 1 kv head (head dim 256) drops from 1.40 ms to 36 µs and 32/8 heads at head dim 128 from 533 to 54 µs. PyTorch's `scaled_dot_product_attention` (FlashAttention-2's split-KV kernel on tensor cores) is still 1.1–1.8× faster. `cuda_attention_use_decode(0)` turns the path off.
+- Each (kernel, dtype, head dim) variant is compiled by NVRTC on its first call, and cuDNN plans and the linear-attention and decode workspaces are made then too, so make one call per shape before capturing a graph.
 
 | Group | Functions |
 |---|---|
 | Flash | `cuda_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `cuda_flash_attention_ex(q, k, v, out, shape, scale, causal)`, `cuda_half_flash_attention` (fp16/bf16 `CudaHalfBuf`s) |
 | Linear | `cuda_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `cuda_linear_attention_ex`, `cuda_half_linear_attention` |
 | Host arrays | `cuda_flash_attention_f32`, `cuda_linear_attention_f32` (upload, compute, read back) |
-| Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
+| Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn`, `cuda_attention_use_decode` |
 
-On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
+On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()`, `cuda_sm_count()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
 
 ### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
 
