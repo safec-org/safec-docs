@@ -293,6 +293,29 @@ struct Holder<struct Box> h;       // Box가 Shape(따라서 Sized도)를 만족
 수도 있습니다. 메서드를 `T` 필드로 넘기는 구조체는 같은 역할의 새
 구현이 되며, 제네릭 코드는 다른 구현처럼 받아들입니다.
 
+### 자기 타입 매개변수를 가진 메서드 {#methods-with-their-own-type-parameters}
+
+제네릭이 아닌 구조체의 메서드는 자기 타입 매개변수를 가질 수 있습니다. 구조체 본문의 메서드 앞과 정의에 `generic<...>`을 적습니다. [정적 메서드](/ko/reference/functions#static-methods)와 인스턴스 메서드 모두에 쓸 수 있으며, 호출마다 제네릭 함수처럼 인스턴스화됩니다. `x.m(...)`의 타입 인자는 적힌 인자(와 대상 타입)에서 오며, `self`에서는 오지 않습니다:
+
+```c
+struct Node {
+    void* ctx;
+    int   tag;
+    generic<T> static struct Node new(&T ctx, int tag);   // 제네릭 생성자
+    generic<T> int on(fn int(&T, int) cb, &T data);       // 제네릭 콜백 등록
+};
+
+generic<T>
+struct Node Node::new(&T ctx, int tag) { ... }
+generic<T>
+int Node::on(fn int(&T, int) cb, &T data) { return cb(data, self.tag); }
+
+struct Node n = Node::new(&point, 2);   // T = Pt
+n.on(handler, &point);                  // cb와 data에서 T = Pt
+```
+
+구조체 본문과 정의의 타입 매개변수 개수는 같아야 합니다. 다른 제네릭 함수처럼 정의는 헤더에 둡니다. 제네릭 구조체의 정적 메서드는 자기 매개변수를 더할 수 있지만, 인스턴스 메서드는 아직 더할 수 없습니다.
+
 ### 타입 인자는 대상으로부터 추론됩니다 {#type-arguments-are-inferred-from-the-target}
 
 `f<int>(...)` 같은 호출 문법은 없습니다. 타입 인자는 항상 추론됩니다. 먼저 인자를 매개변수와 대조하고, 그래도 바인딩되지 않은 타입 매개변수는 호출의 *대상 타입* — 초기화되거나 대입되는 변수의 선언 타입, 또는 `return` 문에서는 함수의 반환 타입 — 에서 가져옵니다:

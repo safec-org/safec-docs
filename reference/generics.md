@@ -236,6 +236,29 @@ struct Holder<struct Box> h;       // OK when Box satisfies Shape (and so Sized)
 
 Repeat the bound on each out-of-line method's `generic<...>` line. A bounded generic struct can itself satisfy a trait: a struct whose methods forward to its `T` fields is a new implementation of the same role, and generic code accepts it like any other.
 
+### Methods with their own type parameters {#methods-with-their-own-type-parameters}
+
+A method of a non-generic struct can have type parameters of its own: write `generic<...>` before it in the struct body and on its definition. It works for [static methods](/reference/functions#static-methods) and instance methods alike, and each call instantiates it like a generic function. For `x.m(...)` the type arguments come from the written arguments (and the target type), never from `self`:
+
+```c
+struct Node {
+    void* ctx;
+    int   tag;
+    generic<T> static struct Node new(&T ctx, int tag);   // a generic constructor
+    generic<T> int on(fn int(&T, int) cb, &T data);       // a generic callback registration
+};
+
+generic<T>
+struct Node Node::new(&T ctx, int tag) { ... }
+generic<T>
+int Node::on(fn int(&T, int) cb, &T data) { return cb(data, self.tag); }
+
+struct Node n = Node::new(&point, 2);   // T = Pt
+n.on(handler, &point);                  // T = Pt, from cb and data
+```
+
+The struct body and the definition must agree on the number of type parameters. Keep the definitions in the header, as for any generic function. A generic struct's static methods can add parameters of their own, but its instance methods can't yet.
+
 ### Type arguments are inferred from the target {#type-arguments-are-inferred-from-the-target}
 
 There is no `f<int>(...)` call syntax; type arguments are always inferred. Arguments are matched against the parameters first; any type parameter still unbound is then taken from the call's *target type* — the declared type of the variable being initialized or assigned, or the function's return type in a `return` statement:
