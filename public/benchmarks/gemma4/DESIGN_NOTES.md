@@ -1657,3 +1657,80 @@ Build on Linux: `linux/build.sh tests/bench_rocm.sc /tmp/bench_rocm`, then
 `tools/make_tokenizer_bins.py` makes from `tokenizer.json`. After editing
 the `.hip` file, `tools/embed_hip.py` regenerates `gemma4_rocm_kernels.h`
 (`build.sh` runs it too).
+
+## CUDA backend for NVIDIA GPUs (H200): DONE, verified
+
+`src/gemma4_cuda.{h,sc}` runs the same model on an NVIDIA GPU, independently
+of the MPS/CPU path (it shares only `safetensors.sc` and the tokenizer).
+Kernels are CUDA C++ in `src/gemma4_cuda.cuh`, embedded into
+`gemma4_cuda.sc` as a string by `tools/gen_cuda_sc.py` (edit the `.cuh` and
+`gemma4_cuda.sc.in`, then regenerate) and compiled at load time with NVRTC
+through `std/ml/gpu_cuda.h`'s `cuda_load_module`. Kernel parameters are flat
+(pointers and scalars, no by-value structs) so the SafeC host launches them
+without mirroring C++ struct layouts.
+
+Build and run (Linux, CUDA 12+, SafeC's std archive built by `safeguard test`
+in `$SAFEC_HOME/tests/stdlib`):
+
+```
+python3 tools/make_tokenizer_bins.py /path/to/gemma-4-E2B/tokenizer.json .   # vocab.bin, merges.bin
+SAFEC_HOME=/path/to/SafeC ./build_cuda.sh
+build/gemma4_cuda /path/to/gemma-4-E2B/model.safetensors vocab.bin merges.bin "The capital of France is" 64
+```
+
+`build_cuda.sh` links `linux/metal_stubs.c`, the ROCm build's stand-ins for
+the Metal symbols that `gemma4_bf16.sc` (needed by `safetensors.sc`) pulls in
+through std/ml/gpu_mps.
+
+**Design** (one decode step = 251 kernels, captured once as a CUDA graph):
+- All text weights are uploaded as bf16 (9.3 GB incl. the 4.7 GB per-layer
+  embedding table); Q/K/V (layers 0..14) and gate/up are concatenated into
+  one matrix each at load. A token reads 4.6 GB, ~1 ms at HBM speed.
+- `g4_gemv`: one row per warp, 4 x 16-byte loads in flight per lane
+  (`ld.global.nc.L1::no_allocate`), x staged in shared memory. Epilogues:
+  plain, gelu(gate)*up, gelu(gate)*ple slice, final softcap + running
+  argmax (64-bit `atomicMax` of an order-preserving key).
+- Residual steps run in the *last block* of the GEMV producing the delta
+  (`__threadfence` + grid-wide atomic counter): x' = x + rmsnorm(y)*w
+  [* layer_scalar], and the next GEMV's input rmsnorm(x')*w_next. The
+  finisher loads its 1536 values into registers up front: a version that
+  read them one dependent loop step at a time cost ~12 us per finisher.
+- `g4_attn`: block (head, 32-key split), two threads per key for QK, local
+  softmax, partial (max, sum, acc) per split; the last block of each head
+  combines. Each block applies q_norm + RoPE to its head's raw q; in layers
+  with their own K/V the split holding the new position normalizes/ropes
+  k and normalizes v from the raw projection and head 0 writes the cache.
+  KV-shared layers 15..34 point at layer 13's (sliding) / 14's (full) cache.
+- `g4_advance` writes the argmax to tokens[pos + 1] (unless still inside
+  the prompt) and increments pos, both in GPU memory: the host only
+  replays the graph. The prompt goes through the same graph token by token.
+- Programmatic dependent launch (`cuLaunchKernelEx`, attribute 6): every
+  kernel calls `griddepcontrol.launch_dependents` first and
+  `griddepcontrol.wait` before touching its predecessor's output; GEMVs
+  prefetch their first rows into L2 (`prefetch.global.L2`) before waiting.
+  2.95 -> 2.80 ms/token in the prototype.
+
+**Verification** against `transformers` 5.20.2 (bf16, same H200): all 64
+greedy tokens after "The capital of France is" identical; top-5 identical
+for that prompt and "Hello, world!"; "The quick brown fox..." differs only
+in the order of two tokens whose bf16 logits are equal (16.75); "SafeC"
+differs in the 5th candidate (logit ~2.4). Prompt token ids from the SafeC
+tokenizer match `tokenizers` exactly for all four prompts.
+
+**Measured** (H200, training job paused, greedy, 64 new tokens, best of 3):
+SafeC 2.91 ms/token (3.11 for 512 tokens), PyTorch static cache 4.47,
+PyTorch `generate` 38.1. Streaming each token to the host adds 0.02 ms.
+
+**Tried and not kept** (all measured): prefetching each warp's first row
+into registers before the GEMV prologue (172 registers, occupancy collapse,
+2x slower); splitting K across 2-4 warps per row for the long-row down
+projections (slower: x in shared memory caps blocks per SM); a transposed
+weight layout for them (faster stream, but needs a partial-sum pass);
+8-deep loads (96 registers; with a 64-register cap it spills). The long-row
+GEMVs (N=1536, K=6144/12288) stream at ~2-2.4 TB/s against ~4.4 for the LM
+head, the largest remaining gap. Not done: a batched (GEMM) prefill for
+long prompts; fusing the PLE gate/projection GEMVs.
+
+Note: `std/sys.sc`'s `sys_monotonic_ns` passes clock id 6, which is
+CLOCK_MONOTONIC on macOS but CLOCK_MONOTONIC_COARSE on Linux (~4 ms ticks);
+`gemma4_cuda.sc` uses its own `clock_gettime(CLOCK_MONOTONIC)` timer.
