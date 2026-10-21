@@ -494,13 +494,13 @@ discrete memory model needs.
   combinations, graphs, the host-array API and the fp16/bf16 buffers
   (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
   results (87 checks), plus the [MIOpen and hipFFT
-  libraries](#rocm-miopen-hipfft) (43 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  libraries](#rocm-miopen-hipfft) (43 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
   train to the same loss as the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
   combinations with and without the fused ReLU, graphs, the host-array and
   persistent-buffer APIs, the fp16/bf16 kernels and the [cuDNN and cuFFT
-  libraries](#cuda-cudnn-cufft) against CPU results (216 checks), and the [ML benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference)
+  libraries](#cuda-cudnn-cufft) against CPU results (216 checks), and the [ML benchmarks](/benchmarks#ml-mlp)
   train to the same loss as the CPU and ROCm paths.
 :::
 
@@ -526,7 +526,7 @@ the backend picks the one with the most compute units.
 | Buffers | `rocm_alloc`, `rocm_upload`, `rocm_write`, `rocm_read`, `rocm_free` |
 | Matmul | `rocm_gemm(a, ta, b, tb, c, m, n, k)` — `c = op(a) op(b)`, either operand transposed |
 | Elementwise | `rocm_add`/`sub`/`mul`/`div`/`pow`, `rocm_scale`, `rocm_relu`, `rocm_gelu` (tanh approximation), `rocm_exp`/`log`/`sqrt`, `rocm_relu_grad` |
-| Decoding (one token at a time) | `rocm_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors; one wave per output row, 0.8–1.07 TB/s on an MI100, 1.04–1.8× faster than a one-row `rocm_half_gemm_f32`. `rocm_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. These are the kernels of the [Gemma 4 E2B ROCm engine](/benchmarks#gemma4-rocm) |
+| Decoding (one token at a time) | `rocm_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors; one wave per output row, 0.8–1.07 TB/s on an MI100, 1.04–1.8× faster than a one-row `rocm_half_gemm_f32`. `rocm_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. These are the kernels of the [Gemma 4 E2B ROCm engine](/benchmarks#ml-llm) |
 | Training | `rocm_sgd(w, g, lr)` (in place), `rocm_mse_grad(y, t, dy, loss)`, `rocm_sum` |
 | Layout | `rocm_copy(src, srcOff, dst, dstOff, n)`, `rocm_concat(a, na, c, nc, out, batch)`, `rocm_upsample2x_nearest`, `rocm_upsample2x_concat` (a U-Net decoder step in one pass), `rocm_bias_channels(y, bias, batch, channels, plane, relu)` (per-channel bias, optional ReLU, in place) |
 | fp16 / bf16 | `RocmHalfBuf` (`ROCM_FP16` / `ROCM_BF16`): `rocm_half_alloc`, `rocm_half_upload`, `rocm_half_write` / `rocm_half_read` (raw bits), `rocm_half_free`; `rocm_to_half` / `rocm_from_half`; `rocm_half_gemm` (16-bit result), `rocm_half_gemm_relu` and `rocm_half_gemm_f32` (fp32 result); training ops `rocm_half_relu`, `rocm_half_relu_grad`, `rocm_half_mse_grad` (fp32 loss), `rocm_half_sgd(w, g, lr)` and `rocm_half_sgd2` (two updates in one launch). Same API as CUDA's `CudaHalfBuf`; elementwise math is fp32, rounded once per stored value, bit-exact with `float16.h` |
@@ -606,7 +606,7 @@ CDNA GPU too, for comparison; `rocm_attention_use_mfma(1)` restores the
 default, and both return whether the matrix-core kernels are in use.
 
 MI100, batch 4 × 16 heads, fp32, ms per call, against PyTorch 2.9.1 on ROCm on
-the same GPU ([full results](/benchmarks#mi100-attention)):
+the same GPU ([full results](/benchmarks#ml-attention)):
 
 | Op | `headDim` | Tokens | Causal | SafeC | PyTorch |
 |---|---:|---:|:---:|---:|---:|
@@ -660,7 +660,7 @@ into graphs.
 | Elementwise | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu` (tanh approximation), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | Training | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`CudaHalfBuf`, as `gpu_rocm.h`'s `RocmHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm` (tensor cores, fp32 accumulation), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad` (fp32 loss), `cuda_half_sgd`, `cuda_half_sgd2`. 16-bit storage, fp32 arithmetic, one rounding per stored value (bit-identical to `float16.h`) |
-| Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm), taken from the [Gemma 4 CUDA engine](/benchmarks#gemma4-h200)'s kernels |
+| Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm), taken from the [Gemma 4 CUDA engine](/benchmarks#ml-llm)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
 | Persistent buffers (`&void` handles) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
@@ -735,7 +735,7 @@ On the H200, the queued ops beat PyTorch-CUDA on batched convolutions (32
 images: 0.164 ms vs 0.257 ms in fp32) and on the U-Net (batch 1: 0.175 ms vs
 0.206 ms, or 0.164 ms as one graph). PyTorch is faster for a single
 one-image convolution (0.022 ms vs 0.034 ms). The device FFTs match cuFFT
-through PyTorch. See the [benchmarks](/benchmarks#h200-conv-fft).
+through PyTorch. See the [benchmarks](/benchmarks#ml-convolution).
 
 ### Attention on CUDA {#cuda-attention}
 
@@ -762,7 +762,7 @@ stream (so they order with the other ops and can be recorded into a
 | Host arrays | `cuda_flash_attention_f32`, `cuda_linear_attention_f32` (upload, compute, read back) |
 | Control | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn`, `cuda_attention_use_decode` |
 
-On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#h200-attention). `gpu_cuda.h` gained `cuda_compute_capability()`, `cuda_sm_count()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
+On the H200, fp16/bf16 flash attention matches PyTorch's `scaled_dot_product_attention` (both use cuDNN), fp32 is 1.34× faster at head dim 64 and level at 128 (0.97–1.05×), and linear attention is up to 2.6× faster than PyTorch and up to 2.1× faster than flash-linear-attention (level with PyTorch's TF32 einsums at head dim 128 fp32 non-causal). See the [benchmarks](/benchmarks#ml-attention). `gpu_cuda.h` gained `cuda_compute_capability()`, `cuda_sm_count()` and `cuda_load_module(source, name)` for libraries like this one that bring their own NVRTC kernels.
 
 ### Convolution (MIOpen) and FFT (hipFFT) on ROCm {#rocm-miopen-hipfft}
 
@@ -803,7 +803,7 @@ suite against the CPU code (43 checks on an MI100): convolutions at stride 1
 and 2, batched, with ReLU and replayed from a graph; pooling, upsample and
 concat; a whole U-Net; and every FFT form.
 
-On the MI100, one 64-channel convolution takes 0.027 ms against PyTorch-ROCm's 0.063 ms and the batch-1 U-Net 0.227 ms against 0.315 ms; at batch 16–32 the two are within 2%. Device-resident FFTs are 1.4–1.7× faster than through PyTorch. See the [benchmarks](/benchmarks#mi100-conv-fft).
+On the MI100, one 64-channel convolution takes 0.027 ms against PyTorch-ROCm's 0.063 ms and the batch-1 U-Net 0.227 ms against 0.315 ms; at batch 16–32 the two are within 2%. Device-resident FFTs are 1.4–1.7× faster than through PyTorch. See the [benchmarks](/benchmarks#ml-convolution).
 
 ### Host-array API (MPS, CUDA, SPIR-V, WebGPU)
 
@@ -900,7 +900,7 @@ Metal buffers (`mps_upload_persistent`, `mps_upload_f16/bf16_persistent`,
 | Host arrays | `mps_flash_attention_f32`, `mps_linear_attention_f32` (upload, compute, read back) |
 | Buffers | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
-On an M1 Pro, fp32 flash attention is 1.01–1.42× faster than MLX's fused attention and 1.13–1.70× faster than PyTorch's `mps` device, bf16 at head dim 128 is level with MLX, fp16 and bf16 at 64 reach 0.80–1.02× of them (2.6–3.4 TFLOPS), and linear attention is 2.0–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#m1pro-attention).
+On an M1 Pro, fp32 flash attention is 1.01–1.42× faster than MLX's fused attention and 1.13–1.70× faster than PyTorch's `mps` device, bf16 at head dim 128 is level with MLX, fp16 and bf16 at 64 reach 0.80–1.02× of them (2.6–3.4 TFLOPS), and linear attention is 2.0–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#ml-attention).
 
 `tests/stdlib/mps/run.sh` builds `mps_attention_check`, which compares every path (both flash kernels, the chunked and sequential linear kernels, all three data types, GQA, KV-cache offsets, sliding windows, the host-array forms) with a double-precision reference and attention.h's CPU functions: 95 checks.
 
@@ -1003,8 +1003,8 @@ void tensor_gpu_release_all_persistent();
 
 | Backend | Elementwise ops | Matmul (std kernel) | Matmul (vendor BLAS) | Status |
 |---|---|---|---|---|
-| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) |
-| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#machine-learning-small-mlp-training-and-inference) and the [conv/FFT benchmarks](/benchmarks#h200-conv-fft) |
+| ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 29 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
+| CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#ml-mlp) and the [conv/FFT benchmarks](/benchmarks#ml-convolution) |
 | Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
 | WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
 
@@ -1102,7 +1102,7 @@ void loss_scaler_update(&LossScaler s, int allFinite);     // grow after clean s
 
 A `HalfTensor`'s `data` has exactly the layout the GPU half-precision functions read and write (`mps_upload_f16_persistent` and friends).
 
-`half_gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#gemma4-rocm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `half_gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `half_gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#machine-learning-real-llm-inference-gemma-4-e2b-from-scratch) CPU path on the M1 Pro takes 136 ms per token.
+`half_gemv` is the matrix-vector product of decoding one token: `w` is a linear layer's 2D fp16/bf16 weight (`[n][k]`), `x` and `y` are float32. Each weight is widened in registers, so there is no float32 copy of the matrix; it is vectorized for the CPU's SIMD tier and split over rows on the thread pool. On a Ryzen 7 7800X3D (16 threads) a bf16 24576 × 1536 product takes 1.0 ms (76 GB/s of weights, near the memory's bandwidth), 6× faster than `sgemm` with one row on widened float32 weights; fp16 reaches 35 GB/s (its widening is done in integer arithmetic). It took the [Gemma 4 E2B](/benchmarks#ml-llm) CPU decode from 4.43 s to 0.225 s per token. On AArch64 a NEON kernel loads eight weights as four 32-bit lanes and widens both halves in place. On an M1 Pro (8 performance cores) it reaches 95–113 GB/s for bf16 and 40–55 GB/s for fp16. `half_gemv_batch` does the same for `m` vectors at once, for a short prompt's prefill or speculative verification, and reads the weights from memory once for all of them. Six vectors over a bf16 24576 × 1536 weight take 1.65 ms on the M1 Pro, against 4.35 ms for six `half_gemv` calls. With it, the [Gemma 4 E2B](/benchmarks#ml-llm) CPU path on the M1 Pro takes 136 ms per token.
 
 Storage and arithmetic in bf16:
 
