@@ -305,6 +305,33 @@ unsigned int hash_key(const &K key) {
 }
 ```
 
+### Static methods through a type parameter {#static-methods-through-a-type-parameter}
+
+Inside a generic body, `E::f(...)` calls the [static method](/reference/functions#static-methods) `f` of whatever struct `E` is bound to. Each instantiation calls its own type's method directly — no value of `E` is needed, so a type parameter can stand for a set of type-level functions:
+
+```c
+struct F32 { float v;           static float load(F32 x);  static struct F32 store(float f); };
+struct F16 { unsigned short bits; static float load(F16 x); static struct F16 store(float f); };
+
+generic<E>
+float sum2(E a, E b) { return E::load(a) + E::load(b); }   // F32::load or F16::load
+```
+
+### Generic functions as values {#generic-functions-as-values}
+
+A generic function can be used as a value wherever a function type is expected — a variable or field initializer, an assignment, an argument, a return value. Its type arguments come from that function type, so the value is the matching instantiation:
+
+```c
+generic<E> struct Node { E val; fn void(&Node<E>) back; };
+generic<E> void back_relu(&Node<E> n) { ... }
+
+struct Node<struct F16> n;
+n.back = back_relu;                        // back_relu for E = F16
+fn void(&Node<struct F32>) f = back_relu;  // ... and for E = F32
+```
+
+Passed to another generic function (`link(&n, back_relu)`), it is skipped while that call's type arguments are inferred from the other arguments, then instantiated for the resulting parameter type. If its type arguments can't be read off the target function type, that's a compile error naming the function.
+
 ## Interaction with Regions {#interaction-with-regions}
 
 Generic types can be combined with region-qualified references:
