@@ -7,7 +7,7 @@ SafeC는 대칭 암호화, 해싱, 난수 생성, 인증서 파싱, TLS 레코�
 ```
 
 ::: warning
-SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하지만 현재는 부채널 대응(상수 시간 비교, 키 사용 후 캐시 플러시 등)을 구현하고 있지 않습니다. 보안이 중요한 프로덕션 환경에서는 이 점을 유의하여 사용하세요.
+SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하지만 현재는 부채널 대응(상수 시간 비교, 키 사용 후 캐시 플러시 등)을 구현하고 있지 않습니다. 보안이 중요한 프로덕션 환경에서는 이 점을 유의하여 사용합니다.
 :::
 
 ---
@@ -18,7 +18,7 @@ SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하�
 #include <std/crypto/aes.h>
 ```
 
-ECB와 CBC 모드를 지원하는 AES-128, AES-256 블록 암호입니다. 완전한 S-box, 키 확장, MixColumns 구현을 포함합니다.
+ECB, CBC, GCM 모드를 지원하는 AES-128, AES-256 블록 암호입니다. 완전한 S-box, 키 확장, MixColumns 구현을 포함합니다.
 
 | 상수 | 값 |
 |----------|-------|
@@ -36,20 +36,33 @@ struct AesCtx {
     unsigned char iv[16];             // CBC 초기화 벡터
 
     // ECB — 16바이트 블록 하나를 제자리에서 암호화/복호화
-    void encrypt_block(&stack unsigned char block);
-    void decrypt_block(&stack unsigned char block);
+    void encrypt_block(&unsigned char block);
+    void decrypt_block(&unsigned char block);
 
     // CBC — `len`은 반드시 16의 배수여야 함; self.iv를 제자리에서 갱신
-    void cbc_encrypt(&stack unsigned char data, unsigned long len);
-    void cbc_decrypt(&stack unsigned char data, unsigned long len);
+    void cbc_encrypt(&unsigned char data, unsigned long len);
+    void cbc_decrypt(&unsigned char data, unsigned long len);
 
     // CBC IV 설정
-    void set_iv(const &stack unsigned char iv);
+    void set_iv(const &unsigned char iv);
+
+    // GCM(NIST SP 800-38D), 12바이트 IV, 16바이트 태그. data를 제자리에서
+    // 암호화하고 aad[0..aad_len)과 암호문에 대한 태그를 기록; aad_len이 0이면
+    // aad는 null이어도 됨. 같은 키로 IV를 재사용하면 안 됨.
+    void gcm_encrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
+                     &unsigned char data, unsigned long len, &unsigned char tag);
+    // 태그를 상수 시간으로 검사하고, 일치할 때만 제자리에서 복호화.
+    // 진본이면 1, 아니면 0(data는 암호문 그대로).
+    int  gcm_decrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
+                     &unsigned char data, unsigned long len, const &unsigned char tag);
+
+    // 사용이 끝나면 키 스케줄과 IV를 지움(volatile 저장).
+    void destroy();
 }
 
-// 생성자 — key 매개변수는 안전한 스택 참조
-struct AesCtx aes128_init(const &stack unsigned char key);  // key: 16바이트
-struct AesCtx aes256_init(const &stack unsigned char key);  // key: 32바이트
+// 생성자
+struct AesCtx aes128_init(const &unsigned char key);  // key: 16바이트
+struct AesCtx aes256_init(const &unsigned char key);  // key: 32바이트
 ```
 
 ::: info
@@ -101,10 +114,10 @@ struct Sha256Ctx {
     int           is224;          // 1이면 SHA-224 변형
 
     // 해시에 바이트를 공급 (스트리밍)
-    void update(const &stack unsigned char data, unsigned long len);
+    void update(const &unsigned char data, unsigned long len);
 
     // 마무리하고 다이제스트를 기록: SHA-256은 32바이트, SHA-224는 28바이트
-    void finish(&stack unsigned char digest);
+    void finish(&unsigned char digest);
 }
 
 // 생성자
@@ -112,8 +125,8 @@ struct Sha256Ctx sha256_init();   // SHA-256
 struct Sha256Ctx sha224_init();   // SHA-224
 
 // 원샷 편의 함수
-void sha256(const &stack unsigned char data, unsigned long len,
-            &stack unsigned char digest);
+void sha256(const &unsigned char data, unsigned long len,
+            &unsigned char digest);
 
 #define SHA256_DIGEST_SIZE  32   // bytes
 #define SHA224_DIGEST_SIZE  28
@@ -165,15 +178,15 @@ struct Sha512Ctx {
     unsigned long long total_bytes;   // 64-bit count; the high half of the 128-bit length is written as 0
     int                is384;         // 1 = SHA-384
 
-    void update(const &stack unsigned char data, unsigned long len);
-    void finish(&stack unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
+    void update(const &unsigned char data, unsigned long len);
+    void finish(&unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
 };
 
 struct Sha512Ctx sha512_init();
 struct Sha512Ctx sha384_init();
 
-void sha512(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
-void sha384(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+void sha512(const &unsigned char data, unsigned long len, &unsigned char digest);
+void sha384(const &unsigned char data, unsigned long len, &unsigned char digest);
 ```
 
 ---
@@ -185,7 +198,7 @@ void sha384(const &stack unsigned char data, unsigned long len, &stack unsigned 
 ```
 
 ::: danger 깨진 해시
-SHA-1에는 실용적인 충돌 공격이 존재합니다. 일부 프로토콜이 요구하기 때문에만 제공됩니다 — [WebSocket](/ko/stdlib/http#websocket) 핸드셰이크의 `Sec-WebSocket-Accept`는 SHA-1로 정의되어 있습니다. 그 외에는 SHA-256이나 SHA-512를 쓰세요.
+SHA-1에는 실용적인 충돌 공격이 존재합니다. 일부 프로토콜이 요구하기 때문에만 제공됩니다 — [WebSocket](/ko/stdlib/http#websocket) 핸드셰이크의 `Sec-WebSocket-Accept`는 SHA-1로 정의되어 있습니다. 그 외에는 SHA-256이나 SHA-512를 씁니다.
 :::
 
 ```c
@@ -197,12 +210,12 @@ struct Sha1Ctx {
     unsigned char buf[SHA1_BLOCK_SIZE];
     unsigned long total_bytes;
 
-    void update(const &stack unsigned char data, unsigned long len);
-    void finish(&stack unsigned char digest);   // 20 bytes
+    void update(const &unsigned char data, unsigned long len);
+    void finish(&unsigned char digest);   // 20 bytes
 };
 
 struct Sha1Ctx sha1_init();
-void sha1(const &stack unsigned char data, unsigned long len, &stack unsigned char digest);
+void sha1(const &unsigned char data, unsigned long len, &unsigned char digest);
 ```
 
 ---
@@ -323,7 +336,7 @@ X.509v3 DER 인코딩 인증서를 파싱합니다. 주체/발급자 구분 이�
 
 ```c
 struct X509Validity {
-    unsigned long long not_before;  // Unix 타임스탬프
+    unsigned long long not_before;  // Unix 타임스탬프 (1970년 이전 날짜는 0)
     unsigned long long not_after;
 }
 
@@ -362,12 +375,12 @@ struct X509Cert {
 // DER 인코딩된 인증서를 파싱합니다.
 // 성공 시 0, 오류 시 음수를 반환합니다.
 int x509_parse_der(const &unsigned char der, unsigned long len,
-                   &stack X509Cert out);
+                   &X509Cert out);
 
 // 구조적인 발급자/주체 이름 일치 여부만 확인합니다.
 // 암호학적 서명은 검증하지 **않습니다**.
-int x509_verify_chain(const &stack X509Cert cert,
-                      const &stack X509Cert ca);
+int x509_verify_chain(const &X509Cert cert,
+                      const &X509Cert ca);
 ```
 
 ### 예제 {#example-3}
@@ -411,9 +424,7 @@ void check_cert(const &unsigned char der, unsigned long len,
 
 TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드의 프레이밍, 암호화, 복호화를 처리합니다. 키 스케줄링과 핸드셰이크 프로토콜은 **포함되어 있지 않습니다** — 외부에서 핸드셰이크를 완료한 후 키를 공급해야 합니다.
 
-::: warning
-레코드 보호는 TLS 1.3의 AES-GCM AEAD 대신 PKCS#7 패딩을 쓰는 AES-256-CBC이며 **MAC이 없습니다**. 레코드가 인증되지 않으므로 능동적 공격자가 레코드를 변조할 수 있고 패딩 오류가 관찰됩니다. 또한 와이어 형식이 실제 TLS 1.3 피어와 상호 운용되지 않습니다. 트래픽 보호가 아니라 프레이밍 실험에 사용합니다.
-:::
+레코드 보호는 RFC 8446 §5.2의 AES-256-GCM AEAD(`TLS_AES_256_GCM_SHA384` 암호 스위트의 레코드 레이어)입니다. 같은 트래픽 키가 주어지면 보호된 레코드는 다른 TLS 1.3 구현이 만드는 것과 바이트 단위로 같습니다. 테스트 스위트는 독립적인 AES-GCM 구현으로 만든 레코드와 비교합니다.
 
 ### 상수 {#constants}
 
@@ -433,6 +444,7 @@ TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드�
 #define TLS_MAX_RECORD_LEN  16384   // max plaintext per record
 #define TLS_KEY_LEN         32      // AES-256
 #define TLS_IV_LEN          12      // per RFC 8446 §5.3
+#define TLS_TAG_LEN         16      // GCM tag
 ```
 
 ### 구조체 {#structs-1}
@@ -456,17 +468,20 @@ struct TlsSession {
     struct TlsTranscript transcript;
 
     // Encode one record into out[0..out_cap). Pre-handshake: plaintext;
-    // after install_keys: AES-256-CBC + PKCS#7, no MAC (see the warning).
-    // Returns bytes written, 0 on error; a record that doesn't fit out_cap
-    // doesn't consume a sequence number.
+    // after install_keys: TLSInnerPlaintext (payload || content type) sealed
+    // with AES-256-GCM, outer type application_data, 16-byte tag. Returns
+    // bytes written, 0 on error; a record that doesn't fit out_cap doesn't
+    // consume a sequence number.
     unsigned long encode_record(unsigned char content_type,
                                 const &unsigned char payload, unsigned long payload_len,
                                 &unsigned char out, unsigned long out_cap);
 
-    // Decode one record from data[0..data_len); writes the plaintext to out.
-    // Returns the payload length, 0 on error or incomplete input.
+    // Decode one record from data[0..data_len); writes the plaintext to out
+    // and the inner content type to *content_type_out. Protected records are
+    // authenticated first: a forged or corrupted record returns 0 (as does
+    // incomplete input) and doesn't advance read_seq.
     unsigned long decode_record(const &unsigned char data, unsigned long data_len,
-                                &stack unsigned char content_type_out,
+                                &unsigned char content_type_out,
                                 &unsigned char out, unsigned long out_cap);
 
     unsigned long build_alert(unsigned char level, unsigned char desc,

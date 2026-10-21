@@ -10,7 +10,7 @@ WebSocket; 그 위의 RPC와 "서버 함수"; 그리고 클라이언트 측을 �
 
 그 아래의 논블로킹 소켓 계층(`std/sched/io_nb.h`)은 플랫폼마다 하나의 백엔드(`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`)를 가지며, `safeguard`가 타깃에 맞는 것을 `libsafec_std.a`에 컴파일해 넣으므로 직접 포함하거나 선택할 것이 없습니다.
 
-범위: 본문은 `Content-Length`로 구분되며(청크 전송 인코딩은 디코딩되지 않은 채 반환), TLS는 없습니다 — 평문 HTTP입니다. HTML 템플릿은 [scx](/ko/advanced/scx)를 참고하세요.
+범위: 본문은 `Content-Length`로 구분되며(청크 전송 인코딩은 디코딩되지 않은 채 반환), TLS는 없습니다 — 평문 HTTP입니다. HTML 템플릿은 [scx](/ko/advanced/scx)를 참고하십시오.
 
 ## 서버 {#server}
 
@@ -101,7 +101,7 @@ struct String http_build_response(int status, const &char content_type,
 const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
 ```
 
-`ok`는 DNS, 연결, 파싱 실패 시 0이 됩니다. 필요 없으면 `null`을 넘기세요.
+`ok`는 DNS, 연결, 파싱 실패 시 0이 됩니다. 필요 없으면 `null`을 넘깁니다.
 
 ## CORS {#cors}
 
@@ -214,7 +214,7 @@ void oauth2_token_free(&OAuth2Token t);
 #include <std/http/websocket.h>
 ```
 
-`http.h`와 같은 블로킹 소켓 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. 조각난 메시지(FIN = 0)는 재조립하지 않습니다: `ws_recv`는 프레임 하나를 메시지 하나로 반환합니다. 핑은 자동으로 응답하지 않고 돌려주므로 `ws_send_pong`으로 직접 응답하세요.
+`http.h`와 같은 블로킹 소켓 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. 조각난 메시지(FIN = 0)는 재조립하지 않습니다: `ws_recv`는 프레임 하나를 메시지 하나로 반환합니다. 핑은 자동으로 응답하지 않고 돌려주므로 `ws_send_pong`으로 직접 응답합니다.
 
 ```c
 #define WS_OPCODE_CONTINUATION 0x0
@@ -274,7 +274,7 @@ int main() {
 #include <std/rpc/rpc.h>
 ```
 
-HTTP/1.1 위의 gRPC 형태 RPC입니다: gRPC의 길이 접두 엔벨로프(플래그 1바이트 + 4바이트 빅 엔디언 길이)와 `/Service/Method` 라우팅을 일반 POST에 실어 보냅니다. HTTP/2가 필요한 실제 gRPC와는 와이어 호환되지 **않습니다**. 페이로드는 불투명한 바이트이므로 직접 인코딩하세요 — 예를 들어 [protobuf](/ko/stdlib/serial#protobuf)로.
+HTTP/1.1 위의 gRPC 형태 RPC입니다: gRPC의 길이 접두 엔벨로프(플래그 1바이트 + 4바이트 빅 엔디언 길이)와 `/Service/Method` 라우팅을 일반 POST에 실어 보냅니다. HTTP/2가 필요한 실제 gRPC와는 와이어 호환되지 **않습니다**. 페이로드는 불투명한 바이트이므로 직접 인코딩합니다 — 예를 들어 [protobuf](/ko/stdlib/serial#protobuf)로.
 
 ```c
 struct RpcResult {
@@ -429,7 +429,7 @@ void hydrate_bind_text_int_handle(&Signal<int> signal, int elementHandle);
 int  hydrate_bind_text_int(&Signal<int> signal, const &char selector); // handle, or -1
 ```
 
-`js_*` 임포트는 JavaScript ABI이므로 원시 포인터를 유지합니다. 바인딩은 초기 텍스트를 쓰지 않으므로 먼저 `dom_set_text`를 호출하거나 `set()`을 한 번 하세요.
+`js_*` 임포트는 JavaScript ABI이므로 원시 포인터를 유지합니다. 바인딩은 초기 텍스트를 쓰지 않으므로 먼저 `dom_set_text`를 호출하거나 `set()`을 한 번 합니다.
 
 ```c
 #include <std/wasm/hydrate.h>

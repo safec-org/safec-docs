@@ -79,7 +79,7 @@ unsigned long checked_mul_size(unsigned long a, unsigned long b);
 unsigned long checked_add_size(unsigned long a, unsigned long b);
 ```
 
-`checked_mul_size`의 덧셈판입니다: 합이 `unsigned long`을 넘치면 감싸지 않고 중단합니다. 여러 필드 크기를 더해 하나로 할당할 때 사용하세요.
+`checked_mul_size`의 덧셈판입니다: 합이 `unsigned long`을 넘치면 감싸지 않고 중단합니다. 여러 필드 크기를 더해 하나로 할당할 때 사용합니다.
 
 ## 할당 안전성 {#allocation-safety}
 

@@ -10,7 +10,7 @@ curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | b
 (패키지 매니저이자 빌드 도구로, Rust의 `cargo`와 같은 역할을 합니다),
 그리고 `sc-lsp`(에디터 연동을 위한 언어 서버)입니다. 또한 셸을 설정하여 세
 바이너리 모두 `PATH`에서 사용할 수 있게 합니다. 스크립트가 끝나면 셸을
-재시작하거나(또는 rc 파일을 source하고), 제대로 동작하는지 확인해 보세요.
+재시작하거나(또는 rc 파일을 source하고), 제대로 동작하는지 확인해 봅니다.
 
 ```bash
 safec --version
@@ -18,7 +18,7 @@ safec --version
 
 설치 스크립트의 옵션(커스텀 설치 경로, 특정 릴리스 버전, 프리빌드 릴리스
 대신 소스에서 빌드하기 등)에 대해서는 가이드 섹션의
-[시작하기](/ko/guide/getting-started)를 참고하세요 — 이 장에서는 첫 프로그램을
+[시작하기](/ko/guide/getting-started)를 참고하십시오 — 이 장에서는 첫 프로그램을
 작성하고 실행하는 데 필요한 내용만 다룹니다.
 
 ## `safeguard`: 프로젝트 생성하기 {#safeguard-creating-a-project}
@@ -55,7 +55,7 @@ Hello from SafeC!
 
 ## SafeC 프로그램의 구조 {#anatomy-of-a-safec-program}
 
-`src/main.sc`를 열어 보세요.
+`src/main.sc`를 열어 봅니다.
 
 ```c
 extern int printf(const char* fmt, ...);
@@ -98,7 +98,7 @@ int main() {
 엔드 전체를 실행하므로(모든 타입 오류와 리전 안전성 위반이 여전히
 잡힙니다) 어셈블 및 링크 단계는 건너뛰는데, 이 단계가 보통 대부분의
 소요 시간을 차지하기 때문입니다. 컴파일 오류를 고치는 동안에는 `check`를,
-실제로 실행되는 모습을 보고 싶을 때는 `run`을 사용하세요.
+실제로 실행되는 모습을 보고 싶을 때는 `run`을 사용합니다.
 
 ```bash
 safeguard check   # 빠름: 뭔가 깨뜨리지 않았는지 확인
@@ -114,7 +114,7 @@ safeguard run     # 느림: 빌드하고 실행
 원시 포인터로 변환하는 것은 컴파일러가 검증할 수 있는 범위를 벗어나는
 행위이므로 명시적으로 표시해야 합니다. 5장에서 이 내용을 실제로 제대로
 설명합니다. 그때까지는 `unsafe { ... }`를 "날 믿어라"라는 표시로 여기고
-넘어가세요 — 전체 그림은 곧 보게 될 것입니다.
+넘어갑니다 — 전체 그림은 곧 보게 될 것입니다.
 
 다음: [첫 번째 프로그램](/ko/book/ch02-first-program)에서는 "Hello, world"보다
 조금 더 본격적인 것을 작성해 봅니다.

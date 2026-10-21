@@ -101,6 +101,8 @@ struct SlabAllocator slab_init(&unsigned char buffer, unsigned long obj_size, un
 struct SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
 ```
 
+`slab_init` takes a buffer of `obj_size * count` bytes. Slots are `obj_size` rounded up to a multiple of 8 (at least 8, since a free slot holds the free-list link) and start 8-byte aligned, so `cap` can come out below `count` when that rounding doesn't fit; `slab_new` allocates room for every slot.
+
 ```c
 #include <std/alloc/slab.h>
 #include <std/io.h>

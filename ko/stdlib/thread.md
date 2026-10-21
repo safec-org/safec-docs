@@ -1,6 +1,6 @@
 # thread -- 스레딩
 
-SafeC는 두 개의 계층으로 이루어진 스레딩을 제공합니다: **`spawn`/`join`/`spawn_scoped` 언어 키워드**(컴파일러 내장 기능으로, `#include`가 필요 없습니다)와, 뮤텍스/조건 변수/읽기-쓰기 락과 함께 OS 스레드를 직접 제어할 수 있는 아래의 **`std::thread_*` 라이브러리 API**(`thread.h`)입니다. 두 계층 모두 Linux/macOS에서는 POSIX pthreads, Windows에서는 Win32 스레드를 기반으로 동작합니다. 프리스탠딩/베어메탈 타깃(또는 컴파일러가 인식하지 못하는 모든 타깃)에서는 언어 키워드가 대신 문서화된 두 개의 심볼 훅으로 컴파일되며, `std/sync/bare_spawn.sc`가 이를 협조적으로 구현합니다. 해당 백엔드와, 베어메탈에 친화적인 `std::thread_create`/`join`의 사촌 격 함수들에 대해서는 [동기화](/ko/stdlib/sync)를 참고하세요.
+SafeC는 두 개의 계층으로 이루어진 스레딩을 제공합니다: **`spawn`/`join`/`spawn_scoped` 언어 키워드**(컴파일러 내장 기능으로, `#include`가 필요 없습니다)와, 뮤텍스/조건 변수/읽기-쓰기 락과 함께 OS 스레드를 직접 제어할 수 있는 아래의 **`std::thread_*` 라이브러리 API**(`thread.h`)입니다. 두 계층 모두 Linux/macOS에서는 POSIX pthreads, Windows에서는 Win32 스레드를 기반으로 동작합니다. 프리스탠딩/베어메탈 타깃(또는 컴파일러가 인식하지 못하는 모든 타깃)에서는 언어 키워드가 대신 문서화된 두 개의 심볼 훅으로 컴파일되며, `std/sync/bare_spawn.sc`가 이를 협조적으로 구현합니다. 해당 백엔드와, 베어메탈에 친화적인 `std::thread_create`/`join`의 사촌 격 함수들에 대해서는 [동기화](/ko/stdlib/sync)를 참고하십시오.
 
 ## 언어 레벨 `spawn` / `join` / `spawn_scoped` {#language-level-spawn-join-spawn_scoped}
 
@@ -32,7 +32,7 @@ int main() {
 
 ### 리전 격리 {#region-isolation}
 
-`spawn`의 인자는 **가변이면서 `&static`이 아닌** 참조일 수 없습니다 — 그런 참조를 전달하면 컴파일 오류("region isolation violation")가 발생합니다. 스폰된 스레드가 해당 참조가 가리키는 리전보다 더 오래 살아남을 수 있기 때문입니다. 대신 `&static` 참조, 불변 참조, 또는 (인덱스나 직접 관리하는 힙 포인터 같은) 일반 값을 전달하세요.
+`spawn`의 인자는 **가변이면서 `&static`이 아닌** 참조일 수 없습니다 — 그런 참조를 전달하면 컴파일 오류("region isolation violation")가 발생합니다. 스폰된 스레드가 해당 참조가 가리키는 리전보다 더 오래 살아남을 수 있기 때문입니다. 대신 `&static` 참조, 불변 참조, 또는 (인덱스나 직접 관리하는 힙 포인터 같은) 일반 값을 전달합니다.
 
 ### 백엔드 선택 {#backend-selection}
 
@@ -77,7 +77,7 @@ unsigned long long thread_self();
 
 ### thread_create {#thread_create}
 
-새 스레드에서 `func(arg)`를 시작하고 그 핸들을 `*tid`에 기록합니다. 성공 시 0을 반환합니다. 스레드 함수는 자신의 컨텍스트 타입에 대한 nullable 참조를 받고 반환하며 — `static ?&Job work(?&Job job)` — `T`는 이로부터 추론되므로, 잘못된 컨텍스트 타입을 넘기면 컴파일 오류입니다. 스레드에 인자가 필요 없으면 `null`을 넘기세요. 반환값은 버려집니다(`thread_join`은 기다리기만 합니다).
+새 스레드에서 `func(arg)`를 시작하고 그 핸들을 `*tid`에 기록합니다. 성공 시 0을 반환합니다. 스레드 함수는 자신의 컨텍스트 타입에 대한 nullable 참조를 받고 반환하며 — `static ?&Job work(?&Job job)` — `T`는 이로부터 추론되므로, 잘못된 컨텍스트 타입을 넘기면 컴파일 오류입니다. 스레드에 인자가 필요 없으면 `null`을 넘깁니다. 반환값은 버려집니다(`thread_join`은 기다리기만 합니다).
 
 그 아래의 타입 없는 OS 진입점(POSIX `void*(*)(void*)`, Win32 `LPTHREAD_START_ROUTINE`)은 `thread_create_raw_`입니다. 기계 수준에서 `?&T`는 평범한 포인터이므로 ABI가 동일합니다.
 
@@ -123,6 +123,8 @@ int mutex_unlock(&unsigned long long m);
 
 블록하지 않고 뮤텍스 획득을 시도합니다. 락을 획득했으면 0을, 사용 중이면 0이 아닌 값을 반환합니다.
 
+호출 스레드가 이미 보유한 뮤텍스를 다시 잠그면 안 됩니다: Windows(`CRITICAL_SECTION`)에서는 성공하지만, 기본 POSIX 뮤텍스는 `mutex_lock`에서 교착 상태가 되고 `mutex_trylock`에서 사용 중을 보고합니다.
+
 ## 조건 변수 {#condition-variable}
 
 ```c
@@ -140,7 +142,7 @@ int cond_broadcast(&unsigned long long cv);
 
 ### cond_timedwait_ms {#cond_timedwait_ms}
 
-`cond_wait`와 같지만 밀리초 단위의 타임아웃이 있습니다. 타임아웃이 발생하면 0이 아닌 값을 반환합니다.
+`cond_wait`와 같지만 최대 `ms` 밀리초만 기다립니다. 깨어나면 0, 시간이 다 되면 `THREAD_TIMEDOUT`(1), 그 밖의 오류는 -1을 반환하며, 모든 플랫폼에서 같은 값입니다.
 
 ### cond_signal / cond_broadcast {#cond_signal-cond_broadcast}
 
@@ -159,7 +161,7 @@ int rwlock_rdunlock(&unsigned long long rw);
 int rwlock_wrunlock(&unsigned long long rw);
 ```
 
-여러 개의 리더가 동시에 접근하는 것은 허용되지만, 라이터는 배타적으로 접근합니다. 공유 읽기 접근에는 `rdlock`/`rdunlock`을, 배타적 쓰기 접근에는 `wrlock`/`wrunlock`을 사용하세요.
+여러 개의 리더가 동시에 접근하는 것은 허용되지만, 라이터는 배타적으로 접근합니다. 공유 읽기 접근에는 `rdlock`/`rdunlock`을, 배타적 쓰기 접근에는 `wrlock`/`wrunlock`을 사용합니다.
 
 ## 예제 {#example}
 

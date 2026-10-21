@@ -30,7 +30,7 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 
 ## 1. 서론 {#introduction}
 
-이 벤치마크는 테스트마다 하나의 질문에 답합니다: 같은 머신에서 SafeC, 또는 그 표준 라이브러리는 사람들이 대신 쓰는 것과 비교해 어떤가? 대표적인 마이크로벤치마크는 [The Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/index.html)을 따릅니다. 라이브러리 테스트는 각 `std` 모듈을 그 일에 널리 쓰이는 라이브러리와 비교합니다. 모든 수치는 "이 머신에서 대략 이 정도"로 읽어 주세요: 세 머신은 CPU, 코어 수, OS, 도구 버전이 모두 다르므로 언어와 라이브러리는 한 머신의 열 안에서 비교하고, 열끼리는 비교하지 마세요.
+이 벤치마크는 테스트마다 하나의 질문에 답합니다: 같은 머신에서 SafeC, 또는 그 표준 라이브러리는 사람들이 대신 쓰는 것과 비교해 어떤가? 대표적인 마이크로벤치마크는 [The Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/index.html)을 따릅니다. 라이브러리 테스트는 각 `std` 모듈을 그 일에 널리 쓰이는 라이브러리와 비교합니다. 모든 수치는 "이 머신에서 대략 이 정도"로 읽어 줍니다: 세 머신은 CPU, 코어 수, OS, 도구 버전이 모두 다르므로 언어와 라이브러리는 한 머신의 열 안에서 비교하고, 열끼리는 비교하면 안 됩니다.
 
 ### 환경 {#environments}
 

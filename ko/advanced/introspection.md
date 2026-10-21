@@ -48,7 +48,7 @@ align(8) char buf[1024];
 `N`에 대해 오직 리터럴 정수 토큰만 받아들이며, 표현식, `alignof(...)`
 호출, `const`로 선언된 식별자는 받아들이지 않습니다. 정렬 값을
 (예를 들어 `static_assert`에서) 별도로 `alignof`로 조회한 다음, 그
-리터럴을 `align(N)`에 하드코딩하세요.
+리터럴을 `align(N)`에 하드코딩합니다.
 :::
 
 ## `typeof` {#typeof}
@@ -118,7 +118,7 @@ int main() {
 }
 ```
 
-이는 컴파일 타임 상수입니다. 가변 인자 제네릭의 세부 사항은 [제네릭](/ko/reference/generics)을 참고하세요.
+이는 컴파일 타임 상수입니다. 가변 인자 제네릭의 세부 사항은 [제네릭](/ko/reference/generics)을 참고하십시오.
 
 ::: warning
 `int n = count_types(...);`는 전역 변수가 아니라 지역 변수여야 합니다 —

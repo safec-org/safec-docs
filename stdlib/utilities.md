@@ -529,11 +529,13 @@ struct DmaSgList {
 
 ```c
 // On failure: prints "Assertion failed: <msg> at <file>:<line>" to stderr, then abort().
+void runtime_assert_at(int cond, const &char msg, const &char file, int line);
+// The same without a location: a function can't see its call site.
 void runtime_assert(int cond, const &char msg);
-void assert_true(int cond);                     // fixed message
+void assert_true(int cond);                     // no message
 ```
 
-`static_assert` is a language keyword and is always checked at compile time. Defining `NDEBUG` before the include turns `runtime_assert` and `assert_true` into no-ops in [compat preprocessor mode](/reference/preprocessor).
+In [compat preprocessor mode](/reference/preprocessor), `runtime_assert` and `assert_true` are macros that pass the caller's `__FILE__` and `__LINE__` to `runtime_assert_at`, and defining `NDEBUG` before the include turns them into no-ops. In safe mode, call `runtime_assert_at(cond, msg, __FILE__, __LINE__)` for a location. `static_assert` is a language keyword and is always checked at compile time.
 
 ---
 

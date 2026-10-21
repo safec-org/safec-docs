@@ -22,7 +22,7 @@ void configure_uart(&volatile unsigned int uart_base) {
 
 레지스터 주소는 `&volatile` 참조(32비트 레지스터는 `&volatile unsigned int`)이며,
 고정 주소로부터 `unsafe` 안에서 한 번 만듭니다 — 패턴은
-[HAL](/ko/stdlib/hal)을 참고하세요.
+[HAL](/ko/stdlib/hal)을 참고하십시오.
 
 동일한 연산을 두 가지 방식으로 동등하게 제공합니다: 한 레지스터에 대해
 여러 접근을 묶을 때 쓰는 `MmioReg` 구조체(`mmio_reg(addr)`로 생성한 뒤

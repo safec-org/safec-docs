@@ -22,8 +22,8 @@ Every backend implements the same `gui.h` API. Exactly one may be linked into a 
 | Backend | Target | Status |
 |---------|--------|--------|
 | `gui_cocoa.sc` | macOS — Objective-C runtime (`objc_msgSend`) + Core Graphics, layer-backed `NSView` | Built and run on real hardware |
-| `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Written against the Win32 ABI and type-checked; not yet run on Windows |
-| `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Written against the Xlib ABI and type-checked; not yet run on an X server |
+| `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Run under Wine (`tests/stdlib/win32/run.sh`): drawing read back with `GetPixel`, key, text, mouse, wheel, resize and close events; not yet run on a Windows host |
+| `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Run against an X server (`tests/stdlib/x11/run.sh`, Xvfb): drawing read back with `XGetImage`, key, text, mouse, scroll, resize and close events |
 | `gui_fb.sc` | Bare metal — linear framebuffer from the bootloader; setup calls in `gui/gui_fb.h` | Built and run; no OS dependency |
 
 `safeguard` picks the backend for you: the std archive for a target contains only the variant that matches it (`_cocoa` on Apple, `_x11` on Linux/BSD, `_win32` on Windows, `_fb` on bare-metal targets). See [Package Manager](/advanced/safeguard).
@@ -56,7 +56,7 @@ struct GuiEvent {
     double       x, y;       // mouse position, window-local
     int          button;     // 0 = left, 1 = right, 2 = other
     int          keycode;    // GUI_KEY_*
-    unsigned int codepoint;  // GUI_EVENT_CHAR
+    unsigned int codepoint;  // the typed character (GUI_EVENT_KEY_DOWN / GUI_EVENT_CHAR)
     double       scrollDx, scrollDy;
     int          width, height;      // GUI_EVENT_RESIZE
     int          defaultPrevented;   // see gui_event_prevent_default()
@@ -80,7 +80,7 @@ The event and key constants are `#define`s, so they work from any namespace:
 | `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_KEY_UP`, `GUI_EVENT_CHAR` | `GUI_KEY_BACKSPACE`, `GUI_KEY_SPACE`, `GUI_KEY_DELETE` |
 | `GUI_EVENT_SCROLL` | `GUI_KEY_UNKNOWN` |
 
-Each backend translates native key codes to `GUI_KEY_*`, so application code never sees a platform key code.
+Each backend translates native key codes to `GUI_KEY_*`, so application code never sees a platform key code. A key press that types a character carries it in `codepoint` (printable ASCII); when the size changes, `gui_poll_event` resizes `win.pixels`, `win.width` and `win.height` to the new client area before returning `GUI_EVENT_RESIZE`, so redraw everything after one.
 
 ### Example — raw drawing loop {#example-raw-drawing-loop}
 

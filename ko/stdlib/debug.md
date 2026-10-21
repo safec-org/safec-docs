@@ -129,7 +129,7 @@ struct Coverage {
 
 ### COV_SITE() 매크로 {#cov_site-macro}
 
-계측하고 싶은 지점에 `COV_SITE();`를 배치하세요. (`static int` 가드를 통해) 한 번만 등록되며, 호출될 때마다 카운터를 증가시킵니다.
+계측하고 싶은 지점에 `COV_SITE();`를 배치합니다. (`static int` 가드를 통해) 한 번만 등록되며, 호출될 때마다 카운터를 증가시킵니다.
 
 ```c
 int clamp(int v, int lo, int hi) {
@@ -232,7 +232,7 @@ DBG_ASSERT(cond);
 // cond가 false이면 debug_break()를 호출합니다.
 ```
 
-함수형 매크로이므로 [호환 전처리기 모드](/ko/reference/preprocessor)에서만 존재합니다. 안전 모드에서는 `if (!cond) { std::debug_break(); }`라고 쓰세요.
+함수형 매크로이므로 [호환 전처리기 모드](/ko/reference/preprocessor)에서만 존재합니다. 안전 모드에서는 `if (!cond) { std::debug_break(); }`라고 씁니다.
 
 ### 예제 {#example-2}
 
@@ -252,5 +252,5 @@ void board_bringup(int clocks_ok) {
 ```
 
 ::: info
-ITM에는 Cortex-M3/M4/M7 이상과 SWO 캡처를 지원하는 디버그 프로브(J-Link, ULINK, ST-LINK v3)가 필요합니다. 프로브의 SWO 클록을 타깃 CPU 속도에 맞게 설정하세요.
+ITM에는 Cortex-M3/M4/M7 이상과 SWO 캡처를 지원하는 디버그 프로브(J-Link, ULINK, ST-LINK v3)가 필요합니다. 프로브의 SWO 클록을 타깃 CPU 속도에 맞게 설정합니다.
 :::

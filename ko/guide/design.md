@@ -247,7 +247,7 @@ Vec2 Vec2::operator+(Vec2 other) const {
 
 메서드는 암묵적 `self` 매개변수를 가진 함수를 위한 문법적 설탕(syntactic sugar)입니다. LLVM IR 수준에서 `v.length()`는 `Vec2_length(&v)`로 컴파일됩니다. vtable도, 동적 디스패치도, 숨겨진 비용도 없습니다.
 
-이 입장이 남겨두는 모든 메커니즘 — 제네릭, 구조적 트레이트, vtable 없는 `fn_eval` 디스패치 프리미티브, 그리고 실제로 필요할 때 명시적으로 진짜 런타임 다형성을 구축하는 방법 — 은 [다형성과 OOP](/ko/reference/polymorphism)를 참고하세요.
+이 입장이 남겨두는 모든 메커니즘 — 제네릭, 구조적 트레이트, vtable 없는 `fn_eval` 디스패치 프리미티브, 그리고 실제로 필요할 때 명시적으로 진짜 런타임 다형성을 구축하는 방법 — 은 [다형성과 OOP](/ko/reference/polymorphism)를 참고하십시오.
 
 ## Unsafe 탈출구 {#unsafe-escape-hatch}
 

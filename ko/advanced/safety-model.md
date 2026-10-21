@@ -77,11 +77,11 @@ int x = 10;
 &stack const int b = &x;    // error: cannot borrow 'x' as immutable: already borrowed as mutable
 ```
 
-::: warning `const`는 리전 한정자 뒤에 작성하세요
+::: warning `const`는 리전 한정자 뒤에 작성합니다
 `const &stack int b`(const가 리전 *앞*에 있는 형태)는 파서가 받아들이지만
 조용히 가변 대여로 잘못 파싱됩니다 — 알려진 파서 버그입니다
 ([안전성](/ko/reference/safety#aliasing-rules-borrow-checker) 참고).
-항상 `const`를 리전 한정자 *뒤*에 작성하세요(위와 같이 `&stack const int`).
+항상 `const`를 리전 한정자 *뒤*에 작성합니다(위와 같이 `&stack const int`).
 :::
 
 ### 4. 리전 이스케이프 안전성 {#_4-region-escape-safety}

@@ -6,7 +6,7 @@ SafeC에는 클래스도, 상속도, vtable도 없습니다. 이는 빠진 기�
 
 ## 캡슐화: 구조체와 메서드 {#encapsulation-structs-and-methods}
 
-데이터와 동작은 클래스와 마찬가지로 구조체에 함께 묶이지만, C++ 클래스가 함께 딸려오는 나머지 것들은 빠져 있습니다 — 구체적인 목록(암묵적 생성자/소멸자 없음, 숨겨진 `this` 없음, vtable 없음)은 [설계 철학](/ko/guide/design#why-not-classes)을 참고하세요. 메서드는 명시적인 `self` 포인터를 받는 평범한 함수의 문법 설탕(syntactic sugar)입니다:
+데이터와 동작은 클래스와 마찬가지로 구조체에 함께 묶이지만, C++ 클래스가 함께 딸려오는 나머지 것들은 빠져 있습니다 — 구체적인 목록(암묵적 생성자/소멸자 없음, 숨겨진 `this` 없음, vtable 없음)은 [설계 철학](/ko/guide/design#why-not-classes)을 참고하십시오. 메서드는 명시적인 `self` 포인터를 받는 평범한 함수의 문법 설탕(syntactic sugar)입니다:
 
 ```c
 struct Point {
@@ -19,7 +19,7 @@ double Point::length() const {
 }
 ```
 
-`p.length()`는 간접 호출 없이 `Point_length(&p)`라는 직접 호출로 컴파일됩니다. 전체 로우어링(lowering) 표와 호출 규약 세부사항은 [함수](/ko/reference/functions#struct-methods)를 참고하세요.
+`p.length()`는 간접 호출 없이 `Point_length(&p)`라는 직접 호출로 컴파일됩니다. 전체 로우어링(lowering) 표와 호출 규약 세부사항은 [함수](/ko/reference/functions#struct-methods)를 참고하십시오.
 
 ## 애드혹 다형성: 연산자 오버로딩 {#ad-hoc-polymorphism-operator-overloading}
 
@@ -41,7 +41,7 @@ Vec2 Vec2::operator+(Vec2 other) const {
 Vec2 c = a + b;   // Vec2_operator+(a, b)를 호출
 ```
 
-[함수](/ko/reference/functions#operator-overloading)와 [연산자](/ko/reference/operators#operator-overloading)를 참고하세요.
+[함수](/ko/reference/functions#operator-overloading)와 [연산자](/ko/reference/operators#operator-overloading)를 참고하십시오.
 
 ## 매개변수 다형성: 제네릭 {#parametric-polymorphism-generics}
 
@@ -58,9 +58,9 @@ int m1 = max(3, 7);          // max<int>를 인스턴스화
 double m2 = max(1.5, 2.7);   // max<double>을 인스턴스화
 ```
 
-구조체도 같은 방식으로 제네릭이 될 수 있으며(`generic<T> struct Pair { T first; T second; };`), 제네릭 메서드도 마찬가지입니다. 단형화, 이름 맹글링(name mangling), 가변 인자 타입 팩(variadic pack), 리전 안전성과의 상호작용은 [제네릭](/ko/reference/generics)을 참고하세요.
+구조체도 같은 방식으로 제네릭이 될 수 있으며(`generic<T> struct Pair { T first; T second; };`), 제네릭 메서드도 마찬가지입니다. 단형화, 이름 맹글링(name mangling), 가변 인자 타입 팩(variadic pack), 리전 안전성과의 상호작용은 [제네릭](/ko/reference/generics)을 참고하십시오.
 
-**제네릭을 다형성의 해법으로 쓰기 전에 반드시 알아야 할, 핵심적인 제약사항입니다:** 단형화된다는 것은 서로 다른 `T`를 가진 `generic<T>` 값들의 이질적인(heterogeneous) 런타임 컬렉션이라는 것이 애초에 존재하지 않는다는 뜻입니다 — `Vec<Circle>`과 `Vec<Square>`는 서로 무관한, 완전히 별개로 생성된 타입입니다. `std::vector<Circle>`과 `std::vector<Square>`가 서로 무관한 C++ 템플릿 인스턴스인 것과 정확히 같은 이치입니다. "어떤 도형이든" 담을 수 있는 배열 하나가 필요하다면, 아래의 [수동 디스패치](#manual-dispatch-explicit-vtables)를 참고하세요 — 그것이 이를 얻는 정직하고 명시적인 방법입니다.
+**제네릭을 다형성의 해법으로 쓰기 전에 반드시 알아야 할, 핵심적인 제약사항입니다:** 단형화된다는 것은 서로 다른 `T`를 가진 `generic<T>` 값들의 이질적인(heterogeneous) 런타임 컬렉션이라는 것이 애초에 존재하지 않는다는 뜻입니다 — `Vec<Circle>`과 `Vec<Square>`는 서로 무관한, 완전히 별개로 생성된 타입입니다. `std::vector<Circle>`과 `std::vector<Square>`가 서로 무관한 C++ 템플릿 인스턴스인 것과 정확히 같은 이치입니다. "어떤 도형이든" 담을 수 있는 배열 하나가 필요하다면, 아래의 [수동 디스패치](#manual-dispatch-explicit-vtables)를 참고하십시오 — 그것이 이를 얻는 정직하고 명시적인 방법입니다.
 
 ## 구조적 다형성: 트레이트 {#structural-polymorphism-traits}
 
@@ -81,7 +81,7 @@ generic<T: Drawable> void render(T shape) { shape.draw(); }
 render(circle);   // OK: Circle에 일치하는 draw() const가 있음
 ```
 
-만족 여부는 단형화가 일어나는 호출 지점에서 검사됩니다 — 제네릭 함수 본문이 정의된 위치가 아닙니다. 그래서 메서드가 빠져 있으면 호출 지점에서 바로 에러가 나며, 라이브러리 내부 깊숙한 곳에서 혼란스러운 실패가 나는 일이 없습니다. 내장 구조적 트레이트: `Numeric`, `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`(연산자 기반)와, 사용자 정의 메서드가 아니라 타입 시스템 자체가 충족시키는 `Indexed`(`[]`로 접근 가능한 모든 것)와 `Pointer`(raw 포인터/참조 타입)가 있습니다. [제네릭](/ko/reference/generics#traits-and-constrained-generics)을 참고하세요.
+만족 여부는 단형화가 일어나는 호출 지점에서 검사됩니다 — 제네릭 함수 본문이 정의된 위치가 아닙니다. 그래서 메서드가 빠져 있으면 호출 지점에서 바로 에러가 나며, 라이브러리 내부 깊숙한 곳에서 혼란스러운 실패가 나는 일이 없습니다. 내장 구조적 트레이트: `Numeric`, `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`(연산자 기반)와, 사용자 정의 메서드가 아니라 타입 시스템 자체가 충족시키는 `Indexed`(`[]`로 접근 가능한 모든 것)와 `Pointer`(raw 포인터/참조 타입)가 있습니다. [제네릭](/ko/reference/generics#traits-and-constrained-generics)을 참고하십시오.
 
 이것이 SafeC에서 인터페이스/추상 기반 클래스에 가장 가까운 대응물입니다 — 트레이트 바운드는 "이 메서드들을 가진 임의의 `T`"라고 말할 뿐이며, 컴파일 타임에 검사되고 여전히 단형화됩니다(여전히 런타임 디스패치는 없습니다 — `generic<T: Drawable>` 본문의 모든 호출은 해당 인스턴스의 구체적인 `draw`에 대한 직접 호출입니다).
 
@@ -97,7 +97,7 @@ fn_eval(object, func)
 
 - `object`는 오직 그 **타입**만 검사됩니다 — 절대 평가(evaluate)되거나 코드 생성되지 않으며, `sizeof`의 피연산자와 같은 취급을 받습니다.
 - `func`는 이미 선언된 **평범한 함수**(메서드가 아닌)를 직접 가리켜야 합니다 — 이는 순전히 이름+시그니처 키로만 쓰이며, 그 자체가 호출되는 일은 없습니다. 그 이름이 곧 찾고자 하는 메서드 이름이 되며, (self를 제외한) 매개변수/반환 타입이 찾아낸 메서드와 정확히 일치해야 합니다.
-- 전체 표현식은 `object`의 구조체 타입에서 그 이름을 가진 메서드에 대한 함수 포인터 값으로 평가됩니다 — 즉시 호출하거나 나중을 위해 저장할 수 있으며, 수신자(receiver)는 첫 번째 인자로 명시적으로 전달해야 합니다(SafeC의 메서드에는 바인딩된 수신자가 없습니다 — [함수](/ko/reference/functions#lowering)의 로우어링 표를 참고하세요).
+- 전체 표현식은 `object`의 구조체 타입에서 그 이름을 가진 메서드에 대한 함수 포인터 값으로 평가됩니다 — 즉시 호출하거나 나중을 위해 저장할 수 있으며, 수신자(receiver)는 첫 번째 인자로 명시적으로 전달해야 합니다(SafeC의 메서드에는 바인딩된 수신자가 없습니다 — [함수](/ko/reference/functions#lowering)의 로우어링 표를 참고하십시오).
 
 ### 결정(resolution) 규칙 {#resolution-rules}
 
@@ -163,7 +163,7 @@ fn double(&stack const Circle) getArea = fn_eval(c, area);
 double ca = getArea(&c);   // 12.5664
 ```
 
-(검증됨: 컴파일 및 실행 성공. `fn` 선언의 매개변수 타입이 raw `const Circle*`가 아니라 참조 형태 `&stack const Circle`임에 주목하세요 — `fn_eval`의 결과 타입은 메서드의 `self`가 *생성된(emitted)* 시그니처를 위해 [함수](/ko/reference/functions#lowering) 표가 보여주는, C 포인터로 로우어링된 형태가 아니라 SafeC 자체 타입 시스템에서 실제로 표현되는 방식을 그대로 반영합니다.)
+(검증됨: 컴파일 및 실행 성공. `fn` 선언의 매개변수 타입이 raw `const Circle*`가 아니라 참조 형태 `&stack const Circle`임에 주목합니다 — `fn_eval`의 결과 타입은 메서드의 `self`가 *생성된(emitted)* 시그니처를 위해 [함수](/ko/reference/functions#lowering) 표가 보여주는, C 포인터로 로우어링된 형태가 아니라 SafeC 자체 타입 시스템에서 실제로 표현되는 방식을 그대로 반영합니다.)
 
 ### `fn_eval`과 대안들의 비교 {#fn-eval-vs-the-alternatives}
 
@@ -174,7 +174,7 @@ double ca = getArea(&c);   // 12.5664
 | `fn_eval(obj, shape)` | 컴파일 타임, 인스턴스마다 | 아니오 | **예** — `fn` 값 | 아니오 (단형화됨) |
 | 수동 함수 포인터 테이블 (다음 절) | **런타임** | 아니오 | 예 | **예** |
 
-트레이트를 따로 정식화하지 않고도 제네릭 함수가 "이 특정 `T`가 우연히 가지고 있는, 이름이 X인 메서드가 무엇이든" 그대로 집어내길 원할 때, 혹은 메서드를 그 자리에서 호출하는 대신 값으로 들고 다녀야 할 때 `fn_eval`을 쓰세요. 단순히 메서드를 호출하기만 하면 된다면 트레이트 바운드가 더 관용적이고 그 자체로 의도가 잘 드러납니다. 한 컬렉션 안에서 여러 타입이 섞인 진짜 런타임 디스패치가 필요하다면, 제네릭도 `fn_eval`도 그것을 해낼 수 없습니다 — 둘 다 컴파일 타임/단형화 메커니즘입니다 — 아래를 참고하세요.
+트레이트를 따로 정식화하지 않고도 제네릭 함수가 "이 특정 `T`가 우연히 가지고 있는, 이름이 X인 메서드가 무엇이든" 그대로 집어내길 원할 때, 혹은 메서드를 그 자리에서 호출하는 대신 값으로 들고 다녀야 할 때 `fn_eval`을 씁니다. 단순히 메서드를 호출하기만 하면 된다면 트레이트 바운드가 더 관용적이고 그 자체로 의도가 잘 드러납니다. 한 컬렉션 안에서 여러 타입이 섞인 진짜 런타임 디스패치가 필요하다면, 제네릭도 `fn_eval`도 그것을 해낼 수 없습니다 — 둘 다 컴파일 타임/단형화 메커니즘입니다 — 아래를 참고하십시오.
 
 ## 닫힌 집합 다형성: 태그된 유니온 + `match` {#closed-set-polymorphism-tagged-unions-match}
 
@@ -198,7 +198,7 @@ union Result a = Result.ok(42);
 handle(a);   // ok: 42
 ```
 
-*표현식*으로 쓰인 `match`는 반드시 완전성이 증명 가능해야 합니다(모든 변형이 다뤄지거나, `default`/와일드카드 갈래가 있어야 함) — 런타임 검사가 아니라 컴파일러가 모든 경우가 처리됨을 보장합니다. 유니온도 제네릭이 될 수 있습니다: `generic<T, E> union Result { T ok; E err; }`. [타입](/ko/reference/types#union-types)과 [제어 흐름](/ko/reference/control-flow#match-statement)을 참고하세요.
+*표현식*으로 쓰인 `match`는 반드시 완전성이 증명 가능해야 합니다(모든 변형이 다뤄지거나, `default`/와일드카드 갈래가 있어야 함) — 런타임 검사가 아니라 컴파일러가 모든 경우가 처리됨을 보장합니다. 유니온도 제네릭이 될 수 있습니다: `generic<T, E> union Result { T ok; E err; }`. [타입](/ko/reference/types#union-types)과 [제어 흐름](/ko/reference/control-flow#match-statement)을 참고하십시오.
 
 값이 취할 수 있는 "형태(shape)"의 집합이 정의 지점에서 고정되어 있고 알려져 있을 때(항상 정확히 원, 사각형, 삼각형 중 하나인 `Shape`처럼) 이것이 올바른 도구입니다 — 이는 열린(open-ended) 다형성(다운스트림 사용자가 자신만의 새로운 변형으로 확장할 수 있는 `Shape`)과 대비되며, 후자는 제네릭/트레이트/`fn_eval`이 담당하는 영역입니다.
 
@@ -212,13 +212,13 @@ UserId id = (UserId)42;
 // int x = id;   // 오류: UserId는 int가 아닙니다
 ```
 
-[타입](/ko/reference/types#newtype-distinct-types)을 참고하세요.
+[타입](/ko/reference/types#newtype-distinct-types)을 참고하십시오.
 
 ## 수동 디스패치: 명시적인 "vtable" {#manual-dispatch-explicit-vtables}
 
 위의 모든 메커니즘은 컴파일 타임에 결정됩니다. 그중 어느 것도 `Circle`과 `Square`를 하나의 배열에 담아 같은 호출로 런타임에 디스패치하게 해주지는 않습니다 — 이질적인 컬렉션을 동적으로 디스패치하는 바로 그것이야말로 vtable 기반 언어가 자동으로 만들어주는 것이고, SafeC의 전체적인 입장은 이 비용이 자동으로 숨겨지는 게 아니라 눈에 보여야 한다는 것이기 때문입니다. 실제로 이것이 필요할 때는 직접 만들면 됩니다: 객체와 그 객체를 다루는 함수를 함께 담는 구조체 — 컴파일러가 숨겨주지 않을 뿐, 내부적으로 vtable이 하는 일과 정확히 같은 것입니다.
 
-슬롯들이 하나의 구조체 타입을 공유하려면 객체의 타입이 소거되어야 합니다. 그 소거를 한 곳에 가두세요: *같은 타입에 대한* 객체와 함수만 받아들이는 제네릭 생성자를 두면, 존재하는 모든 `Shape`는 구성에 의해 타입이 올바르고 어떤 호출 지점도 캐스트하지 않습니다:
+슬롯들이 하나의 구조체 타입을 공유하려면 객체의 타입이 소거되어야 합니다. 그 소거를 한 곳에 가둡니다: *같은 타입에 대한* 객체와 함수만 받아들이는 제네릭 생성자를 두면, 존재하는 모든 `Shape`는 구성에 의해 타입이 올바르고 어떤 호출 지점도 캐스트하지 않습니다:
 
 ```c
 extern int printf(const char* fmt, ...);
@@ -275,7 +275,7 @@ int main() {
 
 ## 빠른 참고표 {#quick-reference}
 
-| 이런 것에서 왔다면... | 이것을 쓰세요 |
+| 이런 것에서 왔다면... | 이것을 씁니다 |
 |---|---|
 | private 필드 + public 메서드를 가진 클래스 | 구조체 + 메서드 |
 | 연산자 오버로딩 (`+`, `==`, ...) | 연산자 오버로드 메서드 (고정된 연산자 집합) |
@@ -288,8 +288,8 @@ int main() {
 
 ## SafeC에 없는 것 {#what-safec-doesnt-have}
 
-- **기본적으로 클래스도, 상속도, `virtual`도, vtable도 없습니다** — [설계 철학](/ko/guide/design#why-not-classes)과 [비교](/ko/guide/comparison)를 참고하세요.
+- **기본적으로 클래스도, 상속도, `virtual`도, vtable도 없습니다** — [설계 철학](/ko/guide/design#why-not-classes)과 [비교](/ko/guide/comparison)를 참고하십시오.
 - **일반적인 함수/메서드 오버로딩이 없습니다** — 고정된 연산자 집합(`+ - * / % == != < > <= >=`)만 타입별로 여러 정의를 가질 수 있으며, 일반 함수에 대한 C++ 스타일의 "같은 이름, 다른 매개변수 타입" 해석은 없습니다.
-- **이질적인 런타임 제네릭 컬렉션이 없습니다** — `generic<T>`는 항상 단형화됩니다. `Vec<Circle>`과 `Vec<Square>`는 서로 무관한 타입입니다. 런타임 타입이 실제로 달라져야 한다면 [수동 디스패치](#manual-dispatch-explicit-vtables)나 태그된 `union`을 쓰세요.
+- **이질적인 런타임 제네릭 컬렉션이 없습니다** — `generic<T>`는 항상 단형화됩니다. `Vec<Circle>`과 `Vec<Square>`는 서로 무관한 타입입니다. 런타임 타입이 실제로 달라져야 한다면 [수동 디스패치](#manual-dispatch-explicit-vtables)나 태그된 `union`을 씁니다.
 - **`fn_eval`은 "이 형태에 맞는 아무 메서드"가 아니라 이름으로 매칭합니다** — 한 타입에 있는 서로 다른 두 메서드가 우연히 형태 함수의 시그니처와 일치하더라도, `fn_eval`은 시그니처만으로 구분하지 않습니다. 형태 함수의 이름이 대상 메서드의 이름과 반드시 같아야 합니다.
 - **런타임 타입 식별(RTTI)이 없습니다** — [컴파일 타임 인트로스펙션](/ko/advanced/introspection)(`typeof`, `fieldcount`)이 컴파일 타임에 주는 것 이상은 없으며, 불투명한 `void*`에 대해 "이게 실제로 무슨 타입인가"를 런타임에 묻는 `dynamic_cast` 스타일의 쿼리는 없습니다.

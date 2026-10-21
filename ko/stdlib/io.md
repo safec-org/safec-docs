@@ -66,9 +66,9 @@ int  io_getchar();                        // 문자 하나를 읽음; 끝에 도
 int  io_ungetc(int c);                    // 문자를 stdin으로 되돌려 놓음
 int  io_read_line(&char buf, int n);      // 한 줄을 읽음 (최대 n-1자 + NUL)
 int  io_read_token(&char buf, int n);     // 공백으로 구분된 토큰을 읽음
-int  io_scan_int(&stack long long out);           // stdin에서 10진 정수를 파싱
-int  io_scan_uint(&stack unsigned long long out); // stdin에서 부호 없는 정수를 파싱
-int  io_scan_float(&stack double out);            // stdin에서 부동소수점을 파싱
+int  io_scan_int(&long long out);           // stdin에서 10진 정수를 파싱
+int  io_scan_uint(&unsigned long long out); // stdin에서 부호 없는 정수를 파싱
+int  io_scan_float(&double out);            // stdin에서 부동소수점을 파싱
 ```
 
 `io_read_line`은 (NUL을 제외하고) 읽은 문자 수를 반환하거나, EOF/오류

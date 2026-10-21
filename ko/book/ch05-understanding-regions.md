@@ -182,7 +182,7 @@ error: use of 'p' (&arena<Pool> reference) after arena_reset<Pool>(),
 ```
 
 — 이 장 맨 위에서 `dangling()`이 보여준 것과 같은 부류의 버그가 같은
-방식으로 잡힙니다: 런타임 use-after-free가 되기 전에 컴파일 타임에서요.
+방식으로 잡힙니다. 런타임 use-after-free가 되기 전, 컴파일 타임에 잡힙니다.
 (이 검사는 if/else 분기에 대해 흐름에 *민감*합니다 — 한 분기의
 리셋은 다른 분기에 영향을 주지 않습니다 — 그리고 루프 본문에 대해서도
 그렇습니다 — 루프 어딘가의 리셋은 그 루프의 모든 문에 대해 이미
@@ -193,7 +193,7 @@ error: use of 'p' (&arena<Pool> reference) after arena_reset<Pool>(),
 있습니다. 정확히 어떤 것이 커버되는지, 그리고 플래그가 붙은 참조가
 정말로 여전히 유효하다고 확신할 때 쓰는 `unsafe` 우회법에 대해서는
 [메모리와 리전](/ko/reference/memory#_4-arena-references-die-on-reset)을
-참고하세요.)
+참고하십시오.)
 
 ### 탈출구: 리전이 없는 `&T` {#the-escape-hatch-t-with-no-region}
 
@@ -230,7 +230,7 @@ double sum_point(&Point p) {
   어느 것도 이를 정직하게 표현하지 못합니다. `&T`/`?&T`는 양방향
   모두 `unsafe` 없이 원시 포인터로 변환되고 그로부터 변환되는데,
   바로 이 점이 그 경계에 딱 맞는 이유입니다 — 자세한 내용은 [C
-  연동](/ko/reference/ffi)을 참고하세요.
+  연동](/ko/reference/ffi)을 참고하십시오.
 
 네 리전 *어느 것*의 참조든 `&T`/`?&T`로 캐스트도, `unsafe`도 없이
 암묵적으로 변환됩니다.
@@ -283,12 +283,12 @@ error: cannot borrow 'x' as mutable: already borrowed as mutable
 별칭 검사는 이를 하이젠버그 대신 컴파일 타임 오류로 바꿔 줍니다.
 
 ::: tip 초반에 알아 둘 만한 구문 함정 하나
-`&stack const int`를 눈여겨보세요 — `const`가 리전 한정자 *뒤에*
+`&stack const int`를 눈여겨봅니다 — `const`가 리전 한정자 *뒤에*
 쓰였습니다. 앞에 쓰면(`const &stack int`) 파서는 지금 이를 받아들이긴
 하지만, 조용히 *가변* 대여를 만들어 버립니다. 알려진 파서 버그입니다.
 `const`를 리전 한정자 뒤에 쓰는 습관을 들이면(`&stack const int`,
 `&heap const int`, ...) 절대 이 문제를 겪지 않습니다 — 자세한 내용은
-[안전성](/ko/reference/safety#aliasing-rules-borrow-checker)을 참고하세요.
+[안전성](/ko/reference/safety#aliasing-rules-borrow-checker)을 참고하십시오.
 :::
 
 대여도 스코프에 따라 추적됩니다: 내부 블록 안에서 가져온 가변 대여는
@@ -341,7 +341,7 @@ unsafe {
 돌아갑니다. `unsafe`는 전파되지 않습니다: `unsafe` 블록 안에서 안전한
 함수를 호출한다고 해서 그 피호출 함수까지 unsafe해지는 것은 아니며,
 블록 바깥의 코드는 여전히 예전과 똑같이 엄격하게 검사됩니다. unsafe
-블록은 그것이 필요한 구체적인 연산만큼 작게 유지하세요 — 함수 전체를
+블록은 그것이 필요한 구체적인 연산만큼 작게 유지합니다 — 함수 전체를
 `unsafe`로 표시하면 "이 부분은 손으로 감사하라"는 정밀하고 그렙하기
 쉬운 신호로서 마커가 가지는 의미가 사라집니다.
 
@@ -353,15 +353,15 @@ Rust를 써 봤다면 이번 장의 모양이 익숙하게 느껴졌을 것입�
 가치가 있습니다: SafeC의 리전은 Rust의 완전한 라이프타임 시스템보다
 단순합니다(외워야 할 라이프타임 매개변수도, 생략 규칙도 없습니다).
 하지만 그 단순함에는 단순한 구문 차이 이상의 진짜 비용이 따릅니다.
-Rust는 대여한 참조를 함수에서 반환할 수 있습니다, 그 라이프타임이
-입력 매개변수의 라이프타임에 묶여 있는 한요. SafeC의 `&stack` 참조는
+Rust는 대여한 참조의 라이프타임이 입력 매개변수의 라이프타임에
+묶여 있는 한, 그 참조를 함수에서 반환할 수 있습니다. SafeC의 `&stack` 참조는
 함수에서 절대, 예외 없이 반환될 수 없습니다 — `arena` 리전이 존재하는
 주된 이유는 진짜 스택 참조로는 안 되는 경우를 위해 "데이터가 이 함수
 호출 하나보다 오래 산다"는 유연성 일부를 돌려주기 위해서입니다. 이
 간극이 정확히 어디서 드러나고 아레나가 그것을 어떻게 메워 주는지
 실제 예제로 살펴보려면
 [비교](/ko/guide/comparison#no-lifetime-elision-because-there-s-no-lifetime-parameter-to-elide)를
-참고하세요.
+참고하십시오.
 
 다음: [구조체와 메서드](/ko/book/ch06-structs-and-methods) — 이제
 데이터가 *어디에* 사는지 추론할 수 있게 되었으니, 그것을 중심으로

@@ -9,7 +9,7 @@
 #include <std/prelude.h>
 ```
 
-비트 조작(`bit.h`)과 복소수(`complex.h`)는 [math](/ko/stdlib/math)에 문서화되어 있습니다. 고정 폭 정수와 한계값 헤더(`stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `float.h`, `inttypes.h`)는 타입과 상수만 정의합니다. 아래의 [C 타입과 한계값 헤더](#c-type-and-limit-headers)를 참고하세요.
+비트 조작(`bit.h`)과 복소수(`complex.h`)는 [math](/ko/stdlib/math)에 문서화되어 있습니다. 고정 폭 정수와 한계값 헤더(`stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `float.h`, `inttypes.h`)는 타입과 상수만 정의합니다. 아래의 [C 타입과 한계값 헤더](#c-type-and-limit-headers)를 참고하십시오.
 
 ::: tip 상수는 함수입니다
 `errno.h`, `fenv.h`, `locale.h`, `signal.h`는 네임스페이스를 통해 접근할 수 있도록 상수를 함수로 제공합니다: `SIG_INT`가 아니라 `std::SIG_INT()`라고 씁니다. `log.h`, `sys.h`, `stdckdint.h`, `heap.h`, `dma.h`의 상수는 일반 `#define`입니다.
@@ -65,7 +65,7 @@ int main() {
 #include <std/ctype.h>
 ```
 
-C의 `<ctype.h>`처럼 로케일을 따릅니다. `c`는 `0..255` 또는 `-1`(EOF)이어야 합니다. 각 판별 함수는 참이면 0이 아닌 값을 반환합니다. 로케일과 무관한 ASCII 검사는 [인코딩](/ko/stdlib/encoding#ascii-ascii-h)을 참고하세요.
+C의 `<ctype.h>`처럼 로케일을 따릅니다. `c`는 `0..255` 또는 `-1`(EOF)이어야 합니다. 각 판별 함수는 참이면 0이 아닌 값을 반환합니다. 로케일과 무관한 ASCII 검사는 [인코딩](/ko/stdlib/encoding#ascii-ascii-h)을 참고하십시오.
 
 | 함수 | 참인 경우 |
 |----------|----------|
@@ -100,7 +100,7 @@ void        errno_print(const &char prefix); // "prefix: <description>" to stder
 
 상수(호출해서 사용): `ERRNO_OK()`, `ERRNO_EPERM()`, `ERRNO_ENOENT()`, `ERRNO_EIO()`, `ERRNO_EBADF()`, `ERRNO_ENOMEM()`, `ERRNO_EACCES()`, `ERRNO_EBUSY()`, `ERRNO_EEXIST()`, `ERRNO_EINVAL()`, `ERRNO_ERANGE()`, `ERRNO_EAGAIN()`, `ERRNO_EWOULDBLOCK()`, `ERRNO_ETIMEDOUT()`.
 
-대부분의 코드는 Linux, macOS, BSD에서 값이 같습니다. `EAGAIN`/`EWOULDBLOCK`/`ETIMEDOUT`은 다르며(Linux 11/11/110, macOS/BSD 35/35/60), Windows 소켓은 `errno`로 보고하지 않습니다. 논블로킹 소켓 호출이 블록될 뻔했는지 확인하려면 `errno_get()`과 비교하지 말고 [`sched/io_nb.h`](/ko/stdlib/sched)의 `std::sock_would_block()`을 쓰세요.
+대부분의 코드는 Linux, macOS, BSD에서 값이 같습니다. `EAGAIN`/`EWOULDBLOCK`/`ETIMEDOUT`은 다르며(Linux 11/11/110, macOS/BSD 35/35/60), Windows 소켓은 `errno`로 보고하지 않습니다. 논블로킹 소켓 호출이 블록될 뻔했는지 확인하려면 `errno_get()`과 비교하지 말고 [`sched/io_nb.h`](/ko/stdlib/sched)의 `std::sock_would_block()`을 씁니다.
 
 ---
 
@@ -225,7 +225,7 @@ void log_write(int level, const &char tag, const &char msg, const &char file, in
 
 `log_set_backend`는 모든 메시지를 사용자 함수(UART, 링 버퍼, 파일)로 보냅니다.
 
-`LOG_E`/`LOG_W`/`LOG_I`/`LOG_D(tag, msg)` 매크로는 `__FILE__`/`__LINE__`을 채워 주며 `LOG_LEVEL` 아래에서는 아무것도 남기지 않으므로 `LOG_LEVEL=0`은 비용이 없습니다. 함수형 매크로라서 [호환 전처리기 모드](/ko/reference/preprocessor)에서만 존재하며, 안전 모드에서는 `log_write`를 직접 호출하세요.
+`LOG_E`/`LOG_W`/`LOG_I`/`LOG_D(tag, msg)` 매크로는 `__FILE__`/`__LINE__`을 채워 주며 `LOG_LEVEL` 아래에서는 아무것도 남기지 않으므로 `LOG_LEVEL=0`은 비용이 없습니다. 함수형 매크로라서 [호환 전처리기 모드](/ko/reference/preprocessor)에서만 존재하며, 안전 모드에서는 `log_write`를 직접 호출합니다.
 
 ---
 
@@ -245,7 +245,7 @@ void panic_at(const &char msg, const &char file, int line);  // never returns
 generic<T> &T expect_ref(?&T r, const &char msg);
 ```
 
-기본 핸들러는 프리스탠딩 타깃에서 무한 루프를, 호스티드 타깃에서 `abort()`를 호출합니다. `expect_ref`는 "여기서는 null일 수 없다"를 검사와 함께 말하는 방법입니다. 캐스트 `(&T)r`은 검사를 건너뛰므로 거부됩니다. 회복 가능한 부재에는 `match`를 쓰세요.
+기본 핸들러는 프리스탠딩 타깃에서 무한 루프를, 호스티드 타깃에서 `abort()`를 호출합니다. `expect_ref`는 "여기서는 null일 수 없다"를 검사와 함께 말하는 방법입니다. 캐스트 `(&T)r`은 검사를 건너뛰므로 거부됩니다. 회복 가능한 부재에는 `match`를 씁니다.
 
 `PANIC(msg)`와 `PANIC_ASSERT(cond)`는 [호환 전처리기 모드](/ko/reference/preprocessor)에서 쓸 수 있습니다.
 
@@ -343,7 +343,7 @@ int ckd_sub_u64(&unsigned long long result, unsigned long long a, unsigned long 
 int ckd_mul_u64(&unsigned long long result, unsigned long long a, unsigned long long b);
 ```
 
-언어에도 오버플로 연산자가 내장되어 있습니다. [오버플로 연산자](/ko/reference/overflow)를 참고하세요.
+언어에도 오버플로 연산자가 내장되어 있습니다. [오버플로 연산자](/ko/reference/overflow)를 참고하십시오.
 
 ---
 
@@ -390,7 +390,7 @@ long long   sys_time_now_ns();
 long long   sys_monotonic_ns();
 ```
 
-`end`는 선택적 출력 매개변수입니다: 파싱이 멈춘 위치를 알고 싶으면 `const &char` 변수의 주소를, 아니면 `null`을 넘기세요. 성공 플래그가 있는 파싱에는 [`convert.h`](#convert-string-number)가 낫습니다.
+`end`는 선택적 출력 매개변수입니다: 파싱이 멈춘 위치를 알고 싶으면 `const &char` 변수의 주소를, 아니면 `null`을 넘깁니다. 성공 플래그가 있는 파싱에는 [`convert.h`](#convert-string-number)가 낫습니다.
 
 ```c
 #include <std/sys.h>
@@ -529,11 +529,13 @@ struct DmaSgList {
 
 ```c
 // On failure: prints "Assertion failed: <msg> at <file>:<line>" to stderr, then abort().
+void runtime_assert_at(int cond, const &char msg, const &char file, int line);
+// The same without a location: a function can't see its call site.
 void runtime_assert(int cond, const &char msg);
-void assert_true(int cond);                     // fixed message
+void assert_true(int cond);                     // no message
 ```
 
-`static_assert`는 언어 키워드이며 항상 컴파일 타임에 검사됩니다. include 전에 `NDEBUG`를 정의하면 [호환 전처리기 모드](/ko/reference/preprocessor)에서 `runtime_assert`와 `assert_true`가 아무 동작도 하지 않게 됩니다.
+[호환 전처리기 모드](/ko/reference/preprocessor)에서 `runtime_assert`와 `assert_true`는 호출자의 `__FILE__`과 `__LINE__`을 `runtime_assert_at`에 넘기는 매크로이며, include 전에 `NDEBUG`를 정의하면 아무 동작도 하지 않게 됩니다. 안전 모드에서 위치를 남기려면 `runtime_assert_at(cond, msg, __FILE__, __LINE__)`을 호출합니다. `static_assert`는 언어 키워드이며 항상 컴파일 타임에 검사됩니다.
 
 ---
 

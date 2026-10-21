@@ -194,12 +194,12 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| gpio | `hal/gpio.h` | `GpioPin`: 방향, read/write/toggle, 풀업/풀다운 |
-| i2c | `hal/i2c.h` | `I2cBus`: 폴링 마스터 — write/read/write_read/probe |
-| spi | `hal/spi.h` | `SpiDevice`: 폴링 마스터 — transfer/write/read, 칩 셀렉트 |
-| uart | `hal/uart.h` | `Uart`: 폴링 시리얼 — 바이트/문자열 I/O, 준비 플래그 |
-| timer | `hal/timer.h` | `Timer`: 주기/시작/정지/읽기/플래그 |
-| watchdog | `hal/watchdog.h` | `Watchdog`: 활성화/피드/리셋 원인 확인 |
+| gpio | `hal/gpio.h` | `GpioPin<C>`: 방향, read/write/toggle, 풀업/풀다운(`GpioGeneric`, `Stm32F4Gpio`) |
+| i2c | `hal/i2c.h` | `I2cBus<C>`: 폴링 마스터 — write/read/write_read/probe(`I2cGeneric`, `Stm32F4I2c`) |
+| spi | `hal/spi.h` | `SpiDevice<C>`: 폴링 마스터 — transfer/write/read, 칩 셀렉트(`SpiGeneric`, `Stm32F4Spi`) |
+| uart | `hal/uart.h` | `Uart<C>`: 폴링 시리얼 — 바이트/문자열 I/O, 준비 플래그(`UartGeneric`, `Pl011`, `Ns16550`, `Stm32F4Usart`) |
+| timer | `hal/timer.h` | `Timer<C>`: 주기/시작/정지/읽기/플래그(`TimerGeneric`, `Stm32F4Tim`) |
+| watchdog | `hal/watchdog.h` | `Watchdog<C>`: 활성화/피드/리셋 원인 확인(`WatchdogGeneric`, `Stm32F4Iwdg`) |
 | cortex_m | `hal/cortex_m.h` | NVIC, SysTick, SCB (ARM Cortex-M) |
 | aarch64 | `hal/aarch64.h` | 시스템 레지스터, Generic Timer, GICv2 (ARMv8-A) |
 | riscv | `hal/riscv.h` | CSR 접근, CLINT, PLIC |
@@ -220,7 +220,7 @@ int main() {
 |--------|--------|-------------|
 | frame | `kernel/frame.h` | 비트맵 물리 프레임 얼로케이터 (4 KiB 프레임) |
 | paging | `kernel/paging.h` | `PageEntry`/`PageTable` — 원시 페이지 테이블 조작 |
-| mmu | `kernel/mmu.h` | `MmuContext` — 2단계 가상 메모리, map/unmap/walk/TLB/activate |
+| mmu | `kernel/mmu.h` | `MmuContext<F>` — 실제 페이지 테이블(x86-64, x86, Sv39, Sv32, AArch64, ARMv7-A): map/unmap/walk/TLB/activate |
 | process | `kernel/process.h` | `PCB` — 프로세스 제어 블록 |
 | scheduler | `kernel/scheduler.h` | PCB 기반 우선순위 라운드로빈 스케줄러 |
 | ipc | `kernel/ipc.h` | `Mailbox` — 고정 용량 메시지 큐 |
@@ -316,7 +316,7 @@ int main() {
 
 `safeguard` 패키지 매니저로 빌드할 때는 표준 라이브러리가 자동으로 `build/deps/libsafec_std.a`로 컴파일되어 링크됩니다.
 
-수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), `safeguard`가 빌드한(또는 모든 `std/**/*.sc`로 직접 빌드한) std 아카이브를 링크하세요:
+수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), `safeguard`가 빌드한(또는 모든 `std/**/*.sc`로 직접 빌드한) std 아카이브를 링크합니다:
 ```bash
 safec myfile.sc -I /path/to/SafeC -o myfile.ll
 clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile

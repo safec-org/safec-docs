@@ -127,9 +127,9 @@ safeguard test --target rv32e        # builds every test for RV32E, doesn't run 
 ```
 
 - std 아카이브는 타깃별로 `build/deps/<target>/libsafec_std.a`에, 해당 타깃에 적용되는 소스만으로 빌드됩니다(OS 전용 백엔드는 베어메탈에서 건너뜁니다).
-- 오브젝트는 타깃의 clang 플래그(`safec --print-target-clang-flags`)로 컴파일되고, 베어메탈 링크는 `-nostdlib -static`과 함께 `ld.lld`를 사용합니다: 링커 스크립트, 스타트업 코드, 런타임(`memcpy`, `memset`, 필요하다면 `malloc`, compiler-rt 내장 함수)은 `[build] cflags`/`libs`로 공급하세요.
+- 오브젝트는 타깃의 clang 플래그(`safec --print-target-clang-flags`)로 컴파일되고, 베어메탈 링크는 `-nostdlib -static`과 함께 `ld.lld`를 사용합니다: 링커 스크립트, 스타트업 코드, 런타임(`memcpy`, `memset`, 필요하다면 `malloc`, compiler-rt 내장 함수)은 `[build] cflags`/`libs`로 공급합니다.
 - freestanding 모드가 호스트 전용으로 경고할 함수를 프로젝트가 직접 정의한다면(예: 런타임 자체의 `malloc`) 그 함수들은 `--provides`로 컴파일러에 전달되어 경고가 나지 않습니다.
-- WebAssembly 타깃은 대신 라이브러리 모듈을 링크합니다: 진입점이 없고, `export_name`이 붙은 함수를 내보내며, 해결되지 않은 extern은 임포트가 되고, std 아카이브에는 `std/wasm`(wasm 런타임)이 포함됩니다. [WebAssembly](/ko/reference/baremetal#wasm)를 참고하세요.
+- WebAssembly 타깃은 대신 라이브러리 모듈을 링크합니다: 진입점이 없고, `export_name`이 붙은 함수를 내보내며, 해결되지 않은 extern은 임포트가 되고, std 아카이브에는 `std/wasm`(wasm 런타임)이 포함됩니다. [WebAssembly](/ko/reference/baremetal#wasm)를 참고하십시오.
 - `test`는 테스트 바이너리를 빌드만 하고 실행하지 않으며(다른 머신용이므로), `run`은 크로스 타깃을 거부합니다.
 
 ## Package.toml {#package-toml}
@@ -239,7 +239,7 @@ feature "frontend" ->  -DSAFEC_FEATURE_FRONTEND=1
 바이너리 크기를 줄이거나 Cargo의 기능별 컴파일 방식처럼 관련 없는
 빌드 오류를 건너뛰지는 못합니다. 이런 방식으로 구축된 완전한
 `frontend`/`backend`/`fullstack` 프로젝트 예시는 SafeC 저장소의
-`examples/fullstack_demo/`를 참고하세요. scx 프론트엔드도 포함되어
+`examples/fullstack_demo/`를 참고하십시오. scx 프론트엔드도 포함되어
 있습니다([scx 템플릿](/ko/advanced/scx) 참고).
 
 ## 빌드 흐름 {#build-flow}

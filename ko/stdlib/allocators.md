@@ -20,7 +20,7 @@
 
 ## 타입 지정 할당 {#typed}
 
-모든 얼로케이터에는 **타입 지정 계층**이 있습니다 — 바이트 수준 메서드보다 이것을 우선 사용하세요. `T`는 대입받는 변수에서 오며, 결과는 nullable 참조(얼로케이터가 소진되면 `null`)이므로 사용 전에 좁혀야 합니다.
+모든 얼로케이터에는 **타입 지정 계층**이 있습니다 — 바이트 수준 메서드보다 이것을 우선 사용합니다. `T`는 대입받는 변수에서 오며, 결과는 nullable 참조(얼로케이터가 소진되면 `null`)이므로 사용 전에 좁혀야 합니다.
 
 ```c
 generic<T> ?&heap T bump_alloc_t(&BumpAllocator a);                     // aligned for T
@@ -101,6 +101,8 @@ struct SlabAllocator slab_init(&unsigned char buffer, unsigned long obj_size, un
 struct SlabAllocator slab_new(unsigned long obj_size, unsigned long count);
 ```
 
+`slab_init`은 `obj_size * count`바이트 버퍼를 받습니다. 슬롯은 `obj_size`를 8의 배수로 올린 크기이고(빈 슬롯이 free list 링크를 담으므로 최소 8), 8바이트 정렬에서 시작합니다. 그래서 이 올림이 버퍼에 다 들어가지 않으면 `cap`이 `count`보다 작아질 수 있습니다. `slab_new`는 모든 슬롯이 들어갈 공간을 할당합니다.
+
 ```c
 #include <std/alloc/slab.h>
 #include <std/io.h>
@@ -126,7 +128,7 @@ int main() {
 
 ## PoolAllocator {#pool}
 
-가변 크기 first-fit 얼로케이터입니다: 각 블록은 작은 헤더를 가지며, 해제 시 인접한 빈 블록을 병합합니다. 단순하고 작지만 할당과 해제가 블록 목록을 순회합니다 — O(1)이 필요하면 TLSF를 쓰세요.
+가변 크기 first-fit 얼로케이터입니다: 각 블록은 작은 헤더를 가지며, 해제 시 인접한 빈 블록을 병합합니다. 단순하고 작지만 할당과 해제가 블록 목록을 순회합니다 — O(1)이 필요하면 TLSF를 씁니다.
 
 ```c
 struct PoolAllocator {

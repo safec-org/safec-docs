@@ -51,7 +51,7 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    int  tx(&stack PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
+    int  tx(&PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
 };
 
 generic<T>
@@ -116,10 +116,10 @@ struct EthernetHdr {
 };
 
 // Parse Ethernet header from packet (returns 0 on success, -1 if too short).
-int eth_parse(&stack PacketBuf pkt, &stack EthernetHdr hdr_out);
+int eth_parse(&PacketBuf pkt, &EthernetHdr hdr_out);
 
 // Write Ethernet header into packet at offset 0; sets pkt.len to ETH_HDR_LEN.
-void eth_build(&stack PacketBuf pkt, const unsigned char dst[6],
+void eth_build(&PacketBuf pkt, const unsigned char dst[6],
                const unsigned char src[6], unsigned short ethertype);
 ```
 
@@ -154,17 +154,17 @@ struct ArpTable {
 
 // Build an ARP request/reply packet into pkt (starting after the Ethernet
 // header -- pkt.len must already include ETH_HDR_LEN).
-void arp_build_packet(&stack PacketBuf pkt,
+void arp_build_packet(&PacketBuf pkt,
                       unsigned short op,
                       const unsigned char sha[6], unsigned int spa,
                       const unsigned char tha[6], unsigned int tpa);
 
 // Parse an ARP packet at pkt.data + offset. Fills op/sha/spa/tha/tpa on
 // success (returns 0), -1 on bad length.
-int  arp_parse_packet(&stack PacketBuf pkt, unsigned long offset,
-                      &stack unsigned short op,
-                      unsigned char sha[6], &stack unsigned int spa,
-                      unsigned char tha[6], &stack unsigned int tpa);
+int  arp_parse_packet(&PacketBuf pkt, unsigned long offset,
+                      &unsigned short op,
+                      unsigned char sha[6], &unsigned int spa,
+                      unsigned char tha[6], &unsigned int tpa);
 ```
 
 ---
@@ -198,11 +198,11 @@ struct Ipv4Hdr {
 unsigned short ip_checksum(const &unsigned char data, unsigned long len);
 
 // Parse IPv4 header from pkt at byte offset 'offset'.
-int  ipv4_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv4Hdr hdr_out);
+int  ipv4_parse(&PacketBuf pkt, unsigned long offset, &Ipv4Hdr hdr_out);
 
 // Write IPv4 header at 'offset'; computes/fills the checksum.
 // Returns byte offset of the first payload byte.
-unsigned long  ipv4_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long  ipv4_build(&PacketBuf pkt, unsigned long offset,
                           unsigned char proto, unsigned int src, unsigned int dst,
                           unsigned short payload_len);
 ```
@@ -232,30 +232,30 @@ struct Ipv6Hdr {
     struct Ipv6Addr dst;
 };
 
-// Address utilities -- all take addresses by '&stack Ipv6Addr' reference.
-int  ipv6_addr_eq(const &stack Ipv6Addr a, const &stack Ipv6Addr b);
-int  ipv6_addr_is_unspecified(const &stack Ipv6Addr a);
-int  ipv6_addr_is_loopback(const &stack Ipv6Addr a);       // ::1
-int  ipv6_addr_is_link_local(const &stack Ipv6Addr a);     // fe80::/10
-void ipv6_addr_str(const &stack Ipv6Addr addr, &char buf); // 40-byte buf
+// Address utilities -- all take addresses by '&Ipv6Addr' reference.
+int  ipv6_addr_eq(const &Ipv6Addr a, const &Ipv6Addr b);
+int  ipv6_addr_is_unspecified(const &Ipv6Addr a);
+int  ipv6_addr_is_loopback(const &Ipv6Addr a);       // ::1
+int  ipv6_addr_is_link_local(const &Ipv6Addr a);     // fe80::/10
+void ipv6_addr_str(const &Ipv6Addr addr, &char buf); // 40-byte buf
 
 // Parse IPv6 header from pkt at byte offset 'offset'.
-int  ipv6_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv6Hdr hdr_out);
+int  ipv6_parse(&PacketBuf pkt, unsigned long offset, &Ipv6Hdr hdr_out);
 
 // Write IPv6 header at 'offset'. Returns byte offset of the first payload byte.
-unsigned long ipv6_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long ipv6_build(&PacketBuf pkt, unsigned long offset,
                           unsigned char next_hdr, unsigned char hop_limit,
-                          const &stack Ipv6Addr src, const &stack Ipv6Addr dst,
+                          const &Ipv6Addr src, const &Ipv6Addr dst,
                           unsigned short payload_len);
 
 // Full frame: Ethernet + IPv6 header, caller writes the payload at the
 // returned offset. Returns byte offset of the first payload byte.
-unsigned long ipv6_frame(&stack PacketBuf pkt,
+unsigned long ipv6_frame(&PacketBuf pkt,
                           const unsigned char eth_src[6],
                           const unsigned char eth_dst[6],
                           unsigned char next_hdr,
-                          const &stack Ipv6Addr src,
-                          const &stack Ipv6Addr dst,
+                          const &Ipv6Addr src,
+                          const &Ipv6Addr dst,
                           unsigned short payload_len);
 ```
 
@@ -278,19 +278,19 @@ struct UdpHdr {
 };
 
 // Parse UDP header from pkt at byte offset 'offset'.
-int  udp_parse(&stack PacketBuf pkt, unsigned long offset, &stack UdpHdr hdr_out);
+int  udp_parse(&PacketBuf pkt, unsigned long offset, &UdpHdr hdr_out);
 
 // Write UDP header at 'offset'; payload_len = bytes of data after the
 // header (checksum is left 0 -- optional in IPv4). Returns byte offset of
 // the first payload byte.
-unsigned long udp_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long udp_build(&PacketBuf pkt, unsigned long offset,
                         unsigned short src_port, unsigned short dst_port,
                         unsigned short payload_len);
 
 // Full frame: Ethernet + IPv4 + UDP headers; pkt is reset first. Returns
 // byte offset where the caller should write the payload -- see the
 // End-to-End Example below for the full call/write/tx sequence.
-unsigned long udp_frame(&stack PacketBuf pkt,
+unsigned long udp_frame(&PacketBuf pkt,
                         const unsigned char eth_src[6],
                         const unsigned char eth_dst[6],
                         unsigned int ip_src, unsigned int ip_dst,
@@ -339,13 +339,13 @@ struct TcpConn {
 
     // Feed a received packet (starting at TCP header offset in pkt).
     // Returns 1 if state changed, 0 otherwise.
-    int  recv(&stack PacketBuf pkt, unsigned long tcp_offset);
+    int  recv(&PacketBuf pkt, unsigned long tcp_offset);
 
     // Enqueue payload data to send. Returns bytes accepted (0 if full).
     unsigned long send(const &unsigned char data, unsigned long len);
 
     // Build next outgoing segment into pkt; returns 1 if a segment was produced.
-    int  build_segment(&stack PacketBuf pkt,
+    int  build_segment(&PacketBuf pkt,
                        const unsigned char eth_src[6],
                        const unsigned char eth_dst[6]);
 
@@ -364,7 +364,7 @@ struct TcpConn {
 
 // Parse TCP header from pkt at byte offset 'offset'.
 // 0 on success; -1 if truncated or the data offset is below 5 words or past the packet.
-int tcp_parse(&stack PacketBuf pkt, unsigned long offset, &stack TcpHdr hdr_out);
+int tcp_parse(&PacketBuf pkt, unsigned long offset, &TcpHdr hdr_out);
 
 unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
                             const &unsigned char tcp_seg, unsigned long seg_len);   // pseudo-header + segment
@@ -387,7 +387,7 @@ Constants: `TCP_HDR_MIN_LEN` (20); flags `TCP_FIN` (0x01), `TCP_SYN` (0x02), `TC
 
 // Build a DNS A-record query for 'name' into pkt. 'txid' is caller-chosen
 // (not generated internally) -- match it against the reply yourself.
-unsigned short dns_query(&stack PacketBuf pkt,
+unsigned short dns_query(&PacketBuf pkt,
                          const unsigned char eth_src[6],
                          const unsigned char eth_dst[6],
                          unsigned int ip_src, unsigned int ip_dns,
@@ -398,9 +398,9 @@ unsigned short dns_query(&stack PacketBuf pkt,
 // Parse a DNS reply in pkt (starting at the UDP payload offset). On
 // success fills ip4_out with the first A record and returns 1; returns 0
 // on a parse error, no A record, or a txid that doesn't match expected_txid.
-int dns_parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset,
+int dns_parse_reply(&PacketBuf pkt, unsigned long udp_payload_offset,
                     unsigned short expected_txid,
-                    &stack unsigned int ip4_out);
+                    &unsigned int ip4_out);
 ```
 
 ---
@@ -437,15 +437,15 @@ struct DhcpClient {
     unsigned char    mac[6];
 
     // Build a DHCPDISCOVER packet.
-    void discover(&stack PacketBuf pkt, const unsigned char eth_dst[6]);
+    void discover(&PacketBuf pkt, const unsigned char eth_dst[6]);
 
     // Build a DHCPREQUEST for 'offered_ip' from 'server_ip'.
-    void request(&stack PacketBuf pkt, const unsigned char eth_dst[6],
+    void request(&PacketBuf pkt, const unsigned char eth_dst[6],
                  unsigned int offered_ip, unsigned int server_ip);
 
     // Parse an incoming DHCP reply; fills lease on ACK/OFFER. Returns
     // DHCP_OFFER, DHCP_ACK, DHCP_NAK, or 0 on unrecognised.
-    int  parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset);
+    int  parse_reply(&PacketBuf pkt, unsigned long udp_payload_offset);
 
     int  is_bound() const;   // 1 if the client has a valid lease
 }
@@ -453,7 +453,7 @@ struct DhcpClient {
 
 ::: warning No `NetIf* iface` field, no zero-argument `discover()`/`request()`
 `DhcpClient` doesn't hold a reference to a `NetIf` — like `TcpConn`, it
-builds into a caller-supplied `&stack PacketBuf`, and `discover()`/
+builds into a caller-supplied `&PacketBuf`, and `discover()`/
 `request()` take the destination MAC (and, for `request()`, the offered/
 server IPs) as explicit arguments rather than reading them from a stored
 interface. Transmit the packet the same way the End-to-End Example does:

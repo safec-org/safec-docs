@@ -42,7 +42,7 @@ struct PacketBuf {
 }
 ```
 
-**NetIf** — 추상 네트워크 인터페이스입니다. 자체 `rx`/`tx` 버퍼를 갖지 않습니다: 각 프레임을 여러분 자신의 `struct PacketBuf`에 만들고(아래의 `udp_frame`/`eth_build`/… 사용) 그것을 `tx()`에 전달하세요. `netif_new`로 생성하며, 이 함수는 드라이버 컨텍스트와 그에 대해 타입이 지정된 송신 콜백을 받습니다. 인터페이스는 둘 다 타입 소거된 형태로 저장하지만(하나의 스택이 서로 다른 드라이버의 인터페이스를 운용할 수 있도록), 이를 기록하는 것은 `netif_new`뿐이므로 짝이 맞는지는 컴파일 타임에 검사됩니다.
+**NetIf** — 추상 네트워크 인터페이스입니다. 자체 `rx`/`tx` 버퍼를 갖지 않습니다: 각 프레임을 여러분 자신의 `struct PacketBuf`에 만들고(아래의 `udp_frame`/`eth_build`/… 사용) 그것을 `tx()`에 전달합니다. `netif_new`로 생성하며, 이 함수는 드라이버 컨텍스트와 그에 대해 타입이 지정된 송신 콜백을 받습니다. 인터페이스는 둘 다 타입 소거된 형태로 저장하지만(하나의 스택이 서로 다른 드라이버의 인터페이스를 운용할 수 있도록), 이를 기록하는 것은 `netif_new`뿐이므로 짝이 맞는지는 컴파일 타임에 검사됩니다.
 
 ```c
 struct NetIf {
@@ -51,7 +51,7 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    int  tx(&stack PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
+    int  tx(&PacketBuf pkt);   // calls the driver's tx(ctx, frame, len); 0 on success
 };
 
 generic<T>
@@ -116,10 +116,10 @@ struct EthernetHdr {
 };
 
 // 패킷에서 Ethernet 헤더를 파싱한다 (성공 시 0, 너무 짧으면 -1을 반환).
-int eth_parse(&stack PacketBuf pkt, &stack EthernetHdr hdr_out);
+int eth_parse(&PacketBuf pkt, &EthernetHdr hdr_out);
 
 // 오프셋 0에 Ethernet 헤더를 기록한다; pkt.len을 ETH_HDR_LEN으로 설정한다.
-void eth_build(&stack PacketBuf pkt, const unsigned char dst[6],
+void eth_build(&PacketBuf pkt, const unsigned char dst[6],
                const unsigned char src[6], unsigned short ethertype);
 ```
 
@@ -154,17 +154,17 @@ struct ArpTable {
 
 // pkt에 ARP 요청/응답 패킷을 만든다 (Ethernet 헤더 이후부터 시작 --
 // pkt.len은 이미 ETH_HDR_LEN을 포함하고 있어야 함).
-void arp_build_packet(&stack PacketBuf pkt,
+void arp_build_packet(&PacketBuf pkt,
                       unsigned short op,
                       const unsigned char sha[6], unsigned int spa,
                       const unsigned char tha[6], unsigned int tpa);
 
 // pkt.data + offset 위치의 ARP 패킷을 파싱한다. 성공하면 (0을 반환하며)
 // op/sha/spa/tha/tpa를 채우고, 길이가 잘못됐으면 -1을 반환한다.
-int  arp_parse_packet(&stack PacketBuf pkt, unsigned long offset,
-                      &stack unsigned short op,
-                      unsigned char sha[6], &stack unsigned int spa,
-                      unsigned char tha[6], &stack unsigned int tpa);
+int  arp_parse_packet(&PacketBuf pkt, unsigned long offset,
+                      &unsigned short op,
+                      unsigned char sha[6], &unsigned int spa,
+                      unsigned char tha[6], &unsigned int tpa);
 ```
 
 ---
@@ -198,11 +198,11 @@ struct Ipv4Hdr {
 unsigned short ip_checksum(const &unsigned char data, unsigned long len);
 
 // pkt의 바이트 오프셋 'offset'에서 IPv4 헤더를 파싱한다.
-int  ipv4_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv4Hdr hdr_out);
+int  ipv4_parse(&PacketBuf pkt, unsigned long offset, &Ipv4Hdr hdr_out);
 
 // 'offset'에 IPv4 헤더를 기록한다; 체크섬을 계산해 채운다.
 // 첫 페이로드 바이트의 바이트 오프셋을 반환한다.
-unsigned long  ipv4_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long  ipv4_build(&PacketBuf pkt, unsigned long offset,
                           unsigned char proto, unsigned int src, unsigned int dst,
                           unsigned short payload_len);
 ```
@@ -232,30 +232,30 @@ struct Ipv6Hdr {
     struct Ipv6Addr dst;
 };
 
-// 주소 유틸리티 -- 모두 '&stack Ipv6Addr' 참조로 주소를 받는다.
-int  ipv6_addr_eq(const &stack Ipv6Addr a, const &stack Ipv6Addr b);
-int  ipv6_addr_is_unspecified(const &stack Ipv6Addr a);
-int  ipv6_addr_is_loopback(const &stack Ipv6Addr a);       // ::1
-int  ipv6_addr_is_link_local(const &stack Ipv6Addr a);     // fe80::/10
-void ipv6_addr_str(const &stack Ipv6Addr addr, &char buf); // 40바이트 buf
+// 주소 유틸리티 -- 모두 '&Ipv6Addr' 참조로 주소를 받는다.
+int  ipv6_addr_eq(const &Ipv6Addr a, const &Ipv6Addr b);
+int  ipv6_addr_is_unspecified(const &Ipv6Addr a);
+int  ipv6_addr_is_loopback(const &Ipv6Addr a);       // ::1
+int  ipv6_addr_is_link_local(const &Ipv6Addr a);     // fe80::/10
+void ipv6_addr_str(const &Ipv6Addr addr, &char buf); // 40바이트 buf
 
 // pkt의 바이트 오프셋 'offset'에서 IPv6 헤더를 파싱한다.
-int  ipv6_parse(&stack PacketBuf pkt, unsigned long offset, &stack Ipv6Hdr hdr_out);
+int  ipv6_parse(&PacketBuf pkt, unsigned long offset, &Ipv6Hdr hdr_out);
 
 // 'offset'에 IPv6 헤더를 기록한다. 첫 페이로드 바이트의 바이트 오프셋을 반환한다.
-unsigned long ipv6_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long ipv6_build(&PacketBuf pkt, unsigned long offset,
                           unsigned char next_hdr, unsigned char hop_limit,
-                          const &stack Ipv6Addr src, const &stack Ipv6Addr dst,
+                          const &Ipv6Addr src, const &Ipv6Addr dst,
                           unsigned short payload_len);
 
 // 전체 프레임: Ethernet + IPv6 헤더, 호출자는 반환된 오프셋에 페이로드를
 // 기록한다. 첫 페이로드 바이트의 바이트 오프셋을 반환한다.
-unsigned long ipv6_frame(&stack PacketBuf pkt,
+unsigned long ipv6_frame(&PacketBuf pkt,
                           const unsigned char eth_src[6],
                           const unsigned char eth_dst[6],
                           unsigned char next_hdr,
-                          const &stack Ipv6Addr src,
-                          const &stack Ipv6Addr dst,
+                          const &Ipv6Addr src,
+                          const &Ipv6Addr dst,
                           unsigned short payload_len);
 ```
 
@@ -278,19 +278,19 @@ struct UdpHdr {
 };
 
 // pkt의 바이트 오프셋 'offset'에서 UDP 헤더를 파싱한다.
-int  udp_parse(&stack PacketBuf pkt, unsigned long offset, &stack UdpHdr hdr_out);
+int  udp_parse(&PacketBuf pkt, unsigned long offset, &UdpHdr hdr_out);
 
 // 'offset'에 UDP 헤더를 기록한다; payload_len은 헤더 이후 데이터의
 // 바이트 수다 (체크섬은 0으로 남겨둠 -- IPv4에서는 선택 사항). 첫 페이로드
 // 바이트의 바이트 오프셋을 반환한다.
-unsigned long udp_build(&stack PacketBuf pkt, unsigned long offset,
+unsigned long udp_build(&PacketBuf pkt, unsigned long offset,
                         unsigned short src_port, unsigned short dst_port,
                         unsigned short payload_len);
 
 // 전체 프레임: Ethernet + IPv4 + UDP 헤더; pkt는 먼저 리셋된다. 호출자가
 // 페이로드를 기록해야 할 바이트 오프셋을 반환한다 -- 전체 호출/기록/tx
 // 순서는 아래의 종단 간 예제를 참고하라.
-unsigned long udp_frame(&stack PacketBuf pkt,
+unsigned long udp_frame(&PacketBuf pkt,
                         const unsigned char eth_src[6],
                         const unsigned char eth_dst[6],
                         unsigned int ip_src, unsigned int ip_dst,
@@ -339,13 +339,13 @@ struct TcpConn {
 
     // 수신한 패킷을 처리한다 (pkt 안의 TCP 헤더 오프셋부터 시작).
     // 상태가 바뀌었으면 1, 아니면 0을 반환한다.
-    int  recv(&stack PacketBuf pkt, unsigned long tcp_offset);
+    int  recv(&PacketBuf pkt, unsigned long tcp_offset);
 
     // 보낼 페이로드 데이터를 큐에 넣는다. 받아들여진 바이트 수를 반환한다 (가득 찼으면 0).
     unsigned long send(const &unsigned char data, unsigned long len);
 
     // 다음 송신 세그먼트를 pkt에 만든다; 세그먼트가 만들어졌으면 1을 반환한다.
-    int  build_segment(&stack PacketBuf pkt,
+    int  build_segment(&PacketBuf pkt,
                        const unsigned char eth_src[6],
                        const unsigned char eth_dst[6]);
 
@@ -364,7 +364,7 @@ struct TcpConn {
 
 // pkt의 바이트 오프셋 'offset'에서 TCP 헤더를 파싱한다. 성공 시 0, 잘렸거나
 // 데이터 오프셋이 5워드 미만이거나 패킷을 넘으면 -1.
-int tcp_parse(&stack PacketBuf pkt, unsigned long offset, &stack TcpHdr hdr_out);
+int tcp_parse(&PacketBuf pkt, unsigned long offset, &TcpHdr hdr_out);
 
 unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
                             const &unsigned char tcp_seg, unsigned long seg_len);   // pseudo-header + segment
@@ -387,7 +387,7 @@ unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
 
 // 'name'에 대한 DNS A 레코드 질의를 pkt에 만든다. 'txid'는 (내부에서
 // 생성되는 것이 아니라) 호출자가 직접 선택한다 -- 응답과 직접 대조해서 확인하라.
-unsigned short dns_query(&stack PacketBuf pkt,
+unsigned short dns_query(&PacketBuf pkt,
                          const unsigned char eth_src[6],
                          const unsigned char eth_dst[6],
                          unsigned int ip_src, unsigned int ip_dns,
@@ -398,9 +398,9 @@ unsigned short dns_query(&stack PacketBuf pkt,
 // pkt(UDP 페이로드 오프셋에서 시작)의 DNS 응답을 파싱한다. 성공하면 첫
 // A 레코드로 ip4_out을 채우고 1을 반환한다; 파싱 오류, A 레코드 없음,
 // 또는 expected_txid와 일치하지 않는 txid인 경우 0을 반환한다.
-int dns_parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset,
+int dns_parse_reply(&PacketBuf pkt, unsigned long udp_payload_offset,
                     unsigned short expected_txid,
-                    &stack unsigned int ip4_out);
+                    &unsigned int ip4_out);
 ```
 
 ---
@@ -437,15 +437,15 @@ struct DhcpClient {
     unsigned char    mac[6];
 
     // DHCPDISCOVER 패킷을 만든다.
-    void discover(&stack PacketBuf pkt, const unsigned char eth_dst[6]);
+    void discover(&PacketBuf pkt, const unsigned char eth_dst[6]);
 
     // 'server_ip'로부터 'offered_ip'에 대한 DHCPREQUEST를 만든다.
-    void request(&stack PacketBuf pkt, const unsigned char eth_dst[6],
+    void request(&PacketBuf pkt, const unsigned char eth_dst[6],
                  unsigned int offered_ip, unsigned int server_ip);
 
     // 들어오는 DHCP 응답을 파싱한다; ACK/OFFER면 lease를 채운다. 반환값은
     // DHCP_OFFER, DHCP_ACK, DHCP_NAK, 또는 인식하지 못하면 0이다.
-    int  parse_reply(&stack PacketBuf pkt, unsigned long udp_payload_offset);
+    int  parse_reply(&PacketBuf pkt, unsigned long udp_payload_offset);
 
     int  is_bound() const;   // 클라이언트가 유효한 임대를 갖고 있으면 1
 }
@@ -453,10 +453,10 @@ struct DhcpClient {
 
 ::: warning `NetIf* iface` 필드도, 인자 없는 `discover()`/`request()`도 없음
 `DhcpClient`는 `NetIf`에 대한 참조를 갖고 있지 않습니다 — `TcpConn`처럼,
-호출자가 제공한 `&stack PacketBuf`에 프레임을 만들며, `discover()`/
+호출자가 제공한 `&PacketBuf`에 프레임을 만들며, `discover()`/
 `request()`는 저장된 인터페이스에서 읽어오는 대신 대상 MAC(그리고
 `request()`의 경우 제안받은 IP/서버 IP)을 명시적인 인자로 받습니다.
-종단 간 예제와 같은 방식으로 패킷을 전송하세요 — 패킷을 만든 다음
+종단 간 예제와 같은 방식으로 패킷을 전송합니다 — 패킷을 만든 다음
 직접 `iface.tx(&pkt)`를 호출하면 됩니다.
 :::
 
@@ -469,7 +469,7 @@ struct DhcpClient {
 `udp_frame`은 `PacketBuf`에 Ethernet + IPv4 + UDP 헤더를 만들고 페이로드가
 들어갈 바이트 오프셋을 반환합니다(페이로드 영역을 포괄하도록 `pkt.len`도
 미리 설정합니다) — 직접 그 위치에 페이로드 바이트를 기록한 다음
-`iface.tx(...)`에 패킷을 넘기세요. 실제 컴파일/실행으로 검증됨:
+`iface.tx(...)`에 패킷을 넘깁니다. 실제 컴파일/실행으로 검증됨:
 
 ```c
 #include <std/net/net_core.h>

@@ -104,7 +104,7 @@ my_max(1.5, 2.7);      // 2.7  -- my_max<double>을 인스턴스화
 이번 장은 이 예제 하나 이상으로 깊이 들어가지 않습니다 — 제네릭은
 구조체, 트레이트/제약, 가변 인자 팩과 여러 방식으로 상호작용하며, 필요할
 때 그 자체로 집중해서 읽을 가치가 있습니다. 필요해지면
-[제네릭](/ko/reference/generics)을 참고하세요.
+[제네릭](/ko/reference/generics)을 참고하십시오.
 
 ## `const`와 `consteval`: 컴파일 타임에 실행되는 함수 {#const-and-consteval-functions-that-run-at-compile-time}
 

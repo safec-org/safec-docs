@@ -3,16 +3,22 @@
 `std/hal/`은 흔히 쓰이는 임베디드 주변장치를, 해당 주변장치의 MMIO 베이스
 주소를 담고 있는 구조체 인스턴스의 메서드로 감쌉니다 — 대응하는
 `*_init()` 함수로 인스턴스를 만든 다음 그 위에서 메서드를 호출하면 됩니다.
+각 드라이버는 그 주변장치의 레지스터를 아는 *칩 타입*에 대해 제네릭이며,
+칩 타입은 변수의 타입에서 컴파일 타임에 정해집니다(`BST<K, V, C>`의 순서
+관계와 같은 방식). 그래서 호출은 레지스터 직접 접근으로 컴파일됩니다.
 모든 모듈이 프리스탠딩 환경에서 안전하며(libc 의존성 없음), 일반적인
 `--target` 크로스 컴파일은 물론 `--freestanding`에서도 동작합니다.
 
 ```c
 #include <std/hal/gpio.h>
+#include <std/hal/uart.h>
 
-void blink(&volatile unsigned int gpio_base, int pin) {
-    struct GpioPin led = std::gpio_init(gpio_base, pin, GPIO_OUTPUT);
+void blink(&volatile unsigned int gpioa, &volatile unsigned int usart2) {
+    struct GpioPin<Stm32F4Gpio> led = std::gpio_init(gpioa, 5, GPIO_OUTPUT);
     led.write(1);
     led.toggle();
+    struct Uart<Stm32F4Usart> con = std::uart_init(usart2, 115200u, 42000000u);
+    con.write_str("blink\n");
 }
 ```
 
@@ -30,18 +36,59 @@ volatile 로드나 스토어가 됩니다. 데이터시트의 주소로부터 `u
 않다는 점에 유의합니다 — `struct std::GpioPin`이 아니라 `struct GpioPin`
 입니다([네임스페이스](/ko/reference/namespaces#what-gets-namespaced) 참고).
 
-## 범용 주변장치 {#generic-peripherals}
+## 드라이버와 칩 {#generic-peripherals}
 
 | 모듈 | 헤더 | 타입 | 설명 |
 |---|---|---|---|
-| GPIO | `hal/gpio.h` | `GpioPin` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
-| I2C | `hal/i2c.h` | `I2cBus` | `i2c_init(base, speed)`; `write`, `read`, `write_read`(쓰기 후 읽기), `probe`; 전송이 실패해도 STOP을 보내 버스를 해제합니다 |
-| SPI | `hal/spi.h` | `SpiDevice` | `spi_init(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)`(`rx`는 `null`일 수 있음), `read` |
-| UART | `hal/uart.h` | `Uart` | `uart_init(base, baud)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready`(모두 폴링 기반) |
-| Timer | `hal/timer.h` | `Timer` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
-| Watchdog | `hal/watchdog.h` | `Watchdog` | `watchdog_init(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |
+| GPIO | `hal/gpio.h` | `GpioPin<C>` | `gpio_init(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
+| I2C | `hal/i2c.h` | `I2cBus<C>` | `i2c_init(base, speed, clock_hz)`; `write`, `read`, `write_read`(쓰기 후 읽기), `probe`; 전송이 실패해도 STOP을 보내 버스를 해제합니다 |
+| SPI | `hal/spi.h` | `SpiDevice<C>` | `spi_init(base, mode)`; `transfer`(1바이트, 전이중), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)`(`rx`는 `null`일 수 있음), `read` |
+| UART | `hal/uart.h` | `Uart<C>` | `uart_init(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
+| Timer | `hal/timer.h` | `Timer<C>` | `timer_init(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
+| Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `watchdog_init(base, timeout)`; `enable`(일반적으로 한 번 활성화되면 비활성화할 수 없음), `feed`, `caused_reset` |
 
 상수: `GPIO_INPUT`/`GPIO_OUTPUT`, `GPIO_PULL_NONE`/`GPIO_PULL_UP`/`GPIO_PULL_DOWN`; I2C 결과 `I2C_OK`/`I2C_NACK`/`I2C_ERROR`; `SPI_MODE_0`–`SPI_MODE_3`(CPOL/CPHA = 00, 01, 10, 11).
+
+`clock_hz`는 주변장치의 입력 클록으로, 보 레이트나 버스 속도 분주값을
+계산하는 데 씁니다. `uart_init`에 `clock_hz = 0`을 주면 부트 펌웨어가 설정한
+속도를 그대로 둡니다.
+
+### 칩 타입 {#hal-chips}
+
+| 칩 타입 | 주변장치 |
+|---|---|
+| `GpioGeneric`, `UartGeneric`, `SpiGeneric`, `I2cGeneric`, `TimerGeneric`, `WatchdogGeneric` | 아래의 기준 레지스터 레이아웃 — 이를 구현하는 FPGA 소프트 코어나 시뮬레이터용 |
+| `Pl011` | ARM PrimeCell PL011 UART(QEMU `virt`, Raspberry Pi, 여러 Arm SoC) |
+| `Ns16550` | 바이트 폭 레지스터가 연속 주소에 있는 16550 호환 UART(QEMU RISC-V `virt`, 여러 SoC) |
+| `Stm32F4Gpio` | STM32 GPIO 포트(`MODER`/`PUPDR`/`IDR`/`ODR`/`BSRR`; F2/F4/F7/L4/G0/H7 레이아웃). `write`는 `BSRR`를 쓰므로 읽기-수정-쓰기가 필요 없습니다 |
+| `Stm32F4Usart` | STM32F1/F2/F4 USART(`SR`/`DR`/`BRR`/`CR1`) |
+| `Stm32F4Spi` | 마스터 모드 STM32F1/F2/F4 SPI, 소프트웨어 NSS, fPCLK/16. 칩 셀렉트는 일반 GPIO이므로 `cs_assert`/`cs_deassert`는 아무 일도 하지 않습니다 — `GpioPin`으로 구동합니다 |
+| `Stm32F4I2c` | STM32F1/F2/F4 I2C("v1": `CR1`/`CR2`/`DR`/`SR1`/`SR2`/`CCR`/`TRISE`), 표준 모드와 고속 모드 |
+| `Stm32F4Tim` | STM32 범용 타이머(TIM2–TIM5): `PSC`, `ARR`, `CNT`, 업데이트 플래그 `UIF`. 카운터는 clock / (prescaler + 1)로 증가합니다 |
+| `Stm32F4Iwdg` | STM32 독립 워치독: `timeout`은 LSI / 256으로 세는 12비트 리로드 값(32 kHz에서 단위당 약 8 ms)이며, `caused_reset`은 STM32F4 RCC 주소의 `RCC_CSR.IWDGRSTF`를 읽습니다 |
+
+칩 타입은 주변장치의 기준 주소를 받아 레지스터 작업을 하는 메서드를 가진
+구조체입니다(각 헤더에 선언된 `init`, `put`/`get`, `transfer`, `write`/`read`
+등). 그래서 다른 부품은 그런 구조체를 하나 더 작성하면 지원됩니다.
+
+`Pl011`, `Ns16550`, `Stm32F4Usart`, `Stm32F4Tim`, `Stm32F4Spi` 칩은
+`tests/stdlib/baremetal/qemu/run.sh`에서 QEMU의 해당 주변장치 모델을 상대로
+실행되며, 모든 칩의 레지스터 시퀀스는 호스트 테스트에서 RAM 기반 레지스터로
+검사합니다.
+
+### 기준 레이아웃 {#hal-generic-layouts}
+
+`*Generic` 칩은 다음 레지스터를 씁니다(`base`로부터의 바이트 오프셋, 32비트
+레지스터, GPIO는 핀마다 1비트):
+
+| 칩 | 레지스터 |
+|---|---|
+| `GpioGeneric` | `DIR` +0x00(1 = 출력), `OUT` +0x04, `IN` +0x08, `PULL_EN` +0x0C, `PULL_SEL` +0x10(1 = 풀업, 0 = 풀다운) |
+| `UartGeneric` | `DATA` +0x00, `STATUS` +0x04(비트 0 RX 준비, 비트 1 TX 준비), `BAUD` +0x08(`baud`를 기록) |
+| `SpiGeneric` | `DATA` +0x00, `STATUS` +0x04(비트 0 사용 중, 비트 1 TX 준비), `CTRL` +0x08(`mode` \| 0x80 활성화), `CS` +0x0C(0 = 선택) |
+| `I2cGeneric` | `DATA` +0x00, `STATUS` +0x04(비트 0 사용 중, 비트 1 ACK, 비트 2 오류), `CTRL` +0x08(1 START, 2 STOP, 4 SEND, 8 READ+ACK, 16 READ+NACK), `ADDR` +0x0C, `SPEED` +0x10 |
+| `TimerGeneric` | `CTRL` +0x00(비트 0 활성화), `PRESCALER` +0x04, `PERIOD` +0x08, `COUNT` +0x0C, `STATUS` +0x10(비트 0 플래그) |
+| `WatchdogGeneric` | `CTRL` +0x00(비트 0 활성화), `TIMEOUT` +0x04, `FEED` +0x08(0x6969 기록), `STATUS` +0x0C(비트 0: 마지막 리셋이 워치독 리셋) |
 
 모두 원시 MMIO 주소에 직접 작동하는 폴링 기반 드라이버입니다(인터럽트 기반
 변형은 없음) — 주변장치가 완료를 비동기적으로 알려야 할 경우 인터럽트를

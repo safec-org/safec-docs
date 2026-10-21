@@ -31,7 +31,7 @@ int main(void) {
 `TestSuite` (via `test_suite_init()`, capacity `TEST_MAX` = 256 cases):
 `add(name, func)` (`func`: `fn void()`), `run()` (executes every
 registered test, printing each result), `print_summary()` (`"N passed, M
-failed."`), `all_passed()`. `test_run_and_exit(&stack suite)` runs, prints
+failed."`), `all_passed()`. `test_run_and_exit(&suite)` runs, prints
 the summary, then calls `exit(1)` on any failure — convenient as a test
 `main()`'s last line.
 
