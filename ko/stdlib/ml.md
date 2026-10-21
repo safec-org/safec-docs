@@ -643,9 +643,10 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 장치 | `cuda_available`, `cuda_device_name`, `cuda_sync` |
 | 버퍼 | `cuda_alloc`, `cuda_upload`, `cuda_write`, `cuda_read`, `cuda_free`; 바이트 단위 복사 `cuda_copy_to_device(dev, host, bytes)`, `cuda_copy_to_host` |
 | 행렬곱 | `cuda_gemm(a, ta, b, tb, c, m, n, k)`, `cuda_gemm_relu`(같은 인자, ReLU 융합) |
-| 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
+| 원소별 | `cuda_add`/`sub`/`mul`/`div`/`pow`, `cuda_scale`, `cuda_relu`, `cuda_gelu`(tanh 근사), `cuda_exp`/`log`/`sqrt`, `cuda_relu_grad` |
 | 학습 | `cuda_sgd`, `cuda_sgd2`, `cuda_mse_grad(y, t, dy, loss)`, `cuda_sum` |
 | fp16 / bf16 (`gpu_rocm.h`의 `RocmHalfBuf`와 같은 `CudaHalfBuf`) | `cuda_half_alloc`/`upload`/`write`/`read`/`free`, `cuda_to_half`/`cuda_from_half`, `cuda_half_gemm`(텐서 코어, fp32 누적), `cuda_half_gemm_relu`, `cuda_half_gemm_f32`, `cuda_half_relu`, `cuda_half_relu_grad`, `cuda_half_mse_grad`(손실은 fp32), `cuda_half_sgd`, `cuda_half_sgd2`. 16비트 저장, fp32 계산, 저장할 때 한 번 반올림(`float16.h`와 비트 단위로 같음) |
+| 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#gemma4-h200)의 커널에서 가져왔습니다 |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `cuda_graph_free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
 | 영구 버퍼(`&void` 핸들) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, fp16/bf16용 `cuda_*_f16_*`/`cuda_*_bf16_*`(2바이트 저장, fp32 연산) |
@@ -731,16 +732,17 @@ PyTorch가 더 빠르다(0.022 ms 대 0.034 ms). 장치 FFT는 PyTorch를 거친
 - **Linear 어텐션**, φ(x) = elu(x) + 1, O(n d²): head dim 128까지는 헤드별 패스가 상태 φ(K)ᵀV를 레지스터에 둔 채 64키 청크를 훑고(causal이면 각 청크 앞에서 저장), 그다음 모든 청크의 출력을 한 번에. 데이터 형식과 관계없이 정확한 fp32로 계산합니다.
 - **모양**: `cuda_flash_attention` / `cuda_linear_attention` / `_f32` 형태는 [ROCm](#rocm-attention)의 `rocm_flash_attention` / `rocm_linear_attention`과 같은 인자를 받습니다(fp32, `[heads][seq][dim]`). `_ex`와 `cuda_half_` 형태는 `CudaAttnShape`(배치, grouped-query K/V — `kvHeads`가 `heads`를 나눔, sliding window)를 받습니다. head dim은 32, 64, 96, 128, 256.
 - **마스킹**: 쿼리 i는 위치 `kvLen - seqLen + i`에 있습니다(마지막 `seqLen`개 키가 쿼리 자신의 토큰이고 그 앞은 캐시, [`mps_flash_attn_bf16`](#mps-attention)과 같음). `causal`은 뒤쪽 키를 가리고, `window`(flash만)는 `window`칸 이상 앞의 키도 가립니다.
-- (커널, 데이터 형식, head dim) 조합마다 첫 호출에서 NVRTC가 컴파일하고, cuDNN 계획과 linear 어텐션 작업 공간도 그때 만들어지므로, 그래프를 캡처하기 전에 모양마다 한 번 호출하세요.
+- **디코딩**: `(heads / kvHeads) · seqLen ≤ 16`이면(KV 캐시에 대해 새 토큰 하나나 몇 개) 모든 데이터 형식의 flash 어텐션이 대신 split-KV(flash-decoding) 커널 쌍으로 돕니다. 키를 32의 배수 길이 조각으로 나눠 SM마다 블록 8개쯤을 띄우고, 각 블록은 같은 kv head를 쓰는 모든 쿼리 head를 위해 키와 값을 한 번씩만 읽으며, 두 번째 커널이 부분 softmax를 합칩니다. H200에서 이 경로가 대신하는 cuDNN 경로와 비교하면, kv head 1개에 쿼리 head 8개(head dim 256)인 bf16 32k 토큰 디코딩이 1.40 ms에서 36 µs로, head dim 128의 32/8 head가 533 µs에서 54 µs로 줄어듭니다. PyTorch `scaled_dot_product_attention`(텐서 코어 위 FlashAttention-2 split-KV 커널)이 아직 1.1–1.8배 빠릅니다. `cuda_attention_use_decode(0)`이면 이 경로를 끕니다.
+- (커널, 데이터 형식, head dim) 조합마다 첫 호출에서 NVRTC가 컴파일하고, cuDNN 계획과 linear 어텐션·디코딩 작업 공간도 그때 만들어지므로, 그래프를 캡처하기 전에 모양마다 한 번 호출하세요.
 
 | 분류 | 함수 |
 |---|---|
 | Flash | `cuda_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `cuda_flash_attention_ex(q, k, v, out, shape, scale, causal)`, `cuda_half_flash_attention`(fp16/bf16 `CudaHalfBuf`) |
 | Linear | `cuda_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `cuda_linear_attention_ex`, `cuda_half_linear_attention` |
 | 호스트 배열 | `cuda_flash_attention_f32`, `cuda_linear_attention_f32`(업로드, 계산, 읽기) |
-| 제어 | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn` |
+| 제어 | `cuda_attention_head_dim_ok`, `cuda_attention_use_cudnn`, `cuda_attention_use_decode` |
 
-H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 1.34배 빠르고 128에서 같으며(0.97–1.05배), linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠릅니다(head dim 128 fp32 non-causal에서는 PyTorch의 TF32 einsum과 같음). [벤치마크](/ko/benchmarks#h200-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`와 `cuda_load_module(source, name)`이 추가되었습니다.
+H200에서 fp16/bf16 flash 어텐션은 PyTorch `scaled_dot_product_attention`과 같고(둘 다 cuDNN), fp32는 head dim 64에서 1.34배 빠르고 128에서 같으며(0.97–1.05배), linear 어텐션은 PyTorch보다 최대 2.6배, flash-linear-attention보다 최대 2.1배 빠릅니다(head dim 128 fp32 non-causal에서는 PyTorch의 TF32 einsum과 같음). [벤치마크](/ko/benchmarks#h200-attention)를 보세요. `gpu_cuda.h`에는 이런 식으로 자체 NVRTC 커널을 가져오는 라이브러리를 위해 `cuda_compute_capability()`, `cuda_sm_count()`, `cuda_load_module(source, name)`이 추가되었습니다.
 
 ### ROCm의 합성곱(MIOpen)과 FFT(hipFFT) {#rocm-miopen-hipfft}
 
