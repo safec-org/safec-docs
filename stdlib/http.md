@@ -1,82 +1,597 @@
-# HTTP & Web (`std/http/`, `std/rpc/`, `std/reactive/`, `std/wasm/`)
+# HTTP & Web (`std/http/`, `std/rpc/`, `std/reactive/`)
 
-An HTTP/1.1 client/server, CORS, JWT, OAuth2 and WebSocket for building a web API; RPC and "server functions" on top of it; and reactive signals plus wasm32 DOM hydration for the client side.
+An HTTP/1.1 server and client for building web applications: a configurable keep-alive server, a router with middleware, static files, cookies, forms and uploads, Server-Sent Events, WebSocket, CORS, JWT and OAuth2; RPC and "server functions" on top; and reactive signals for the client side. The browser half — DOM access from a wasm32 module — is [WebAssembly & DOM](/stdlib/wasm).
+
+| Header | What it gives you |
+|---|---|
+| `std/http/http.h` | `HttpRequest`/`HttpResponse`, `HttpServer`, the client (`http_fetch`, `http_request`), chunked coding, `TcpStream` |
+| `std/http/headers.h` | `HttpHeaders` (structured header map), header parameters |
+| `std/http/router.h` | `Router`, middleware, `HttpCtx` |
+| `std/http/route.h` | path patterns (`/users/:id`, `/files/*path`), usable without sockets |
+| `std/http/static_files.h` | file and directory serving, MIME types |
+| `std/http/cookie.h` | `CookieList`, `SetCookie` |
+| `std/http/multipart.h` | `multipart/form-data` parsing and building |
+| `std/http/sse.h` | Server-Sent Events: server stream, parser, client |
+| `std/http/date.h` | HTTP dates |
+| `std/http/websocket.h`, `cors.h`, `jwt.h`, `oauth2.h` | WebSocket, CORS, JWT, OAuth2 |
+| `std/encoding/url.h`, `deflate.h` | [URLs, query strings, gzip](/stdlib/encoding#url-url-h) |
+
+The non-blocking socket layer underneath (`std/sched/io_nb.h`) has one backend per platform (`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`); `safeguard` compiles the one matching the target, so there is nothing to include or select by hand. For HTML templating see [scx](/advanced/scx).
+
+Scope: HTTP/1.1 and 1.0 over plain TCP. Bodies may be `Content-Length`-delimited, chunked (decoded on both sides) or, for responses, run until the connection closes. There is no TLS, so `https://` is not supported (see [HTTPS](#https)), and no HTTP/2.
+
+## Quick start {#quick-start}
 
 ```c
-#include <std/http/http.h>
+#include <std/http/router.h>
+
+struct HttpResponse hello(&HttpRequest req, &HttpCtx ctx) {
+    struct String body = std::String::from("Hello, ");
+    body.push(ctx.param_or("name", "world"));
+    struct HttpResponse r = std::HttpResponse::text(200, body.as_ptr());
+    body.free();
+    return r;
+}
+
+struct HttpResponse create(&HttpRequest req, &HttpCtx ctx) {
+    if (!req.content_type_is("application/json")) return std::HttpResponse::error(415);
+    return std::HttpResponse::json(201, req.body.as_ptr());
+}
+
+int main() {
+    struct Router app = std::Router::new();
+    app.use_logger();
+    app.use_gzip(1024UL);
+    app.get("/hello/:name", hello);
+    app.post("/items", create);
+    app.static_dir("/assets", "./public");
+
+    struct HttpServerConfig cfg = std::HttpServerConfig::defaults(8080);
+    return app.listen(&cfg);    // blocks; -1 if the port can't be bound
+}
 ```
-
-The non-blocking socket layer underneath (`std/sched/io_nb.h`) has one backend per platform (`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`); `safeguard` compiles the one matching the target into `libsafec_std.a`, so there is nothing to include or select by hand.
-
-Scope: bodies are `Content-Length`-delimited (chunked transfer-encoding is returned undecoded), and there is no TLS — this is plain HTTP. Headers and bodies are read through a [`BufReader`](/stdlib/io#buffered-io) over the connection's [`TcpStream`](#tcp-streams). For HTML templating see [scx](/advanced/scx).
 
 ## Server {#server}
 
+### HttpServer {#httpserver}
+
+A bound, configurable server: `threads` worker threads each serve one connection at a time, with persistent connections (keep-alive), request limits and a clean stop.
+
+```c
+struct HttpServerConfig {
+    unsigned short port;            // 0 = any free port (read HttpServer.port)
+    int           threads;          // worker threads
+    int           keep_alive;       // persistent connections
+    int           idle_timeout_ms;  // how long a kept-alive connection may sit idle
+    int           io_timeout_ms;    // per send/receive while a request is in flight; 0 = none
+    int           max_requests_per_conn;   // 0 = unlimited
+    unsigned long max_header_bytes; // request line + headers; larger gets 431
+    unsigned long max_body_bytes;   // Content-Length or chunked total; larger gets 413
+    // 8 threads, keep-alive (5 s idle), 30 s I/O timeout, 1000 requests per
+    // connection, 64 KiB of headers, 16 MiB of body.
+    static struct HttpServerConfig defaults(unsigned short port);
+};
+
+struct HttpServer {
+    unsigned short port;            // the bound port
+    static struct HttpServer bind(const &HttpServerConfig cfg, ?&int ok);
+    int  serve(HttpHandler handler);    // blocks until stop(); 0 after a stop
+    int  start(HttpHandler handler);    // the same on a background thread
+    void stop();                        // from any thread; idempotent
+    int  is_running() const;
+};
+
+int http_serve_config(const &HttpServerConfig cfg, HttpHandler handler);   // bind + serve
+```
+
+`stop()` stops accepting, wakes connections idling between requests, lets requests already being handled finish, and closes the listening socket. Called from a handler's own thread it does not wait for that thread.
+
+What the server does for every request:
+
+- reads the request line and headers up to `max_header_bytes`; skips blank lines before a request; accepts absolute-form targets (`GET http://host/path`) and turns them into `/path`;
+- answers malformed requests itself: 400 (bad request line, missing `Host` on HTTP/1.1, conflicting `Content-Length`s, `Transfer-Encoding` together with `Content-Length`), 413, 431, 501 (a transfer coding other than chunked), 505 (not HTTP/1.x) — then closes the connection;
+- sends `100 Continue` before reading a body the client announced with `Expect: 100-continue`;
+- decodes chunked request bodies (extensions and trailers are dropped);
+- keeps the connection open unless the client asks for `Connection: close`, it is HTTP/1.0 without `keep-alive`, the per-connection request limit is reached, the server is stopping, or the handler set `ctx.conn.keep_alive = 0`;
+- writes every header the handler set except `Content-Length`, `Transfer-Encoding` and `Connection` (the server owns the framing), adds `Date` and a default `Content-Type` when missing, and leaves the body out for `HEAD` (a `HEAD` handler may state the would-be length with an explicit `Content-Length` and an empty body), 204 and 304.
+
+A worker serves one connection at a time, so an idle keep-alive client holds a worker for up to `idle_timeout_ms`. Give the server more threads than you expect concurrent clients, or use `http_serve_reactor` (below) for many connections.
+
+### Plain handlers and the original entry points {#plain-handlers}
+
+```c
+typedef fn struct HttpResponse(&HttpRequest) HttpHandler;
+
+int http_serve(unsigned short port, HttpHandler handler);                         // -1 on setup failure; otherwise never returns
+int http_serve_threaded(unsigned short port, HttpHandler handler, int numThreads);
+int http_serve_reactor(unsigned short port, HttpHandler handler, int numThreads);
+```
+
 ```c
 struct HttpResponse handle(&HttpRequest req) {
-    struct HttpResponse resp;
-    resp.status = 200;
-    resp.headers = std::String::new();
-    resp.body = std::String::from("hello");
-    return resp;
+    return std::HttpResponse::text(200, "hello");
 }
 
 std::http_serve(8080, handle);
 ```
 
-### Multithreading {#multithreading}
+`http_serve` and `http_serve_threaded` keep their original behavior: one request per connection (`Connection: close`). `http_serve_threaded` runs `numThreads` workers that all `accept()` on one listening socket — the kernel hands each connection to a waiting thread, the "thread-per-listener" pattern nginx's workers use — so `handler` runs on up to `numThreads` threads at once and must be safe to call that way. `http_serve_reactor` has the same contract, but each thread runs a non-blocking [`Reactor`](/stdlib/sched) event loop, so one thread serves many connections at once (one request per connection, without the router's connection detaching).
+
+### The connection {#httpconn}
+
+Router handlers and middleware see the connection a request arrived on:
 
 ```c
-std::http_serve_threaded(8080, handle, /*numThreads=*/4);
+struct HttpConn {
+    int            fd;
+    unsigned int   peer_addr;      // IPv4, network byte order
+    unsigned short peer_port;
+    unsigned long  request_index;  // 0 for the connection's first request
+    int            keep_alive;     // set to 0 to close after this response
+    int            detached;
+
+    // Takes the socket over: the server neither writes the returned response
+    // nor closes the socket. Bytes the client already sent past this request
+    // are appended to 'early' (may be null).
+    struct TcpStream detach(?&String early);
+    struct String    peer_string() const;   // "a.b.c.d:port"
+};
 ```
 
-`numThreads` worker threads all call `accept()` on the same listening
-socket — the OS kernel fairly distributes incoming connections across
-whichever threads are currently blocked in `accept()`, the same
-"thread-per-listener" pattern nginx's worker model uses, needing no
-manual work queue. `handler` is called concurrently from up to
-`numThreads` OS threads, so it (and anything it touches) must be safe to
-call that way. Verified: 4 concurrent requests against a handler with a
-300ms artificial delay completed in ~0.34s total, not ~1.2s — confirming
-real parallel handling, not serialization.
+Server-Sent Events, WebSocket upgrades and [`HttpChunkedWriter`](#streaming) detach for you. A detached connection's handler keeps the worker thread for as long as it runs; hand long-lived ones to a thread of their own.
 
-`http_serve_reactor(port, handler, numThreads)` has the same contract, but each thread runs a non-blocking [`Reactor`](/stdlib/sched) event loop, so one thread serves many connections at once.
+## Requests and responses {#requests-and-responses}
+
+```c
+struct HttpRequest {
+    struct String method;
+    struct String path;      // the request-target as sent: "/a/b?x=1"
+    struct String headers;   // raw "Key: value" lines, CRLF-separated
+    struct String body;
+
+    static struct HttpRequest new(const &char method, const &char path);   // no headers or body
+    struct String      header(const &char name) const;   // first value, any case; empty if absent
+    int                has_header(const &char name) const;
+    struct HttpHeaders header_map() const;
+    struct String      path_only() const;                 // before '?'
+    struct String      query_string() const;              // after '?'
+    struct QueryParams query() const;                     // decoded query parameters
+    struct QueryParams form() const;                      // the body as x-www-form-urlencoded
+    int                content_type_is(const &char mime) const;
+    struct String      cookie(const &char name) const;    // empty if unset
+    struct HttpRequest clone() const;
+    void free();
+};
+
+struct HttpResponse {
+    int           status;
+    struct String headers;
+    struct String body;
+
+    static struct HttpResponse new(int status);                          // empty
+    static struct HttpResponse text(int status, const &char body);       // text/plain; charset=utf-8
+    static struct HttpResponse html(int status, const &char body);       // text/html; charset=utf-8
+    static struct HttpResponse json(int status, const &char body);       // application/json
+    static struct HttpResponse bytes(int status, const &char content_type,
+                                     const ?&unsigned char data, unsigned long len);
+    static struct HttpResponse redirect(int status, const &char location);  // 301/302/303/307/308
+    static struct HttpResponse error(int status);                        // "404 Not Found" as text
+
+    void          set_header(const &char name, const &char value);       // replaces
+    void          add_header(const &char name, const &char value);       // appends
+    unsigned long remove_header(const &char name);
+    struct String header(const &char name) const;
+    int           has_header(const &char name) const;
+    struct HttpHeaders header_map() const;
+    void          set_body(const &char body);
+    void          set_body_bytes(const &unsigned char data, unsigned long len);
+    void free();
+};
+
+const &char http_reason_phrase(int status);    // 413 -> "Content Too Large"; "Unknown" otherwise
+int http_status_is_informational(int status);  // 1xx
+int http_status_is_success(int status);        // 2xx
+int http_status_is_redirect(int status);       // 301, 302, 303, 307, 308
+int http_status_is_client_error(int status);   // 4xx
+int http_status_is_server_error(int status);   // 5xx
+
+// A complete "HTTP/1.1 <status> <reason>\r\n...\r\n\r\n<body>" response text.
+struct String http_build_response(int status, const &char content_type,
+                                  const ?&unsigned char body, unsigned long body_len);
+```
+
+The fields are public, so a response can still be filled in by hand (`resp.status = 200; resp.headers = ...`); the constructors just save the boilerplate.
+
+## Headers {#headers}
+
+Requests and responses keep their headers as one raw block — what the wire carries, cheap to build. Single lookups and edits work on it directly:
+
+```c
+struct String http_header_get(const &char raw_headers, const &char name);  // case-insensitive; empty if absent
+void          http_headers_set(&String raw, const &char name, const &char value);   // replaces every line
+void          http_headers_add(&String raw, const &char name, const &char value);   // appends
+unsigned long http_headers_remove(&String raw, const &char name);
+int           http_header_has_token(const &char raw, const &char name, const &char token);  // "Connection: keep-alive, Upgrade"
+```
+
+`HttpHeaders` (`std/http/headers.h`) is the structured view, for iterating or repeated lookups. It keeps order and duplicates (several `Set-Cookie`s), compares names ignoring case, and joins obsolete folded lines.
+
+```c
+struct HttpHeaders {
+    static struct HttpHeaders new();
+    static struct HttpHeaders parse(const &char raw);
+    unsigned long length() const;
+    const ?&char  get(const &char name) const;
+    const &char   get_or(const &char name, const &char fallback) const;
+    unsigned long count(const &char name) const;
+    const ?&char  get_nth(const &char name, unsigned long n) const;
+    struct String get_joined(const &char name) const;            // values joined with ", "
+    int           has(const &char name) const;
+    int           contains_token(const &char name, const &char token) const;
+    const ?&char  name_at(unsigned long i) const;
+    const ?&char  value_at(unsigned long i) const;
+    void          append(const &char name, const &char value);
+    void          set(const &char name, const &char value);
+    unsigned long remove(const &char name);
+    void          clear();
+    void          write_to(&String out) const;                    // "Name: value\r\n" per field
+    struct String to_raw() const;                                 // the raw block form
+    struct HttpHeaders clone() const;
+    void          free();
+};
+
+// Parameters of structured values: boundary of a Content-Type, filename of a
+// Content-Disposition. Quoted strings are unquoted.
+struct String http_header_param(const &char value, const &char name);
+struct String http_header_main_value(const &char value);   // "multipart/form-data"
+int           http_name_eq(const &char a, const &char b);  // case-insensitive
+```
+
+## Router {#router}
+
+```c
+#include <std/http/router.h>
+```
+
+A `Router` maps a method and a path pattern to a handler. Patterns are `/`-separated segments: a literal, `:name` (one segment, captured), or a final `*` / `*name` (the rest of the path, possibly empty). Captured values are percent-decoded. The most specific route wins whatever the registration order — `/users/me` beats `/users/:id`, which beats `/users/*` — and a trailing slash is ignored.
+
+```c
+typedef fn struct HttpResponse(&HttpRequest req, &HttpCtx ctx) RouteHandler;
+
+struct HttpCtx {
+    &HttpConn conn;
+    struct Vec<struct RouteParam> params;
+    int       route_index;              // -1 when nothing matched
+    long long start_ns;
+    const ?&char param(const &char name) const;
+    const &char  param_or(const &char name, const &char fallback) const;
+    const &char  pattern() const;       // the matched route's pattern
+};
+
+struct Router {
+    static struct Router new();
+    void route(const &char method, const &char pattern, RouteHandler handler);   // method "*" = any
+    void get(const &char pattern, RouteHandler handler);
+    void post(const &char pattern, RouteHandler handler);
+    void put(const &char pattern, RouteHandler handler);
+    void patch(const &char pattern, RouteHandler handler);
+    void del(const &char pattern, RouteHandler handler);      // DELETE
+    void options(const &char pattern, RouteHandler handler);
+    void any(const &char pattern, RouteHandler handler);
+    void static_dir(const &char prefix, const &char dir);     // files under dir at prefix/*
+    struct StaticOptions static_opts;                         // used by static_dir
+    void set_not_found(RouteHandler handler);
+
+    void use(Middleware mw);
+    void use_logger();
+    void use_cors(const &char origin, const &char methods, const &char headers);
+    void use_body_limit(unsigned long max_bytes);
+    void use_gzip(unsigned long min_bytes);
+    void use_status_guard();
+
+    struct HttpResponse dispatch(&HttpRequest req, &HttpConn conn);
+    int  serve(&HttpServer srv);                 // blocking
+    int  start(&HttpServer srv);                 // background
+    int  listen(const &HttpServerConfig cfg);    // bind + serve
+    void free();
+};
+
+struct HttpConn http_conn_none();   // for calling dispatch() outside a server
+
+generic<T> void router_set_state(&Router r, ?&T state);   // one app-wide pointer
+generic<T> ?&T  router_state(&HttpCtx ctx);
+```
+
+A path that matches some route but not the request's method gets 405 with an `Allow` header; `HEAD` falls back to a `GET` route; `OPTIONS` without a route of its own answers 204 with `Allow`; no match at all goes to the not-found handler (a plain 404 by default).
+
+`dispatch` makes a router easy to test without a network:
+
+```c
+struct HttpRequest req = std::HttpRequest::new("GET", "/hello/Ada");
+struct HttpConn conn = std::http_conn_none();
+struct HttpResponse resp = app.dispatch(&req, &conn);   // 200 "Hello, Ada"
+```
+
+Handlers are plain function pointers with no closure, so application state lives in globals or behind `router_set_state`. Handlers run on several worker threads at once: synchronize what they share.
+
+### Middleware {#middleware}
+
+```c
+typedef fn struct HttpResponse(&HttpRequest req, &HttpCtx ctx, &HttpNext next) Middleware;
+
+struct HttpNext {
+    struct HttpResponse run(&HttpRequest req, &HttpCtx ctx);   // the rest of the chain
+};
+```
+
+Middleware runs in registration order for every request, matched or not, and sees the matched route's `ctx.params`. Call `next.run(req, ctx)` to continue (and post-process the response it returns), or return a response of your own to stop there:
+
+```c
+struct HttpResponse require_token(&HttpRequest req, &HttpCtx ctx, &HttpNext next) {
+    struct String auth = req.header("Authorization");
+    int ok = auth.eq_cstr("Bearer secret");
+    auth.free();
+    if (!ok) return std::HttpResponse::error(401);
+    return next.run(req, ctx);
+}
+
+app.use(require_token);
+```
+
+The built-ins:
+
+| Method | Effect |
+|---|---|
+| `use_logger()` | one line per request through [`std/log.h`](/stdlib/utilities) (`LOG_LEVEL_INFO`, tag `http`): `GET /path -> 200 (1.2 ms, 512 B)` |
+| `use_cors(origin, methods, headers)` | answers preflights and adds `Access-Control-Allow-Origin` & co. to every response (see [CORS](#cors)) |
+| `use_body_limit(n)` | 413 for bodies over `n` bytes, below the server's own limit |
+| `use_gzip(min)` | gzip-compresses 200 responses of a compressible type and at least `min` bytes when the client accepts gzip; adds `Vary: Accept-Encoding` |
+| `use_status_guard()` | turns a response whose status was never set (0) into a 500 |
+
+### Route patterns without a server {#route-patterns}
+
+`std/http/route.h` is the matcher on its own (no sockets), so a wasm32 client can route `location.pathname` with the same patterns:
+
+```c
+// 0 for no match, else a specificity score; captures appended to params.
+long long    http_route_match(const &char pattern, const &char path, &Vec<RouteParam> params);
+const ?&char http_route_param(const &Vec<RouteParam> params, const &char name);
+void         http_route_params_clear(&Vec<RouteParam> params);
+```
+
+## Static files {#static-files}
+
+```c
+#include <std/http/static_files.h>
+
+struct StaticOptions {
+    int       etag;            // ETag + If-None-Match (default 1)
+    int       last_modified;   // Last-Modified + If-Modified-Since (default 1)
+    int       ranges;          // Range requests (default 1)
+    long long max_age;         // Cache-Control: max-age; -1 = none (default)
+    int       index_html;      // a directory serves index.html (default 1)
+    int       spa_fallback;    // a missing path serves the root index.html (default 0)
+    int       dotfiles;        // serve names starting with '.' (default 0)
+    static struct StaticOptions defaults();
+};
+
+struct HttpResponse http_serve_file(const &HttpRequest req, const &char file_path, const ?&StaticOptions opts);
+struct HttpResponse http_serve_dir(const &HttpRequest req, const &char root, const &char url_path,
+                                   const ?&StaticOptions opts);
+const &char http_mime_type(const &char path);          // by extension; application/octet-stream if unknown
+int         http_mime_is_compressible(const &char mime);
+int         http_safe_join(const &char root, const &char url_path, int allow_dotfiles, &String out);
+int         http_file_info(const &char path, &long long size, &long long mtime);   // 1 file, 2 dir, 0 none
+```
+
+Both serve `GET` and `HEAD` (405 otherwise) with a `Content-Type` from the extension, an `ETag` (size + modification time) and `Last-Modified`; a matching `If-None-Match`, or a not-newer `If-Modified-Since`, gets 304. A single byte range (`bytes=a-b`, `a-`, `-n`) gets 206 with `Content-Range`, an unsatisfiable one 416, and a range whose `If-Range` validator no longer matches gets the whole file. Several ranges in one request are answered with the whole file.
+
+`http_serve_dir` percent-decodes the URL path and rejects with 403 anything that could leave the root: a `..` segment (also as `%2e%2e`), a backslash, a NUL byte, and names starting with `.` unless `dotfiles` is set. A directory requested without a trailing slash is redirected (301) to the slash form so relative links resolve, then served by its `index.html`.
+
+Files are read whole into the response (a range reads only its part). That suits development servers and small sites; there is no `sendfile`.
+
+## Cookies {#cookies}
+
+```c
+#include <std/http/cookie.h>
+
+struct CookieList {                         // a request's Cookie header(s)
+    static struct CookieList parse(const &char cookie_header);
+    static struct CookieList from_request(const &HttpRequest req);
+    unsigned long length() const;
+    const ?&char  get(const &char name) const;
+    const ?&char  name_at(unsigned long i) const;
+    const ?&char  value_at(unsigned long i) const;
+    void          free();
+};
+
+struct SetCookie {
+    struct String name, value, path, domain;
+    long long     max_age;     // -1 = not sent; 0 deletes
+    long long     expires;     // Unix seconds; 0 = session cookie
+    int           secure, http_only, same_site, partitioned;   // same_site: COOKIE_SAMESITE_*
+    static struct SetCookie new(const &char name, const &char value);
+    static struct SetCookie removal(const &char name, const &char path);
+    static struct SetCookie parse(const &char header_value, ?&int ok);
+    struct String to_string() const;
+    void          free();
+};
+
+void http_set_cookie(&HttpResponse resp, const &SetCookie c);   // adds one Set-Cookie line
+```
+
+```c
+struct SetCookie c = std::SetCookie::new("session", token);
+c.path.push("/");
+c.http_only = 1;
+c.same_site = COOKIE_SAMESITE_LAX;
+c.max_age = 86400LL;
+std::http_set_cookie(&resp, &c);   // session=...; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax
+c.free();
+```
+
+`SameSite=None` always adds `Secure`, as browsers require. Values are written verbatim — encode a value that contains spaces, `;`, `,` or quotes yourself (e.g. with `url_encode`). For a single value, `req.cookie("name")` is enough.
+
+## Forms and uploads {#forms-and-uploads}
+
+An `application/x-www-form-urlencoded` body is `req.form()` (a [`QueryParams`](/stdlib/encoding#queryparams)). `multipart/form-data` — file uploads — is `std/http/multipart.h`:
+
+```c
+struct MultipartPart {
+    struct String      name, filename, content_type;
+    int                has_filename;
+    struct HttpHeaders headers;
+    struct String      data;          // binary-safe: use data.length()
+};
+
+struct MultipartForm {
+    static struct MultipartForm parse(const &char content_type, const &unsigned char body,
+                                      unsigned long len, ?&int ok);
+    static struct MultipartForm from_request(const &HttpRequest req, ?&int ok);
+    unsigned long   length() const;
+    ?&MultipartPart get(const &char name);
+    ?&MultipartPart part_at(unsigned long i);
+    const ?&char    value(const &char name) const;   // a plain field's text
+    void            free();
+};
+
+struct MultipartBuilder {              // for client requests
+    static struct MultipartBuilder new();
+    void add_field(const &char name, const &char value);
+    void add_file(const &char name, const &char filename, const &char content_type,
+                  const &unsigned char data, unsigned long len);
+    struct String content_type() const;   // "multipart/form-data; boundary=..."
+    void finish();                        // then send .body
+    void free();
+};
+```
+
+```c
+struct HttpResponse upload(&HttpRequest req, &HttpCtx ctx) {
+    int ok = 0;
+    struct MultipartForm form = std::MultipartForm::from_request(req, &ok);
+    struct HttpResponse r = std::HttpResponse::error(400);
+    match (form.get("avatar")) {
+        case some(p): {
+            r.free();
+            r = std::HttpResponse::text(200, p.filename.as_ptr());
+        }
+        case null: { }
+    }
+    form.free();
+    return r;
+}
+```
+
+The whole body is in memory first (bounded by the server's `max_body_bytes`).
+
+## Streaming responses {#streaming}
+
+### Chunked {#chunked}
+
+```c
+void http_chunked_encode(&String out, const ?&unsigned char data, unsigned long len);   // one chunk
+void http_chunked_end(&String out);                                                     // "0\r\n\r\n"
+int  http_chunked_decode(const &unsigned char data, unsigned long len, &String out, ?&unsigned long consumed);
+
+struct HttpChunkedWriter {             // a response of unknown length, over a detached connection
+    static struct HttpChunkedWriter begin(&HttpConn conn, int status, const ?&char headers);
+    int write(const &unsigned char data, unsigned long len);
+    int write_str(const &char text);
+    int finish();                      // last chunk, then closes the socket
+};
+```
+
+### Server-Sent Events {#server-sent-events}
+
+```c
+#include <std/http/sse.h>
+
+struct SseStream {                     // server side
+    static struct SseStream start(&HttpConn conn, const ?&char extra_headers);
+    int  send(const &char data);
+    int  send_event(const ?&char event, const &char data, const ?&char id);
+    int  comment(const &char text);    // keep-alive ping
+    int  retry(int ms);
+    void close();
+};
+
+struct SseEvent { struct String event, data, id; int retry; void free(); };
+
+struct SseParser {                     // incremental text/event-stream parser
+    static struct SseParser new();
+    void feed(const &unsigned char bytes, unsigned long len);
+    int  next(&SseEvent out);          // 1 with an event, 0 when more input is needed
+    void free();
+};
+
+struct SseClient {                     // client side (http:// URLs)
+    static struct SseClient connect(const &char url, const ?&char last_event_id, int timeout_ms, ?&int ok);
+    int  next(&SseEvent out);          // blocks; 0 once the stream ended
+    void close();
+};
+```
+
+```c
+struct HttpResponse events(&HttpRequest req, &HttpCtx ctx) {
+    struct SseStream s = std::SseStream::start(ctx.conn, null);
+    int n = 0;
+    while (n < 10 && s.send_event("tick", "{\"ok\":true}", null)) {
+        std::thread_sleep_ms(1000UL);
+        n = n + 1;
+    }
+    s.close();
+    return std::HttpResponse::new(200);   // ignored: the connection was detached
+}
+```
+
+`send*` returns 0 once the client has gone away. Multi-line data is split into several `data:` lines, and the parser joins them back with `\n`, as `EventSource` does. A stream holds its worker thread while it runs.
 
 ## Client {#client}
 
 ```c
 int ok;
-struct HttpResponse resp = std::http_get("example.com", 80, "/", &ok);
+struct HttpResponse resp = std::http_get_url("http://example.com/", &ok);
 ```
 
-### API {#api}
+### URL requests {#url-requests}
 
 ```c
-struct HttpResponse {
-    int           status;
-    struct String headers;   // raw "Key: value" lines, CRLF-separated
-    struct String body;
-    void free();
+struct HttpClientOptions {
+    int           max_redirects;       // default 5 (0: don't follow)
+    int           connect_timeout_ms;  // default 30 s
+    int           io_timeout_ms;       // per send/receive; default 30 s; 0 = none
+    int           decompress;          // Accept-Encoding: gzip, deflate + decode (default 1)
+    unsigned long max_body_bytes;      // default 64 MiB; 0 = no limit
+    static struct HttpClientOptions defaults();
 };
 
-struct HttpRequest {
-    struct String method;
-    struct String path;
-    struct String headers;
-    struct String body;
-    void free();
-};
+struct HttpResponse http_fetch(const &char method, const &char url,
+                               const ?&char extra_headers,
+                               const ?&unsigned char body, unsigned long body_len,
+                               const ?&HttpClientOptions opts, ?&String final_url, ?&int ok);
+struct HttpResponse http_get_url(const &char url, ?&int ok);
+struct HttpResponse http_post_url(const &char url, const &char content_type,
+                                  const ?&unsigned char body, unsigned long body_len, ?&int ok);
+int http_decode_body(&HttpResponse resp, unsigned long max_out);   // undo Content-Encoding in place
+```
 
+`http_fetch` follows redirects, resolving `Location` against the current URL. 301, 302 and 303 turn any method except `HEAD` into a bodyless `GET`; 307 and 308 resend the request unchanged. A gzip or deflate body is decoded and its `Content-Encoding` header removed. `*ok` is 0 for a bad or non-`http://` URL, a transport failure, a malformed response, more than `max_redirects` redirects, or a body over the limit. A completed exchange with a 4xx or 5xx status still sets `*ok = 1`; check `resp.status`.
+
+The client reads chunked bodies, bodies that run until the server closes, and skips interim 1xx responses. Each request uses a new connection (`Connection: close`).
+
+### Host/port requests {#host-port-requests}
+
+```c
 // Blocking HTTP/1.1 request. host is a hostname or numeric IPv4 address.
 // extra_headers: null, or "Key: value\r\n" lines (Host, Content-Length and
-// Connection: close are added for you). body may be null with body_len 0.
+// Connection: close are added for you, unless you set them).
 struct HttpResponse http_request(const &char host, unsigned short port,
                                  const &char method, const &char path,
                                  const ?&char extra_headers,
                                  const ?&unsigned char body, unsigned long body_len,
                                  ?&int ok);
-// http_request with limits: connect_timeout_ms bounds the TCP connect, io_timeout_ms
-// each send/receive (not the whole transfer). <= 0 means no limit; DNS is not covered.
+// connect_timeout_ms bounds the connect, io_timeout_ms each send/receive.
 struct HttpResponse http_request_timeout(const &char host, unsigned short port,
                                          const &char method, const &char path,
                                          const ?&char extra_headers,
@@ -87,30 +602,35 @@ struct HttpResponse http_get(const &char host, unsigned short port, const &char 
 struct HttpResponse http_post(const &char host, unsigned short port, const &char path,
                               const &char content_type,
                               const ?&unsigned char body, unsigned long body_len, ?&int ok);
-
-// Case-insensitive header lookup in a raw header block. Empty String if absent.
-struct String http_header_get(const &char raw_headers, const &char name);
-
-// Resolve a hostname or dotted IPv4 to a network-order address. 1 on success.
-int http_resolve_host(const &char host, &unsigned int addr_out);
-
-typedef fn struct HttpResponse(&HttpRequest) HttpHandler;
-
-int http_serve(unsigned short port, HttpHandler handler);                         // -1 on setup failure; otherwise never returns
-int http_serve_threaded(unsigned short port, HttpHandler handler, int numThreads);
-int http_serve_reactor(unsigned short port, HttpHandler handler, int numThreads);
-
-// A complete "HTTP/1.1 <status> <reason>\r\n...\r\n\r\n<body>" response text.
-struct String http_build_response(int status, const &char content_type,
-                                  const ?&unsigned char body, unsigned long body_len);
-const &char http_reason_phrase(int status);   // 404 -> "Not Found"; "Unknown" otherwise
+int http_resolve_host(const &char host, &unsigned int addr_out);   // 1 on success
 ```
 
-`ok` is set to 0 on DNS, connect or parse failure; pass `null` if you don't need it. `http_request` gives up on the connect after `HTTP_DEFAULT_CONNECT_TIMEOUT_MS` (30 s) but has no limit on reading the response; use `http_request_timeout` to bound that.
+These don't follow redirects or decompress. `http_request` gives up on the connect after `HTTP_DEFAULT_CONNECT_TIMEOUT_MS` (30 s) but doesn't limit reading the response; use `http_request_timeout` for that. Neither covers DNS resolution, which only the system resolver's own settings bound. To send a chunked request body, pass `Transfer-Encoding: chunked` in `extra_headers` and a body built with `http_chunked_encode`/`http_chunked_end`.
 
-A body is exactly `Content-Length` bytes: `http_request`, `http_serve` and `http_serve_threaded` stop reading there, and bytes the peer sent past it are not part of `body`. Without a `Content-Length`, the body is whatever arrived together with the header block.
+## Dates {#dates}
 
-### TCP Streams {#tcp-streams}
+```c
+#include <std/http/date.h>
+
+struct String http_date_format(long long unix_seconds);        // "Sun, 06 Nov 1994 08:49:37 GMT"
+long long     http_date_parse(const &char text, ?&int ok);     // IMF-fixdate, RFC 850 or asctime
+struct String http_date_now();
+long long     http_days_from_civil(long long year, int month, int day);
+void          http_civil_from_days(long long days, &long long year, &int month, &int day);
+```
+
+## HTTPS {#https}
+
+There is no HTTPS client or server. [`std/crypto/tls.h`](/stdlib/crypto) is the TLS 1.3 record layer — AES-256-GCM record protection given traffic keys — with no handshake. A working client would also need:
+
+- key exchange: X25519 or P-256 ECDHE (std has neither curve);
+- the TLS 1.3 key schedule: HKDF over SHA-384 for the `TLS_AES_256_GCM_SHA384` suite;
+- certificate verification: RSA-PSS/PKCS#1 and ECDSA signature checks, chain building to a trust anchor, name and validity checks (`std/crypto/x509.h` parses certificates but verifies no signatures);
+- a root store: the platform's (Keychain, the Windows store, `/etc/ssl`) or a bundled one.
+
+Without the last two, a client would encrypt but couldn't tell the real server from an attacker, so this module refuses `https://` URLs rather than offer that. For HTTPS today, run SafeC behind a TLS-terminating reverse proxy (nginx, Caddy), or call a TLS library through the C interface.
+
+## TCP Streams {#tcp-streams}
 
 For your own protocol on a plain TCP connection, wrap the connected socket in a `TcpStream`. It is the stream `http_request` and `WsConn` use, and it is a [`Stream`](/stdlib/io#io-traits) (`Reader + Writer`), so `read_exact`, `write_all`, `copy_stream`, [`BufReader` and `BufWriter`](/stdlib/io#buffered-io) work on it. Writes never raise `SIGPIPE`; a peer that has gone away gives -1.
 
@@ -153,14 +673,14 @@ int main() {
 }
 ```
 
+
 ## CORS {#cors}
 
 ```c
 #include <std/http/cors.h>
 ```
 
-Not a wrapping middleware (a bare `HttpHandler` function pointer has no
-closure slot) — call these directly from your own handler:
+Call these from your own handler — or let a [Router](#middleware) do it with `use_cors`:
 
 ```c
 struct HttpResponse handle(&HttpRequest req) {
@@ -267,7 +787,7 @@ parameters and left to the caller.
 #include <std/http/websocket.h>
 ```
 
-RFC 6455 client and server on the same blocking sockets as `http.h`. Client frames are masked and server frames unmasked, as the RFC requires. Fragmented messages (FIN = 0) are not reassembled: `conn.recv()` returns each frame as a message. Pings are returned to you rather than answered — reply with `conn.send_pong()`.
+RFC 6455 client and server on the same blocking sockets as `http.h`. Client frames are masked and server frames unmasked, as the RFC requires. `conn.recv()` returns single frames (fragments and pings included); `conn.recv_message()` reassembles fragmented messages, answers pings with a pong itself and skips pongs. A server either accepts on a socket of its own (`ws_listen` + `accept`) or upgrades a request that reached an [`HttpServer`/`Router`](#router) (`accept_upgrade`), so HTTP and WebSocket share one port. No extensions (permessage-deflate) and no `wss://`.
 
 The handshake is read through a [`BufReader`](/stdlib/io#buffered-io) over the connection's [`TcpStream`](#tcp-streams), and each frame is written through a `BufWriter`: the header, the mask key and a payload that fits the buffer leave in one write, and a larger payload streams through after them.
 
@@ -297,6 +817,12 @@ struct WsConn {
     static struct WsConn connect(const &char host, unsigned short port, const &char path, ?&int ok);
     static struct WsConn connect_timeout(const &char host, unsigned short port, const &char path,
                                          int timeout_ms, ?&int ok);
+    // ws://host:port/path?query
+    static struct WsConn connect_url(const &char url, int timeout_ms, ?&int ok);
+    // Server side of a request an HttpServer/Router handler received: writes
+    // the 101 response and detaches the connection. *ok = 0 if req isn't a
+    // version-13 upgrade (answer it normally then, e.g. 426).
+    static struct WsConn accept_upgrade(const &HttpRequest req, &HttpConn conn, ?&int ok);
 
     // Server: fills this connection in place; 1 once a client completes the
     // handshake, 0 if it failed (the client's socket is already closed).
@@ -307,11 +833,34 @@ struct WsConn {
     int  send_ping();
     int  send_pong();
     int  send_close();                  // close frame only; the socket stays open
-    int  recv(&WsMessage out);          // 1 on success, 0 on error/EOF/malformed frame
+    int  recv(&WsMessage out);          // one frame: 1 on success, 0 on error/EOF/malformed frame
+    // One whole message (TEXT/BINARY) or a CLOSE frame; pings answered.
+    // 0 on error or a message over max_len bytes (0 = no limit).
+    int  recv_message(&WsMessage out, unsigned long max_len);
     void close();                       // close frame + close the socket
 };
 
 int ws_listen(unsigned short port);     // listening fd for accept(), or -1
+int ws_is_upgrade(const &HttpRequest req);   // GET + Upgrade: websocket + a key
+```
+
+On a router, next to ordinary routes:
+
+```c
+struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
+    if (!std::ws_is_upgrade(req)) return std::HttpResponse::text(426, "WebSocket only");
+    int ok = 0;
+    struct WsConn ws = std::WsConn::accept_upgrade(req, ctx.conn, &ok);
+    if (!ok) return std::HttpResponse::error(400);
+    struct WsMessage m;
+    while (ws.recv_message(&m, 1048576UL)) {
+        if (m.opcode == WS_OPCODE_CLOSE) { m.free(); break; }
+        ws.send_text("got it");
+        m.free();
+    }
+    ws.close();
+    return std::HttpResponse::new(200);   // ignored: the connection was detached
+}
 ```
 
 A `WsConn` is message-based (`recv` yields whole frames), so it is not a byte-stream [`Reader`/`Writer`](/stdlib/io#io-traits); the `TcpStream` under it is.
@@ -459,60 +1008,7 @@ int main() {
 
 Subscribers with different context types share one list, so each is stored type-erased; `signal_subscribe` only pairs a `fn void(?&U)` with a `?&U`, so every call is checked at compile time (see [Generic Pattern](/stdlib/#generic-pattern)).
 
-## WASM DOM and Hydration {#wasm-dom-and-hydration}
 
-```c
-#include <std/wasm/dom.h>
-#include <std/wasm/hydrate.h>
-```
+## WebAssembly and the DOM {#wasm-dom-and-hydration}
 
-For `wasm32` builds (see [WebAssembly](/reference/baremetal#wasm)). A wasm module can't touch the DOM itself, so each DOM operation is an `extern` that becomes a WebAssembly import, implemented by host JavaScript. Strings cross as `(pointer, length)` into the module's linear memory; every call is synchronous, so the host finishes reading before control returns. Only text content, attributes, clicks and console logging are covered.
-
-```c
-// Raw imports, implemented by the host page's importObject.env.
-extern int  js_get_element(const char* selPtr, unsigned long selLen);
-extern void js_set_text(int handle, const char* textPtr, unsigned long textLen);
-extern void js_set_attr(int handle, const char* namePtr, unsigned long nameLen,
-                        const char* valPtr, unsigned long valLen);
-extern int  js_add_click_listener(int handle, int callbackId);
-extern void js_console_log(const char* ptr, unsigned long len);
-
-// Wrappers taking NUL-terminated strings.
-int  dom_get_element(const &char selector);          // handle, or -1
-void dom_set_text(int handle, const &char text);
-void dom_set_attr(int handle, const &char name, const &char value);
-void dom_console_log(const &char text);
-
-#define DOM_MAX_CALLBACKS 32
-generic<T> int dom_register_callback(fn void(?&T) handler, ?&T userdata);   // callback id
-generic<T> int dom_on_click(const &char selector, fn void(?&T) handler, ?&T userdata); // element handle, or -1
-
-// Exported as "std_dom_dispatch_event"; the host calls it when an event fires.
-void dom_dispatch_event(int callbackId);
-
-unsigned long wasm_strlen(const &char s);                    // no libc on wasm32
-void          wasm_itoa(long long v, &char buf, unsigned long cap); // cap >= 24
-
-// hydrate.h — bind a Signal<int> to an element's text.
-void hydrate_bind_text_int_handle(&Signal<int> signal, int elementHandle);
-int  hydrate_bind_text_int(&Signal<int> signal, const &char selector); // handle, or -1
-```
-
-The `js_*` imports keep raw pointers because they are the JavaScript ABI. Binding does not write the initial text; call `dom_set_text` (or `set()` once) first.
-
-```c
-#include <std/wasm/hydrate.h>
-
-static struct Signal<int> g_count;
-
-static void on_click(?&int unused) { g_count.set(g_count.get() + 1); }
-
-__attribute__((export_name("start")))
-void start() {
-    g_count = std::Signal::new(0);
-    std::hydrate_bind_text_int(&g_count, "#count");
-    std::dom_on_click("#inc", on_click, null);
-}
-```
-
-The SafeC repository's `examples/fullstack_demo` shows the whole round trip: scx server render, a server function, and a hydrated client.
+DOM access, browser APIs and signal-driven hydration for wasm32 clients live in [WebAssembly & DOM](/stdlib/wasm). The SafeC repository's `examples/fullstack_demo` shows the whole round trip: scx pages served by a `Router`, a JSON API, and a hydrated wasm32 client.
