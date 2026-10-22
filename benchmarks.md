@@ -523,6 +523,21 @@ Bigger models, trained end to end through the same `trainer_fit`, `model_fit` an
 - **Losses.** SafeC's fp32, fp16 and bf16 runs reach the same final loss (ResNet 0.131 in all three, CNN 0.081). PyTorch's fp16 ResNet run ended at 2.32 against 0.138 in fp32, so its AMP number there is for a run that did not train. Each side draws its own random data, so losses between frameworks are only a sanity check.
 - **First runs.** MIOpen fills a per-user find database the first time it sees a shape and data type. Until then, a new precision can run several times slower, for SafeC and PyTorch alike. The warm-up run absorbs this, and the per-shape timing above, within a program, and these numbers come from a machine where the database was already filled.
 
+**On the H200 (CUDA).** The same programs built with the cuda feature (cuDNN for the convolutions) on the Xeon 8570 + H200, against PyTorch 2.10 (NGC 25.11) on the same GPU, with a shared training job paused for the runs. One run each after the warm-up, ms per workload:
+
+| Workload | SafeC CUDA fp32 | fp16 | bf16 | PyTorch CUDA fp32 | AMP fp16 | AMP bf16 |
+|---|---:|---:|---:|---:|---:|---:|
+| MLP 784→1024→1024→10, batch 256 | 33.8 | 31.4 | **30.6** | 123 | 202 | 191 |
+| CNN + batch norm, 1×28×28, batch 128 | 21.9 | 19.3 | **18.1** | 141 | 196 | 184 |
+| ResNet (3 residual blocks), 3×32×32, batch 128 | 50.7 | **32.7** | 32.9 | 136 | 80.2 | 179 |
+| U-Net, 1×32×32, batch 32 | 37.0 | 26.0 | **25.3** | 188 | 139 | 261 |
+| DCGAN, 28×28, batch 64 | **43.0** | 50.0 | 52.5 | 374 | — | — |
+| Conv VAE, 28×28, batch 64 | **22.9** | 24.2 | 24.5 | 213 | — | — |
+
+- **SafeC's best is 2.5–9.3× faster than PyTorch's best** (ResNet 32.7 vs 80.2 ms, Conv VAE 22.9 vs 213 ms). These models take a few milliseconds per step, so PyTorch's per-op Python and dispatch cost weighs more on the H200 than on the MI100. The smaller workloads of [the previous table](#ml-training) run 6.0–15.6× faster than PyTorch through the same device path.
+- **Convolutions run on cached cuDNN graph plans**, one per shape and direction (forward, data gradient, filter gradient), each the fastest of the heuristic engine configs timed on first use. cuDNN 9's legacy calls cost about 85 µs of host time per 16-bit convolution on this machine, as much as the kernel, which made 16-bit no faster than fp32 (ResNet 52.8 ms fp16 vs 52.8 fp32); with the graph plans fp16 takes 32.7. fp32 keeps IEEE arithmetic (no TF32) unless `cuda_set_tf32(1)`.
+- **16 bits pay off on the conv nets, not on the DCGAN and VAE**, whose transposed convolutions are faster in fp32 here.
+
 ::: details Sources
 [train_big.sc](/benchmarks/ml_nn/safec/train_big.sc) · [train_big_gpu.sc](/benchmarks/ml_nn/safec/train_big_gpu.sc) · [PyTorch train_big.py](/benchmarks/ml_nn/pytorch/train_big.py)
 :::
