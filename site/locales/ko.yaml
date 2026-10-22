@@ -131,6 +131,8 @@ nav:
         link: /ko/stdlib/net
       - text: HTTP와 웹
         link: /ko/stdlib/http
+      - text: WebAssembly와 DOM
+        link: /ko/stdlib/wasm
       - text: 머신러닝
         link: /ko/stdlib/ml
       - text: GUI
@@ -294,6 +296,8 @@ sidebar:
             link: /ko/stdlib/net
           - text: HTTP와 웹
             link: /ko/stdlib/http
+          - text: WebAssembly와 DOM
+            link: /ko/stdlib/wasm
           - text: 머신러닝
             link: /ko/stdlib/ml
           - text: GUI

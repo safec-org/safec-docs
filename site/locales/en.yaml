@@ -131,6 +131,8 @@ nav:
         link: /stdlib/net
       - text: HTTP & Web
         link: /stdlib/http
+      - text: WebAssembly & DOM
+        link: /stdlib/wasm
       - text: Machine Learning
         link: /stdlib/ml
       - text: GUI
@@ -294,6 +296,8 @@ sidebar:
             link: /stdlib/net
           - text: HTTP & Web
             link: /stdlib/http
+          - text: WebAssembly & DOM
+            link: /stdlib/wasm
           - text: Machine Learning
             link: /stdlib/ml
           - text: GUI

@@ -109,15 +109,22 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 client + server (`http_serve`/`http_serve_threaded`), request/response types |
+| http | `http/http.h` | HTTP/1.1 client + server: keep-alive `HttpServer`, URL client with redirects + gzip (`http_fetch`), request/response helpers, chunked coding |
+| headers | `http/headers.h` | `HttpHeaders` case-insensitive header map, header parameters |
+| router | `http/router.h`, `http/route.h` | `Router` with `:param`/`*` patterns, 404/405, middleware (logger, CORS, gzip, body limit) |
+| static_files | `http/static_files.h` | Static file serving: MIME types, ETag/Last-Modified/304, byte ranges |
+| cookie | `http/cookie.h` | Cookie header parsing, `Set-Cookie` building |
+| multipart | `http/multipart.h` | `multipart/form-data` parsing + building |
+| sse | `http/sse.h` | Server-Sent Events: server stream, parser, client |
+| date | `http/date.h` | HTTP date formatting/parsing |
 | cors | `http/cors.h` | CORS preflight detection + response headers |
 | jwt | `http/jwt.h` | HS256 JWT sign/verify (HMAC-SHA256) |
 | oauth2 | `http/oauth2.h` | OAuth2 client: authorization-code + refresh-token exchange (RFC 6749) |
-| websocket | `http/websocket.h` | WebSocket handshake + frame read/write |
+| websocket | `http/websocket.h` | WebSocket client + server, upgrades on the router, message reassembly |
 | rpc | `rpc/rpc.h` | gRPC-inspired RPC-over-HTTP (length-prefixed framing, path-based dispatch) |
 | server_fn | `rpc/server_fn.h` | "Write once, call from anywhere" JSON-marshaled server functions (Dioxus/Leptos-style) |
 | reactive | `reactive/signal.h` | `Signal<T>` fine-grained reactive state (WASM client hydration) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (size-class `malloc`/`free` over `memory.grow`, `mem*`/`str*`/`strto*`/`qsort`, 128-bit compiler-rt builtins, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | [wasm32 DOM and browser APIs](/stdlib/wasm) (events, timers, fetch, storage, history) + signal hydration, with the `wasm/safec_dom.js` glue; `wasm/wasm_rt.h` is the freestanding runtime (size-class `malloc`/`free` over `memory.grow`, `mem*`/`str*`/`strto*`/`qsort`, 128-bit compiler-rt builtins, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
 | scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
 
 ### Machine Learning — see [ML](/stdlib/ml) {#machine-learning-see-ml}
@@ -249,8 +256,9 @@ int main() {
 |--------|--------|-------------|
 | ascii | `encoding/ascii.h` | ASCII validation, classification, case conversion |
 | utf8 | `encoding/utf8.h` | UTF-8 encode/decode/validate, codepoint count |
-| url | `encoding/url.h` | RFC 3986 percent-encoding (component style) |
+| url | `encoding/url.h` | `Url` parse/serialize/resolve, `QueryParams`, percent and form encoding |
 | base64 | `encoding/base64.h` | RFC 4648 Base64 with padding |
+| deflate | `encoding/deflate.h` | DEFLATE compress/decompress, zlib + gzip containers, CRC-32, Adler-32 |
 
 ### [Utilities](/stdlib/utilities) {#utilities}
 

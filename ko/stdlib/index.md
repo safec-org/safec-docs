@@ -109,15 +109,22 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버 (`http_serve`/`http_serve_threaded`), 요청/응답 타입 |
+| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버: keep-alive `HttpServer`, 리다이렉트와 gzip을 처리하는 URL 클라이언트(`http_fetch`), 요청/응답 헬퍼, 청크 인코딩 |
+| headers | `http/headers.h` | 대소문자를 구분하지 않는 헤더 맵 `HttpHeaders`, 헤더 파라미터 |
+| router | `http/router.h`, `http/route.h` | `:param`/`*` 패턴, 404/405, 미들웨어(로거, CORS, gzip, 본문 제한)를 갖춘 `Router` |
+| static_files | `http/static_files.h` | 정적 파일 제공: MIME 타입, ETag/Last-Modified/304, 바이트 범위 |
+| cookie | `http/cookie.h` | Cookie 헤더 파싱, `Set-Cookie` 생성 |
+| multipart | `http/multipart.h` | `multipart/form-data` 파싱 + 생성 |
+| sse | `http/sse.h` | Server-Sent Events: 서버 스트림, 파서, 클라이언트 |
+| date | `http/date.h` | HTTP 날짜 형식화/파싱 |
 | cors | `http/cors.h` | CORS 프리플라이트 감지 + 응답 헤더 |
 | jwt | `http/jwt.h` | HS256 JWT 서명/검증 (HMAC-SHA256) |
 | oauth2 | `http/oauth2.h` | OAuth2 클라이언트: 인가 코드 + 리프레시 토큰 교환 (RFC 6749) |
-| websocket | `http/websocket.h` | WebSocket 핸드셰이크 + 프레임 읽기/쓰기 |
+| websocket | `http/websocket.h` | WebSocket 클라이언트 + 서버, 라우터에서의 업그레이드, 메시지 재조립 |
 | rpc | `rpc/rpc.h` | gRPC에서 영감을 받은 HTTP 기반 RPC (길이 프리픽스 프레이밍, 경로 기반 디스패치) |
 | server_fn | `rpc/server_fn.h` | "한 번 작성하고 어디서든 호출" 방식의 JSON 마셜링 서버 함수 (Dioxus/Leptos 스타일) |
 | reactive | `reactive/signal.h` | `Signal<T>` 세밀한 반응형 상태 (WASM 클라이언트 하이드레이션) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(`memory.grow` 위의 크기 클래스 `malloc`/`free`, `mem*`/`str*`/`strto*`/`qsort`, 128비트 compiler-rt 내장 함수, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | [wasm32 DOM과 브라우저 API](/ko/stdlib/wasm)(이벤트, 타이머, fetch, 스토리지, history) + 시그널 하이드레이션, `wasm/safec_dom.js` 글루 포함; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(`memory.grow` 위의 크기 클래스 `malloc`/`free`, `mem*`/`str*`/`strto*`/`qsort`, 128비트 compiler-rt 내장 함수, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
 | scx | 해당 없음 (트랜스파일러) | JSX/TSX 스타일 HTML 템플릿 — `.scx` 파일은 `safec`가 보기 전에 일반 SafeC로 트랜스파일됨 |
 
 ### 머신러닝 — [ML](/ko/stdlib/ml) 참고 {#machine-learning-see-ml}
@@ -249,8 +256,9 @@ int main() {
 |--------|--------|-------------|
 | ascii | `encoding/ascii.h` | ASCII 검증, 분류, 대소문자 변환 |
 | utf8 | `encoding/utf8.h` | UTF-8 인코드/디코드/검증, 코드포인트 개수 |
-| url | `encoding/url.h` | RFC 3986 퍼센트 인코딩 (컴포넌트 방식) |
+| url | `encoding/url.h` | `Url` 파싱/직렬화/상대 참조 해석, `QueryParams`, 퍼센트·폼 인코딩 |
 | base64 | `encoding/base64.h` | 패딩을 포함한 RFC 4648 Base64 |
+| deflate | `encoding/deflate.h` | DEFLATE 압축/해제, zlib + gzip 컨테이너, CRC-32, Adler-32 |
 
 ### [유틸리티](/ko/stdlib/utilities) {#utilities}
 
