@@ -448,6 +448,9 @@ ROCM_TRAIN_DEFS = ["SAFEC_FEATURE_ROCM=1"]
 # ... and the cuda feature device_cuda.sc (cuDNN for the convolutions)
 CUDA_TRAIN_LIBS = [f"-L{CUDA}/lib64", f"-Wl,-rpath,{CUDA}/lib64", "-lcuda", "-lcublas", "-lcublasLt", "-lnvrtc", "-lcudnn"]
 CUDA_TRAIN_DEFS = ["SAFEC_FEATURE_CUDA=1"]
+# ... and on a Mac the mps feature device_mps.sc (Metal)
+MPS_TRAIN_LIBS = ["-framework", "Metal", "-framework", "Foundation", "-lobjc"]
+MPS_TRAIN_DEFS = ["SAFEC_FEATURE_MPS=1"]
 
 
 def have_cuda():
@@ -464,6 +467,8 @@ def bench_ml_nn(runs):
         cases.append(("safec_rocm", "ml_nn/safec/train_nn_gpu.sc", ROCM_TRAIN_LIBS, ROCM_TRAIN_DEFS))
     if have_cuda():
         cases.append(("safec_cuda", "ml_nn/safec/train_nn_gpu.sc", CUDA_TRAIN_LIBS, CUDA_TRAIN_DEFS))
+    if IS_MAC:
+        cases.append(("safec_mps", "ml_nn/safec/train_nn_gpu.sc", MPS_TRAIN_LIBS, MPS_TRAIN_DEFS))
     for key, src, libs, defs in cases:
         out = os.path.join(BUILD, "ml_nn", key)
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -495,6 +500,9 @@ def bench_ml_nn_gpu(runs):
                       ["fp32", "fp16", "bf16"]))
     if have_cuda():
         cases.append(("safec_cuda", "ml_nn/safec/train_big_gpu.sc", CUDA_TRAIN_LIBS, CUDA_TRAIN_DEFS,
+                      ["fp32", "fp16", "bf16"]))
+    if IS_MAC:
+        cases.append(("safec_mps", "ml_nn/safec/train_big_gpu.sc", MPS_TRAIN_LIBS, MPS_TRAIN_DEFS,
                       ["fp32", "fp16", "bf16"]))
     for key, src, libs, defs, precs in cases:
         out = os.path.join(BUILD, "ml_nn_gpu", key)
