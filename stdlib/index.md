@@ -177,7 +177,7 @@ int main() {
 | sha256 | `crypto/sha256.h` | SHA-256/224; streaming and one-shot API |
 | hash | `crypto/hash.h` | `Hasher` / `BlockHash` traits; `hash_bytes` over any hash |
 | hmac | `crypto/hmac.h` | `Hmac<H>` over any `BlockHash`; one-shot `hmac_sha256` |
-| rng | `crypto/rng.h` | ChaCha20 CSPRNG; `rdrand`/`/dev/urandom` seeding |
+| rng | `crypto/rng.h` | ChaCha20 CSPRNG, seeded from the OS (`BCryptGenRandom`, `getentropy`, `getrandom`), `rdrand` or `/dev/urandom` |
 | secure_alloc | `crypto/secure_alloc.h` | Slab allocator with zeroing-on-free |
 | x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, wildcard hostname, validity |
 | tls | `crypto/tls.h` | TLS 1.3 record layer; AES-256-GCM record protection (RFC 8446 §5.2), nonce XOR seq |
@@ -323,7 +323,7 @@ Where a container must hold callbacks with *different* context types at once (a 
 #include <std/prelude.h>
 ```
 
-When building with the `safeguard` package manager, the std modules the program includes are compiled into `build/deps/libsafec_std.a` and linked, with the system libraries they need (see [Standard Library Modules](/advanced/safeguard#standard-library-linking)).
+When building with the `safeguard` package manager, the std modules the program includes (and the ones its code calls without an include: `new`, channels) are compiled into `build/deps/libsafec_std.a` and linked, with the system libraries they need — or, in a release install, taken from its prebuilt std archive (see [Standard Library Modules](/advanced/safeguard#standard-library-linking)).
 
 When building manually, put the SafeC checkout on the include path (headers are named `<std/...>`) and link an archive of all of std — `safeguard build` of a project with `[build] std = "all"` makes one (or build it from every `std/**/*.sc`) — with the system libraries of the modules you use (`safeguard std-modules std/x.h` lists them):
 ```bash

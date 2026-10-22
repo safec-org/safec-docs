@@ -105,7 +105,7 @@ void example() {
 
 ## 링킹 {#linking}
 
-`spawn`이나 `join`을 사용하는 프로그램은 `-lpthread`로 링크되어야 합니다.
+`spawn`이나 `join`을 사용하는 프로그램은 Linux에서 `-lpthread`로 링크되어야 합니다. `safeguard`는 이를 자동으로 추가합니다(코드의 `pthread_create` 호출이 그 라이브러리를 지정하는 `std/thread.sc`를 가져옵니다. [표준 라이브러리 모듈](/ko/advanced/safeguard#standard-library-linking) 참고). 직접 링크할 때는 다음과 같습니다.
 
 ```bash
 ./build/safec program.sc --emit-llvm -o program.ll

@@ -12,6 +12,7 @@
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
 | `safeguard std-modules [std/x.h\|file...]` | List the std sources a build compiles and the system libraries it links for them (see [Standard Library Modules](#standard-library-linking)) |
+| `safeguard std-prebuilt <prefix>` | Compile std for this machine into `<prefix>/lib/<triple>/libsafec_std.a`, the [prebuilt std](#prebuilt-std) a release ships |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
@@ -618,16 +619,19 @@ A build compiles and links only the parts of the standard library (`std/`) it us
 
 **Which modules.** safeguard reads the `#include <std/...>` lines of the project's sources (and of the project headers they include, and of a SafeC dependency's sources; with [`std = true`](#c-c-and-objective-c-packages), of its C, C++ and Objective-C sources too). Each std header brings in the std sources implementing it, whose own includes count in turn: `std/gui/gui.h` brings `gui/gui_cocoa.sc` on macOS (`gui_x11.sc` on Linux, `gui_win32.sc` on Windows), `std/ml/tensor.h` the tensor core, `sgemm` and the threading it uses. `safeguard test` does the same for the files under `tests/`. Includes inside an `#if` count, unless the condition is a plain test of `__APPLE__`, `_WIN32` or `__linux__` (decided by the target) or, in the project's own files, of a `SAFEC_FEATURE_<NAME>` macro (decided by its [features](#feature-flags)). The GPU device backends of `std::ml` come with their features: `--features mps` builds `device_mps.sc`, `rocm` and `cuda` theirs.
 
-**Caching.** Each std source compiles to its own object under `build/deps/std/` (`build/deps/<target>/std/` for a [cross target](#cross-targets)), recompiled only when it, a std header it includes, or the compiler changes; the build's objects are packed into `build/deps/libsafec_std.a`, from which the linker still takes only what the program references. A hello world compiles 6 std sources instead of all 219 (0.9 s instead of 15 s on an M1 Pro).
+**What the code calls.** Some of std is called by code no header names: safec compiles `new` to a call into `std/mem.sc`, channels (`chan_create` and the rest) into `std/sync/channel.sc`, and `spawn`/`join` on Linux and macOS into `pthread_create`/`pthread_join`. safeguard reads the external symbols of the IR it compiles — the project's sources, a SafeC dependency's, and the std sources in the build — and adds the std sources they call, along with whatever those include and call in turn. A program with no channels and no threads compiles neither `sync/channel.sc` nor `thread.sc`, and links no `-lpthread` on Linux; one using channels gets both, and `spawn` alone brings `thread.sc` for `-lpthread`.
+
+**Caching.** Each std source compiles to its own object under `build/deps/std/` (`build/deps/<target>/std/` for a [cross target](#cross-targets)), recompiled only when it, a std header it includes, or the compiler changes; the build's objects are packed into `build/deps/libsafec_std.a`, from which the linker still takes only what the program references. A hello world on `std/io.h` compiles 4 std sources instead of all 219 (0.4 s instead of 15 s on an M1 Pro), and a program including no std header and calling nothing above, none. A [release install](#prebuilt-std) compiles none of them at all.
 
 **System libraries.** The libraries std's modules call into are added to the link — after the objects and archives, deduplicated, and only for the modules in the build:
 
 | Module | macOS | Linux | Windows |
 |---|---|---|---|
 | `std/math.h`, `std/fenv.h` | `-lm` | `-lm` | (in the C runtime) |
-| `std/thread.h` | — | `-lpthread` | — |
+| `std/thread.h`, channels, `spawn` | — | `-lpthread` | — |
 | `std/gui/gui.h` | `-framework Cocoa -lobjc` | `-lX11` (.deb: `libx11-6`) | `-luser32 -lgdi32` |
 | `std/http/http.h`, `std/sched/` | — | — | `-lws2_32` |
+| `std/crypto/rng.h` | — | — | `-lbcrypt` |
 | `std/simd/gemm.h` (and `std::ml`, `std::dsp` through it) | the [`[build] blas`](#linking-external-libraries-and-library-output) choice: Accelerate by default | the `[build] blas` choice | — |
 | `std/ml/tensor_vdsp.h`, `tensor_blas.h` | `-framework Accelerate` | — | — |
 | `std/ml/gpu_mps.h`, `--features mps` | `-framework Metal -framework Foundation -lobjc` | | |
@@ -652,13 +656,10 @@ link -lobjc
 $ safeguard std-modules --target x86_64-unknown-linux-gnu std/gui/gui.h
 ...
 link -lX11
-link -lpthread
 deb libx11-6
 ```
 
-**All of std.** `[build] std = "all"` compiles every std module into the archive, as before modules: for an archive linked by hand (`clang prog.ll build/deps/libsafec_std.a ...`), or for code that reaches std through `extern` declarations without including its headers. A [staticlib](#linking-external-libraries-and-library-output) records the std files its sources include in `build/lib<output>.a.std`, so a program linking it as a prebuilt dependency builds those modules too; a library built otherwise needs `std = "all"` in the program using it.
-
-**A prebuilt std archive.** `SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a` links that archive instead of compiling std: nothing is compiled, the linker takes the members the program references, and the system libraries still come from the modules the sources include when `std/` is found (`SAFEC_HOME`). Without `std/`, safeguard can't tell which modules are used and adds none: list them in `[build] libs`/`frameworks`.
+**All of std.** `[build] std = "all"` compiles every std module into the archive, as before modules: for an archive linked by hand (`clang prog.ll build/deps/libsafec_std.a ...`), or for code that reaches std through `extern` declarations without including its headers. A [staticlib](#linking-external-libraries-and-library-output) records the std files its sources include in `build/lib<output>.a.std`, and the symbols its code calls in `build/lib<output>.a.refs`, so a program linking it as a prebuilt dependency builds those modules too; a library built otherwise needs `std = "all"` in the program using it.
 
 **Writing std.** A std header `dir/foo.h` is implemented by `dir/foo.sc` and by the `dir/foo_<suffix>.sc` files that have no header of their own (the platform variants `gui_cocoa.sc`, `fft_f32.sc`, ...). Anything else, and the system libraries, is declared in comment lines a std source carries:
 
@@ -666,7 +667,8 @@ deb libx11-6
 // safeguard: implements <std/gui/gui.h>        another header this file implements
 // safeguard: sources <std/x/extra.sc>          (in a header) another file implementing it
 // safeguard: feature mps                       only in builds with this feature
-// safeguard: runtime                           always built: safec calls into it without an #include
+// safeguard: runtime-symbol __safec_chan_      built when the code calls a symbol starting so
+// safeguard: runtime baremetal wasm            always built for these targets
 // safeguard: link macos -framework Cocoa -lobjc
 // safeguard: link linux -L${ROCM_PATH:-/opt/rocm}/lib -lamdhip64
 // safeguard: link hosted blas                  the [build] blas choice
@@ -676,6 +678,21 @@ deb libx11-6
 The OS of a `link` or `deb` line is `macos`, `linux`, `windows`, `bsd`, `unix` (macOS, Linux, BSD), `hosted`, `baremetal`, `wasm` or `any`. `tests/std_modules/check.py`, run by CI, compiles every std header alone and fails if a function it declares, or a symbol the modules it brings leave undefined, is defined by a std source outside them.
 
 Each SafeC dependency built from source is similarly compiled to `build/deps/lib<name>.a`, a C/C++ one into `build/deps/<name>/`; prebuilt ones are linked from where they are.
+
+### Prebuilt std {#prebuilt-std}
+
+A release archive (and so an install from `install.sh`/`install.ps1`) ships std already compiled for its platform:
+
+```
+<prefix>/lib/aarch64-apple-darwin/      (x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)
+├── libsafec_std.a        every std source no feature gates, compiled with --release
+├── libsafec_std.stamp    the safec that built it (a hash of the binary) and the target
+└── libsafec_std.units    each source's input hash and the symbols its code calls
+```
+
+A native build looks for it beside the `safec` it uses (`<bin>/../lib/<triple>/`) and under `$SAFEC_HOME/lib/<triple>/`, and when the stamp matches that compiler and the host, links it instead of compiling std. The modules are still worked out as above, for the system libraries; only what the archive doesn't have is compiled — a GPU backend whose feature is on, or a std source changed since the archive was built — and packed with a copy of it into `build/deps/libsafec_std.a`, the replaced sources' old objects removed. A hello world, a `std::gui` window or a `std::ml` training loop then compiles no std at all. The archive is a release build and serves debug builds too (std carries no debug info either way). Cross, bare-metal and WebAssembly builds don't use it; neither does a build with `[build] std_prebuilt = false` or `SAFEC_STD_FROM_SOURCE=1`. A stamp for another compiler or target is passed over, with a note under `--verbose`. `safeguard std-prebuilt <prefix>` writes these files (the release workflow runs it through `.github/scripts/package.sh`, which lays out the whole install).
+
+`SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a` links that archive instead, whatever it is: nothing is compiled, the linker takes the members the program references, and the system libraries still come from the modules the sources include when `std/` is found (`SAFEC_HOME`). Without `std/`, safeguard can't tell which modules are used and adds none: list them in `[build] libs`/`frameworks`.
 
 ## Environment Setup {#environment-setup}
 
@@ -689,6 +706,7 @@ This should point to the SafeC repository root. From there, `safeguard` auto-dis
 
 - The `safec` compiler binary at `$SAFEC_HOME/compiler/build/safec`
 - The standard library at `$SAFEC_HOME/std/`
+- In an install, the [prebuilt std](#prebuilt-std) at `$SAFEC_HOME/lib/<triple>/`
 
 ## Project Structure {#project-structure}
 

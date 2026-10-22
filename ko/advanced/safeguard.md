@@ -12,6 +12,7 @@
 | `safeguard build [--release]` | 프로젝트와 모든 의존성 컴파일 |
 | `safeguard check` | 빠른 컴파일 전용 패스 — 오브젝트 어셈블이나 링킹 없이 오류만 보고 |
 | `safeguard std-modules [std/x.h\|file...]` | 빌드가 컴파일하는 std 소스와 그 소스를 위해 링크하는 시스템 라이브러리를 나열([표준 라이브러리 모듈](#standard-library-linking) 참고) |
+| `safeguard std-prebuilt <prefix>` | 이 머신용 std를 `<prefix>/lib/<triple>/libsafec_std.a`로 컴파일. 릴리스가 함께 배포하는 [미리 빌드된 std](#prebuilt-std) |
 | `safeguard test` | `tests/` 아래의 모든 파일을 독립적인 바이너리로 빌드하고 실행 |
 | `safeguard run` | 프로젝트 바이너리를 빌드하고 실행 |
 | `safeguard bundle [--sign <identity>]` | 바이너리를 빌드하여 애플리케이션으로 패키징: `.app`, 앱 폴더 또는 `.deb`([앱 번들](#app-bundles) 참고) |
@@ -617,16 +618,19 @@ Objective-C 런타임, X11, 또는 user32와 gdi32). SafeC 저장소의
 
 **어떤 모듈인지.** safeguard는 프로젝트 소스(그 소스가 포함하는 프로젝트 헤더, SafeC 의존성의 소스, [`std = true`](#c-c-and-objective-c-packages)이면 C, C++, Objective-C 소스까지)의 `#include <std/...>` 줄을 읽습니다. 각 std 헤더는 그것을 구현하는 std 소스를 가져오고, 그 소스의 include도 차례로 반영됩니다. 예를 들어 `std/gui/gui.h`는 macOS에서 `gui/gui_cocoa.sc`(Linux에서는 `gui_x11.sc`, Windows에서는 `gui_win32.sc`)를, `std/ml/tensor.h`는 텐서 코어와 그것이 쓰는 `sgemm`, 스레딩을 가져옵니다. `safeguard test`는 `tests/` 아래의 파일에 대해 같은 일을 합니다. `#if` 안의 include도 반영하지만, 조건이 `__APPLE__`, `_WIN32`, `__linux__`를 단순히 검사하는 경우(타깃으로 판정합니다)와, 프로젝트 자체 파일에서 `SAFEC_FEATURE_<NAME>` 매크로를 검사하는 경우([기능](#feature-flags)으로 판정합니다)는 예외입니다. `std::ml`의 GPU 디바이스 백엔드는 해당 기능과 함께 들어옵니다. `--features mps`는 `device_mps.sc`를, `rocm`과 `cuda`는 각자의 백엔드를 빌드합니다.
 
-**캐시.** 각 std 소스는 `build/deps/std/`([크로스 타깃](#cross-targets)이면 `build/deps/<target>/std/`) 아래에 자체 오브젝트로 컴파일되며, 그 소스나 그것이 포함하는 std 헤더, 또는 컴파일러가 바뀔 때만 다시 컴파일됩니다. 빌드의 오브젝트는 `build/deps/libsafec_std.a`로 묶이고, 링커는 여전히 프로그램이 참조하는 것만 가져옵니다. hello world는 219개 전체 대신 6개의 std 소스만 컴파일합니다(M1 Pro에서 15초 대신 0.9초).
+**코드가 호출하는 것.** std의 일부는 어떤 헤더도 지정하지 않는 코드에서 호출됩니다. safec는 `new`를 `std/mem.sc` 호출로, 채널(`chan_create` 등)을 `std/sync/channel.sc` 호출로, Linux와 macOS의 `spawn`/`join`을 `pthread_create`/`pthread_join` 호출로 컴파일합니다. safeguard는 자신이 컴파일하는 IR — 프로젝트 소스, SafeC 의존성의 소스, 빌드에 포함된 std 소스 — 의 외부 심볼을 읽어, 그 코드가 호출하는 std 소스와 그 소스가 다시 포함하고 호출하는 것을 추가합니다. 채널도 스레드도 쓰지 않는 프로그램은 `sync/channel.sc`도 `thread.sc`도 컴파일하지 않으며 Linux에서 `-lpthread`도 링크하지 않습니다. 채널을 쓰는 프로그램은 둘 다 가져오고, `spawn`만 써도 `-lpthread`를 위해 `thread.sc`를 가져옵니다.
+
+**캐시.** 각 std 소스는 `build/deps/std/`([크로스 타깃](#cross-targets)이면 `build/deps/<target>/std/`) 아래에 자체 오브젝트로 컴파일되며, 그 소스나 그것이 포함하는 std 헤더, 또는 컴파일러가 바뀔 때만 다시 컴파일됩니다. 빌드의 오브젝트는 `build/deps/libsafec_std.a`로 묶이고, 링커는 여전히 프로그램이 참조하는 것만 가져옵니다. `std/io.h`를 쓰는 hello world는 219개 전체 대신 4개의 std 소스만 컴파일하며(M1 Pro에서 15초 대신 0.4초), std 헤더를 포함하지 않고 위의 것도 호출하지 않는 프로그램은 하나도 컴파일하지 않습니다. [릴리스 설치본](#prebuilt-std)에서는 이마저도 전혀 컴파일하지 않습니다.
 
 **시스템 라이브러리.** std 모듈이 호출하는 라이브러리는 빌드에 포함된 모듈에 대해서만, 오브젝트와 아카이브 뒤에 중복 없이 링크에 추가됩니다:
 
 | 모듈 | macOS | Linux | Windows |
 |---|---|---|---|
 | `std/math.h`, `std/fenv.h` | `-lm` | `-lm` | (C 런타임에 포함) |
-| `std/thread.h` | — | `-lpthread` | — |
+| `std/thread.h`, 채널, `spawn` | — | `-lpthread` | — |
 | `std/gui/gui.h` | `-framework Cocoa -lobjc` | `-lX11` (.deb: `libx11-6`) | `-luser32 -lgdi32` |
 | `std/http/http.h`, `std/sched/` | — | — | `-lws2_32` |
+| `std/crypto/rng.h` | — | — | `-lbcrypt` |
 | `std/simd/gemm.h`(이를 통한 `std::ml`, `std::dsp` 포함) | [`[build] blas`](#linking-external-libraries-and-library-output)의 선택: 기본값은 Accelerate | `[build] blas`의 선택 | — |
 | `std/ml/tensor_vdsp.h`, `tensor_blas.h` | `-framework Accelerate` | — | — |
 | `std/ml/gpu_mps.h`, `--features mps` | `-framework Metal -framework Foundation -lobjc` | | |
@@ -651,13 +655,10 @@ link -lobjc
 $ safeguard std-modules --target x86_64-unknown-linux-gnu std/gui/gui.h
 ...
 link -lX11
-link -lpthread
 deb libx11-6
 ```
 
-**std 전체.** `[build] std = "all"`은 모듈 도입 이전과 같이 모든 std 모듈을 아카이브에 컴파일합니다. 손으로 링크하는 아카이브(`clang prog.ll build/deps/libsafec_std.a ...`)나, 헤더를 포함하지 않고 `extern` 선언으로 std에 접근하는 코드에 사용합니다. [staticlib](#linking-external-libraries-and-library-output)은 소스가 포함하는 std 파일을 `build/lib<output>.a.std`에 기록하므로, 이를 미리 빌드된 의존성으로 링크하는 프로그램도 그 모듈을 빌드합니다. 다른 방식으로 빌드된 라이브러리를 사용하는 프로그램에는 `std = "all"`이 필요합니다.
-
-**미리 빌드된 std 아카이브.** `SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a`는 std를 컴파일하는 대신 그 아카이브를 링크합니다. 아무것도 컴파일하지 않으며, 링커는 프로그램이 참조하는 멤버만 가져옵니다. `std/`를 찾을 수 있으면(`SAFEC_HOME`) 시스템 라이브러리는 여전히 소스가 포함하는 모듈로부터 정해집니다. `std/`가 없으면 safeguard는 어떤 모듈이 쓰이는지 알 수 없으므로 아무것도 추가하지 않습니다. 이 경우 `[build] libs`/`frameworks`에 지정하십시오.
+**std 전체.** `[build] std = "all"`은 모듈 도입 이전과 같이 모든 std 모듈을 아카이브에 컴파일합니다. 손으로 링크하는 아카이브(`clang prog.ll build/deps/libsafec_std.a ...`)나, 헤더를 포함하지 않고 `extern` 선언으로 std에 접근하는 코드에 사용합니다. [staticlib](#linking-external-libraries-and-library-output)은 소스가 포함하는 std 파일을 `build/lib<output>.a.std`에, 코드가 호출하는 심볼을 `build/lib<output>.a.refs`에 기록하므로, 이를 미리 빌드된 의존성으로 링크하는 프로그램도 그 모듈을 빌드합니다. 다른 방식으로 빌드된 라이브러리를 사용하는 프로그램에는 `std = "all"`이 필요합니다.
 
 **std 작성.** std 헤더 `dir/foo.h`는 `dir/foo.sc`와, 자체 헤더가 없는 `dir/foo_<suffix>.sc` 파일(플랫폼 변형인 `gui_cocoa.sc`, `fft_f32.sc` 등)이 구현합니다. 그 밖의 관계와 시스템 라이브러리는 std 소스의 주석 줄로 선언합니다:
 
@@ -665,7 +666,8 @@ deb libx11-6
 // safeguard: implements <std/gui/gui.h>        이 파일이 구현하는 다른 헤더
 // safeguard: sources <std/x/extra.sc>          (헤더에서) 이를 구현하는 다른 파일
 // safeguard: feature mps                       이 기능이 켜진 빌드에서만
-// safeguard: runtime                           항상 빌드: safec가 #include 없이 호출합니다
+// safeguard: runtime-symbol __safec_chan_      코드가 이 접두사로 시작하는 심볼을 호출하면 빌드
+// safeguard: runtime baremetal wasm            이 타깃에서는 항상 빌드
 // safeguard: link macos -framework Cocoa -lobjc
 // safeguard: link linux -L${ROCM_PATH:-/opt/rocm}/lib -lamdhip64
 // safeguard: link hosted blas                  [build] blas의 선택
@@ -675,6 +677,21 @@ deb libx11-6
 `link`나 `deb` 줄의 OS는 `macos`, `linux`, `windows`, `bsd`, `unix`(macOS, Linux, BSD), `hosted`, `baremetal`, `wasm`, `any` 중 하나입니다. CI가 실행하는 `tests/std_modules/check.py`는 각 std 헤더를 단독으로 컴파일하여, 그 헤더가 선언하는 함수나 그 헤더가 가져오는 모듈이 정의하지 않고 남긴 심볼이 그 모듈 밖의 std 소스에서 정의되면 실패합니다.
 
 소스에서 빌드하는 각 SafeC 의존성도 비슷하게 `build/deps/lib<name>.a`로, C/C++ 의존성은 `build/deps/<name>/`으로 컴파일되며, 미리 빌드된 의존성은 있는 위치에서 링크됩니다.
+
+### 미리 빌드된 std {#prebuilt-std}
+
+릴리스 아카이브(따라서 `install.sh`/`install.ps1`로 설치한 것)는 해당 플랫폼용으로 이미 컴파일된 std를 함께 배포합니다:
+
+```
+<prefix>/lib/aarch64-apple-darwin/      (x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)
+├── libsafec_std.a        기능으로 제한되지 않는 모든 std 소스, --release로 컴파일
+├── libsafec_std.stamp    이를 빌드한 safec(바이너리의 해시)와 타깃
+└── libsafec_std.units    각 소스의 입력 해시와 그 코드가 호출하는 심볼
+```
+
+네이티브 빌드는 사용하는 `safec` 옆(`<bin>/../lib/<triple>/`)과 `$SAFEC_HOME/lib/<triple>/`에서 이를 찾으며, 스탬프가 그 컴파일러와 호스트에 맞으면 std를 컴파일하는 대신 이를 링크합니다. 모듈은 시스템 라이브러리를 위해 여전히 위와 같이 정해집니다. 아카이브에 없는 것 — 기능이 켜진 GPU 백엔드나, 아카이브를 빌드한 뒤 바뀐 std 소스 — 만 컴파일되어, 아카이브의 복사본과 함께 `build/deps/libsafec_std.a`로 묶이며, 대체된 소스의 이전 오브젝트는 제거됩니다. 그러면 hello world, `std::gui` 창, `std::ml` 학습 루프는 std를 전혀 컴파일하지 않습니다. 아카이브는 릴리스 빌드이며 디버그 빌드에도 사용됩니다(std는 어느 쪽이든 디버그 정보 없이 컴파일됩니다). 크로스, 베어메탈, WebAssembly 빌드는 이를 사용하지 않으며, `[build] std_prebuilt = false`나 `SAFEC_STD_FROM_SOURCE=1`인 빌드도 마찬가지입니다. 다른 컴파일러나 타깃의 스탬프는 건너뛰며, `--verbose`에서 그 이유를 알려 줍니다. `safeguard std-prebuilt <prefix>`가 이 파일들을 만듭니다(릴리스 워크플로는 설치본 전체를 구성하는 `.github/scripts/package.sh`를 통해 이를 실행합니다).
+
+`SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a`는 그 대신 어떤 아카이브든 지정한 것을 링크합니다. 아무것도 컴파일하지 않으며, 링커는 프로그램이 참조하는 멤버만 가져옵니다. `std/`를 찾을 수 있으면(`SAFEC_HOME`) 시스템 라이브러리는 여전히 소스가 포함하는 모듈로부터 정해집니다. `std/`가 없으면 safeguard는 어떤 모듈이 쓰이는지 알 수 없으므로 아무것도 추가하지 않습니다. 이 경우 `[build] libs`/`frameworks`에 지정하십시오.
 
 ## 환경 설정 {#environment-setup}
 
@@ -688,6 +705,7 @@ export SAFEC_HOME=/path/to/SafeC
 
 - `$SAFEC_HOME/compiler/build/safec`에 있는 `safec` 컴파일러 바이너리
 - `$SAFEC_HOME/std/`에 있는 표준 라이브러리
+- 설치본에서는 `$SAFEC_HOME/lib/<triple>/`에 있는 [미리 빌드된 std](#prebuilt-std)
 
 ## 프로젝트 구조 {#project-structure}
 

@@ -105,7 +105,7 @@ To share mutable data between threads, use atomic operations or explicit synchro
 
 ## Linking {#linking}
 
-Programs that use `spawn` or `join` must be linked with `-lpthread`:
+Programs that use `spawn` or `join` must be linked with `-lpthread` on Linux. `safeguard` adds it by itself (the code's call to `pthread_create` brings in `std/thread.sc`, which names the library — see [Standard Library Modules](/advanced/safeguard#standard-library-linking)); by hand:
 
 ```bash
 ./build/safec program.sc --emit-llvm -o program.ll
