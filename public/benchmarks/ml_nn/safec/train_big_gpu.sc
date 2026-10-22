@@ -1,24 +1,27 @@
-// train_big.sc's models on nn_rocm.h's device-resident GPU path
-// (rocm_trainer_fit, rocm_dcgan, rocm_conv_vae): fp32, then the MLP and the
-// conv nets again with 16-bit activations (rocm_net_set_precision: fp16 with
-// a dynamic loss scale, bf16), fp32 master weights and optimizer state.
-// The timed run includes building the device model and uploading the data.
-// One untimed warm-up run, then one timed run per workload (run_bench.py
-// keeps the best of its runs). Prints "[workload_precision] train_ms=...
-// last_loss=..." per workload.
-// Link: -lamdhip64 -lhiprtc -lrocblas -lMIOpen
+// train_big.sc's models on a GPU through std::ml's device path (device.h):
+// an MLP, a CNN with batch norm, a small ResNet, a U-Net, a DCGAN and a
+// convolutional VAE, with TrainConfig.device (or model_to) set to
+// device_auto(). PRECISION=fp16 or bf16 in the environment trains with
+// 16-bit activations (TrainConfig.precision / device_set_precision); the
+// default is fp32. One untimed warm-up run, then one timed run per workload
+// (run_bench.py keeps the best of its runs). Prints
+// "[workload_precision] train_ms=... last_loss=..." per workload.
+// Build with the rocm feature and link -lamdhip64 -lhiprtc -lrocblas -lMIOpen
+// (cuda: -lcuda -lcublas -lnvrtc -lcudnn).
 #include <std/ml/nn.h>
 #include <std/ml/datasets.h>
 #include <std/ml/trainer.h>
 #include <std/ml/autoencoder.h>
 #include <std/ml/convnet.h>
 #include <std/ml/gan.h>
-#include <std/ml/nn_rocm.h>
 #include <std/time.h>
 #include <std/io.h>
+#include <std/ml/module.h>
+#include <std/ml/device.h>
 
 static float g_loss = (float)0.0;
-static int g_prec = 0;   // the nets' activations: 0 fp32, ROCM_FP16, ROCM_BF16
+static int g_dev = DEVICE_CPU;
+static int g_prec = DEVICE_FP32;
 static double now_ms() { return (double)time_mono_ns() * 1e-6; }
 
 static struct Dataset g_blob784;   // 8192 x 784, 10 classes
@@ -27,21 +30,23 @@ static struct Dataset g_rgb32;     // 1024 x 3x32x32, 10 classes
 static struct Dataset g_img32;     // 512 x 1x32x32 shapes
 
 // ── MLP 784-1024-1024-10, batch 256, 2 epochs ────────────────────────────────
+static &FloatTensor clf_mlp_(&Mlp m, const &FloatTensor x, const &FloatTensor y) { return tensor_cross_entropy_loss(m.forward(x), y); }
+
 static void w_mlp() {
     struct Rng rng = Rng::new(3UL);
     struct Mlp net = Mlp::new(784UL, 1024UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
     struct TrainConfig tc = TrainConfig::default();
+    tc.device = g_dev; tc.precision = g_prec;
     tc.epochs = 2UL; tc.batchSize = 256UL;
-    struct RocmNet d = RocmNet::from_mlp(&net, 256UL);
-    if (g_prec != 0 && !d.set_precision(g_prec)) d.ok = 0;
-    struct RocmOptimizer o = RocmOptimizer::new(OPT_ADAM, (float)0.001);
-    d.add_params(&o);
-    struct TrainReport r = rocm_trainer_fit(&d, rocm_net_ce_step, &o, &g_blob784, &tc);
-    g_loss = r.steps > 0UL && d.ok ? r.lastEpochLoss : (float)-1.0;
+    struct Optimizer o = Optimizer::new(OPT_ADAM, (float)0.001);
+    model_add_params(&net, &o);
+    g_loss = trainer_fit(&net, clf_mlp_, &o, &g_blob784, &tc).lastEpochLoss;
     o.free();
-    d.free();
     net.free();
 }
+
+static &FloatTensor clf_cn_(&ConvNet n, const &FloatTensor x, const &FloatTensor y) { return tensor_cross_entropy_loss(n.forward(x), y); }
+static &FloatTensor rec_cn_(&ConvNet n, const &FloatTensor x, const &FloatTensor y) { return tensor_bce_logits_loss(n.forward(x), x); }
 
 // ── ConvNet classifiers ──────────────────────────────────────────────────────
 static struct ConvNet cnn_() {
@@ -96,17 +101,13 @@ static void run_cn_(int which) {
     struct ConvNet n = which == 0 ? cnn_() : (which == 1 ? resnet_() : unet_());
     &Dataset d = which == 0 ? &g_img28 : (which == 1 ? &g_rgb32 : &g_img32);
     struct TrainConfig tc = TrainConfig::default();
+    tc.device = g_dev; tc.precision = g_prec;
     tc.epochs = 2UL;
     tc.batchSize = which == 2 ? 32UL : 128UL;
-    struct RocmNet dn = RocmNet::from_convnet(&n, tc.batchSize);
-    if (g_prec != 0 && !dn.set_precision(g_prec)) dn.ok = 0;
-    struct RocmOptimizer o = RocmOptimizer::new(OPT_ADAM, (float)0.001);
-    dn.add_params(&o);
-    struct TrainReport r = which == 2 ? rocm_trainer_fit(&dn, rocm_net_recon_bce_step, &o, d, &tc)
-                                      : rocm_trainer_fit(&dn, rocm_net_ce_step, &o, d, &tc);
-    g_loss = r.steps > 0UL && dn.ok ? r.lastEpochLoss : (float)-1.0;
+    struct Optimizer o = Optimizer::new(OPT_ADAM, (float)0.001);
+    model_add_params(&n, &o);
+    g_loss = (which == 2 ? trainer_fit(&n, rec_cn_, &o, d, &tc) : trainer_fit(&n, clf_cn_, &o, d, &tc)).lastEpochLoss;
     o.free();
-    dn.free();
     n.free();
 }
 static void w_cnn() { run_cn_(0); }
@@ -134,10 +135,10 @@ static struct Dcgan dcgan_() {
 
 static void w_dcgan() {
     struct Dcgan g = dcgan_();
-    struct RocmGan d = RocmGan::new_dcgan(&g, 64UL);
-    struct GanLosses l = d.train(&g_img28, 1UL, 64UL);
-    g_loss = d.ok ? l.d : (float)-1.0;
-    d.free();
+    model_to(&g, g_dev);
+    int pp = device_precision(g_dev); device_set_precision(g_dev, g_prec);
+    g_loss = g.train(&g_img28, 1UL, 64UL).d;
+    device_set_precision(g_dev, pp);
     g.free();
 }
 
@@ -158,47 +159,44 @@ static struct ConvVae cvae_() {
 static void w_convvae() {
     struct ConvVae v = cvae_();
     struct TrainConfig tc = TrainConfig::default();
+    tc.device = g_dev; tc.precision = g_prec;
     tc.epochs = 1UL; tc.batchSize = 64UL;
-    struct RocmVae d = RocmVae::new_conv(&v, 64UL);
-    struct RocmOptimizer o = RocmOptimizer::new(OPT_ADAM, (float)0.001);
-    d.add_params(&o);
-    struct TrainReport r = rocm_trainer_fit(&d, rocm_vae_step, &o, &g_img28, &tc);
-    g_loss = r.steps > 0UL ? r.lastEpochLoss : (float)-1.0;
+    struct Optimizer o = Optimizer::new(OPT_ADAM, (float)0.001);
+    model_add_params(&v, &o);
+    g_loss = model_fit(&v, &o, &g_img28, &tc).lastEpochLoss;
     o.free();
-    d.free();
     v.free();
 }
+
+extern char* getenv(const char* name);
+
 
 static void bench_(const &char name, fn void() work) {
     work();   // warm-up
     double t0 = now_ms();
     work();
     double t = now_ms() - t0;
-    print("["); print(name); print("] train_ms="); print_float(t); print(" last_loss="); println_float((double)g_loss);
+    unsafe { print("["); print(name); print(g_prec == DEVICE_FP16 ? "_fp16" : (g_prec == DEVICE_BF16 ? "_bf16" : "_fp32")); print("] train_ms="); } print_float(t); print(" last_loss="); println_float((double)g_loss);
 }
 
 int main() {
-    if (!rocm_available()) { println("no ROCm GPU"); return 0; }
+    g_dev = device_auto();
+    unsafe {
+        char* pe = getenv("PRECISION");
+        if (pe != (char*)0 && pe[0] == 'f' && pe[1] == 'p' && pe[2] == '1') { g_prec = DEVICE_FP16; }
+        if (pe != (char*)0 && pe[0] == 'b') { g_prec = DEVICE_BF16; }
+    }
+    print("device: "); println(device_name(g_dev));
     struct Rng r1 = Rng::new(11UL);
     g_blob784 = Dataset::blobs(8192UL, 10UL, 784UL, (float)1.0, &r1);
     g_img28 = Dataset::shapes(2048UL, 28UL, &r1);
     g_rgb32 = Dataset::blobs(1024UL, 10UL, 3072UL, (float)1.0, &r1);
     g_img32 = Dataset::shapes(512UL, 32UL, &r1);
-    bench_("mlp_fp32", w_mlp);
-    bench_("cnn_fp32", w_cnn);
-    bench_("resnet_fp32", w_resnet);
-    bench_("unet_fp32", w_unet);
-    bench_("dcgan_fp32", w_dcgan);
-    bench_("convvae_fp32", w_convvae);
-    g_prec = ROCM_FP16;
-    bench_("mlp_fp16", w_mlp);
-    bench_("cnn_fp16", w_cnn);
-    bench_("resnet_fp16", w_resnet);
-    bench_("unet_fp16", w_unet);
-    g_prec = ROCM_BF16;
-    bench_("mlp_bf16", w_mlp);
-    bench_("cnn_bf16", w_cnn);
-    bench_("resnet_bf16", w_resnet);
-    bench_("unet_bf16", w_unet);
+    bench_("mlp", w_mlp);
+    bench_("cnn", w_cnn);
+    bench_("resnet", w_resnet);
+    bench_("unet", w_unet);
+    bench_("dcgan", w_dcgan);
+    bench_("convvae", w_convvae);
     return 0;
 }
