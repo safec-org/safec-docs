@@ -139,6 +139,10 @@ nav:
         link: /stdlib/ml
       - text: GUI
         link: /stdlib/gui
+      - text: GUI Graphics
+        link: /stdlib/gui-graphics
+      - text: GUI Widgets
+        link: /stdlib/gui-widgets
       - text: Audio & MIDI
         link: /stdlib/audio
       - text: Encoding
@@ -308,6 +312,10 @@ sidebar:
             link: /stdlib/ml
           - text: GUI
             link: /stdlib/gui
+          - text: GUI Graphics
+            link: /stdlib/gui-graphics
+          - text: GUI Widgets
+            link: /stdlib/gui-widgets
           - text: Audio & MIDI
             link: /stdlib/audio
           - text: Encoding
