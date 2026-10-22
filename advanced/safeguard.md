@@ -6,8 +6,8 @@
 
 | Command | Description |
 |---------|-------------|
-| `safeguard new <name>` | Scaffold a new project directory with `Package.toml` and `src/main.sc` |
-| `safeguard init` | Initialize a `Package.toml` in the current directory |
+| `safeguard new <name> [--lang L]` | Scaffold a new project directory with `Package.toml` and `src/main.sc` (or, with `--lang c`/`cpp`/`objc`/`objcpp`, a [C, C++ or Objective-C package](#c-c-and-objective-c-packages)) |
+| `safeguard init [--lang L]` | Initialize a `Package.toml` in the current directory |
 | `safeguard fetch` | Clone the git dependencies listed in `Package.toml` and build the ones from source |
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
@@ -128,7 +128,7 @@ safeguard test --target rv32e        # builds every test for RV32E, doesn't run 
 ```
 
 - The std archive is built per target under `build/deps/<target>/libsafec_std.a`, from just the sources that apply to it (OS-specific backends are skipped on bare metal).
-- Objects are compiled with the target's clang flags (`safec --print-target-clang-flags`), and bare-metal links use `ld.lld` with `-nostdlib -static`: supply the linker script, startup code and runtime (`memcpy`, `memset`, any `malloc`, compiler-rt builtins) through `[build] cflags`/`libs`.
+- Objects — SafeC, C, C++ and Objective-C alike — are compiled with the target's clang flags (`safec --print-target-clang-flags`), and bare-metal links use `ld.lld` with `-nostdlib -static`: supply the linker script, startup code and runtime (`memcpy`, `memset`, any `malloc`, compiler-rt builtins) through `[build] cflags`/`libs`.
 - Functions your project defines that freestanding mode would otherwise flag as hosted-only (a runtime's own `malloc`, say) are passed to the compiler as `--provides`, so they don't warn.
 - WebAssembly targets link a library module instead: no entry point, exports are the functions marked `export_name`, unresolved externs become imports, and the std archive includes `std/wasm` (the wasm runtime). See [WebAssembly](/reference/baremetal#wasm).
 - `test` builds the test binaries without running them (they're for another machine); `run` refuses a cross target.
@@ -243,13 +243,13 @@ frontend (see [scx Templating](/advanced/scx)).
 
 ## Build Flow {#build-flow}
 
-`src/` can freely mix `.sc`, `.c`, and `.cpp`/`.cc`/`.cxx` files — each is
+`src/` can freely mix `.sc`, `.c`, `.cpp`/`.cc`/`.cxx`, and Objective-C `.m`/`.mm` files — each is
 dispatched by extension and compiled to its own object file independently,
 never merged into a shared translation unit, so per-file recompilation
 stays as granular as a pure-SafeC project:
 
 ```
-.sc sources          .c / .cpp sources
+.sc sources          .c / .cpp / .m / .mm sources
     |                       |
 safec --emit-llvm      clang / clang++ -c
     |                       |
@@ -261,9 +261,9 @@ clang(++) link ----------> executable
 ```
 
 1. Each `.sc` file is compiled to LLVM IR (`.ll`) by `safec`, then assembled to `.o` by `clang -c`
-2. Each `.c`/`.cpp` file is compiled straight to `.o` by `clang`/`clang++` — no LLVM-IR intermediate step, since these are already native compiler front ends
+2. Each `.c`/`.cpp`/`.m`/`.mm` file is compiled straight to `.o` by `clang`/`clang++` — no LLVM-IR intermediate step, since these are already native compiler front ends
 3. Dependencies are archived into static libraries using `ar` (also mixed-language aware — a dependency's own `src/` can contain `.sc`/`.c`/`.cpp` too)
-4. The final link uses `clang++` as the driver whenever any `.cpp` source was compiled in (so the C++ runtime — libc++/libstdc++, exceptions, RTTI — links in correctly), plain `clang` otherwise; either way it's linking ordinary object files, since SafeC's C ABI compatibility means a `.sc`-compiled `.o` and a `.c`/`.cpp`-compiled `.o` are interchangeable at the object-file level
+4. The final link uses `clang++` as the driver whenever any C++ (`.cpp` or `.mm`, the project's own or a dependency's) was compiled in (so the C++ runtime — libc++/libstdc++, exceptions, RTTI — links in correctly), plain `clang` otherwise, and adds `-lobjc` when there's Objective-C; either way it's linking ordinary object files, since SafeC's C ABI compatibility means a `.sc`-compiled `.o` and a `.c`/`.cpp`-compiled `.o` are interchangeable at the object-file level
 
 All three languages share the project's own `include/` directory and each
 dependency's `include/` directory for headers — but *not* SafeC's own
@@ -312,6 +312,53 @@ means the linker never finds a plain `sum_cpp` symbol.
 `src/`; `cflags = [...]` is appended to every `clang`/`clang++` invocation
 (both `.c`/`.cpp` compilation and the final link).
 
+### Objective-C {#objective-c}
+
+`.m` (Objective-C) and `.mm` (Objective-C++) files build on macOS; for any
+other target safeguard stops with an error naming the file. Two `[build]`
+keys go with them:
+
+```toml
+[build]
+objc_arc   = true                     # compile .m/.mm with -fobjc-arc
+frameworks = ["Cocoa", "Metal"]       # -framework <name> at the final link
+```
+
+`frameworks` applies to macOS builds only (elsewhere it's dropped with a
+note). Objective-C classes, like C++ ones, aren't visible to SafeC: give
+the code a C function to call.
+
+### Per-platform settings {#per-platform-settings}
+
+`[build.macos]`, `[build.linux]` and `[build.windows]` take `cflags`,
+`libs`, `lib_dirs` and `frameworks`, added to `[build]`'s own only when
+building for that OS (the `--target`'s, or the host's) — one manifest can
+then name each platform's system libraries:
+
+```toml
+[build.macos]
+frameworks = ["Cocoa"]
+libs       = ["objc"]
+
+[build.linux]
+libs = ["X11"]
+
+[build.windows]
+libs = ["user32", "gdi32"]
+```
+
+Any other `[build.<name>]` table, or another key in one, is an error.
+
+### C, C++ and Objective-C packages {#c-c-and-objective-c-packages}
+
+A package needn't contain SafeC at all. `safeguard new <name> --lang c`
+(or `cpp`, `objc`, `objcpp`) scaffolds `src/main.c` (`.cpp`, `.m`, `.mm`;
+the Objective-C ones with `objc_arc = true` and `frameworks =
+["Foundation"]`), and such a package builds as a `bin`, `staticlib` or
+`cdylib` like any other, exporting its headers the same way. When neither
+the package's sources nor a SafeC source dependency contain SafeC, the
+standard library is neither built nor linked.
+
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
 Four more `[build]` keys configure the final link step and what kind of
@@ -346,7 +393,7 @@ Libraries are looked up in `AOCL_ROOT`, `MKLROOT` and `OPENBLAS_ROOT` (or their 
 | `"staticlib"` | `build/lib<output>.a` and `build/include/` | `ar`-packed archive of this project's own objects (no linker, no `-l`/`-L`/`lto` — a `.a` isn't linked, just bundled for a later link to consume) |
 | `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (platform-dependent) and `build/include/` | linked with `-shared` |
 
-A library build also exports its public headers to `build/include/`: everything under the project's `include/`, and the `.h` files under `src/`, with their paths kept (`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). These are the headers a dependent building the package from source would see. The directory is rebuilt on every build, so a deleted header leaves it too. A header at the same path in both `include/` and `src/` is an error. `build/` is then a [prebuilt dependency](#dependencies) as it stands:
+A library build also exports its public headers to `build/include/`: everything under the project's `include/`, and the headers (`.h`, and C++'s `.hh`/`.hpp`/`.hxx`) under `src/`, with their paths kept (`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). These are the headers a dependent building the package from source would see. The directory is rebuilt on every build, so a deleted header leaves it too. A header at the same path in both `include/` and `src/` is an error. `build/` is then a [prebuilt dependency](#dependencies) as it stands:
 
 ```toml
 [[dependencies]]
@@ -362,7 +409,7 @@ directly produces a clear error rather than a confusing OS-level failure.
 
 ## Standard Library Linking {#standard-library-linking}
 
-The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed.
+The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed — except a [package with no SafeC in it](#c-c-and-objective-c-packages).
 
 Each dependency built from source is similarly compiled to `build/deps/lib<name>.a`; prebuilt ones are linked from where they are.
 
