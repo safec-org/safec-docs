@@ -23,9 +23,16 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 |---|---|
 | `--prefix=<path>` | 설치 디렉터리 (기본값: `~/safec`) |
 | `--version=<tag>` | 설치할 릴리스 태그, 예: `v0.2.0` (기본값: 최신) |
+| `--std=<sections>` | 설치할 [미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std) 섹션, 예: `core,collections,gui` (기본값: `all`). std 소스는 항상 설치되며, 설치되지 않은 섹션은 빌드에 필요할 때 소스에서 컴파일됩니다 |
+| `--std=+<sections>` | 기존 설치본에 미리 빌드된 std 섹션을 추가합니다. 설치한 릴리스에서 가져옵니다 |
 | `--skip-env` | 셸 환경 구성 건너뛰기 |
 
-macOS/Linux는 `arm64`/`x86_64` 바이너리를 배포하며, Windows는 `x86_64`를 배포합니다. 전체 에셋 목록은 [Releases](https://github.com/safec-org/SafeC/releases)를 참고하십시오.
+`install.ps1`은 같은 옵션을 `-Prefix`, `-Version`, `-Std`, `-SkipEnv`로 받습니다.
+
+배포되는 바이너리는 macOS `arm64`, Linux `x86_64`, Windows `x86_64`입니다. 전체 에셋 목록은 [Releases](https://github.com/safec-org/SafeC/releases)를 참고하십시오. 요구 사항은 다음과 같습니다.
+
+- **macOS 11**(Big Sur) 이상: 바이너리와 미리 빌드된 std는 11.0용으로 빌드됩니다.
+- **glibc 2.25** 이상의 Linux(Debian 10, Ubuntu 18.04, RHEL 8 이후): 바이너리는 더 오래된 glibc에 대해 빌드되고 이를 검사하며, 미리 빌드된 std는 2.25보다 새로운 함수(`getrandom`이 2.25)를 호출하지 않습니다. musl 기반 배포판(Alpine)은 릴리스 바이너리에서 지원하지 않습니다.
 
 ::: tip
 소스에서 빌드하는 것(릴리스 워크플로가 배포하지 않는 플랫폼을 위해 필요하거나, 릴리스되지 않은 커밋에서 빌드하기 위해 필요)도 여전히 가능합니다. `compiler/`, `safeguard/`, 그리고 자매 저장소인 `sc-language-server`의 각 구성 요소 자체 `CMakeLists.txt`를 통해서입니다 — [컴파일러 아키텍처](/ko/advanced/compiler)를 참고하십시오.
