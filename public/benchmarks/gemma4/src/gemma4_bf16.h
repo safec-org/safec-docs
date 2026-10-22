@@ -40,6 +40,7 @@
 // language has no native half-precision arithmetic type.
 #include <std/ml/tensor.h>
 #include <std/ml/float16.h>
+#include <std/ml/gpu_mps.h>
 
 namespace std {
 
@@ -87,16 +88,16 @@ void gemma4_bf16_set_force_cpu(int forceCpu);
 // gets a genuinely CPU-only run end to end, not just for the matmuls.
 int gemma4_bf16_get_force_cpu();
 
-// Returns 'w's persistent GPU buffer handle (uploading it once and
+// Returns 'w's persistent GPU buffer (uploading it once and
 // caching by pointer identity on first call, same as gemma4_bf16_linear's
 // own internal weight-buffer cache -- this exposes that same cache, not
 // a separate one, so a weight already used through gemma4_bf16_linear is
-// already resident and this just returns the existing handle). NULL if
-// no Metal device is available. For callers that need a weight's GPU
+// already resident and this just returns the existing buffer). Invalid
+// (!valid()) if no Metal device is available. For callers that need a weight's GPU
 // buffer directly to chain a matmul against a still-pending GPU input
 // (see gemma4_attention.h's gemma4_bf16_attn_batch_gpu_chained) instead
 // of going through gemma4_bf16_linear's own fresh-upload-of-x path.
-void* gemma4_bf16_get_weight_buf(const &Gemma4Bf16Tensor w);
+struct MpsBuf gemma4_bf16_get_weight_buf(const &Gemma4Bf16Tensor w);
 
 // Releases 'w's cached persistent GPU buffer -- MUST be called (via
 // gemma4_bf16_model_free) before a weight's own CPU memory is freed, an

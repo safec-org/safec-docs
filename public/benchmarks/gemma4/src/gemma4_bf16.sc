@@ -74,9 +74,9 @@ static int __g4bf16_mps_ok() {
 // Persistent bf16 weight buffer cache, keyed by the weight's own raw bit
 // buffer pointer (stable for the weight's lifetime) -- same shape as
 // gemma4_math.sc's f32 weight cache, just uploading the ALREADY-bf16 raw
-// bits directly (mps_upload_persistent is a dtype-agnostic raw byte
-// upload -- see gpu_mps.sc; no f32 round trip anywhere in this path).
-static struct HashMap<unsigned short*, void*> __g4bf16_weightBufCache;
+// bits directly (MpsBuf::upload_bits copies raw 16-bit values as they
+// are -- see gpu_mps.h; no f32 round trip anywhere in this path).
+static struct HashMap<unsigned short*, struct MpsBuf> __g4bf16_weightBufCache;
 static int __g4bf16_weightBufCacheInit = 0;
 
 static void __g4bf16_ensure_weight_cache() {
@@ -86,24 +86,24 @@ static void __g4bf16_ensure_weight_cache() {
     }
 }
 
-static void* __g4bf16_get_weight_buf(const &Gemma4Bf16Tensor w) {
+static struct MpsBuf __g4bf16_get_weight_buf(const &Gemma4Bf16Tensor w) {
     __g4bf16_ensure_weight_cache();
     unsafe {
         unsigned short* wPtr = w.data;
-        void** found = (void**)__g4bf16_weightBufCache.get(wPtr);
-        if (found != (void**)0) { return *found; }
+        struct MpsBuf* found = (struct MpsBuf*)__g4bf16_weightBufCache.get(wPtr);
+        if (found != (struct MpsBuf*)0) { return *found; }
 
-        unsigned long bytes = w.size * 2UL; // 2 bytes/element (bf16)
-        void* buf = mps_upload_persistent((const float*)w.data, bytes);
-        if (buf != (void*)0) {
+        struct MpsBuf buf = MpsBuf::upload_bits(w.data, w.size, MPS_BF16);
+        if (buf.valid()) {
             __g4bf16_weightBufCache.insert(wPtr, buf);
         }
         return buf;
     }
 }
 
-void* gemma4_bf16_get_weight_buf(const &Gemma4Bf16Tensor w) {
-    if (!__g4bf16_mps_ok()) { return (void*)0; }
+struct MpsBuf gemma4_bf16_get_weight_buf(const &Gemma4Bf16Tensor w) {
+    struct MpsBuf none;   // zero-initialized: invalid
+    if (!__g4bf16_mps_ok()) { return none; }
     return __g4bf16_get_weight_buf(w);
 }
 
@@ -111,9 +111,9 @@ void gemma4_bf16_release_weight_buf(const &Gemma4Bf16Tensor w) {
     if (!__g4bf16_weightBufCacheInit) { return; }
     unsafe {
         unsigned short* wPtr = w.data;
-        void** found = (void**)__g4bf16_weightBufCache.get(wPtr);
-        if (found != (void**)0) {
-            mps_release_persistent(*found, w.size * 2UL);
+        struct MpsBuf* found = (struct MpsBuf*)__g4bf16_weightBufCache.get(wPtr);
+        if (found != (struct MpsBuf*)0) {
+            found->free();
             __g4bf16_weightBufCache.remove(wPtr);
         }
     }
@@ -198,12 +198,11 @@ struct Gemma4Bf16Tensor gemma4_bf16_linear(const &Gemma4Bf16Tensor x, const &Gem
     unsigned long outF = w.shape0;
 
     if (!__g4bf16_forceCpu && __g4bf16_mps_ok()) {
-        void* wBuf = __g4bf16_get_weight_buf(w);
-        if (wBuf != (void*)0) {
-            unsigned long xBytes = x.size * 2UL;
-            void* xBuf;
-            unsafe { xBuf = mps_upload_persistent((const float*)x.data, xBytes); }
-            if (xBuf != (void*)0) {
+        struct MpsBuf wBuf = __g4bf16_get_weight_buf(w);
+        if (wBuf.valid()) {
+            struct MpsBuf xBuf;
+            unsafe { xBuf = MpsBuf::upload_bits(x.data, x.size, MPS_BF16); }
+            if (xBuf.valid()) {
                 struct Gemma4Bf16Tensor out = gemma4_bf16_new_2d(rows, outF);
                 int rc;
                 unsafe {
@@ -213,7 +212,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_linear(const &Gemma4Bf16Tensor x, const &Gem
                     // kernel_bf16 computes out[M,K] = a[M,N] . b^T[K,N].
                     rc = mps_matmul_abt_bf16_persistent(xBuf, wBuf, out.data, rows, inF, outF);
                     mps_batch_end();
-                    mps_release_persistent(xBuf, xBytes);
+                    xBuf.free();
                 }
                 if (rc) { return out; }
                 gemma4_bf16_free(&out);

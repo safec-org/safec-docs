@@ -1964,40 +1964,62 @@ int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-호스트 배열은 첫 원소에 대한 참조로 넘기며, 아래의 장치 버퍼는 메모리가 GPU 드라이버에 속하므로 불투명한 `&void` 핸들입니다.
+호스트 배열은 첫 원소에 대한 참조로 넘깁니다. 아래의 장치 버퍼는 CUDA, SPIR-V, WebGPU에서는 메모리가 GPU 드라이버에 속하므로 불투명한 `&void` 핸들이고, Metal에서는 ROCm의 `RocmBuf`처럼 `MpsBuf`(아래)입니다.
 
 **영구 버퍼**는 가중치를 호출 사이에 장치에 남겨 두어 학습 루프가 다시 업로드하지 않게 합니다:
 
 ```c
+// <p> = cuda | spirv | webgpu
 ?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void   <p>_release_persistent(&void buf);                               // MPS: (&void buf, unsigned long bytes)
-int   <p>_persistent_available();                                      // cuda, spirv, webgpu
+void   <p>_release_persistent(&void buf);
+int    <p>_persistent_available();
 int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
-                                unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
+                                unsigned long M, unsigned long K, unsigned long N); // cuda, webgpu
 int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
 int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
+```
+
+Metal의 장치 버퍼는 `struct MpsBuf`입니다. `MTLBuffer` 핸들, 바이트 크기, 원소 타입(`0` = fp32, `MPS_FP16`, `MPS_BF16`)을 담습니다. 메모리를 CPU와 공유하므로 `read`와 `write`는 전송 없는 복사입니다. 0으로 초기화한 `MpsBuf`는 무효이고, 모든 연산은 무효 버퍼에 0을 반환하며, 무효 버퍼의 `free()`는 아무것도 하지 않습니다.
+
+```c
+struct MpsBuf {
+    void* handle; unsigned long bytes; int dtype;
+    int  valid() const;
+    void free();                                          // 버퍼 풀로 반환
+    int  read(&void dst, unsigned long bytes) const;      // 이 버퍼에 쓰는 배치가 모두 끝난 뒤 유효
+    int  write(const &void src, unsigned long bytes);
+    static struct MpsBuf alloc(unsigned long n, int dtype);                 // 원소 n개
+    static struct MpsBuf upload(const &float host, unsigned long n);        // fp32 값 n개
+    static struct MpsBuf upload_f16(const &float host, unsigned long n);    // CPU에서 반올림; upload_bf16도 있음
+    static struct MpsBuf upload_bits(const &unsigned short bits, unsigned long n, int dtype);  // 원시 fp16 / bf16
+    static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
+    static struct MpsBuf batch_last_output();             // 열린 배치 소유: free() 금지
+};
+int mps_matmul_f32_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &float out,
+                              unsigned long M, unsigned long K, unsigned long N);
+int mps_sgd_update_f32_chained(struct MpsBuf bufW, struct MpsBuf bufGrad, float lr, unsigned long n);  // in place
 ```
 
 **반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환). ROCm은 16비트 데이터를 대신 `RocmHalfBuf`에 담습니다. 위의 ROCm 표를 참고하세요.
 
 ```c
-?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
-int    mps_matmul_f16_persistent(&void bufA, &void bufB, &unsigned short out,
-                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
+?&void cuda_upload_f16_persistent(const &float data, unsigned long n);   // also _bf16; webgpu_ (f16); Metal: MpsBuf::upload_f16
+int    mps_matmul_f16_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out,
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_ (&void)
 int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
 int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
 ```
 
-**MPS 배칭.** `mps_batch_begin()`과 `mps_batch_end()` 사이에서는 MPS 연산이 각자 커밋하고 기다리는 대신 하나의 공유 커맨드 버퍼에 인코딩되므로, 순전파 + 손실 + 역전파를 묶은 스텝이 GPU 제출 한 번으로 실행됩니다. `*_chained` 변형은 이전 연산의 출력 버퍼(`mps_batch_last_output_buffer()`)를 호스트 메모리를 거치지 않고 입력으로 받습니다.
+**MPS 배칭.** `mps_batch_begin()`과 `mps_batch_end()` 사이에서는 MPS 연산이 각자 커밋하고 기다리는 대신 하나의 공유 커맨드 버퍼에 인코딩되므로, 순전파 + 손실 + 역전파를 묶은 스텝이 GPU 제출 한 번으로 실행됩니다. `*_chained` 변형은 이전 연산의 출력 버퍼(`MpsBuf::batch_last_output()`)를 호스트 메모리를 거치지 않고 입력으로 받습니다. `mps_batch_submit()`은 열린 배치에 지금까지 인코딩된 작업을 기다리지 않고 GPU로 보내므로, 긴 배치에서 인코딩과 실행이 겹칩니다.
 
 ```c
 void  mps_batch_begin();
 void  mps_batch_end();                      // commit, wait, run finalizers
+void  mps_batch_submit();                   // send what's encoded so far, don't wait
 int   mps_batch_is_active();
 generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  // runs after mps_batch_end's wait
-?&void mps_batch_last_output_buffer();
 
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
@@ -2015,7 +2037,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 //   mps_relu_backward_{f16,bf16}_chained_ab, mps_sgd_update_{f16,bf16}_chained
 ```
 
-`_ab` 접미사는 두 입력이 모두 이미 GPU 버퍼라는 뜻입니다. 각 함수의 인자 순서는 `std/ml/gpu_mps.h`를 참고하세요.
+`_ab` 접미사는 두 입력이 모두 이미 GPU 버퍼(값으로 넘기는 `MpsBuf`)라는 뜻입니다. 각 함수의 인자 순서는 `std/ml/gpu_mps.h`를 참고하세요.
 
 ### MPS에서의 어텐션 {#mps-flash-linear-attention}
 
@@ -2024,8 +2046,8 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 ```
 
 [CUDA](#cuda-attention)와 같은 배치 멀티헤드 [`flash_attention_forward`와
-`linear_attention_forward`](#attention)를 Metal 버퍼(`mps_upload_persistent`,
-`mps_upload_f16/bf16_persistent`, `mps_alloc_persistent`)에서 실행합니다.
+`linear_attention_forward`](#attention)를 Metal 버퍼(`MpsBuf::upload`,
+`MpsBuf::upload_f16` / `upload_bf16`, `MpsBuf::alloc`)에서 실행합니다.
 순방향 전용이며 모든 계산은 fp32입니다.
 
 - **Flash 어텐션**, 점수 행렬 없이 `softmax(Q Kᵀ · scale) V`: head dim 256까지는 GPU의 8×8 simdgroup 행렬 유닛에서 FlashAttention-2로(Q 블록은 레지스터, K/V 타일은 threadgroup 메모리, 소프트맥스는 프래그먼트 위에서 온라인), 512에서는 simdgroup 리덕션 커널로 계산합니다. fp16은 half 정밀도로 곱하고, bf16은 M1 계열에 bf16 행렬 유닛이 없어 타일을 올릴 때 fp32로 바꿉니다.
@@ -2039,7 +2061,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 | Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
 | Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
 | 호스트 배열 | `mps_flash_attention_f32`, `mps_linear_attention_f32` (업로드, 계산, 읽어 오기) |
-| 버퍼 | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+| 버퍼 | `MpsBuf::alloc(n, dtype)`, `buf.read(dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
 M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같으며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배(2.6–3.4 TFLOPS)이고, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#ml-attention)를 참고하세요.
 
@@ -2074,41 +2096,42 @@ int mps_linear_attn_bf16(const &unsigned short q, const &unsigned short k, const
                          int causal);
 
 // 순환 선형 어텐션 상태(헤드마다 S와 z), GPU에 상주.
-?&void        mps_linear_attn_state_new(unsigned long numHeads, unsigned long headDim);   // 0으로 초기화
-unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim); // mps_release_persistent용
-int mps_linear_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufState, &unsigned short out,
+struct MpsBuf MpsBuf::linear_attn_state(unsigned long numHeads, unsigned long headDim);  // 0으로 초기화
+unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim);
+int mps_linear_attn_bf16_chained(struct MpsBuf bufQ, struct MpsBuf bufK, struct MpsBuf bufV, struct MpsBuf bufState,
+                                 &unsigned short out,
                                  unsigned long seqLen, unsigned long numHeads,
                                  unsigned long numKvHeads, unsigned long headDim);
 
 // 레이어 나머지를 위한 체인 bf16 원소 단위/정규화 연산:
-int mps_gated_gelu_bf16_chained(&void bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
-int mps_add_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);       // 잔차 연결
-int mps_gelu_mul_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
-int mps_rmsnorm_bf16_chained(&void bufX, &void weightBuf, &unsigned short out,
+int mps_gated_gelu_bf16_chained(struct MpsBuf bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
+int mps_add_bf16_chained(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out, unsigned long n);       // 잔차 연결
+int mps_gelu_mul_bf16_chained(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
+int mps_rmsnorm_bf16_chained(struct MpsBuf bufX, struct MpsBuf weightBuf, &unsigned short out,
                              unsigned long rows, unsigned long cols, float eps);
 ```
 
 - **마스킹.** `causal`이면 쿼리 `i`는 위치 `kvLen - seqLen + i`에 놓입니다 — 마지막 `seqLen`개의 키가 쿼리 자신의 토큰이고 그 앞은 캐시입니다 — 그리고 자기 위치 이하의 키만 봅니다. `isSliding`은 쿼리보다 `slidingWindow` 이상 뒤에 있는 키도 가립니다. `mps_attn_batch_bf16`의 `cacheLens[b]`는 새 토큰을 포함한 각 시퀀스의 KV 길이입니다.
 - **스케일.** `mps_flash_attn_bf16`은 `q·k`에 `scale`을 곱합니다: `flash_attention_forward`와 맞추려면 `1/sqrt(headDim)`을, q를 미리 스케일하는 모델이면 `1.0`을 넘기세요. 디코드 커널은 스케일을 적용하지 않습니다. 선형 어텐션은 `phi(q)·z`로 나누는 과정에서 q의 스케일이 상쇄되므로 필요 없습니다.
-- **배칭.** 원샷 함수는 열린 배치 안에서도(결과는 `mps_batch_end()`에서 `out`에 채워짐) 단독으로도(반환 시 채워짐) 동작합니다. `mps_attn_batch_bf16_chained`와 `mps_flash_attn_bf16_chained`는 디바이스 버퍼를 받고 출력을 `mps_batch_last_output_buffer()`로 남기므로, 어텐션 결과를 같은 제출 안에서 출력 프로젝션(`mps_matmul_abt_bf16_persistent`)에 바로 넘길 수 있습니다. `M == 1`인 `mps_matmul_abt_bf16_persistent`는 전용 행렬-벡터 커널을 씁니다.
+- **배칭.** 원샷 함수는 열린 배치 안에서도(결과는 `mps_batch_end()`에서 `out`에 채워짐) 단독으로도(반환 시 채워짐) 동작합니다. `mps_attn_batch_bf16_chained`와 `mps_flash_attn_bf16_chained`는 디바이스 버퍼를 받고 출력을 `MpsBuf::batch_last_output()`으로 남기므로, 어텐션 결과를 같은 제출 안에서 출력 프로젝션(`mps_matmul_abt_bf16_persistent`)에 바로 넘길 수 있습니다. `M == 1`인 `mps_matmul_abt_bf16_persistent`는 전용 행렬-벡터 커널을 씁니다.
 
 선형 어텐션 디코드 루프:
 
 ```c
-match (mps_linear_attn_state_new(numHeads, headDim)) {
-    case some(state): {
-        mps_batch_begin();
-        mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
-                                     numHeads, numKvHeads, headDim);
-        mps_batch_end();
-        // 생성하는 토큰마다:
-        mps_batch_begin();
-        mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
-        mps_batch_end();
-        // ...
-        mps_release_persistent(state, mps_linear_attn_state_bytes(numHeads, headDim));
-    }
-    case null: { /* Metal 장치 없음: CPU의 linear_attention_forward 사용 */ }
+struct MpsBuf state = MpsBuf::linear_attn_state(numHeads, headDim);
+if (state.valid()) {
+    mps_batch_begin();
+    mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
+                                 numHeads, numKvHeads, headDim);
+    mps_batch_end();
+    // 생성하는 토큰마다:
+    mps_batch_begin();
+    mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
+    mps_batch_end();
+    // ...
+    state.free();
+} else {
+    // Metal 장치 없음: CPU의 linear_attention_forward 사용
 }
 ```
 

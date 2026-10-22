@@ -716,38 +716,36 @@ int gemma4_bf16_attn_batch_gpu_chained(const &Gemma4Bf16Tensor q, struct Vec<str
         return 0;
     }
 
-    void* wBuf;
+    struct MpsBuf wBuf;
     unsafe { wBuf = gemma4_bf16_get_weight_buf(oProjW); }
-    if (wBuf == (void*)0) {
+    if (!wBuf.valid()) {
         unsafe { free((void*)kAll); free((void*)vAll); free((void*)cacheLensU); }
         return 0;
     }
 
-    unsigned long qBytes = q.size * 2UL;
-    unsigned long kvBytes = batchSize * maxKvLen * kvWidth * 2UL;
-    unsigned long cacheLensBytes = batchSize * 4UL;
+    unsigned long kvN = batchSize * maxKvLen * kvWidth;
     unsigned long attnScratchBytes = batchSize * numHeads * headDim * 2UL;
 
     unsigned short* attnScratch; // throwaway -- see mps_attn_batch_bf16_chained's header comment
     unsafe { attnScratch = (unsigned short*)malloc(attnScratchBytes); }
 
-    void* bufQ; void* bufK; void* bufV; void* bufCacheLens;
+    struct MpsBuf bufQ; struct MpsBuf bufK; struct MpsBuf bufV; struct MpsBuf bufCacheLens;
     unsafe {
-        bufQ = mps_upload_persistent((const float*)q.data, qBytes);
-        bufK = mps_upload_persistent((const float*)kAll, kvBytes);
-        bufV = mps_upload_persistent((const float*)vAll, kvBytes);
-        bufCacheLens = mps_upload_persistent((const float*)cacheLensU, cacheLensBytes);
+        bufQ = MpsBuf::upload_bits(q.data, q.size, MPS_BF16);
+        bufK = MpsBuf::upload_bits(kAll, kvN, MPS_BF16);
+        bufV = MpsBuf::upload_bits(vAll, kvN, MPS_BF16);
+        bufCacheLens = MpsBuf::upload((const float*)cacheLensU, batchSize);   // uint32 lengths, 4 bytes each
     }
 
     int rc = 0;
-    if (bufQ != (void*)0 && bufK != (void*)0 && bufV != (void*)0 && bufCacheLens != (void*)0) {
+    if (bufQ.valid() && bufK.valid() && bufV.valid() && bufCacheLens.valid()) {
         unsafe {
             mps_batch_begin();
             int attnRc = mps_attn_batch_bf16_chained(bufQ, bufK, bufV, bufCacheLens, attnScratch,
                                                        batchSize, numHeads, numKvHeads, headDim, maxKvLen,
                                                        isSliding, slidingWindow);
             if (attnRc) {
-                void* attnOutBuf = mps_batch_last_output_buffer();
+                struct MpsBuf attnOutBuf = MpsBuf::batch_last_output();
                 rc = mps_matmul_abt_bf16_persistent(attnOutBuf, wBuf, attnOut.data,
                                                       batchSize, numHeads * headDim, hiddenSize);
             }
@@ -755,11 +753,8 @@ int gemma4_bf16_attn_batch_gpu_chained(const &Gemma4Bf16Tensor q, struct Vec<str
         }
     }
 
+    bufQ.free(); bufK.free(); bufV.free(); bufCacheLens.free();   // no-ops on invalid buffers
     unsafe {
-        if (bufQ != (void*)0) { mps_release_persistent(bufQ, qBytes); }
-        if (bufK != (void*)0) { mps_release_persistent(bufK, kvBytes); }
-        if (bufV != (void*)0) { mps_release_persistent(bufV, kvBytes); }
-        if (bufCacheLens != (void*)0) { mps_release_persistent(bufCacheLens, cacheLensBytes); }
         free((void*)kAll);
         free((void*)vAll);
         free((void*)cacheLensU);

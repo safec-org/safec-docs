@@ -34,12 +34,10 @@ static const char* dtype_name(int dtype) {
     return "fp32";
 }
 
-static void* upload(&Vec<float> host, unsigned long at, unsigned long n, int dtype) {
-    unsafe {
-        if (dtype == MPS_FP16) return (void*)std::mps_upload_f16_persistent(host.at(at), n);
-        if (dtype == MPS_BF16) return (void*)std::mps_upload_bf16_persistent(host.at(at), n);
-        return (void*)std::mps_upload_persistent(host.at(at), n * 4UL);
-    }
+static struct MpsBuf upload(&Vec<float> host, unsigned long at, unsigned long n, int dtype) {
+    if (dtype == MPS_FP16) return MpsBuf::upload_f16(host.at(at), n);
+    if (dtype == MPS_BF16) return MpsBuf::upload_bf16(host.at(at), n);
+    return MpsBuf::upload(host.at(at), n);
 }
 
 // Uploads q/k/v/out for 'a' from 'host' (three disjoint slices) in 'dtype',
@@ -50,13 +48,11 @@ static double time_case(&Vec<float> host, struct MpsAttnShape a, int dtype, int 
                         int warm, int iters) {
     unsigned long qn = a.batch * a.heads * a.seqLen * a.headDim;
     unsigned long kn = a.batch * a.kvHeads * a.kvLen * a.headDim;
-    unsigned long es = dtype == 0 ? 4UL : 2UL;
-    void* q = upload(host, 0UL, qn, dtype);
-    void* k = upload(host, qn, kn, dtype);
-    void* v = upload(host, qn + kn, kn, dtype);
-    void* o = (void*)0;
-    unsafe { o = (void*)std::mps_alloc_persistent(qn * es); }
-    int ok = q != (void*)0 && k != (void*)0 && v != (void*)0 && o != (void*)0;
+    struct MpsBuf q = upload(host, 0UL, qn, dtype);
+    struct MpsBuf k = upload(host, qn, kn, dtype);
+    struct MpsBuf v = upload(host, qn + kn, kn, dtype);
+    struct MpsBuf o = MpsBuf::alloc(qn, dtype);
+    int ok = q.valid() && k.valid() && v.valid() && o.valid();
     double ms = -1.0;
     int round = 0;
     while (round < 2 && ok) {
@@ -65,22 +61,15 @@ static double time_case(&Vec<float> host, struct MpsAttnShape a, int dtype, int 
         std::mps_batch_begin();
         int i = 0;
         while (i < n && ok) {
-            unsafe {
-                ok = lin ? std::mps_linear_attention_ex(q, k, v, o, a, dtype, causal)
-                         : std::mps_flash_attention_ex(q, k, v, o, a, dtype, (float)0.0, causal);
-            }
+            ok = lin ? std::mps_linear_attention_ex(q, k, v, o, a, dtype, causal)
+                     : std::mps_flash_attention_ex(q, k, v, o, a, dtype, (float)0.0, causal);
             i = i + 1;
         }
         std::mps_batch_end();
         if (round == 1) ms = (now_ms() - t0) / (double)iters;
         round = round + 1;
     }
-    unsafe {
-        if (q != (void*)0) std::mps_release_persistent(q, qn * es);
-        if (k != (void*)0) std::mps_release_persistent(k, kn * es);
-        if (v != (void*)0) std::mps_release_persistent(v, kn * es);
-        if (o != (void*)0) std::mps_release_persistent(o, qn * es);
-    }
+    q.free(); k.free(); v.free(); o.free();
     return ok ? ms : -1.0;
 }
 

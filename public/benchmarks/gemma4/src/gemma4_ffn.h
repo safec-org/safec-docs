@@ -45,9 +45,9 @@ struct Gemma4Bf16Tensor gemma4_bf16_ffn_forward_fused(const &Gemma4Bf16Tensor x,
 // and must stay alive until AFTER the caller's own mps_batch_end() call
 // (freeing them earlier is a use-after-free -- mps_batch_end() is what
 // actually writes through these pointers, not this function). On success,
-// the result is also available via mps_batch_last_output_buffer(). See
+// the result is also available via MpsBuf::batch_last_output(). See
 // gemma4_ffn.sc for the full contract.
-int gemma4_bf16_ffn_forward_chained_body(void* bufX, void* gateUpWBuf, void* downWBuf,
+int gemma4_bf16_ffn_forward_chained_body(struct MpsBuf bufX, struct MpsBuf gateUpWBuf, struct MpsBuf downWBuf,
                                            unsigned long rows, unsigned long inF, unsigned long intermediateSize,
                                            unsigned short* gateUpScratch, unsigned short* gatedScratch,
                                            unsigned short* outScratch);
