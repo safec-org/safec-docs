@@ -283,6 +283,33 @@ done:
 }
 ```
 
+The compiler checks three rules:
+
+- **A label is defined once per function.** A second `L:` in the same function is an error (`duplicate label 'L'`).
+- **No jump past a declaration.** A `goto` may not jump into the scope of a local variable past its declaration: at the label the variable would be in scope but never initialized (C++'s "jump bypasses variable initialization", applied to every non-static local). Jumping *into* a nested block, such as a loop body, is allowed when no declaration in scope at the label is skipped; jumping backwards, or out of a block, is always fine.
+- **Labels inside `match` arms are not goto targets** (`use of undeclared label`).
+
+```c
+int f(int x) {
+    if (x == 1) goto resume;      // error: jumps over the declaration of 'y'
+    int y = x * 2;
+resume:
+    return y;
+}
+
+int g(int x) {
+    if (x > 0) goto inside;       // fine: nothing in scope at 'inside' is skipped
+    while (x < 10) {
+        x = x + 1;
+    inside:
+        x = x * 2;
+    }
+    return x;
+}
+```
+
+A label may also follow a `return` in the same block — it is still reachable through a `goto`. [`std/async`](/stdlib/async#coroutines)'s stackless coroutines are built from exactly this: a `switch` on a saved resume point `goto`s to a label after the `return` of the previous suspension, and the jump rule is what rejects a local that would have to survive across a suspension.
+
 ::: warning
 Prefer structured control flow (`match`, loops, `break`/`continue`) over `goto`. The compiler does not verify that `goto` respects region lifetimes.
 :::

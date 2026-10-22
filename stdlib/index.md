@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, encoding, HTTP/RPC/wasm, the real-time scheduler, ML and SIMD are included by their own headers.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, encoding, HTTP/RPC/wasm, async, the real-time scheduler, ML and SIMD are included by their own headers.
 
 ```c
 #include <std/prelude.h>
@@ -81,6 +81,21 @@ int main() {
 |--------|--------|-------------|
 | pipe | `ipc/pipe.h` | Anonymous pipes (hosted) — one-way byte stream, typically parent/child after `fork()` |
 | uds | `ipc/uds.h` | Unix domain sockets (hosted) — named IPC between unrelated processes, non-blocking/`Reactor`-pairable |
+
+### [Async](/stdlib/async) {#async}
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| future | `async/future.h` | `Poll<T>`, the `Future` trait, `Waker`, `Context`, `WakerSlot`/`WaitList`, `Ready`/`Pending`/`YieldNow` |
+| coro | `async/coro.h` | `ASYNC_BEGIN` / `AWAIT` / `ASYNC_RETURN`: stackless coroutines as `switch` + `goto` state machines |
+| executor | `async/executor.h` | `AsyncTask<F, T>`, `JoinHandle<T>`, the no-heap deterministic `LocalExecutor`, `Park` (`VirtualClock`, `FnPark`) |
+| timer | `async/timer.h` | `TimerQueue` (over `dsp/timer_wheel`), `Sleep`, `Interval` |
+| combinator | `async/combinator.h` | `join2`/`join3`/`join_all`, `select2`/`select_any`, `timeout`, `map_fut`, `and_then` |
+| channel | `async/channel.h` | `Oneshot<T>`, bounded MPMC `AsyncChannel<T>` |
+| sync | `async/sync.h` | `AsyncMutex`, `AsyncSemaphore`, `AsyncNotify`, `CancelToken`, `with_cancel` |
+| host | `async/host.h` | `block_on(&fut)`, `HostPark` (hosted) |
+| pool | `async/pool.h` | `ThreadPool`: the multi-threaded executor (hosted) |
+| net | `async/net.h` | `IoDriver` on the reactor, `Runtime`, `AsyncTcpListener` / `AsyncTcpStream` (hosted) |
 
 ### [Real-Time Scheduler](/stdlib/sched) {#real-time-scheduler}
 

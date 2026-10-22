@@ -70,8 +70,8 @@ normally fails outside `--compat-preprocessor` mode ("function-like
 macros are not allowed in safe mode..."), even in the macro-free calling
 style shown above. `safeguard test` specifically compiles every file
 under `tests/` with `--compat-preprocessor` (unlike `build`/`check`,
-which compile `src/` without it) precisely so `<std/test/test.h>` can be
-included — verified against a real `safeguard test` run of the example
+which compile `src/` without it unless `[build] compat_preprocessor = true`)
+precisely so `<std/test/test.h>` can be included — verified against a real `safeguard test` run of the example
 above.
 :::
 
@@ -462,6 +462,17 @@ Modules](#standard-library-linking)).
 [build]
 edition = "2026"
 std     = true      # build and link SafeC's std in a C/C++/ObjC package
+```
+
+`compat_preprocessor = true` compiles the package's SafeC sources with
+`safec --compat-preprocessor`: function-like macros, `##` and `#`, which
+the default safe mode rejects (see [Preprocessor](/reference/preprocessor#safe-mode-vs-compatibility-mode)).
+[`std/async`](/stdlib/async)'s coroutine macros (`ASYNC_BEGIN`, `AWAIT`, ...)
+are the usual reason:
+
+```toml
+[build]
+compat_preprocessor = true
 ```
 
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}

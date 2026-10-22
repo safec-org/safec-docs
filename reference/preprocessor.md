@@ -179,6 +179,8 @@ When working with legacy C code or headers that require full macro support, enab
 ./build/safec legacy.sc --compat-preprocessor --emit-llvm -o legacy.ll
 ```
 
+A safeguard package turns it on for its own sources with `[build] compat_preprocessor = true` (see [Package Manager](/advanced/safeguard#linking-external-libraries-and-library-output)).
+
 In compatibility mode, function-like macros, token pasting, and stringification are all permitted, and the preprocessor defines `__SAFEC_COMPAT_PREPROCESSOR__`. Headers that offer optional function-like convenience macros guard them with it, so the same header works in both modes — the standard library does this for `ASSERT_*` (`std/test/test.h`), `RING_STATIC`, the logging and panic helpers, and the rest:
 
 ```c
