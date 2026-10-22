@@ -105,14 +105,16 @@ def timed_build(cmds, cwd=None):
 _std_archive = None
 
 def std_archive():
-    """Builds (once) the release std archive through safeguard."""
+    """Builds (once) the release archive of all of std through safeguard
+    ([build] std = "all": the programs here link it by hand, so it can't be
+    just the modules this empty project includes)."""
     global _std_archive
     if _std_archive:
         return _std_archive
     proj = os.path.join(BUILD, "_std")
     os.makedirs(os.path.join(proj, "src"), exist_ok=True)
     with open(os.path.join(proj, "Package.toml"), "w") as f:
-        f.write('[package]\nname = "bench_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\n')
+        f.write('[package]\nname = "bench_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\nstd = "all"\n')
     with open(os.path.join(proj, "src", "main.sc"), "w") as f:
         f.write("int main() { return 0; }\n")
     env = dict(os.environ, SAFEC_HOME=SAFEC_HOME)

@@ -1480,8 +1480,9 @@ model_sync(&net);                          // 호스트 사본을 최신으로: 
 | 기본값으로 | `device_set_default(d)`. `DEVICE_AUTO`는 `device_default()`로 결정됨 |
 | 자동으로 | `device_auto()`: 프로그램이 함께 빌드된 백엔드 중 쓸 수 있는 첫 GPU(ROCm, CUDA, Metal 순), 없으면 CPU. 환경 변수 `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps`가 이를 덮어씀 |
 
-빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 링크합니다.
-아무것도 없이 빌드한 프로그램은 모든 것을 CPU에서 실행하며 GPU
+빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 링크하며,
+`safeguard`는 각 백엔드의 라이브러리(링크 열)를 링크에 추가합니다(직접 빌드할
+때는 직접 전달하십시오). 아무것도 없이 빌드한 프로그램은 모든 것을 CPU에서 실행하며 GPU
 라이브러리를 링크하지 않습니다:
 
 | Feature | 백엔드 | 링크 |
@@ -1657,7 +1658,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리입니다(MLX 자체의 셀�
 ### ROCm / HIP (AMD) {#rocm-hip-amd}
 
 ```c
-#include <std/ml/gpu_rocm.h>   // 링크: -lamdhip64 -lhiprtc -lrocblas
+#include <std/ml/gpu_rocm.h>   // -lamdhip64 -lhiprtc -lrocblas 링크(safeguard가 추가)
 ```
 
 데이터는 `RocmBuf`에 있습니다 — 디바이스 주소와 원소 개수로 기술되는 GPU
@@ -1767,7 +1768,7 @@ MI100, 배치 4 × 헤드 16, fp32, 호출당 ms, 같은 GPU의 ROCm용 PyTorch 
 ### CUDA (NVIDIA) {#cuda}
 
 ```c
-#include <std/ml/gpu_cuda.h>   // 링크: -lcuda -lcublas -lcublasLt -lnvrtc
+#include <std/ml/gpu_cuda.h>   // -lcuda -lcublas -lcublasLt -lnvrtc 링크(safeguard가 추가)
 ```
 
 ROCm 백엔드와 같은 구조이고, 함수 이름도 `cuda_` 접두사로 같습니다. `CudaBuf`는
@@ -2042,7 +2043,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 ### MPS에서의 어텐션 {#mps-flash-linear-attention}
 
 ```c
-#include <std/ml/gpu_mps.h>   // Apple GPU; -framework Metal -framework Foundation 링크
+#include <std/ml/gpu_mps.h>   // Apple GPU; Metal과 Foundation 링크(safeguard가 추가)
 ```
 
 [CUDA](#cuda-attention)와 같은 배치 멀티헤드 [`flash_attention_forward`와

@@ -177,7 +177,7 @@ int main() {
 | sha256 | `crypto/sha256.h` | SHA-256/224; 스트리밍 및 원샷 API |
 | hash | `crypto/hash.h` | `Hasher` / `BlockHash` 트레이트; 모든 해시에 대한 `hash_bytes` |
 | hmac | `crypto/hmac.h` | 임의의 `BlockHash` 위의 `Hmac<H>`; 원샷 `hmac_sha256` |
-| rng | `crypto/rng.h` | ChaCha20 CSPRNG; `rdrand`/`/dev/urandom` 시딩 |
+| rng | `crypto/rng.h` | ChaCha20 CSPRNG; OS(`BCryptGenRandom`, `getentropy`, `getrandom`), `rdrand` 또는 `/dev/urandom`으로 시딩 |
 | secure_alloc | `crypto/secure_alloc.h` | 해제 시 제로화를 수행하는 슬랩 얼로케이터 |
 | x509 | `crypto/x509.h` | X.509 DER/ASN.1 파서; SAN, 와일드카드 호스트네임, 유효성 |
 | tls | `crypto/tls.h` | TLS 1.3 레코드 레이어; AES-256-GCM 레코드 보호(RFC 8446 §5.2), 논스 XOR 시퀀스 |
@@ -323,9 +323,9 @@ int main() {
 #include <std/prelude.h>
 ```
 
-`safeguard` 패키지 매니저로 빌드할 때는 표준 라이브러리가 자동으로 `build/deps/libsafec_std.a`로 컴파일되어 링크됩니다.
+`safeguard` 패키지 매니저로 빌드할 때는 프로그램이 포함하는 std 모듈(그리고 `new`, 채널처럼 코드가 include 없이 호출하는 모듈)이 `build/deps/libsafec_std.a`로 컴파일되어, 그 모듈에 필요한 시스템 라이브러리와 함께 링크됩니다. 릴리스 설치본에서는 미리 빌드된 std 아카이브에서 가져옵니다([표준 라이브러리 모듈](/ko/advanced/safeguard#standard-library-linking) 참고).
 
-수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), `safeguard`가 빌드한(또는 모든 `std/**/*.sc`로 직접 빌드한) std 아카이브를 링크합니다:
+수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), std 전체의 아카이브(`[build] std = "all"`인 프로젝트를 `safeguard build`하면 만들어지며, 모든 `std/**/*.sc`로 직접 빌드해도 됩니다)를 사용하는 모듈의 시스템 라이브러리(`safeguard std-modules std/x.h`가 나열합니다)와 함께 링크합니다:
 ```bash
 safec myfile.sc -I /path/to/SafeC -o myfile.ll
 clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile

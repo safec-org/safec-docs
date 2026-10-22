@@ -384,9 +384,10 @@ A cryptographically secure pseudo-random number generator based on ChaCha20. Out
 
 ```c
 struct RngCtx {
-    // Seed in place from rdrand (x86-64) or /dev/urandom. Returns 1; aborts
-    // with a diagnostic if neither exists (e.g. bare metal): use init_seed
-    // with your own entropy source there.
+    // Seed in place from the OS's random source (BCryptGenRandom on Windows,
+    // getentropy on macOS, getrandom on Linux), else rdrand (x86-64), else
+    // /dev/urandom. Returns 1; aborts with a diagnostic if none works (e.g.
+    // bare metal): use init_seed with your own entropy source there.
     int           init();
 
     // Deterministic seed in place (tests, reproducible simulations).

@@ -28,13 +28,15 @@ Every backend implements the same `gui.h` API. Exactly one may be linked into a 
 
 `safeguard` picks the backend for you: the std archive for a target contains only the variant that matches it (`_cocoa` on Apple, `_x11` on Linux/BSD, `_win32` on Windows, `_fb` on bare-metal targets). See [Package Manager](/advanced/safeguard).
 
-The OS backends call system libraries, so add them to the final link with `[build] libs`:
+The OS backends call system libraries, which `safeguard` adds to the link of a program that includes `gui.h` (see [Standard Library Modules](/advanced/safeguard#standard-library-linking)) — nothing to list in `Package.toml`:
 
 | Backend | Libraries |
 |---------|-----------|
-| Cocoa | `objc`, plus the AppKit and Core Graphics frameworks |
-| Win32 | `user32`, `gdi32` |
-| X11 | `X11` |
+| Cocoa | `-framework Cocoa -lobjc` (AppKit and Core Graphics through Cocoa) |
+| Win32 | `-luser32 -lgdi32` |
+| X11 | `-lX11` (and `libx11-6` in a `.deb`'s Depends) |
+
+Building without `safeguard`, pass them to the link yourself.
 
 There is no GPU path. Each frame, `win.present()` copies the pixel buffer to the screen (a `CGImage` set as the layer's contents on Cocoa, `StretchDIBits` on Win32, `XPutImage` on X11, a format-converting copy on bare metal). This is the same scope as Rust's `minifb`/`softbuffer`.
 

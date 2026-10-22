@@ -384,9 +384,10 @@ ChaCha20을 기반으로 한 암호학적으로 안전한 의사 난수 생성�
 
 ```c
 struct RngCtx {
-    // rdrand(x86-64) 또는 /dev/urandom으로 제자리 시드. 1을 반환; 둘 다 없으면
-    // (예: 베어메탈) 진단 메시지와 함께 중단 — 그런 곳에서는 자체 엔트로피
-    // 소스와 init_seed를 사용.
+    // OS의 난수 소스(Windows는 BCryptGenRandom, macOS는 getentropy, Linux는
+    // getrandom), 없으면 rdrand(x86-64), 그다음 /dev/urandom으로 제자리 시드.
+    // 1을 반환; 모두 실패하면(예: 베어메탈) 진단 메시지와 함께 중단 — 그런
+    // 곳에서는 자체 엔트로피 소스와 init_seed를 사용.
     int           init();
 
     // 결정적 시드로 제자리 초기화 (테스트, 재현 가능한 시뮬레이션).
