@@ -291,6 +291,33 @@ done:
 }
 ```
 
+컴파일러는 세 가지 규칙을 검사합니다:
+
+- **레이블은 함수마다 한 번만 정의합니다.** 같은 함수 안의 두 번째 `L:`은 오류입니다(`duplicate label 'L'`).
+- **선언을 건너뛰는 점프는 금지됩니다.** `goto`는 지역 변수의 선언을 건너뛰어 그 변수의 스코프 안으로 점프할 수 없습니다. 레이블 지점에서 그 변수는 스코프 안에 있지만 초기화된 적이 없기 때문입니다(C++의 "jump bypasses variable initialization" 규칙을 static이 아닌 모든 지역 변수에 적용한 것). 루프 본문 같은 중첩 블록 *안으로* 점프하는 것은, 레이블 지점에서 스코프 안에 있는 선언 중 건너뛰는 것이 없다면 허용됩니다. 뒤로 점프하거나 블록 밖으로 점프하는 것은 언제나 괜찮습니다.
+- **`match` 갈래 안의 레이블은 goto 대상이 아닙니다**(`use of undeclared label`).
+
+```c
+int f(int x) {
+    if (x == 1) goto resume;      // 오류: 'y'의 선언을 건너뜀
+    int y = x * 2;
+resume:
+    return y;
+}
+
+int g(int x) {
+    if (x > 0) goto inside;       // 괜찮음: 'inside'에서 스코프 안에 있는 것 중 건너뛰는 것이 없음
+    while (x < 10) {
+        x = x + 1;
+    inside:
+        x = x * 2;
+    }
+    return x;
+}
+```
+
+레이블은 같은 블록에서 `return` 뒤에 와도 됩니다 — `goto`로는 여전히 도달할 수 있습니다. [`std/async`](/ko/stdlib/async#coroutines)의 스택리스 코루틴이 바로 이것으로 만들어집니다: 저장된 재개 지점에 대한 `switch`가 이전 중단의 `return` 뒤에 있는 레이블로 `goto`하고, 위의 점프 규칙이 중단을 넘어 살아남아야 하는 지역 변수를 거부합니다.
+
 ::: warning
 `goto`보다 구조화된 제어 흐름(`match`, 루프, `break`/`continue`)을 선호하십시오. 컴파일러는 `goto`가 리전 라이프타임을 존중하는지 검증하지 않습니다.
 :::

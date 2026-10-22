@@ -70,8 +70,8 @@ int main(void) {
 스타일에서조차 `--compat-preprocessor` 모드 밖에서는 보통 실패합니다
 ("function-like macros are not allowed in safe mode..."). `safeguard
 test`는 정확히 이런 이유로 `tests/` 아래의 모든 파일을 `--compat-preprocessor`로
-컴파일합니다(이는 이 옵션 없이 `src/`를 컴파일하는 `build`/`check`와
-다릅니다). 그래야 `<std/test/test.h>`를 포함할 수 있기 때문입니다 —
+컴파일합니다(이는 `[build] compat_preprocessor = true`가 아니면 이 옵션 없이
+`src/`를 컴파일하는 `build`/`check`와 다릅니다). 그래야 `<std/test/test.h>`를 포함할 수 있기 때문입니다 —
 위 예제의 실제 `safeguard test` 실행으로 검증되었습니다.
 :::
 
@@ -463,6 +463,17 @@ std를 호출하는 C, C++, Objective-C 패키지(SafeC가 C 링키지로
 [build]
 edition = "2026"
 std     = true      # C/C++/ObjC 패키지에서 SafeC의 std를 빌드하고 링크
+```
+
+`compat_preprocessor = true`는 패키지의 SafeC 소스를 `safec
+--compat-preprocessor`로 컴파일합니다: 기본 안전 모드가 거부하는 함수형
+매크로, `##`, `#`을 쓸 수 있게 됩니다([전처리기](/ko/reference/preprocessor#safe-mode-vs-compatibility-mode)
+참고). [`std/async`](/ko/stdlib/async)의 코루틴 매크로(`ASYNC_BEGIN`,
+`AWAIT`, ...)가 대표적인 이유입니다:
+
+```toml
+[build]
+compat_preprocessor = true
 ```
 
 ## 외부 라이브러리 링킹과 라이브러리 출력 {#linking-external-libraries-and-library-output}

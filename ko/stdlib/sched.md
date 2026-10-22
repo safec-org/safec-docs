@@ -86,9 +86,17 @@ struct Reactor {
         // 준비된 (fd, filter)마다 sched->unblock_fd()를 호출한다. 처리된
         // OS 이벤트 수를 반환한다(여러 태스크가 같은 fd를 기다린다면
         // 언블록된 태스크 수와 다를 수 있다).
+
+    // poll()처럼 기다리지만, 준비된 (fd, filter)를 TaskScheduler 대신
+    // on_ready(ctx, fd, filter)에 넘긴다: 다른 스케줄러(std/async의
+    // IoDriver)가 리액터를 구동하는 방법. poll()은 sched->unblock_fd()를
+    // 호출하는 콜백을 넘긴 이것이다. 각 백엔드는 이것만 구현한다.
+    generic<T> int poll_events(fn void(?&T, int, int) on_ready, ?&T ctx, long long timeout_ms);
     void close_();
 }
 ```
+
+[`std/async`](/ko/stdlib/async#async-io)의 `IoDriver`는 `poll_events` 위에 만들어집니다: 준비된 fd를 기다리는 퓨처들을 깨우고, 비동기 실행기가 기다리는 수단이 됩니다.
 
 ## `reactor_run` — 스케줄러 그 자체 {#reactor_run-the-scheduler-itself}
 
