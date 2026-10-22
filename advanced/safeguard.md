@@ -6,8 +6,8 @@
 
 | Command | Description |
 |---------|-------------|
-| `safeguard new <name> [--lang L]` | Scaffold a new project directory with `Package.toml` and `src/main.sc` (or, with `--lang c`/`cpp`/`objc`/`objcpp`, a [C, C++ or Objective-C package](#c-c-and-objective-c-packages)) |
-| `safeguard init [--lang L]` | Initialize a `Package.toml` in the current directory |
+| `safeguard new <name> [--lang L] [--std]` | Scaffold a new project directory with `Package.toml` and `src/main.sc` (or, with `--lang c`/`cpp`/`objc`/`objcpp`, a [C, C++ or Objective-C package](#c-c-and-objective-c-packages)) |
+| `safeguard init [--lang L] [--std]` | Initialize a `Package.toml` in the current directory |
 | `safeguard fetch` | Clone the git dependencies listed in `Package.toml` and build the ones from source |
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
@@ -214,7 +214,7 @@ frameworks = ["Foundation"]       # macOS frameworks it needs
 | `build` | safeguard |
 |---|---|
 | `"sources"` | compiles the `.c`/`.cpp`/`.cc`/`.cxx`/`.m`/`.mm` files that `sources` names (default: its `src/`, recursively, else the files directly in the directory) with `defines` (`-D`), `cflags` and its `include` directories, into `build/deps/<name>/lib<name>.a` |
-| `"cmake"` | configures it with the same `clang`/`clang++` the build uses (`-G Ninja` when `ninja` is on `PATH`, `Release` for `--release`, `Debug` otherwise — `RelWithDebInfo` on Windows, whose debug CRT doesn't mix with the program's), plus `cmake_args`; builds it; installs it into `build/deps/<name>/install`. The libraries are `lib` (relative to that install prefix) if given, else `lib<name>` or every library in its `lib/`, else the ones in the build tree for a project without `install()` rules |
+| `"cmake"` | configures it with the same `clang`/`clang++` the build uses (`-G Ninja` when `ninja` is on `PATH`, `Release` for `--release`, `Debug` otherwise — `RelWithDebInfo` and `MultiThreadedDLL` on Windows, the shared release CRT the program uses, since the debug CRT doesn't mix with the program's), plus `cmake_args`; builds it; installs it into `build/deps/<name>/install`. The libraries are `lib` (relative to that install prefix) if given, else `lib<name>` or every library in its `lib/`, else the ones in the build tree for a project without `install()` rules |
 
 Headers come from `include` (relative to the dependency's directory) when it's given; otherwise from `include/` — the install's for CMake, the dependency's own for `"sources"`, or the directory itself if it has none. They go on the include path of both SafeC and C/C++ sources.
 
@@ -440,6 +440,21 @@ the Objective-C ones with `objc_arc = true` and `frameworks =
 the package's sources nor a SafeC source dependency contain SafeC, the
 standard library is neither built nor linked.
 
+A C, C++ or Objective-C package that calls into std (through `extern`
+declarations of its functions, which SafeC exports with C linkage as
+`std_<name>`) sets `[build] std = true`: std is then built and linked, and
+std's parent directory goes on the C/C++ include path so its headers are
+reachable as `<std/...>` (never `std/` itself, whose `stdint.h` and
+friends would shadow the system's). `safeguard new <name> --lang c --std`
+writes that key when the project is created. `std = false` never links
+std, even with SafeC sources.
+
+```toml
+[build]
+edition = "2026"
+std     = true      # build and link SafeC's std in a C/C++/ObjC package
+```
+
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
 Four more `[build]` keys configure the final link step and what kind of
@@ -504,6 +519,16 @@ A package that defines no functions gets a warning and no import library.
 A dependent links `<output>.lib` and gets the DLL copied beside its
 executable ([Dependencies](#dependencies)), so `path = "../mylib/build"`
 works on Windows as it does elsewhere.
+
+Every Windows (MSVC-ABI) build uses the **shared C runtime**: objects are
+compiled with `-fms-runtime-lib=dll` (`/MD`), the link takes `msvcrt`
+instead of the static `libcmt`, and CMake dependencies build with
+`MultiThreadedDLL`. A DLL and the program that loads it therefore share
+one CRT and one heap, so memory allocated on one side of the DLL boundary
+may be freed on the other, and `FILE*`s and `errno` are shared too. The
+program needs the Universal CRT and the Visual C++ runtime DLLs at run
+time, which ship with Windows 10 and later (the VC++ redistributable for
+older systems). MinGW targets keep their own runtime.
 
 `safeguard run` requires `crate_type = "bin"` — a static or dynamic library
 has no executable entry point to run, and running it against the linker

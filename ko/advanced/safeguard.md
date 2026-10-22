@@ -6,8 +6,8 @@
 
 | 명령어 | 설명 |
 |---------|-------------|
-| `safeguard new <name> [--lang L]` | `Package.toml`과 `src/main.sc`를 갖춘 새 프로젝트 디렉터리를 스캐폴딩(`--lang c`/`cpp`/`objc`/`objcpp`를 주면 [C, C++ 또는 Objective-C 패키지](#c-c-and-objective-c-packages)) |
-| `safeguard init [--lang L]` | 현재 디렉터리에 `Package.toml` 초기화 |
+| `safeguard new <name> [--lang L] [--std]` | `Package.toml`과 `src/main.sc`를 갖춘 새 프로젝트 디렉터리를 스캐폴딩(`--lang c`/`cpp`/`objc`/`objcpp`를 주면 [C, C++ 또는 Objective-C 패키지](#c-c-and-objective-c-packages)) |
+| `safeguard init [--lang L] [--std]` | 현재 디렉터리에 `Package.toml` 초기화 |
 | `safeguard fetch` | `Package.toml`에 나열된 git 의존성을 클론하고 소스 의존성을 빌드 |
 | `safeguard build [--release]` | 프로젝트와 모든 의존성 컴파일 |
 | `safeguard check` | 빠른 컴파일 전용 패스 — 오브젝트 어셈블이나 링킹 없이 오류만 보고 |
@@ -213,7 +213,7 @@ frameworks = ["Foundation"]       # 필요한 macOS 프레임워크
 | `build` | safeguard의 동작 |
 |---|---|
 | `"sources"` | `sources`가 지정하는 `.c`/`.cpp`/`.cc`/`.cxx`/`.m`/`.mm` 파일(기본값: `src/`를 재귀적으로, 없으면 디렉터리 바로 아래의 파일)을 `defines`(`-D`), `cflags`, `include` 디렉터리와 함께 컴파일하여 `build/deps/<name>/lib<name>.a`로 만듭니다 |
-| `"cmake"` | 빌드에 쓰는 것과 같은 `clang`/`clang++`로 구성하고(`PATH`에 `ninja`가 있으면 `-G Ninja`, `--release`면 `Release`, 아니면 `Debug` — Windows에서는 디버그 CRT가 프로그램의 CRT와 섞이지 않으므로 `RelWithDebInfo`), `cmake_args`를 덧붙인 뒤, 빌드하고 `build/deps/<name>/install`에 설치합니다. 라이브러리는 `lib`가 있으면 그것(설치 prefix 기준)이고, 없으면 그 `lib/`의 `lib<name>` 또는 모든 라이브러리이며, `install()` 규칙이 없는 프로젝트라면 빌드 트리의 라이브러리입니다 |
+| `"cmake"` | 빌드에 쓰는 것과 같은 `clang`/`clang++`로 구성하고(`PATH`에 `ninja`가 있으면 `-G Ninja`, `--release`면 `Release`, 아니면 `Debug` — Windows에서는 디버그 CRT가 프로그램의 CRT와 섞이지 않으므로 `RelWithDebInfo`, 그리고 프로그램과 같은 공유 CRT인 `MultiThreadedDLL`), `cmake_args`를 덧붙인 뒤, 빌드하고 `build/deps/<name>/install`에 설치합니다. 라이브러리는 `lib`가 있으면 그것(설치 prefix 기준)이고, 없으면 그 `lib/`의 `lib<name>` 또는 모든 라이브러리이며, `install()` 규칙이 없는 프로젝트라면 빌드 트리의 라이브러리입니다 |
 
 헤더는 `include`가 있으면 그 디렉터리(의존성 디렉터리 기준)에서, 없으면 `include/` — CMake는 설치된 것, `"sources"`는 의존성 자체의 것, 그것도 없으면 디렉터리 자체 — 에서 가져옵니다. 이 헤더는 SafeC와 C/C++ 소스 양쪽의 include 경로에 들어갑니다.
 
@@ -441,6 +441,21 @@ libs = ["user32", "gdi32"]
 소스에도, SafeC 소스 의존성에도 SafeC가 없으면 표준 라이브러리는
 빌드되지도 링크되지도 않습니다.
 
+std를 호출하는 C, C++, Objective-C 패키지(SafeC가 C 링키지로
+`std_<name>`이라는 이름으로 내보내는 함수를 `extern`으로 선언해 호출)는
+`[build] std = true`를 설정합니다. 그러면 std가 빌드되고 링크되며, std의
+상위 디렉터리가 C/C++ include 경로에 들어가 헤더를 `<std/...>`로 가져올
+수 있습니다(`std/` 자체는 넣지 않습니다. 그 안의 `stdint.h` 등이 시스템
+헤더를 가리기 때문입니다). `safeguard new <name> --lang c --std`는 프로젝트를
+만들 때 이 키를 기록합니다. `std = false`는 SafeC 소스가 있어도 std를
+링크하지 않습니다.
+
+```toml
+[build]
+edition = "2026"
+std     = true      # C/C++/ObjC 패키지에서 SafeC의 std를 빌드하고 링크
+```
+
 ## 외부 라이브러리 링킹과 라이브러리 출력 {#linking-external-libraries-and-library-output}
 
 `[build]`의 네 가지 추가 키가 최종 링크 단계와 어떤 종류의 산출물이
@@ -505,6 +520,15 @@ Windows `cdylib`는 패키지 자체의 오브젝트 파일이 정의하는 모�
 생성되지 않습니다. 의존자는 `<output>.lib`를 링크하고 DLL을 실행 파일
 옆으로 복사받으므로([의존성](#dependencies)), `path = "../mylib/build"`는
 Windows에서도 다른 플랫폼과 똑같이 동작합니다.
+
+Windows(MSVC ABI) 빌드는 모두 **공유 C 런타임**을 씁니다. 오브젝트는
+`-fms-runtime-lib=dll`(`/MD`)로 컴파일하고, 링크는 정적 `libcmt` 대신
+`msvcrt`를 쓰며, CMake 의존성은 `MultiThreadedDLL`로 빌드합니다. 따라서
+DLL과 그것을 불러오는 프로그램이 하나의 CRT와 하나의 힙을 공유하므로,
+DLL 경계 한쪽에서 할당한 메모리를 다른 쪽에서 해제해도 되고 `FILE*`와
+`errno`도 공유됩니다. 실행 시에는 Universal CRT와 Visual C++ 런타임 DLL이
+필요하며, Windows 10 이상에는 기본으로 들어 있습니다(그 이전 시스템에는
+VC++ 재배포 패키지). MinGW 타깃은 자체 런타임을 그대로 씁니다.
 
 `safeguard run`은 `crate_type = "bin"`을 요구합니다 — 정적 또는 동적
 라이브러리는 실행할 진입점이 없으며, 이를 링커에 직접 대고 실행하려
