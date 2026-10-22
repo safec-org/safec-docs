@@ -14,7 +14,8 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 - **머신러닝**에서 각 프레임워크의 최적 구성끼리 비교하면:
   - SafeC 자체 GPU 백엔드가 작은 MLP를 PyTorch의 최적 구성보다 2.6배(MI100), 7.8배(H200) 빠르게 학습합니다.
   - Gemma 4 E2B를 PyTorch의 최적 구성보다 3.1배(MI100), 1.5배(H200) 빠르게 디코딩합니다.
-  - 학습 스택(분류기, VAE, GAN, DQN, PPO, LoRA, 합성곱 오토인코더)이 CPU 또는 GPU 경로로 7800X3D + MI100에서 PyTorch의 최적 구성보다 2.2–44배, M1 Pro에서 3.5–28배 빠릅니다.
+  - 학습 스택(분류기, VAE, GAN, DQN, PPO, LoRA, 합성곱 오토인코더)이 CPU 또는 GPU 경로로 PyTorch의 최적 구성보다 2.2–44배(7800X3D + MI100), 7.4–38배(Xeon 8570 + H200), 3.5–28배(M1 Pro) 빠릅니다.
+  - GPU에서 학습한 ResNet, U-Net, CNN, MLP, DCGAN, 합성곱 VAE가 PyTorch의 최적 구성보다 1.3–3.0배(MI100), 2.5–9.3배(H200), 1.05–2.2배(M1 Pro) 빠르며, 도움이 되는 곳에서는 16비트 정밀도를 씁니다.
   - M1 Pro에서는 MLX가 Gemma를 SafeC보다 2.6배 빠르게 디코딩하고, fp16 flash 어텐션도 1.2배 빠르며, PyTorch가 두 MLP를 1.2배 빠르게 학습합니다.
 
 ## 목차 {#index}
@@ -545,6 +546,22 @@ SafeC `std::ml` 테스트 스위트의 학습 워크로드를 라이브러리 �
 - **합성곱은 캐시된 cuDNN 그래프 계획으로 돕니다.** 모양과 방향(순방향, 데이터 기울기, 필터 기울기)마다 하나씩, 처음 쓸 때 휴리스틱 엔진 구성을 시간 재어 가장 빠른 것을 둡니다. 이 머신에서 cuDNN 9의 레거시 호출은 16비트 합성곱마다 호스트 시간 약 85 µs로 커널만큼 걸려서 16비트가 fp32보다 빠르지 않았습니다(ResNet fp16 52.8 ms, fp32 52.8). 그래프 계획으로 fp16은 32.7 ms입니다. fp32는 `cuda_set_tf32(1)`이 아니면 IEEE 산술(TF32 없음)을 지킵니다.
 - **16비트는 합성곱 신경망에서 이득이고, DCGAN과 VAE에서는 아닙니다.** 이 둘의 전치 합성곱은 여기서 fp32가 더 빠릅니다.
 
+**M1 Pro (Metal)에서.** 같은 프로그램을 mps 기능으로 빌드해([Metal 장치](/ko/stdlib/ml#devices)에서 합성곱은 암시적 GEMM) M1 Pro에서, PyTorch 2.14.1의 `mps` 장치 fp32 및 autocast와 비교했습니다. 워밍업 뒤 7회 실행 중 최솟값, 워크로드당 ms:
+
+| 워크로드 | SafeC Metal fp32 | fp16 | bf16 | PyTorch MPS fp32 | AMP fp16 | AMP bf16 |
+|---|---:|---:|---:|---:|---:|---:|
+| MLP 784→1024→1024→10, 배치 256 | **126** | 131 | 185 | 277 | 473 | 324 |
+| CNN + 배치 정규화, 1×28×28, 배치 128 | 173 | **160** | 186 | 267 | 349 | 310 |
+| ResNet(잔차 블록 3개), 3×32×32, 배치 128 | 561 | **513** | 581 | 538 | 652 | 672 |
+| U-Net, 1×32×32, 배치 32 | **374** | 394 | 423 | 463 | 537 | 483 |
+| DCGAN, 28×28, 배치 64 | **310** | 316 | 339 | 342 | — | — |
+| Conv VAE, 28×28, 배치 64 | **154** | 159 | 165 | 165 | — | — |
+
+- **SafeC의 최선이 PyTorch의 최선보다 1.05~2.2배 빠릅니다.** 격차가 가장 큰 것은 MLP(126 대 277 ms)와 CNN(160 대 267 ms)입니다. ResNet은 거의 같고(fp16 513 ms 대 fp32 538 ms), fp32끼리만 보면 PyTorch의 ResNet이 4% 빠릅니다(538 대 561 ms).
+- **Metal 경로는 SafeC 자신의 CPU 경로보다 1.1~6.9배 빠릅니다**(CNN 1098 → 160 ms, ResNet 3492 → 513 ms). 합성곱 VAE는 거의 같습니다(167 대 154 ms).
+- **16비트는 CNN과 ResNet에서만 도움이 됩니다.** SafeC의 Metal 커널은 fp32로 계산하므로 16비트 저장은 메모리 트래픽만 줄이고 연산은 줄이지 않으며, bf16이 셋 중 가장 느립니다. PyTorch의 autocast는 여기서 모든 워크로드에서 자신의 fp32보다 느립니다.
+- **손실.** SafeC의 fp32, fp16, bf16 실행은 CPU 경로처럼 같은 최종 손실에 도달합니다(ResNet 0.1311–0.1312, CNN 0.0808–0.0814).
+
 ::: details 소스
 [train_big.sc](/benchmarks/ml_nn/safec/train_big.sc) · [train_big_gpu.sc](/benchmarks/ml_nn/safec/train_big_gpu.sc) · [PyTorch train_big.py](/benchmarks/ml_nn/pytorch/train_big.py)
 :::
@@ -629,7 +646,7 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 | CPU FFT, 2²⁰점 | 가장 빠름 | oneMKL / PyTorch와 같음 | 가장 빠름(FFTW의 1.8배) |
 | MLP 학습, 최적 대 최적(작은 / 큰 모델) | PyTorch보다 2.6배 / 1.7배 빠름 | 7.8배 / 8.4배 빠름 | PyTorch가 1.2배 / 1.2배 빠름 |
 | 학습 스택(8개 워크로드), 최적 대 최적 | PyTorch보다 2.2–44배 빠름 | 7.4–38배 빠름 | PyTorch보다 3.5–28배 빠름 |
-| GPU 학습: ResNet, U-Net, CNN, MLP, DCGAN, 합성곱 VAE | PyTorch보다 1.3–3.3배 빠름(fp32 / AMP) | 2.5–9.3배 빠름 | — |
+| GPU 학습: ResNet, U-Net, CNN, MLP, DCGAN, 합성곱 VAE | PyTorch보다 1.3–3.0배 빠름(fp32 / AMP) | 2.5–9.3배 빠름 | PyTorch보다 1.05–2.2배 빠름(fp32 / AMP) |
 | Flash 어텐션, 가장 빠른 데이터 타입 | PyTorch보다 5.3배 빠름 | PyTorch와 같음(cuDNN) | MLX가 1.2배 빠름 |
 | 선형 어텐션 | PyTorch보다 5.3배 빠름 | 2.3배 빠름 | MLX보다 3.0배 빠름 |
 | Gemma 4 E2B 디코딩 | PyTorch보다 3.1배 빠름 | 1.5배 빠름 | MLX가 2.6배 빠름 |
@@ -637,4 +654,4 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 - **언어**: 계산 위주 SafeC는 C와 몇 % 이내로 돌므로, 이 테스트들에서 안전 검사의 비용은 작습니다. `consteval` 표와 단계별 SIMD 디스패치는 실행 비용을 더하지 않습니다.
 - **메모리**: 영역(region)이 가장 큰 단일 이득입니다. slab을 쓰는 힙 할당자는 블록당 16바이트의 안전 헤더를 치르면서도 대부분의 패턴에서 glibc의 `malloc`보다 앞섭니다.
 - **표준 라이브러리**: 컨테이너와 DSP 코드는 컴파일 시점 특수화가 간접 호출을 없애는 곳(정렬, 필터)에서 이기며, 남은 차이는 컬렉션 성장입니다.
-- **머신러닝**: AMD와 NVIDIA 머신에서 SafeC 백엔드는 PyTorch와의 최적 대 최적 비교 대부분에서 이깁니다. 예외는 H200의 fp16/bf16 flash 어텐션(같음, 둘 다 cuDNN), MI100의 이미지 16장 U-Net(2% 뒤처짐), 7800X3D CPU의 작은 모델 추론(1.1배 뒤처짐)입니다. Apple Silicon에서는 MLX가 LLM 디코딩과 반정밀도 flash 어텐션에서 앞서고, PyTorch가 두 MLP를 1.2배 빠르게 학습하며, SafeC에 CPU 경로만 있는 합성곱에서는 PyTorch의 `mps` 경로가 앞섭니다.
+- **머신러닝**: AMD와 NVIDIA 머신에서 SafeC 백엔드는 PyTorch와의 최적 대 최적 비교 대부분에서 이깁니다. 예외는 H200의 fp16/bf16 flash 어텐션(같음, 둘 다 cuDNN), MI100의 이미지 16장 U-Net(2% 뒤처짐), 7800X3D CPU의 작은 모델 추론(1.1배 뒤처짐)입니다. Apple Silicon에서는 MLX가 LLM 디코딩과 반정밀도 flash 어텐션에서 앞서고, PyTorch가 두 MLP를 1.2배 빠르게 학습하며, SafeC 합성곱 API에 CPU 경로만 있는 단일 합성곱에서는 PyTorch의 `mps` 경로가 앞섭니다. Metal 장치로 처음부터 끝까지 학습하면 SafeC의 합성곱 신경망이 PyTorch보다 1.05–2.2배 빠릅니다.

@@ -14,8 +14,8 @@ SafeC is measured against C, C++, Rust, Zig, Go and Python on classic microbench
 - **Machine learning**, comparing each framework's best configuration:
   - SafeC's own GPU backends train the small MLP 2.6× (MI100) and 7.8× (H200) faster than PyTorch's best.
   - Gemma 4 E2B decodes 3.1× (MI100) and 1.5× (H200) faster than PyTorch's best.
-  - The training stack (classifiers, VAE, GAN, DQN, PPO, LoRA, conv autoencoder) is 2.2–44× faster than PyTorch's best on the 7800X3D + MI100 and 3.5–28× on the M1 Pro, on its CPU or GPU path.
-  - Trained on the MI100, a ResNet, U-Net, CNN, MLP, DCGAN and conv VAE are 1.3–3.3× faster than PyTorch's best, with fp16 mixed precision where it helps.
+  - The training stack (classifiers, VAE, GAN, DQN, PPO, LoRA, conv autoencoder) is 2.2–44× (7800X3D + MI100), 7.4–38× (Xeon 8570 + H200) and 3.5–28× (M1 Pro) faster than PyTorch's best, on its CPU or GPU path.
+  - Trained on the GPU, a ResNet, U-Net, CNN, MLP, DCGAN and conv VAE are 1.3–3.0× (MI100), 2.5–9.3× (H200) and 1.05–2.2× (M1 Pro) faster than PyTorch's best, with 16-bit precision where it helps.
   - On the M1 Pro, MLX decodes Gemma 2.6× faster than SafeC, its fp16 flash attention is 1.2× faster, and PyTorch trains both MLPs 1.2× faster.
 
 ## Index {#index}
@@ -546,6 +546,22 @@ Bigger models, trained end to end through the same `trainer_fit`, `model_fit` an
 - **Convolutions run on cached cuDNN graph plans**, one per shape and direction (forward, data gradient, filter gradient), each the fastest of the heuristic engine configs timed on first use. cuDNN 9's legacy calls cost about 85 µs of host time per 16-bit convolution on this machine, as much as the kernel, which made 16-bit no faster than fp32 (ResNet 52.8 ms fp16 vs 52.8 fp32); with the graph plans fp16 takes 32.7. fp32 keeps IEEE arithmetic (no TF32) unless `cuda_set_tf32(1)`.
 - **16 bits pay off on the conv nets, not on the DCGAN and VAE**, whose transposed convolutions are faster in fp32 here.
 
+**On the M1 Pro (Metal).** The same programs built with the mps feature (convolutions as implicit GEMMs on the [Metal device](/stdlib/ml#devices)), against PyTorch 2.14.1 on its `mps` device in fp32 and with autocast. Best of 7 after the warm-up, ms per workload:
+
+| Workload | SafeC Metal fp32 | fp16 | bf16 | PyTorch MPS fp32 | AMP fp16 | AMP bf16 |
+|---|---:|---:|---:|---:|---:|---:|
+| MLP 784→1024→1024→10, batch 256 | **126** | 131 | 185 | 277 | 473 | 324 |
+| CNN + batch norm, 1×28×28, batch 128 | 173 | **160** | 186 | 267 | 349 | 310 |
+| ResNet (3 residual blocks), 3×32×32, batch 128 | 561 | **513** | 581 | 538 | 652 | 672 |
+| U-Net, 1×32×32, batch 32 | **374** | 394 | 423 | 463 | 537 | 483 |
+| DCGAN, 28×28, batch 64 | **310** | 316 | 339 | 342 | — | — |
+| Conv VAE, 28×28, batch 64 | **154** | 159 | 165 | 165 | — | — |
+
+- **SafeC's best is 1.05–2.2× faster than PyTorch's best.** The gap is widest on the MLP (126 vs 277 ms) and the CNN (160 vs 267 ms). The ResNet is nearly level (513 ms in fp16 vs 538 in fp32), and in fp32 alone PyTorch's ResNet is 4% faster (538 vs 561 ms).
+- **The Metal path is 1.1–6.9× faster than SafeC's own CPU path** (CNN 1098 → 160 ms, ResNet 3492 → 513 ms); the conv VAE is nearly level (167 vs 154 ms).
+- **16 bits help only the CNN and the ResNet.** SafeC's Metal kernels compute in fp32, so 16-bit storage saves memory traffic and no arithmetic, and bf16 is the slowest of the three. PyTorch's autocast is slower than its own fp32 on every workload here.
+- **Losses.** SafeC's fp32, fp16 and bf16 runs reach the same final loss (ResNet 0.1311–0.1312, CNN 0.0808–0.0814), as on the CPU path.
+
 ::: details Sources
 [train_big.sc](/benchmarks/ml_nn/safec/train_big.sc) · [train_big_gpu.sc](/benchmarks/ml_nn/safec/train_big_gpu.sc) · [PyTorch train_big.py](/benchmarks/ml_nn/pytorch/train_big.py)
 :::
@@ -630,7 +646,7 @@ The real `google/gemma-4-E2B` checkpoint (10.25 GB of bf16) run from scratch: Pe
 | CPU FFT, 2²⁰ points | fastest | level with oneMKL / PyTorch | fastest (1.8× FFTW) |
 | MLP training, best vs best (small / big) | 2.6× / 1.7× faster than PyTorch | 7.8× / 8.4× faster | PyTorch 1.2× / 1.2× faster |
 | Training stack (8 workloads), best vs best | 2.2–44× faster than PyTorch | 7.4–38× faster | 3.5–28× faster than PyTorch |
-| GPU training: ResNet, U-Net, CNN, MLP, DCGAN, conv VAE | 1.3–3.3× faster than PyTorch (fp32 / AMP) | 2.5–9.3× faster | — |
+| GPU training: ResNet, U-Net, CNN, MLP, DCGAN, conv VAE | 1.3–3.0× faster than PyTorch (fp32 / AMP) | 2.5–9.3× faster | 1.05–2.2× faster than PyTorch (fp32 / AMP) |
 | Flash attention, fastest data type | 5.3× faster than PyTorch | level with PyTorch (cuDNN) | MLX 1.2× faster |
 | Linear attention | 5.3× faster than PyTorch | 2.3× faster | 3.0× faster than MLX |
 | Gemma 4 E2B decode | 3.1× faster than PyTorch | 1.5× faster | MLX 2.6× faster |
@@ -638,4 +654,4 @@ The real `google/gemma-4-E2B` checkpoint (10.25 GB of bf16) run from scratch: Pe
 - **The language**: compute-bound SafeC runs within a few percent of C, so its safety checks cost little in these tests; `consteval` tables and per-tier SIMD dispatch add no runtime cost.
 - **Memory**: regions are the biggest single win; the heap allocator with its slabs is ahead of glibc's `malloc` in most patterns, while paying 16 bytes per block for its safety header.
 - **The standard library**: the containers and DSP code win where compile-time specialization removes indirection (sorting, filters); collection growth is the remaining gap.
-- **Machine learning**: on the AMD and NVIDIA machines, SafeC's backends win most best-versus-best comparisons with PyTorch. The exceptions are fp16/bf16 flash attention on the H200 (level, both run cuDNN), the 16-image U-Net on the MI100 (2% behind) and small-model CPU inference on the 7800X3D (1.1× behind). On Apple Silicon, MLX leads in LLM decoding and half-precision flash attention, PyTorch trains both MLPs 1.2× faster, and PyTorch's `mps` path leads the convolutions, where SafeC has only its CPU path.
+- **Machine learning**: on the AMD and NVIDIA machines, SafeC's backends win most best-versus-best comparisons with PyTorch. The exceptions are fp16/bf16 flash attention on the H200 (level, both run cuDNN), the 16-image U-Net on the MI100 (2% behind) and small-model CPU inference on the 7800X3D (1.1× behind). On Apple Silicon, MLX leads in LLM decoding and half-precision flash attention, PyTorch trains both MLPs 1.2× faster, and PyTorch's `mps` path leads the single convolutions, where SafeC's convolution API has only its CPU path; trained end to end through the Metal device, SafeC's conv nets are 1.05–2.2× faster than PyTorch's.
