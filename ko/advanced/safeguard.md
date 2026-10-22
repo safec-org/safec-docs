@@ -185,6 +185,8 @@ build   = "cmake"                             # 또는 "sources"
 
 `lib`는 라이브러리 파일을 직접 지정하며, 디렉터리 내용보다 우선합니다. `lib`와 `include` 경로는 의존성에 `version`이나 `path`가 있으면 그 디렉터리를, 없으면 프로젝트 루트를 기준으로 합니다. 가져온 저장소도 이렇게 미리 빌드된 라이브러리를 제공할 수 있습니다: `version = "https://..."`와 `lib = ["lib/macos-arm64/libmylib.a"]`. 공유 라이브러리에는 그 디렉터리로 rpath를 걸어 프로그램이 실행 시점에 찾을 수 있게 합니다. 로컬 `path`는 프로젝트 루트를 기준으로 합니다. 라이브러리, 디렉터리 또는 `include` 디렉터리가 없거나, 디렉터리에 `src/`도 라이브러리도 없으면 `safeguard fetch`와 `build`는 의존성 이름과 함께 실패합니다. 의존성 라이브러리는 표준 라이브러리보다 앞에 링크되므로 SafeC 패키지가 `std`를 쓸 수 있습니다.
 
+Windows에서 DLL은 임포트 라이브러리를 통해 링크합니다: `<name>.lib`(또는 `lib<name>.lib`)를 다른 이름과 같은 방식으로 찾고, 그 옆의 DLL — 또는 CMake가 DLL을 설치하는 `../bin/`의 DLL — 을 `build`, `run`, `test` 후 프로그램 옆으로 복사합니다(다른 플랫폼에서 rpath가 하는 역할입니다). `lib = ["vendor/mylib.dll"]`은 그 옆의 `mylib.lib`를 링크합니다.
+
 ### 소스에서 빌드하는 C/C++ 의존성 {#c-c-dependencies-built-from-source}
 
 safeguard 패키지가 아닌 C, C++ 또는 Objective-C 라이브러리 — CMake 프로젝트, 또는 소스 파일만 있는 디렉터리 — 도 safeguard가 직접 빌드하는 의존성이 될 수 있습니다. `build`가 빌드 방식을 지정하며, 결과는 `build/deps/<name>/`에 놓입니다:
@@ -470,7 +472,7 @@ blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 |---|---|---|
 | `"bin"` (기본값) | `build/<output>` | 링크된 실행 파일 |
 | `"staticlib"` | `build/lib<output>.a`와 `build/include/` | 이 프로젝트 자체 오브젝트의 `ar`로 패킹된 아카이브(링커 없음, `-l`/`-L`/`lto` 없음 — `.a`는 링크되지 않고 이후 링크가 소비할 수 있도록 그저 번들링될 뿐입니다) |
-| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (플랫폼에 따라 다름)와 `build/include/` | `-shared`로 링크됨 |
+| `"cdylib"` | `build/lib<output>.dylib`(macOS), `build/lib<output>.so`(Linux, 같은 이름의 SONAME), 또는 `build/<output>.dll`과 그 임포트 라이브러리 `build/<output>.lib`(Windows), 그리고 `build/include/` | `-shared`로 링크됨 |
 
 라이브러리 빌드는 공개 헤더도 `build/include/`로 내보냅니다. 프로젝트의 `include/` 아래 모든 파일과 `src/` 아래의 헤더(`.h`, 그리고 C++의 `.hh`/`.hpp`/`.hxx`)를 경로를 유지한 채 복사합니다(`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). 이는 패키지를 소스에서 빌드하는 의존자가 보게 되는 헤더와 같습니다. 이 디렉터리는 빌드할 때마다 새로 만들어지므로, 삭제한 헤더는 여기서도 사라집니다. 같은 경로의 헤더가 `include/`와 `src/` 양쪽에 있으면 오류입니다. 따라서 `build/`는 그대로 [미리 빌드된 의존성](#dependencies)으로 쓸 수 있습니다:
 
@@ -481,6 +483,27 @@ path = "../mylib/build"    # libmylib.a를 링크하고 build/include를 include
 ```
 
 프로젝트의 `include/`는 자체 SafeC, C, C++ 소스의 include 경로에도 들어가므로, 라이브러리 소스는 사용자와 같은 방식으로 자신이 내보내는 헤더를 포함합니다.
+
+### Windows DLL {#windows-dlls}
+
+DLL은 지시받은 심볼만 내보내며, SafeC에는 `dllexport`가 없습니다. 그래서
+Windows `cdylib`는 패키지 자체의 오브젝트 파일이 정의하는 모든 외부
+함수 — `.so`나 `.dylib`가 그 오브젝트에서 노출하는 것과 같은 집합 — 를
+내보냅니다. 이 목록은 `build/<output>.def`에 기록되어(`clang` 옆에 LLVM과
+함께 설치되는 `llvm-nm`으로 오브젝트에서 읽습니다) 링커에 전달되며,
+링커는 임포트 라이브러리 `build/<output>.lib`도 함께 생성합니다.
+내보내지 않는 것은 다음과 같습니다:
+
+- DLL에 링크된 표준 라이브러리와 의존성의 코드
+- `static` 함수와 C++ 맹글링된 이름(SafeC에서 호출할 수 없습니다)
+- 전역 변수 — DLL에서 데이터를 가져오려면 사용하는 쪽에
+  `__declspec(dllimport)`가 필요한데, SafeC는 이를 표현할 수 없습니다.
+  대신 접근자 함수를 내보내십시오.
+
+함수를 하나도 정의하지 않는 패키지는 경고를 받고 임포트 라이브러리가
+생성되지 않습니다. 의존자는 `<output>.lib`를 링크하고 DLL을 실행 파일
+옆으로 복사받으므로([의존성](#dependencies)), `path = "../mylib/build"`는
+Windows에서도 다른 플랫폼과 똑같이 동작합니다.
 
 `safeguard run`은 `crate_type = "bin"`을 요구합니다 — 정적 또는 동적
 라이브러리는 실행할 진입점이 없으며, 이를 링커에 직접 대고 실행하려

@@ -186,6 +186,8 @@ A directory whose entry has `build` is neither: it's an existing C, C++ or Objec
 
 `lib` names the library files outright and takes precedence over what's in the directory. `lib` and `include` paths are relative to the dependency's directory when it has `version` or `path`, and to the project root otherwise. A fetched repository can ship prebuilt libraries this way too: `version = "https://..."` with `lib = ["lib/macos-arm64/libmylib.a"]`. Shared libraries get an rpath to their directory, so the program finds them at run time. A local `path` is resolved against the project root. `safeguard fetch` and `build` fail with the dependency's name when a library, a directory or an `include` directory doesn't exist, or when a directory has neither `src/` nor a library. Dependency libraries are linked before the standard library, so a SafeC package can use `std`.
 
+On Windows a DLL is linked through its import library: `<name>.lib` (or `lib<name>.lib`) is found like the other names, and the DLL beside it — or in `../bin/`, where CMake installs DLLs — is copied next to the program after `build`, `run` and `test` (the job an rpath does elsewhere). `lib = ["vendor/mylib.dll"]` links the `mylib.lib` beside it.
+
 ### C/C++ dependencies built from source {#c-c-dependencies-built-from-source}
 
 A C, C++ or Objective-C library that isn't a safeguard package — a CMake project, or just a directory of sources — can be a dependency built by safeguard itself. `build` says how; the result goes to `build/deps/<name>/`:
@@ -469,7 +471,7 @@ Libraries are looked up in `AOCL_ROOT`, `MKLROOT` and `OPENBLAS_ROOT` (or their 
 |---|---|---|
 | `"bin"` (default) | `build/<output>` | linked executable |
 | `"staticlib"` | `build/lib<output>.a` and `build/include/` | `ar`-packed archive of this project's own objects (no linker, no `-l`/`-L`/`lto` — a `.a` isn't linked, just bundled for a later link to consume) |
-| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (platform-dependent) and `build/include/` | linked with `-shared` |
+| `"cdylib"` | `build/lib<output>.dylib` (macOS), `build/lib<output>.so` (Linux, with that SONAME), or `build/<output>.dll` and its import library `build/<output>.lib` (Windows); and `build/include/` | linked with `-shared` |
 
 A library build also exports its public headers to `build/include/`: everything under the project's `include/`, and the headers (`.h`, and C++'s `.hh`/`.hpp`/`.hxx`) under `src/`, with their paths kept (`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). These are the headers a dependent building the package from source would see. The directory is rebuilt on every build, so a deleted header leaves it too. A header at the same path in both `include/` and `src/` is an error. `build/` is then a [prebuilt dependency](#dependencies) as it stands:
 
@@ -480,6 +482,27 @@ path = "../mylib/build"    # links libmylib.a, puts build/include on the include
 ```
 
 The project's `include/` is on the include path of its own SafeC, C and C++ sources, so a library's sources include the headers it exports the same way its users do.
+
+### Windows DLLs {#windows-dlls}
+
+A DLL exports only the symbols it's told to, and SafeC has no
+`dllexport`. A Windows `cdylib` therefore exports every external function
+defined in the package's own object files — the same set a `.so` or
+`.dylib` exposes from them — listed in `build/<output>.def` (read from the
+objects with `llvm-nm`, which ships with LLVM beside `clang`) and passed to
+the linker, which also writes the import library `build/<output>.lib`.
+Not exported:
+
+- the standard library's and the dependencies' code linked into the DLL;
+- `static` functions, and C++-mangled names (SafeC can't call those);
+- global variables — importing data from a DLL needs `__declspec(dllimport)`
+  on the consumer's side, which SafeC can't express. Export an accessor
+  function instead.
+
+A package that defines no functions gets a warning and no import library.
+A dependent links `<output>.lib` and gets the DLL copied beside its
+executable ([Dependencies](#dependencies)), so `path = "../mylib/build"`
+works on Windows as it does elsewhere.
 
 `safeguard run` requires `crate_type = "bin"` — a static or dynamic library
 has no executable entry point to run, and running it against the linker
