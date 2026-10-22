@@ -470,24 +470,25 @@ The training workloads of SafeC's `std::ml` test suites, run end to end through 
 
 | Workload | Steps | Framework | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|---|
-| MLP classifier, 2→32→32→2, batch 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>76.8 (ROCm) | — | **5.79** (CPU)<br>92.0 (Metal) |
-|  |  | PyTorch | 159 (CPU) | — | 161 (CPU) |
-| MLP classifier, 784→256→256→10, batch 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**14.2** (ROCm) | — | 29.3 (CPU)<br>**22.2** (Metal) |
-|  |  | PyTorch | 31.8 (ROCm) | — | 78.0 (CPU) |
-| VAE, 100→128→4, batch 32 | 160 | SafeC | **14.7** (CPU, AOCL)<br>66.8 (ROCm) | — | **18.8** (CPU)<br>158 (Metal) |
-|  |  | PyTorch | 97 (CPU) | — | 109 (CPU) |
-| GAN, 2D Gaussian, 32×2 hidden, batch 64 | 160 D + 160 G | SafeC | **8.62** (CPU, AOCL)<br>130 (ROCm) | — | **12.5** (CPU)<br>318 (Metal) |
-|  |  | PyTorch | 144 (CPU) | — | 121 (CPU) |
-| DQN, 4→64→64→2, Double DQN, batch 64 | 1000 updates + 1064 actions | SafeC | **51.2** (CPU, AOCL)<br>485 (ROCm) | — | **72.1** (CPU)<br>1643 (Metal) |
-|  |  | PyTorch | 624 (CPU) | — | 519 (CPU) |
-| PPO, 1024-step rollouts, 4 epochs × 16 minibatches | 5 updates | SafeC | **25.5** (CPU, AOCL)<br>193 (ROCm) | — | **33.2** (CPU)<br>373 (Metal) |
-|  |  | PyTorch | 268 (CPU) | — | 327 (CPU) |
-| LoRA, rank 4 on a frozen 2→64→64→2 MLP | 480 | SafeC | **11.2** (CPU, AOCL)<br>143 (ROCm) | — | **18.4** (CPU)<br>199 (Metal) |
-|  |  | PyTorch | 210 (CPU) | — | 204 (CPU) |
-| Conv autoencoder, 1×16×16, 2 conv + 2 transposed conv | 80 | SafeC | **30.4** (CPU, oneMKL)<br>32.6 (ROCm) | — | 51.6 (CPU)<br>**41.1** (Metal) |
-|  |  | PyTorch | 80.3 (ROCm) | — | 265 (MPS) |
+| MLP classifier, 2→32→32→2, batch 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>76.8 (ROCm) | **5.70** (CPU, oneMKL)<br>82.8 (CUDA) | **5.79** (CPU)<br>92.0 (Metal) |
+|  |  | PyTorch | 159 (CPU) | 217 (CPU) | 161 (CPU) |
+| MLP classifier, 784→256→256→10, batch 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**14.2** (ROCm) | 39.8 (CPU, oneMKL)<br>**9.89** (CUDA) | 29.3 (CPU)<br>**22.2** (Metal) |
+|  |  | PyTorch | 31.8 (ROCm) | 73.0 (CPU) | 78.0 (CPU) |
+| VAE, 100→128→4, batch 32 | 160 | SafeC | **14.7** (CPU, AOCL)<br>66.8 (ROCm) | **20.5** (CPU, oneMKL)<br>65.6 (CUDA) | **18.8** (CPU)<br>158 (Metal) |
+|  |  | PyTorch | 97 (CPU) | 164 (CPU) | 109 (CPU) |
+| GAN, 2D Gaussian, 32×2 hidden, batch 64 | 160 D + 160 G | SafeC | **8.62** (CPU, AOCL)<br>130 (ROCm) | **12.1** (CPU, oneMKL)<br>117 (CUDA) | **12.5** (CPU)<br>318 (Metal) |
+|  |  | PyTorch | 144 (CPU) | 209 (CPU) | 121 (CPU) |
+| DQN, 4→64→64→2, Double DQN, batch 64 | 1000 updates + 1064 actions | SafeC | **51.2** (CPU, AOCL)<br>485 (ROCm) | **67.8** (CPU, oneMKL)<br>402 (CUDA) | **72.1** (CPU)<br>1643 (Metal) |
+|  |  | PyTorch | 624 (CPU) | 1170 (CPU) | 519 (CPU) |
+| PPO, 1024-step rollouts, 4 epochs × 16 minibatches | 5 updates | SafeC | **25.5** (CPU, AOCL)<br>193 (ROCm) | **35.4** (CPU, oneMKL)<br>169 (CUDA) | **33.2** (CPU)<br>373 (Metal) |
+|  |  | PyTorch | 268 (CPU) | 453 (CPU) | 327 (CPU) |
+| LoRA, rank 4 on a frozen 2→64→64→2 MLP | 480 | SafeC | **11.2** (CPU, AOCL)<br>143 (ROCm) | **18.5** (CPU, oneMKL)<br>184 (CUDA) | **18.4** (CPU)<br>199 (Metal) |
+|  |  | PyTorch | 210 (CPU) | 304 (CPU) | 204 (CPU) |
+| Conv autoencoder, 1×16×16, 2 conv + 2 transposed conv | 80 | SafeC | **30.4** (CPU, oneMKL)<br>32.6 (ROCm) | 65.4 (CPU, oneMKL)<br>**13.9** (CUDA) | 51.6 (CPU)<br>**41.1** (Metal) |
+|  |  | PyTorch | 80.3 (ROCm) | 171 (CPU) | 265 (MPS) |
 
 - **SafeC's best is 2.2–44× faster than PyTorch's best on every workload.** The gap is widest on the small models, where a PyTorch step is mostly per-op dispatch and autograd bookkeeping in Python. It is narrowest on the 784-wide MLP (14.2 vs 31.8 ms) and the conv autoencoder (30.4 vs 80.3 ms), where the arithmetic dominates.
+- **On the Xeon 8570 + H200, SafeC's best is 7.4–38× faster than PyTorch's best** (38× on the small MLP, 5.70 vs 217 ms; 7.4× on the 784-wide MLP, 9.89 vs 73.0 ms). SafeC's CPU path with oneMKL is its best on six workloads and its CUDA path on the 784-wide MLP and the conv autoencoder (13.9 vs 65.4 ms on the CPU). PyTorch's CPU path is its best on all eight; its CUDA path is 1.2–6.3× slower than its CPU path here, since each tiny step is dozens of kernel launches dispatched from Python.
 - **On these sizes the CPU is SafeC's faster path, except for the 784-wide MLP** (14.2 ms on the GPU against 19.9 on the CPU); the conv autoencoder is even (32.6 against 30.4). A step of a tiny net is dozens of small kernels, and each launch costs a few microseconds of fixed work that outweighs its arithmetic. Even so, the GPU path beats PyTorch's best on every row, by 1.1–2.5×. [Bigger models](#ml-training-gpu) are where the GPU pays off.
 - **PyTorch's best is its CPU path on six of the eight workloads.** Its ROCm path is faster only for the 784-wide MLP and the conv autoencoder.
 - **AOCL-BLAS is within 6% of SafeC's built-in GEMM** on the CPU (19.9 vs 21.1 ms on the 784-wide MLP); it or oneMKL is the fastest CPU configuration on every row.
@@ -628,7 +629,7 @@ The real `google/gemma-4-E2B` checkpoint (10.25 GB of bf16) run from scratch: Pe
 | DSP (7 workloads, 2 precisions) | fastest on every row | fastest on every row | fastest on every row |
 | CPU FFT, 2²⁰ points | fastest | level with oneMKL / PyTorch | fastest (1.8× FFTW) |
 | MLP training, best vs best (small / big) | 2.6× / 1.7× faster than PyTorch | 7.8× / 8.4× faster | PyTorch 1.2× / 1.2× faster |
-| Training stack (8 workloads), best vs best | 2.2–44× faster than PyTorch | — | 3.5–28× faster than PyTorch |
+| Training stack (8 workloads), best vs best | 2.2–44× faster than PyTorch | 7.4–38× faster | 3.5–28× faster than PyTorch |
 | GPU training: ResNet, U-Net, CNN, MLP, DCGAN, conv VAE | 1.3–3.3× faster than PyTorch (fp32 / AMP) | — | — |
 | Flash attention, fastest data type | 5.3× faster than PyTorch | level with PyTorch (cuDNN) | MLX 1.2× faster |
 | Linear attention | 5.3× faster than PyTorch | 2.3× faster | 3.0× faster than MLX |
