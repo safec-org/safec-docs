@@ -441,23 +441,25 @@ def cpu_vs_cuda(bench, cpu_src, cuda_src, cuda_libs, torch_script, runs, rocm_sr
     return res
 
 
-# nn_rocm.h's device-resident training (MIOpen for the convolutions)
+# Training on the GPU through std::ml's device path: the rocm feature links
+# device_rocm.sc in (MIOpen for the convolutions)
 ROCM_TRAIN_LIBS = [f"-L{ROCM}/lib", f"-Wl,-rpath,{ROCM}/lib", "-lamdhip64", "-lhiprtc", "-lrocblas", "-lMIOpen"]
+ROCM_TRAIN_DEFS = ["SAFEC_FEATURE_ROCM=1"]
 
 
 def bench_ml_nn(runs):
     """The std::ml training stack (nn.h, trainer.h, autoencoder.h, gan.h, rl.h,
     lora.h, convnet.h) on its test-suite workloads, against PyTorch."""
     res = {}
-    cases = [("safec_cpu", "ml_nn/safec/train_nn.sc", [])]
-    cases += [(f"safec_cpu_{v}", "ml_nn/safec/train_nn.sc", flags) for v, flags in vendor_blas().items()]
+    cases = [("safec_cpu", "ml_nn/safec/train_nn.sc", [], [])]
+    cases += [(f"safec_cpu_{v}", "ml_nn/safec/train_nn.sc", flags, []) for v, flags in vendor_blas().items()]
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
-        cases.append(("safec_rocm", "ml_nn/safec/train_nn_rocm.sc", ROCM_TRAIN_LIBS))
-    for key, src, libs in cases:
+        cases.append(("safec_rocm", "ml_nn/safec/train_nn_gpu.sc", ROCM_TRAIN_LIBS, ROCM_TRAIN_DEFS))
+    for key, src, libs, defs in cases:
         out = os.path.join(BUILD, "ml_nn", key)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         try:
-            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs, defines=defs))
             res[key] = best_labeled([sh([out]) for _ in range(runs)])
         except Exception as e:
             res[key] = {"error": str(e).splitlines()[0][:200]}
@@ -474,19 +476,24 @@ def bench_ml_nn(runs):
 
 def bench_ml_nn_gpu(runs):
     """Bigger training workloads (an MLP, CNN, ResNet, U-Net, DCGAN and conv
-    VAE): SafeC's CPU path (ml_nn/safec/train_big.sc) and nn_rocm.h's device
-    path in fp32 / fp16 / bf16 (train_big_rocm.sc), against PyTorch on the GPU
-    in fp32 and with autocast (ml_nn/pytorch/train_big.py)."""
+    VAE): SafeC's CPU path (ml_nn/safec/train_big.sc) and its device path in
+    fp32 / fp16 / bf16 (train_big_gpu.sc, PRECISION=...), against PyTorch on
+    the GPU in fp32 and with autocast (ml_nn/pytorch/train_big.py)."""
     res = {}
-    cases = [("safec_cpu", "ml_nn/safec/train_big.sc", [])]
+    cases = [("safec_cpu", "ml_nn/safec/train_big.sc", [], [], [""])]
     if os.path.exists(os.path.join(ROCM, "lib", "libamdhip64.so")):
-        cases.append(("safec_rocm", "ml_nn/safec/train_big_rocm.sc", ROCM_TRAIN_LIBS))
-    for key, src, libs in cases:
+        cases.append(("safec_rocm", "ml_nn/safec/train_big_gpu.sc", ROCM_TRAIN_LIBS, ROCM_TRAIN_DEFS,
+                      ["fp32", "fp16", "bf16"]))
+    for key, src, libs, defs, precs in cases:
         out = os.path.join(BUILD, "ml_nn_gpu", key)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         try:
-            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs))
-            res[key] = best_labeled([sh([out]) for _ in range(runs)])
+            timed_build(safec_cmds(os.path.join(HERE, src), out, True, extra_libs=libs, defines=defs))
+            runs_out = []
+            for p in precs:
+                cmd = ["env", f"PRECISION={p}", out] if p else [out]
+                runs_out += [sh(cmd) for _ in range(runs)]
+            res[key] = best_labeled(runs_out)
         except Exception as e:
             res[key] = {"error": str(e).splitlines()[0][:200]}
         print(f"  ml_nn_gpu {key} {res[key]}", flush=True)

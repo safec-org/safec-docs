@@ -30,7 +30,7 @@ nets and buffers) are used through [methods](/reference/functions#struct-methods
 `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
 Constructors are [static methods](/reference/functions#static-methods):
 `Mlp::new(...)`, `FloatTensor::new_2d(...)`, `Dataset::moons(...)`,
-`RocmNet::from_mlp(&net, 128UL)`, `TrainConfig::default()`. An operation on
+`SparseTensor::from_dense(&d, 0.0f, 1)`, `TrainConfig::default()`. An operation on
 one tensor is a method of that tensor — `x.relu()`, `logits.log_softmax()`,
 `loss.backward()`, `t.fill(0.0f)` — const unless it changes the tensor in
 place; operations on two tensors stay functions (`tensor_matmul(a, b)`). What every
@@ -38,8 +38,7 @@ model can do — add its parameters to an optimizer, count them, save and
 load them, copy them, train on a built-in loss — is written once as
 generic functions over [traits](#modules) the models satisfy:
 `model_add_params(&net, &opt)`, `model_save_file(&net, path)`,
-`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. The step functions
-passed to `rocm_trainer_fit` as values (`rocm_net_ce_step`) stay functions.
+`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`, `model_to(&net, DEVICE_ROCM)`.
 
 ---
 
@@ -769,11 +768,9 @@ Every op's gradient is checked against central differences in the tests.
 The optimizers are checked to converge, and an MLP trained on moons
 reaches more than 95% accuracy.
 
-On an AMD GPU, [`nn_rocm.h`](#rocm-training) trains these models (and the
-conv nets, autoencoders, GANs and RL agents below) with everything kept in
-GPU memory: `rocm_trainer_fit` is `trainer_fit` on the device. To write
-the training once and pick the backend at build time, use
-[`train.h`](#train-traits).
+The same calls train on a GPU: set `TrainConfig.device`, or place the model
+with `model_to`, and every op runs where its operands live
+([Training on a GPU](#devices)).
 
 ## Models as traits: generic functions for every model {#modules}
 
@@ -1399,138 +1396,176 @@ The tests run each technique on its problem:
 - DQN, REINFORCE, A2C and PPO each reach CartPole's "solved" mean greedy
   return of 195 within their step budget.
 
-## One training interface: CPU or GPU {#train-traits}
+## Training on a GPU {#devices}
+
+<a id="train-traits"></a><a id="train-backend"></a><a id="rocm-training"></a>
 
 ```c
-#include <std/ml/train.h>          // backend-neutral names; the build's features pick the backend
-#include <std/ml/train_traits.h>   // the traits and the generic loops (train.h includes it)
+#include <std/ml/device.h>   // devices, precision; tensor.h, trainer.h and module.h include it
 ```
 
-The CPU stack above and [`nn_rocm.h`](#rocm-training)'s device-resident
-stack train the same models. `train_traits.h` puts both behind one
-interface: [traits](/reference/generics#composing-traits) composed from
-four small capabilities, and generic loops written once against them.
-Traits are structural. A trainer conforms by having the methods,
-conformance is checked where a generic is instantiated, and every call is
-a direct call to that type's method, with no dispatch at run time.
-
-| Capability | Methods |
-|---|---|
-| `HostSynced` | `sync()` (make the trainer's `host` model current), `free()` |
-| `EpochFit` | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `learning_rate()` / `set_learning_rate(lr)` |
-| `BatchStep` | `train_step(x, y)`: one step on a host batch |
-| `Actor` | `act(obs, explore)` |
-
-| Role | Composed of | For |
-|---|---|---|
-| `Trainable` | `EpochFit + BatchStep + HostSynced` | a model and its optimizer, trained on a `Dataset`'s batches: nets (`Mlp`, `ConvNet`) on a loss, autoencoders, VAEs |
-| `GanTrainable` | `HostSynced` + `train_step(real, labels)`, `train(&data, epochs, batchSize)` | a `Gan` or `Dcgan` with its two optimizers |
-| `ValueAgent` | `Actor + HostSynced` + `epsilon()`, `observe(obs, action, reward, next, terminal)` (1 when a gradient step ran), `last_loss()`, `updates()` | a value-based RL agent (`Dqn`) |
-| `PolicyLearner` | `Actor + HostSynced` + `record(obs, action, reward, next, terminated, truncated)`, `update()` | a policy-gradient agent (`PolicyAgent`: REINFORCE, A2C, PPO) |
-
-- **`train_fit(&m, &data, &cfg)`** is `trainer_fit` for any trainer that
-  is `EpochFit + HostSynced` (every `Trainable` is; the bound asks only for
-  what the loop uses): the same batches, epochs, lr decay and `TrainReport`. It leaves the host
-  model synced, and reports `steps == 0` when a run fails on a device.
-- **`train_gan(&g, &data, epochs, batchSize)`** is `Gan::train` for any
-  `GanTrainable`, also leaving the host model synced.
-- Code of your own can take `generic<A: ValueAgent>` (or any other trait)
-  in the same way, and then runs unchanged on either backend.
-
-**The trainers.** `train.h` names each trainer without a backend prefix
-and picks the concrete type at compile time:
-
-| `train.h` | Constructor | CPU (`train_cpu.h`) | ROCm (`nn_rocm.h`) |
-|---|---|---|---|
-| `MlpTrainer` | `mlp_trainer_new(mlp, loss, &opt, &to)` | `CpuTrainer<Mlp>` | `RocmTrainer<Mlp, RocmNet>` |
-| `ConvNetTrainer` | `convnet_trainer_new(net, loss, &opt, &to)` | `CpuTrainer<ConvNet>` | `RocmTrainer<ConvNet, RocmNet>` |
-| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuModelTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
-| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuModelTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
-| `GanTrainer` / `DcganTrainer` | `gan_trainer_new(g, &to)` / `dcgan_trainer_new` | `CpuGanTrainer<Gan>` / `<Dcgan>` | `RocmGanTrainer<Gan>` / `<Dcgan>` |
-| `DqnLearner` | `dqn_learner_new(d)` | `CpuDqnAgent` | `RocmDqnAgent` |
-| `PgLearner` | `pg_learner_new(a, &to)` | `CpuPgAgent` | `RocmPgAgent` |
-
-- **Ownership.** A constructor takes the host model by value into the
-  trainer's `host` field. The model's tensors are shared with the struct
-  you passed, but its other fields are not, so use `t.host` from then on.
-  `sync()` makes `host` current: a no-op on the CPU, a download from the
-  GPU. `free()` releases what the trainer allocated (optimizer state,
-  device buffers), not the host model, which you free as usual
-  (`t.host.free()`).
-- **Optimizer.** The `Optimizer` passed to a constructor only supplies the
-  kind and hyperparameters (`Optimizer::from` / `RocmOptimizer::from`). The
-  trainer adds the model's parameters to its own optimizer.
-- **Losses.** A net trainer takes `TRAIN_LOSS_CE` (softmax cross-entropy on
-  class indices), `TRAIN_LOSS_MSE` or `TRAIN_LOSS_BCE` (on logits).
-  Autoencoders and VAEs train on their own losses.
-- **`TrainerOptions`** (`TrainerOptions::default()`: `maxBatch` 256, fp32).
-  The CPU ignores both fields. `maxBatch` sizes a device's buffers;
-  `cfg.batchSize` must not exceed it, and for `pg_learner_new` it is the
-  longest rollout. `precision` (`TENSOR_FP16` / `TENSOR_BF16`) selects
-  16-bit activations on a device. On ROCm that is
-  [`RocmNet::set_precision`](#rocm-training-mixed-precision), for net
-  trainers only.
-- **Nothing is lost on the GPU.** `RocmTrainer::fit_epoch` is
-  `rocm_trainer_fit`'s epoch: the dataset stays on the GPU and steps are
-  replayed as graphs. The GAN and RL trainers wrap `RocmGan`, `RocmDqn` and
-  `RocmPolicy`. `train_step` on a device uploads the batch and waits for
-  its loss, so it suits hand-written loops, not speed.
+Every tensor has a device: `DEVICE_CPU`, or a GPU backend (`DEVICE_ROCM` for
+AMD, `DEVICE_CUDA` for NVIDIA, `DEVICE_MPS` for Apple Silicon). An op runs
+on the device of its operands. If any operand lives on a GPU, the op runs
+there, uploading the others, and its result lives there too. A model whose
+parameters are on a GPU therefore trains there through the same code that
+trains it on the CPU: every layer, loss, optimizer, `trainer_fit`,
+`module_fit` / `model_fit`, the autoencoders, GANs, RL agents and LoRA
+adapters above. The backward pass runs each node where its forward pass ran.
 
 ```c
-#include <std/ml/train.h>
-
-static &FloatTensor logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
-
-struct Rng rng = Rng::new(1UL);
-struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
-struct Optimizer adam = Optimizer::new(OPT_ADAM, (float)0.01);   // kind and hyperparameters
-struct TrainerOptions to = TrainerOptions::default();
-MlpTrainer t = mlp_trainer_new(Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng),
-                               TRAIN_LOSS_CE, &adam, &to);
+struct Mlp net = Mlp::new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = TrainConfig::default();
-cfg.epochs = 60UL;
-struct TrainReport rep = train_fit(&t, &data, &cfg);         // t.host is the trained Mlp
-float acc = trainer_accuracy(&t.host, logits, &data, 64UL);
-t.free();
-t.host.free();
+cfg.device = DEVICE_AUTO;                  // the first usable GPU, else the CPU
+cfg.precision = DEVICE_FP16;               // optional: 16-bit activations
+struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &train, &cfg);
+model_sync(&net);                          // host copies current: save, inspect, evaluate on the CPU
 ```
 
-### Choosing the backend {#train-backend}
+**Choosing the device.**
 
-The build's [features](/advanced/safeguard#feature-flags) select the backend, so the
-program above trains on the CPU or on an AMD GPU without a source change:
+| How | Calls |
+|---|---|
+| Explicitly | `TrainConfig.device` (the fits place the optimizer's parameters there and keep the dataset there); `model_to(&m, d)` for any model (its parameters and buffers: running statistics, an averaged generator); `t.place(d)` moves a tensor in place; `t.to(d)` returns a copy on `d` (a graph node: gradients flow back) |
+| By default | `device_set_default(d)`; `device_default()` is what `DEVICE_AUTO` resolves to |
+| Automatically | `device_auto()`: the first usable GPU among the backends the program was built with (ROCm, then CUDA, then Metal), else the CPU. `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps` in the environment overrides it. |
 
-```toml
-[features]
-rocm = []       # safeguard build --features rocm
-```
+The build's [features](/advanced/safeguard#feature-flags) link the backends
+in. A program built without any runs everything on the CPU and links no GPU
+library:
 
-| Features | Backend | Notes |
+| Feature | Backend | Link |
 |---|---|---|
-| none | CPU (`train_cpu.h`) | |
-| `rocm` (`SAFEC_FEATURE_ROCM`) | ROCm (`nn_rocm.h`) | Link the `gpu_rocm` libraries, plus `-lMIOpen` for MIOpen convolutions. |
-| `cuda` (`SAFEC_FEATURE_CUDA`) | none yet | A compile error. CUDA has per-op kernels (`gpu_cuda.h`) but no device-resident training stack yet. When `rocm` is enabled as well, ROCm is used. |
+| `rocm` | `device_rocm.sc`: HIP kernels compiled once by hiprtc, rocBLAS GEMMs, MIOpen convolutions | `-lamdhip64 -lhiprtc -lrocblas`, `-lMIOpen` (optional, weak: without it convolutions use im2col + GEMM) |
+| `cuda` | `device_cuda.sc`: the same kernel source compiled by NVRTC, cuBLAS, cuDNN | `-lcuda -lcublas -lnvrtc`, `-lcudnn` (optional, weak) |
+| `mps` | `device_mps.sc`: shared-memory buffers, `mps_gemm`, the Metal optimizer kernel; other ops run on the CPU over the shared memory | `-framework Metal -framework Foundation -lobjc` |
 
-`ML_TRAIN_BACKEND` is the chosen backend's name as a string (`"cpu"` or
-`"rocm"`). Each name in `train.h` is a typedef, and each constructor is a
-static function that forwards to the backend's own (`cpu_module_trainer_new`,
-`rocm_mlp_trainer_new`, …). The CPU trainers are bounded generic structs —
-`CpuTrainer<M: Module>`, `CpuModelTrainer<M: LossModel>`,
-`CpuGanTrainer<H: GanModel>` — built by generic constructors, so on the CPU
-any [`Module`](#modules) trains through the interface with
-`cpu_module_trainer_new(model, loss, &opt)` and any `LossModel` with
-`cpu_model_trainer_new(model, &opt)`. Those can also be called directly to use
-both backends in one program. A future CUDA backend adds types that
-satisfy the same traits, plus one branch in `train.h`.
+`device_compiled(d)`, `device_available(d)`, `device_name(d)`,
+`device_sync(d)` and `device_stats(d)` (launches, GEMMs, transfers and
+bytes since `device_stats_reset`) answer what a program runs on. Device
+memory comes from a cache of size classes that steps reuse;
+`device_bytes_reserved(d)` and `device_cache_clear(d)` manage it.
 
-`tests/stdlib/tests/test_ml_traits.sc` checks that every CPU trainer, used
-through the traits, trains to the bit like the API it wraps (`trainer_fit`,
-`Gan::train`, `Dqn`, `PolicyAgent`). `tests/stdlib/rocm/run.sh` builds
-`train_backend_check.sc`, a program written only against `train.h`, once
-for the CPU and once with the `rocm` feature. On an MI100 the two builds
-agree on every compared value: the losses of an MLP, a `ConvNet` and a
-convolutional autoencoder, `train_step`, the VAE's loss level, and the DQN
-and PPO agents step for step.
+**Host and device copies.** A tensor keeps its host values and a device
+copy coherent lazily: an op on the device uploads a host-written tensor once,
+and reading values on the host (`at1`, `at2`, a CPU-only op) downloads
+them once. `t.sync()` / `model_sync(&m)` make the host copies current
+explicitly, for code that reads `t->data` directly. Gradients work the same
+way: `zero_grad()` on a device marks the gradient zero without touching it,
+and the first backward op that reaches it writes instead of adding.
+
+**What runs on the device.** Every elementwise op and activation, matmul,
+bias and row ops, sums and means, concat / slice / gather, softmax and
+log-softmax, the fused losses (cross-entropy, BCE on logits, Huber),
+layer norm, batch norm and group norm (each fused with a following ReLU or
+leaky ReLU), max / average / global pooling, nearest upsampling, bilinear
+and bicubic resizing, convolutions and transposed convolutions, sparse
+products, every optimizer (one launch for all parameters) and gradient-norm
+clipping. Small GEMMs with a long reduction run split-K. An op without a
+device kernel computes on the CPU, copying its operands home first, so
+every op works on every device; the GPU only changes the speed.
+
+**Traits.** `DenseTensor` and [`SparseTensor`](#sparse) conform to
+`trait DeviceTensor : Tensor` (`device()`, `place(d)`, `sync()`), so
+[generic code](/reference/generics#composing-traits) can take either.
+`RocmTensor`, `CudaTensor` and `MpsTensor` each inherit `DeviceTensor` and
+add `device_buffer()`, the values' buffer on that backend (a hipDeviceptr, a
+CUdeviceptr, an MTLBuffer), for code that calls a vendor library itself.
+
+```c
+generic<T: DeviceTensor>
+int to_host(&T t) { return t.sync(); }   // a DenseTensor or a SparseTensor
+```
+
+**Backends.** A backend is a struct of static functions (alloc, release,
+upload, download, copy, sync, gemm, gemm_batched, conv, launch, offset,
+storage16), registered with `device_register_backend_(device, &tag)`; every
+call resolves at compile time, and the runtime only picks the device from
+the tensors. The ROCm and CUDA backends share one kernel source,
+`device_kernels.cu`.
+
+### Precision: fp16 and bf16 on the device {#device-precision}
+
+<a id="rocm-training-mixed-precision"></a>
+
+`device_set_precision(d, DEVICE_FP16)` (or `DEVICE_BF16`), or
+`TrainConfig.precision` for one fit, trains in 16 bits on `d`:
+
+- **Storage.** On ROCm and CUDA, activations and their gradients are stored
+  in 16 bits. Parameters, their gradients and the optimizer state stay
+  fp32. A buffer's element type travels with its device handle, so every
+  kernel, copy, GEMM and convolution reads it from there; kernels compute in
+  fp32 and round once per stored value. Each kernel source compiles twice,
+  a plain fp32 build and one for 16-bit operands, and a launch picks the
+  plain build when no operand is 16-bit, so fp32 training pays nothing.
+- **Compute.** Matmuls run as 16-bit GEMMs with fp32 accumulation (rocBLAS
+  / cuBLAS `gemm_ex`), convolutions in MIOpen's / cuDNN's 16-bit kernels.
+  The first time each convolution shape and direction runs, the 16-bit and
+  fp32 versions are timed and the faster kept for that shape
+  (`device_set_precision_pick(DEVICE_PICK_ALWAYS)` runs every one in 16 bits).
+  A parameter's 16-bit copy is made once per optimizer step and reused.
+- **fp16 loss scale.** fp16 adds a dynamic loss scale on the device, like
+  PyTorch's `GradScaler`: it starts at 65536 and multiplies the loss's
+  gradient, and every leaf gradient is unscaled when `backward()` ends, so
+  user code never sees a scaled gradient. A step whose gradients overflowed
+  raises a flag the optimizer reads on the device, skipping the update;
+  the scale halves, and 2000 clean steps in a row double it.
+  `device_loss_scale(d)` reads it. bf16 shares fp32's exponent range and
+  needs no scaling.
+- **Metal.** The Metal backend keeps fp32 storage (its kernels run on the
+  CPU over shared memory), so a 16-bit precision there changes only the loss
+  scaling.
+
+On an MI100, fp16 is the faster 16-bit type: MIOpen's fp16 kernels use the
+matrix cores, while its bf16 convolutions run at about fp32 speed or slower
+([GPU training benchmarks](/benchmarks#ml-training-gpu)).
+
+### Sparse tensors {#sparse}
+
+```c
+#include <std/ml/sparse.h>
+```
+
+A `SparseTensor` is a `rows × cols` matrix in CSR form that stores only its
+nonzeros. Its values are an ordinary `FloatTensor` of length `nnz`, so a
+sparse matrix can be a trained parameter (a sparse layer, a graph's learned
+edge weights). Gradients reach the values; the pattern is fixed. The index
+arrays are float tensors too (indices exact up to 2^24), so `place(d)`
+moves the whole matrix to a device and its products run there.
+
+```c
+struct SparseTensor A = SparseTensor::from_dense(adj, (float)0.0, 1);   // learned edge weights
+&FloatTensor H = tensor_spmm(&A, X);           // [rows, n] = A [rows, cols] . X [cols, n]
+// ... loss ... loss.backward();               // A.values->grad, X->grad
+```
+
+| Part | Functions |
+|---|---|
+| Construction | `SparseTensor::new_csr(rows, cols, &rowPtr, &colIdx, &values, requiresGrad)`, `from_dense(&dense, threshold, requiresGrad)`, `identity(n, requiresGrad)` |
+| Elements | `at1` / `at2` (0 outside the pattern), `set1` / `set2` (existing nonzeros), `fill` |
+| Ops | `tensor_spmm(&S, X)` with gradients to S's values and X; `to_dense()`, `scale(k)` (shares the pattern), `transpose()`: graph nodes |
+| Devices | `device()`, `place(d)`, `sync()`, `device_buffer()` (the values') |
+| Lifetime | `backward()`, `zero_grad()`, `free()` |
+
+`SparseTensor` conforms to `Tensor` and `DeviceTensor`, so generic code
+written against those traits takes it next to a dense tensor.
+
+::: tip Verification
+`tests/stdlib/tests/test_ml_device.sc` registers a reference device, host
+memory running the CPU versions of every device kernel through the same
+dispatch, coherence and backward paths a GPU takes, and trains 12 workloads
+on it against the CPU (MLP, VAE, CVAE, GAN, hinge GAN, DQN, PPO, LoRA, the
+conv autoencoder, layer norm with the losses, a CNN with batch / group norm,
+pools and a residual block, and a net of upsampling, resizing, dropout and
+concat), plus fp16 / bf16 and the loss scale skipping an overflowed step.
+`tests/stdlib/device/device_check.sc` trains the same 12 workloads on a real
+GPU (`tests/stdlib/rocm/run.sh`, `cuda/run.sh`, `mps/run.sh`), in fp32 against
+the CPU to 2e-4 and in fp16 and bf16 to 5%, and checks the sparse product
+and its gradients (to 2e-3 against finite differences). On an MI100 every
+check passes.
+:::
 
 ## GPU backends
 
@@ -1563,10 +1598,10 @@ discrete memory model needs.
   combinations, graphs, the host-array API and the fp16/bf16 buffers
   (rounding bit-identical to `float16.h`, 16-bit GEMMs, SGD) against CPU
   results (325 checks, including the mixed-precision ops), plus the [MIOpen and hipFFT
-  libraries](#rocm-miopen-hipfft) (73 checks), and [device-resident
-  training](#rocm-training) (`nn_rocm.h`, 387 checks against the CPU training
-  stack); the [ML benchmarks](/benchmarks#ml-mlp) train to the same loss as
-  the CPU and MPS paths.
+  libraries](#rocm-miopen-hipfft) (73 checks), and [training on the
+  device](#devices) (12 workloads in fp32, fp16 and bf16 against the CPU,
+  and the sparse product); the [ML benchmarks](/benchmarks#ml-mlp) train to
+  the same loss as the CPU and MPS paths.
 - **CUDA**: verified on an NVIDIA H200 (sm_90, CUDA 13.0, driver 580) —
   `tests/stdlib/cuda/run.sh` checks every op, all four GEMM transpose
   combinations with and without the fused ReLU, graphs, the host-array and
@@ -1637,9 +1672,8 @@ rocBLAS offers on that call's buffers, like MIOpen's Find, and caches the
 fastest. That takes about 0.1 s per shape. Run each shape once before
 `rocm_capture_begin()`, since an untuned shape inside a capture uses the
 default solution. Because the choice comes from timing, two runs can pick
-different solutions and differ in the last bits. `tensor_rocm.h` wraps the host-array ops as autograd `FloatTensor`
-functions (`tensor_add_rocm`, `tensor_matmul_rocm_blas`, …) with a CPU
-fallback.
+different solutions and differ in the last bits. Autograd tensors use the
+GPU through [their device](#devices), not through these host-array calls.
 
 On rocBLAS versus a hand-written kernel: this library's own tiled SGEMM
 (`rocm_matmul_f32`) reaches about 9.5 TFLOPS at 4096³ on an MI100, while
@@ -1688,127 +1722,6 @@ the same GPU ([full results](/benchmarks#ml-attention)):
 | linear | 64 | 4096 | no | 0.464 | 1.40 |
 | linear | 64 | 16384 | yes | 2.76 | 14.6 |
 | linear | 128 | 4096 | yes | 2.84 | 8.73 |
-
-### Device-resident training on ROCm — `nn_rocm.h` {#rocm-training}
-
-```c
-#include <std/ml/nn_rocm.h>   // link: the gpu_rocm libraries, plus -lMIOpen for MIOpen convolutions
-```
-
-[`nn.h`](#training), [`trainer.h`](#training), [`convnet.h`](#convnet),
-[`autoencoder.h`](#autoencoders), [`gan.h`](#gans) and [`rl.h`](#rl) train
-on the CPU with autograd. `nn_rocm.h` trains the same models on an AMD GPU
-and keeps everything in GPU memory: parameters, activations, gradients,
-optimizer state, the dataset and the running loss. A training step moves
-nothing between host and device. The models are built from the host ones
-and copied back with their `download` methods, so the rest of `std::ml`
-(evaluation, sampling, saving) works on the result. The same models are
-also wrapped as `RocmTrainer`, `RocmGanTrainer`, `RocmDqnAgent` and
-`RocmPgAgent`, which satisfy the [training traits](#train-traits), so code
-written against `train.h` runs here when built with the `rocm` feature.
-
-```c
-struct Mlp net = Mlp::new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
-struct RocmNet dnet = RocmNet::from_mlp(&net, 128UL);           // batches of up to 128 rows
-struct RocmOptimizer opt = RocmOptimizer::new(OPT_ADAM, (float)0.001);
-dnet.add_params(&opt);
-struct TrainReport rep = rocm_trainer_fit(&dnet, rocm_net_ce_step, &opt, &train, &cfg);
-dnet.download(&net.params);   // back into the host Mlp
-```
-
-| Part | Functions |
-|---|---|
-| Nets | `RocmNet`: `RocmNet::from_mlp`, `RocmNet::from_convnet` (every `ConvNet` layer kind, its running statistics and training mode), or `RocmNet::new` and the `RocmNet` methods `add_linear` / `add_conv2d(_ex)` / `add_conv_transpose2d(_ex)` / `add_maxpool` / `add_avgpool` / `add_global_pool` / `add_upsample` / `add_resize` / `add_reshape` / `add_batchnorm` / `add_groupnorm` / `add_dropout`, `spectral_norm`, and skips (`add_save`, then `add_skip` (add, optional 1×1 projection) or `add_concat`) |
-| Passes | `RocmNet` methods `forward`, `grad_output`, `backward`; `set_training` (batch norm statistics, dropout) |
-| Losses | `rocm_cross_entropy` (class indices), `rocm_bce_logits`, `rocm_mse`: each writes its gradient and adds to a loss sum on the GPU |
-| Steps | `rocm_net_ce_step`, `rocm_net_mse_step`, `rocm_net_bce_step`, `rocm_net_recon_bce_step`, `rocm_net_recon_mse_step`, `rocm_vae_step`, `rocm_conv_autoencoder_step`: forward, loss and backward (functions, so they can be passed to `rocm_trainer_fit`) |
-| Optimizer | `RocmOptimizer` (`RocmOptimizer::new`, `RocmOptimizer::from` an `Optimizer`, `net.add_params(&opt)`, `opt.step()`): every `OPT_*` kind with `Optimizer::step`'s arithmetic, gradient-norm clipping (`clipNorm`) and weight clamping (`clampWeights`) |
-| Training loop | `rocm_trainer_fit(&model, step, &opt, &data, &cfg)`: `trainer_fit` with the same batch order |
-| Models | `RocmVae::new` / `RocmVae::new_conv` (+ conditional), `RocmConvAe::new`, `RocmGan::new` / `RocmGan::new_dcgan` with `RocmGan::train` (every GAN loss, gradient penalty, conditional models, the averaged generator), `RocmDqn::new`, `RocmPolicy::new` (REINFORCE, A2C, PPO) |
-| Transfer | `RocmNet` methods `download` / `upload` (parameters), `download_stats` / `upload_stats` (running statistics, spectral norms' `u`), `download_convnet`, `download_mlp`, and `download` on every device model |
-| Engine, precision | `rocm_conv_engine(ROCM_CONV_AUTO \| ROCM_CONV_IM2COL)`, `net.set_precision(ROCM_FP16 \| ROCM_BF16)`, `net.set_loss_scale(s)`, `net.loss_scale()` |
-
-**How a step runs.** Every layer has a hand-written backward pass. Matmuls
-go to rocBLAS. Bias, activations, norms, pooling, resizing and their
-gradients are HIP kernels compiled with hiprtc on first use. Batches are
-NCHW rows, `convnet.h`'s layout.
-
-- **Training loop.** `rocm_trainer_fit` uploads the dataset once. Each
-  epoch it uploads only the shuffled row order, the same order
-  `trainer_fit` uses for that seed, and gathers the batches on the GPU. The
-  first step for each batch size runs eagerly, which also lets rocBLAS and
-  MIOpen pick their kernels. After that, `ROCM_TRAIN_CHUNK` (4) steps at a
-  time are recorded into a `RocmGraph` and replayed. The loss is read back
-  once per epoch.
-- **Optimizer state.** Hyperparameters and the step count live on the GPU,
-  so a recorded step stays correct when it is replayed.
-- **Convolutions.** They run on MIOpen when the program links `-lMIOpen`
-  (the symbols are weak), and otherwise on an im2col / col2im + rocBLAS
-  engine. The first pass of each fp32 shape times both engines and keeps
-  im2col when it is clearly faster. That happens for small convolutions,
-  where MIOpen's fixed cost per call dominates.
-- **Fusions.** Batch norm takes one launch for its statistics. It folds in
-  the bias of the convolution before it and applies its activation's
-  gradient in the same pass. Skip layers share their neighbours' buffers
-  instead of copying them. Long weight gradients use a split-K GEMM when
-  that is faster than rocBLAS for the shape.
-- **Small nets.** A small fully connected net (2-32-32-2 at batch 32, for
-  example) runs a whole step as one kernel, since the fixed cost of a
-  kernel, about 1.3 µs on an MI100 even inside a graph, outweighs its work.
-
-**Random numbers.** The GAN, DQN and policy-gradient agents draw every
-random choice from the host model's own `Rng`, so they act step for step
-like the CPU versions. The VAEs' reparameterization noise and the dropout
-masks are drawn on the GPU, so those differ from the CPU's draws.
-
-#### Mixed precision {#rocm-training-mixed-precision}
-
-`net.set_precision(ROCM_FP16)` (or `ROCM_BF16`) switches a
-`RocmNet` to 16-bit activations. Call it after the last layer and before
-`RocmNet::add_params`.
-
-- **Storage.** Activations and their gradients are stored in 16 bits, and
-  all arithmetic is fp32. Weights, gradients and optimizer state stay fp32;
-  the weights are rounded to 16 bits for each forward pass.
-- **Unchanged interface.** The input, the output and their gradients stay
-  fp32, so the losses, the step functions and `rocm_trainer_fit` work
-  without changes.
-- **Engines.** Linear layers use 16-bit rocBLAS GEMMs. 16-bit convolutions
-  need MIOpen; `RocmNet::set_precision` returns 0 without it.
-- **fp16 loss scale.** fp16 adds a dynamic loss scale that lives on the
-  GPU, like PyTorch's `GradScaler`. It starts at 65536 and multiplies the
-  output gradient, and the optimizer divides it back out. A step whose
-  gradients overflowed is skipped and halves the scale; 2000 good steps in
-  a row double it. All of this happens on the GPU, so it works inside
-  replayed graphs. `RocmNet::loss_scale` reads the scale.
-- **Scope.** GAN, VAE and RL models stay fp32.
-
-On an MI100, fp16 is the faster 16-bit type: MIOpen's fp16 kernels use the
-matrix cores, while its bf16 convolutions run at about fp32 speed.
-
-MI100, ms per training run, against PyTorch 2.9.1 on ROCm on the same
-GPU ([all workloads](/benchmarks#ml-training-gpu)):
-
-| Workload | SafeC fp32 | SafeC fp16 | SafeC bf16 | PyTorch fp32 | PyTorch AMP fp16 | PyTorch AMP bf16 |
-|---|---:|---:|---:|---:|---:|---:|
-| ResNet (3 residual blocks), 3×32×32, batch 128, 16 steps | 75.3 | **57.9** | 79.5 | 98.9 | 74.3 | 271 |
-| U-Net, 1×32×32, batch 32, 32 steps | 50.5 | **44.7** | 69.8 | 146 | 154 | 277 |
-| CNN + batch norm, 1×28×28, batch 128, 32 steps | 31.2 | **29.6** | 32.5 | 60.7 | 58.3 | 94.0 |
-| MLP 784→1024→1024→10, batch 256, 64 steps | 27.6 | 26.6 | **25.7** | 56.6 | 70.2 | 63.3 |
-| DCGAN, 28×28, batch 64, 32 D + 32 G steps | **56.1** | — | — | 106 | — | — |
-| Conv VAE, 28×28, batch 64, 32 steps | **26.8** | — | — | 53.3 | — | — |
-
-::: tip Verification
-`tests/stdlib/rocm/nn_rocm_check.sc` (in `tests/stdlib/rocm/run.sh`)
-compares every layer kind's gradients, every optimizer, `rocm_trainer_fit`,
-the conv autoencoder and the GAN, DQN and policy-gradient steps against the
-CPU code. They agree to about 1e-7 on both convolution engines. The VAEs
-are compared on loss levels and dropout on its statistics, since their
-random draws differ. The gradient cases run again in fp16 (2% tolerance)
-and bf16 (10%). Short ResNet trainings check that 16-bit losses track fp32,
-and an fp16 run that starts with an overflowing loss scale recovers. 387
-checks in total.
-:::
 
 ### CUDA (NVIDIA) {#cuda}
 
@@ -2172,29 +2085,17 @@ On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, hea
 
 ### Tensor wrappers
 
-Autograd `FloatTensor` ops that run their forward pass on a backend and reuse the CPU backward. Each falls back to the CPU when its device is unavailable.
+Autograd `FloatTensor` ops that run their forward pass on a backend without a [device backend](#devices) of its own, and reuse the CPU backward. Each falls back to the CPU when its device is unavailable. ROCm, CUDA and Metal tensors run every op on the device instead: place the tensor there.
 
 | Header | Functions | Device |
 |--------|-----------|--------|
-| `tensor_gpu.h` | `tensor_{add,sub,mul,scale,relu,square,sum,matmul}_gpu` | MPS |
-| `tensor_cuda.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_cuda`, `tensor_matmul_cuda_blas` | CUDA |
-| `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`); elsewhere the core's own SIMD ops |
 | `tensor_blas.h` | `tensor_matmul_blas` | through `sgemm`: a linked CBLAS (Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), else the built-in kernel |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks core (`sgemm`) / vDSP / BLAS by size |
 
-`tensor_gpu.h` also controls MPS batching and persistence at the tensor level:
-
-```c
-void tensor_gpu_batch_begin();
-void tensor_gpu_batch_end();
-void FloatTensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
-void tensor_gpu_release_all_persistent();
-```
-
-`tensor_auto.h` is CPU-only on purpose: across every size benchmarked (matmul from 2×2×2 to 128×128×128, and a 128×512×1024×256 training step) BLAS never lost to the core loop (measured before `tensor_matmul` moved to `sgemm`) and MPS never beat BLAS, so "auto" doesn't pick the GPU. Ask for it explicitly with `tensor_matmul_on(..., DEVICE_MPS)`.
+`tensor_auto.h` is CPU-only on purpose: across every size benchmarked (matmul from 2×2×2 to 128×128×128, and a 128×512×1024×256 training step) BLAS never lost to the core loop (measured before `tensor_matmul` moved to `sgemm`) and MPS never beat BLAS, so "auto" doesn't pick the GPU. To use a GPU, [place the tensors on it](#devices).
 
 ### Backend status {#backend-status}
 
@@ -2209,7 +2110,7 @@ SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (gls
 
 ## fp16 / bf16 {#fp16-bf16}
 
-No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), and native `half`/`bfloat` GPU compute on MPS, CUDA, WebGPU and ROCm (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)).
+No native 16-bit float in SafeC's type system (`Type.h`'s `TypeKind` has only `Float32`/`Float64` — a real compiler feature, not a stdlib change). Instead, the standard workaround: fp16/bf16 carried as raw bits in `unsigned short`, with explicit correctly-rounded (round-to-nearest-even) conversion to/from `float`. On top of that sit half-precision tensors and mixed-precision training (`tensor_half.h`, below), native `half`/`bfloat` GPU compute on MPS, CUDA, WebGPU and ROCm (see [Host-array API](#host-array-api-mps-cuda-spir-v-webgpu)), and 16-bit training on a device ([precision](#device-precision)).
 
 | Check | Result |
 |---|---|
@@ -2452,44 +2353,11 @@ yet run on an NVIDIA GPU.
 
 ## Device selection {#device-selection}
 
-Every backend names its op explicitly (`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — precise, but awkward for a caller that wants to pick a device once. `tensor_matmul_on(a, b, device)` / `a.relu_on(device)` dispatch over a `Device` enum instead — verified bit-identical across CPU/CPU+BLAS/MPS:
-
-| Device | Y[0][0] | Y[0][1] |
-|---|---|---|
-| CPU | 0.900000 | 1.300000 |
-| CPU + BLAS | 0.900000 | 1.300000 |
-| MPS | 0.900000 | 1.300000 |
-
-```c
-#include <std/ml/tensor_dispatch.h>
-
-enum Device {
-    DEVICE_CPU = 0, DEVICE_CPU_BLAS = 1, DEVICE_MPS = 2,
-    DEVICE_CUDA = 3, DEVICE_CUDA_BLAS = 4,
-    DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
-    DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
-};
-&FloatTensor tensor_matmul_on(const &FloatTensor a, const &FloatTensor b, enum Device device);
-&FloatTensor FloatTensor::relu_on(enum Device device) const;
-
-#include <std/ml/transformer_dispatch.h>
-&FloatTensor jit_block_forward_on(const &JiTBlock block, const &FloatTensor x, enum Device device);
-&FloatTensor jit_forward_on(const &JiT model, const &FloatTensor patches, const &FloatTensor cond, enum Device device);
-```
-
-Building this exposed a real name collision: `activations.sc` (forward-only ops) and `tensor_nn.sc` (autograd ops, needed by every GPU backend) both defined `FloatTensor::sigmoid`/`FloatTensor::relu`/etc. — no program could link both, so no `activations.sc`-based layer could use a GPU backend. Fixed by suffixing `activations.h`'s forward-only functions with `_fwd` and updating `attention.sc`/`transformer.sc`/`rnn.sc`'s call sites.
-
-`jit_block_forward_on(block, x, device)` threads device selection through a real layer (JiTBlock's Q/K/V/output projections + FFN) — verified bit-identical to the reference across CPU/CPU+BLAS/MPS:
-
-| Path | y[0] | y[1] | y[2] |
-|---|---|---|---|
-| `JiTBlock::forward` (reference) | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_CPU)` | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_CPU_BLAS)` | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_MPS)` | -0.479727 | -0.589425 | -0.537808 |
-
-Not yet device-routed: attention's internal QK^T/softmax/·V matmuls, `DiTBlock`, `cnn.sc`.
-
+A tensor's device picks where its ops run: `t.place(d)`, `t.to(d)`,
+`model_to(&m, d)`, `TrainConfig.device`, `device_set_default(d)` or
+`device_auto()` ([Training on a GPU](#devices)). Every layer built from
+tensor ops, transformer and diffusion blocks included, runs on the device of
+its parameters and input.
 
 ## LLM orchestration
 

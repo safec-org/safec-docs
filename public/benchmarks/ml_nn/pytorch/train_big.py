@@ -1,4 +1,4 @@
-# PyTorch counterparts of train_big.sc / train_big_rocm.sc: the same models,
+# PyTorch counterparts of train_big.sc / train_big_gpu.sc: the same models,
 # sizes, optimizers and step counts. fp32, then the MLP and the conv nets
 # with automatic mixed precision (torch.autocast; fp16 with a GradScaler,
 # bf16 without). One untimed warm-up run, then one timed run per workload.

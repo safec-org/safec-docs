@@ -466,29 +466,29 @@ Big model:
 
 #### Training: networks, generative models, RL {#ml-training}
 
-The training workloads of SafeC's `std::ml` test suites, run end to end through the library's own training stack: [`nn.h`](/stdlib/ml#training) layers, losses and optimizers, `trainer_fit` with per-step tensor arenas, and the [autoencoder](/stdlib/ml#autoencoders), [GAN](/stdlib/ml#gans), [RL](/stdlib/ml#rl), [LoRA](/stdlib/ml#lora) and [convolution](/stdlib/ml#convnet) modules. SafeC runs each workload on the CPU and on [`nn_rocm.h`](/stdlib/ml#rocm-training), its device-resident GPU path, which keeps parameters, activations, gradients, optimizer state and the dataset in GPU memory and replays recorded steps. LoRA has no GPU path. PyTorch runs the same models, shapes, optimizers and step counts in fp32. On the GPU it keeps the DQN replay buffer and the PPO advantage recursion on the host, as GPU implementations usually do. Each program gets one untimed warm-up run, and the table shows the best of 7 runs. SafeC's GPU timings include building the device model and uploading the data. Each side draws its own random data of the same shapes, so the final losses are a sanity check rather than a comparison. Cells are ms per workload.
+The training workloads of SafeC's `std::ml` test suites, run end to end through the library's own training stack: [`nn.h`](/stdlib/ml#training) layers, losses and optimizers, `trainer_fit` with per-step tensor arenas, and the [autoencoder](/stdlib/ml#autoencoders), [GAN](/stdlib/ml#gans), [RL](/stdlib/ml#rl), [LoRA](/stdlib/ml#lora) and [convolution](/stdlib/ml#convnet) modules. SafeC runs each workload on the CPU and, through the same calls with `TrainConfig.device` or `model_to`, on the GPU ([training on a GPU](/stdlib/ml#devices)): parameters, activations, gradients, optimizer state and the dataset stay in GPU memory, and every op is its own kernel launch. PyTorch runs the same models, shapes, optimizers and step counts in fp32. On the GPU it keeps the DQN replay buffer and the PPO advantage recursion on the host, as GPU implementations usually do. Each program gets one untimed warm-up run, and the table shows the best of 7 runs. SafeC's GPU timings include placing the model and uploading the data. Each side draws its own random data of the same shapes, so the final losses are a sanity check rather than a comparison. Cells are ms per workload.
 
 | Workload | Steps | Framework | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|---|
-| MLP classifier, 2→32→32→2, batch 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>20.1 (ROCm) | — | — |
+| MLP classifier, 2→32→32→2, batch 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>76.8 (ROCm) | — | — |
 |  |  | PyTorch | 159 (CPU) | — | — |
-| MLP classifier, 784→256→256→10, batch 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**6.13** (ROCm) | — | — |
+| MLP classifier, 784→256→256→10, batch 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**14.2** (ROCm) | — | — |
 |  |  | PyTorch | 31.8 (ROCm) | — | — |
-| VAE, 100→128→4, batch 32 | 160 | SafeC | 14.7 (CPU, AOCL)<br>**12.6** (ROCm) | — | — |
+| VAE, 100→128→4, batch 32 | 160 | SafeC | **14.7** (CPU, AOCL)<br>66.8 (ROCm) | — | — |
 |  |  | PyTorch | 97 (CPU) | — | — |
-| GAN, 2D Gaussian, 32×2 hidden, batch 64 | 160 D + 160 G | SafeC | **8.62** (CPU, AOCL)<br>26.9 (ROCm) | — | — |
+| GAN, 2D Gaussian, 32×2 hidden, batch 64 | 160 D + 160 G | SafeC | **8.62** (CPU, AOCL)<br>130 (ROCm) | — | — |
 |  |  | PyTorch | 144 (CPU) | — | — |
-| DQN, 4→64→64→2, Double DQN, batch 64 | 1000 updates + 1064 actions | SafeC | **51.2** (CPU, AOCL)<br>156 (ROCm) | — | — |
+| DQN, 4→64→64→2, Double DQN, batch 64 | 1000 updates + 1064 actions | SafeC | **51.2** (CPU, AOCL)<br>485 (ROCm) | — | — |
 |  |  | PyTorch | 624 (CPU) | — | — |
-| PPO, 1024-step rollouts, 4 epochs × 16 minibatches | 5 updates | SafeC | **25.5** (CPU, AOCL)<br>37.3 (ROCm) | — | — |
+| PPO, 1024-step rollouts, 4 epochs × 16 minibatches | 5 updates | SafeC | **25.5** (CPU, AOCL)<br>193 (ROCm) | — | — |
 |  |  | PyTorch | 268 (CPU) | — | — |
-| LoRA, rank 4 on a frozen 2→64→64→2 MLP | 480 | SafeC | **11.2** (CPU, AOCL) | — | — |
+| LoRA, rank 4 on a frozen 2→64→64→2 MLP | 480 | SafeC | **11.2** (CPU, AOCL)<br>143 (ROCm) | — | — |
 |  |  | PyTorch | 210 (CPU) | — | — |
-| Conv autoencoder, 1×16×16, 2 conv + 2 transposed conv | 80 | SafeC | 30.4 (CPU, oneMKL)<br>**12.1** (ROCm) | — | — |
+| Conv autoencoder, 1×16×16, 2 conv + 2 transposed conv | 80 | SafeC | **30.4** (CPU, oneMKL)<br>32.6 (ROCm) | — | — |
 |  |  | PyTorch | 80.3 (ROCm) | — | — |
 
-- **SafeC's best is 5.2–44× faster than PyTorch's best on every workload.** The gap is widest on the small models, where a PyTorch step is mostly per-op dispatch and autograd bookkeeping in Python. It is narrowest on the 784-wide MLP (6.13 vs 31.8 ms) and the conv autoencoder (12.1 vs 80.3 ms), where the arithmetic dominates.
-- **SafeC's GPU path wins once the layers have real work**: 3.2× faster than its CPU path on the 784-wide MLP and 2.5× on the conv autoencoder. On the tiny nets (2→32→32→2, the GAN, DQN and PPO) the CPU path stays faster, because each kernel's fixed cost, about 1.3 µs on the MI100 even inside a graph, outweighs its work. Even there the GPU path beats PyTorch's best by 4.0–7.9×.
+- **SafeC's best is 2.2–44× faster than PyTorch's best on every workload.** The gap is widest on the small models, where a PyTorch step is mostly per-op dispatch and autograd bookkeeping in Python. It is narrowest on the 784-wide MLP (14.2 vs 31.8 ms) and the conv autoencoder (30.4 vs 80.3 ms), where the arithmetic dominates.
+- **On these sizes the CPU is SafeC's faster path, except for the 784-wide MLP** (14.2 ms on the GPU against 19.9 on the CPU); the conv autoencoder is even (32.6 against 30.4). A step of a tiny net is dozens of small kernels, and each launch costs a few microseconds of fixed work that outweighs its arithmetic. Even so, the GPU path beats PyTorch's best on every row, by 1.1–2.5×. [Bigger models](#ml-training-gpu) are where the GPU pays off.
 - **PyTorch's best is its CPU path on six of the eight workloads.** Its ROCm path is faster only for the 784-wide MLP and the conv autoencoder.
 - **AOCL-BLAS is within 6% of SafeC's built-in GEMM** on the CPU (19.9 vs 21.1 ms on the 784-wide MLP); it or oneMKL is the fastest CPU configuration on every row.
 - **Two CPU library changes produced the CPU numbers.**
@@ -500,31 +500,31 @@ The training workloads of SafeC's `std::ml` test suites, run end to end through 
 Bigger conv nets and mixed precision are in [Training on the GPU](#ml-training-gpu).
 
 ::: details Sources
-[train_nn.sc](/benchmarks/ml_nn/safec/train_nn.sc) · [train_nn_rocm.sc](/benchmarks/ml_nn/safec/train_nn_rocm.sc) · [PyTorch train_nn.py](/benchmarks/ml_nn/pytorch/train_nn.py)
+[train_nn.sc](/benchmarks/ml_nn/safec/train_nn.sc) · [train_nn_gpu.sc](/benchmarks/ml_nn/safec/train_nn_gpu.sc) · [PyTorch train_nn.py](/benchmarks/ml_nn/pytorch/train_nn.py)
 :::
 
 #### Training on the GPU: conv nets and mixed precision {#ml-training-gpu}
 
-Bigger models, trained end to end on [`nn_rocm.h`](/stdlib/ml#rocm-training), SafeC's device-resident training path. Parameters, activations, gradients, optimizer state and the dataset stay in GPU memory, and steps are replayed as graphs. Convolutions run on MIOpen. SafeC's CPU path (`nn.h` / `convnet.h` autograd, `trainer_fit`) runs the same models for reference. PyTorch runs the same architectures, sizes, optimizers (Adam) and step counts on the same GPU, in fp32 and with automatic mixed precision: `torch.autocast` in fp16 with a `GradScaler`, and in bf16. SafeC's 16-bit columns use `RocmNet::set_precision`: fp16 or bf16 activations, fp32 master weights and optimizer state, and for fp16 a dynamic loss scale kept on the GPU. The GAN and the VAE have no 16-bit mode. Each program gets one untimed warm-up run, and the table shows the best of 7 runs. SafeC's timings include building the device model and uploading the data. Cells are ms per workload, measured on the 7800X3D + MI100 only.
+Bigger models, trained end to end through the same `trainer_fit`, `model_fit` and `Dcgan::train` calls as on the CPU, with `TrainConfig.device` (or `model_to`) set to the GPU ([training on a GPU](/stdlib/ml#devices)). Parameters, activations, gradients, optimizer state and the dataset stay in GPU memory. Convolutions run on MIOpen. SafeC's CPU path (`nn.h` / `convnet.h` autograd, `trainer_fit`) runs the same models for reference. PyTorch runs the same architectures, sizes, optimizers (Adam) and step counts on the same GPU, in fp32 and with automatic mixed precision: `torch.autocast` in fp16 with a `GradScaler`, and in bf16. SafeC's 16-bit columns set the [precision](/stdlib/ml#device-precision) to fp16 (with a dynamic loss scale on the GPU) or bf16: activations and their gradients stored in 16 bits, fp32 parameters, gradients of parameters and optimizer state. Each program gets one untimed warm-up run, and the table shows the best of 7 runs. SafeC's timings include placing the model and uploading the data. Cells are ms per workload, measured on the 7800X3D + MI100 only.
 
 | Workload | Steps | SafeC CPU | SafeC ROCm fp32 | fp16 | bf16 | PyTorch ROCm fp32 | AMP fp16 | AMP bf16 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| MLP 784→1024→1024→10, batch 256 | 64 | 205 | 27.6 | 26.6 | **25.7** | 56.6 | 70.2 | 63.3 |
-| CNN + batch norm, 1×28×28, batch 128 | 32 | 864 | 31.2 | **29.6** | 32.5 | 60.7 | 58.3 | 94.0 |
-| ResNet (3 residual blocks), 3×32×32, batch 128 | 16 | 2850 | 75.3 | **57.9** | 79.5 | 98.9 | 74.3 | 271 |
-| U-Net, 1×32×32, batch 32 | 32 | 2344 | 50.5 | **44.7** | 69.8 | 146 | 154 | 277 |
-| DCGAN, 28×28, batch 64 | 32 D + 32 G | 764 | **56.1** | — | — | 106 | — | — |
-| Conv VAE, 28×28, batch 64 | 32 | 149 | **26.8** | — | — | 53.3 | — | — |
+| MLP 784→1024→1024→10, batch 256 | 64 | 205 | 36.6 | **32.1** | 34.4 | 56.6 | 70.2 | 63.3 |
+| CNN + batch norm, 1×28×28, batch 128 | 32 | 864 | 36.3 | **31.1** | 36.0 | 60.7 | 58.3 | 94.0 |
+| ResNet (3 residual blocks), 3×32×32, batch 128 | 16 | 2850 | 83.4 | **58.9** | 75.1 | 98.9 | 74.3 | 271 |
+| U-Net, 1×32×32, batch 32 | 32 | 2344 | 54.8 | **49.2** | 59.7 | 146 | 154 | 277 |
+| DCGAN, 28×28, batch 64 | 32 D + 32 G | 764 | 83.3 | **83.0** | 95.1 | 106 | — | — |
+| Conv VAE, 28×28, batch 64 | 32 | 149 | 40.5 | **38.2** | 47.1 | 53.3 | — | — |
 
-- **SafeC's best is 1.3–3.3× faster than PyTorch's best on every workload.** The largest gap is the U-Net (44.7 vs 146 ms); the smallest is the ResNet in fp16 (57.9 vs 74.3 ms).
-- **fp16 is the faster 16-bit mode on the MI100.** MIOpen's fp16 convolution kernels use the matrix cores, which cuts the ResNet from 75.3 to 57.9 ms. Its bf16 convolutions run at about fp32 speed in SafeC (79.5 ms) and much slower in PyTorch (271 ms).
-- **The GPU path is 5.6–52× faster than SafeC's own CPU path** on these sizes (52× on the U-Net), so for conv nets it is the one to use.
-- **What made the ResNet fast.** It went from 183 ms (im2col convolutions) to 98 ms with MIOpen, then to 75 ms by fusing batch norm's statistics, the folded conv bias and the activation gradient into fewer launches, then to 58 ms in fp16.
+- **SafeC's best is 1.3–3.0× faster than PyTorch's best on every workload.** The largest gap is the U-Net (49.2 vs 146 ms); the smallest are the ResNet (58.9 vs 74.3 ms, both fp16) and the DCGAN (83.0 vs 106 ms).
+- **fp16 is the faster 16-bit type on the MI100.** MIOpen's fp16 convolution kernels use the matrix cores, which cuts the ResNet from 83.4 to 58.9 ms. Its bf16 convolutions run at about fp32 speed in SafeC (75.1 ms) and much slower in PyTorch (271 ms); on the DCGAN and the VAE, whose transposed convolutions MIOpen has no fast bf16 kernels for, bf16 is slower than fp32. The first run of each convolution shape times it in 16 bits and in fp32 and keeps the faster, which keeps those layers from falling further behind.
+- **The GPU path is 3.9–48× faster than SafeC's own CPU path** on these sizes (48× on the ResNet), so for conv nets it is the one to use.
+- **What makes 16 bits pay off.** Converting fp32 activations to 16 bits around every convolution cost about as much as the 16-bit kernels saved (the ResNet took 78 ms that way). Storing the activations and their gradients in 16 bits removes those conversions, and 16-bit kernels that move two values per 32-bit load and store reach the bandwidth the halved bytes allow.
 - **Losses.** SafeC's fp32, fp16 and bf16 runs reach the same final loss (ResNet 0.131 in all three, CNN 0.081). PyTorch's fp16 ResNet run ended at 2.32 against 0.138 in fp32, so its AMP number there is for a run that did not train. Each side draws its own random data, so losses between frameworks are only a sanity check.
-- **First runs.** MIOpen fills a per-user find database the first time it sees a shape and data type. Until then, a new precision can run several times slower, for SafeC and PyTorch alike. The warm-up run absorbs this within a program, and these numbers come from a machine where the database was already filled.
+- **First runs.** MIOpen fills a per-user find database the first time it sees a shape and data type. Until then, a new precision can run several times slower, for SafeC and PyTorch alike. The warm-up run absorbs this, and the per-shape timing above, within a program, and these numbers come from a machine where the database was already filled.
 
 ::: details Sources
-[train_big.sc](/benchmarks/ml_nn/safec/train_big.sc) · [train_big_rocm.sc](/benchmarks/ml_nn/safec/train_big_rocm.sc) · [PyTorch train_big.py](/benchmarks/ml_nn/pytorch/train_big.py)
+[train_big.sc](/benchmarks/ml_nn/safec/train_big.sc) · [train_big_gpu.sc](/benchmarks/ml_nn/safec/train_big_gpu.sc) · [PyTorch train_big.py](/benchmarks/ml_nn/pytorch/train_big.py)
 :::
 
 #### Convolution and U-Net {#ml-convolution}

@@ -28,7 +28,7 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 씁니다: `net.forward(x)`, `v.loss(x, y)`, `opt.step()`, `buf.free()`.
 생성자는 [정적 메서드](/ko/reference/functions#static-methods)입니다:
 `Mlp::new(...)`, `FloatTensor::new_2d(...)`, `Dataset::moons(...)`,
-`RocmNet::from_mlp(&net, 128UL)`, `TrainConfig::default()`. 텐서 하나에 대한
+`SparseTensor::from_dense(&d, 0.0f, 1)`, `TrainConfig::default()`. 텐서 하나에 대한
 연산은 그 텐서의 메서드입니다 — `x.relu()`, `logits.log_softmax()`,
 `loss.backward()`, `t.fill(0.0f)`. 텐서를 제자리에서 바꾸지 않는 한 const
 메서드이며, 텐서 두 개에 대한 연산은 함수로 남습니다(`tensor_matmul(a, b)`). 모든 모델이 할 수
@@ -36,8 +36,7 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 복사하고, 내장 손실로 학습하는 일 — 은 모델들이 만족시키는
 [트레이트](#modules)를 대상으로 한 제네릭 함수로 한 번만 작성됩니다:
 `model_add_params(&net, &opt)`, `model_save_file(&net, path)`,
-`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`. `rocm_trainer_fit`에
-값으로 넘기는 단계 함수(`rocm_net_ce_step`)는 함수로 남습니다.
+`module_fit(&net, TRAIN_LOSS_CE, &opt, &data, &cfg)`, `model_to(&net, DEVICE_ROCM)`.
 
 ---
 
@@ -753,11 +752,9 @@ float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);   // 테스트�
 테스트는 모든 연산의 그래디언트를 중앙 차분과 비교합니다. 옵티마이저가
 수렴하는지도 확인하며, moons로 학습한 MLP는 정확도 95%를 넘습니다.
 
-AMD GPU에서는 [`nn_rocm.h`](#rocm-training)가 이 모델들(그리고 아래의
-합성곱 신경망, 오토인코더, GAN, 강화 학습 에이전트)을 모든 것을 GPU 메모리에
-둔 채 학습합니다. `rocm_trainer_fit`은 디바이스에서 실행되는 `trainer_fit`입니다.
-학습 코드를 한 번만 작성하고 백엔드는 빌드할 때 고르려면
-[`train.h`](#train-traits)를 쓰십시오.
+같은 호출로 GPU에서도 학습합니다: `TrainConfig.device`를 두거나 `model_to`로
+모델을 배치하면 모든 연산이 피연산자가 있는 곳에서 실행됩니다
+([GPU에서 학습](#devices)).
 
 ## 트레이트로서의 모델: 모든 모델에 쓰는 제네릭 함수 {#modules}
 
@@ -1352,137 +1349,172 @@ while (1) {
 - DQN, REINFORCE, A2C, PPO는 각자의 스텝 예산 안에 CartPole의 "해결" 기준인
   평균 greedy 리턴 195에 도달합니다.
 
-## 하나의 학습 인터페이스: CPU 또는 GPU {#train-traits}
+## GPU에서 학습 {#devices}
+
+<a id="train-traits"></a><a id="train-backend"></a><a id="rocm-training"></a>
 
 ```c
-#include <std/ml/train.h>          // 백엔드 중립 이름; 빌드의 feature가 백엔드를 고름
-#include <std/ml/train_traits.h>   // 트레이트와 제네릭 루프 (train.h가 포함함)
+#include <std/ml/device.h>   // 디바이스, 정밀도. tensor.h, trainer.h, module.h가 포함함
 ```
 
-위의 CPU 스택과 [`nn_rocm.h`](#rocm-training)의 디바이스 상주 스택은 같은 모델을
-학습합니다. `train_traits.h`는 둘을 하나의 인터페이스 뒤에 둡니다. 네 가지
-작은 능력으로 [합성한 트레이트](/ko/reference/generics#composing-traits)가
-있고, 제네릭 루프는 그 트레이트를 대상으로 한 번만 작성됩니다. 트레이트는
-구조적입니다. 트레이너는 메서드를 갖추기만 하면 트레이트를 만족하고,
-만족 여부는 제네릭이 인스턴스화되는 곳에서 검사되며, 모든 호출은 그
-타입의 메서드를 직접 호출합니다. 실행 시간 디스패치는 없습니다.
-
-| 능력 | 메서드 |
-|---|---|
-| `HostSynced` | `sync()`(트레이너의 `host` 모델을 최신 상태로), `free()` |
-| `EpochFit` | `fit_begin(&data, &cfg)`, `fit_epoch()` → `EpochLoss`, `fit_end()`, `learning_rate()` / `set_learning_rate(lr)` |
-| `BatchStep` | `train_step(x, y)`: 호스트 배치 하나로 한 단계 |
-| `Actor` | `act(obs, explore)` |
-
-| 역할 | 구성 | 대상 |
-|---|---|---|
-| `Trainable` | `EpochFit + BatchStep + HostSynced` | 모델과 옵티마이저를 `Dataset`의 배치로 학습: 손실로 학습하는 신경망(`Mlp`, `ConvNet`), 오토인코더, VAE |
-| `GanTrainable` | `HostSynced` + `train_step(real, labels)`, `train(&data, epochs, batchSize)` | 두 옵티마이저를 가진 `Gan` 또는 `Dcgan` |
-| `ValueAgent` | `Actor + HostSynced` + `epsilon()`, `observe(obs, action, reward, next, terminal)`(기울기 단계를 실행했으면 1), `last_loss()`, `updates()` | 가치 기반 강화 학습 에이전트(`Dqn`) |
-| `PolicyLearner` | `Actor + HostSynced` + `record(obs, action, reward, next, terminated, truncated)`, `update()` | 정책 경사 에이전트(`PolicyAgent`: REINFORCE, A2C, PPO) |
-
-- **`train_fit(&m, &data, &cfg)`** 는 `EpochFit + HostSynced`인 모든
-  트레이너(모든 `Trainable`이 그렇습니다. 바운드는 루프가 쓰는 것만
-  요구합니다)에 대한 `trainer_fit`입니다. 배치, 에폭, 학습률 감소, `TrainReport`가 같습니다.
-  끝나면 호스트 모델이 동기화되어 있고, 디바이스에서 실패한 실행은
-  `steps == 0`을 보고합니다.
-- **`train_gan(&g, &data, epochs, batchSize)`** 는 모든 `GanTrainable`에
-  대한 `Gan::train`이며, 역시 호스트 모델을 동기화해 둡니다.
-- 직접 작성한 코드도 같은 방식으로 `generic<A: ValueAgent>`(또는 다른
-  트레이트)를 받을 수 있고, 그러면 어느 백엔드에서든 그대로 실행됩니다.
-
-**트레이너.** `train.h`는 각 트레이너를 백엔드 접두사 없이 이름 붙이고,
-구체 타입은 컴파일 시간에 고릅니다.
-
-| `train.h` | 생성자 | CPU (`train_cpu.h`) | ROCm (`nn_rocm.h`) |
-|---|---|---|---|
-| `MlpTrainer` | `mlp_trainer_new(mlp, loss, &opt, &to)` | `CpuTrainer<Mlp>` | `RocmTrainer<Mlp, RocmNet>` |
-| `ConvNetTrainer` | `convnet_trainer_new(net, loss, &opt, &to)` | `CpuTrainer<ConvNet>` | `RocmTrainer<ConvNet, RocmNet>` |
-| `VaeTrainer` / `ConvVaeTrainer` | `vae_trainer_new(v, &opt, &to)` / `conv_vae_trainer_new` | `CpuModelTrainer<Vae>` / `<ConvVae>` | `RocmTrainer<Vae, RocmVae>` / `<ConvVae, RocmVae>` |
-| `ConvAeTrainer` | `conv_ae_trainer_new(ae, &opt, &to)` | `CpuModelTrainer<ConvAutoencoder>` | `RocmTrainer<ConvAutoencoder, RocmConvAe>` |
-| `GanTrainer` / `DcganTrainer` | `gan_trainer_new(g, &to)` / `dcgan_trainer_new` | `CpuGanTrainer<Gan>` / `<Dcgan>` | `RocmGanTrainer<Gan>` / `<Dcgan>` |
-| `DqnLearner` | `dqn_learner_new(d)` | `CpuDqnAgent` | `RocmDqnAgent` |
-| `PgLearner` | `pg_learner_new(a, &to)` | `CpuPgAgent` | `RocmPgAgent` |
-
-- **소유권.** 생성자는 호스트 모델을 값으로 받아 트레이너의 `host` 필드에
-  넣습니다. 모델의 텐서는 넘긴 구조체와 공유되지만 다른 필드는 그렇지
-  않으므로, 그 뒤로는 `t.host`를 쓰십시오. `sync()`는 `host`를 최신
-  상태로 만듭니다. CPU에서는 아무 일도 하지 않고, GPU에서는 내려받습니다.
-  `free()`는 트레이너가 할당한 것(옵티마이저 상태, 디바이스 버퍼)만
-  해제하며, 호스트 모델은 평소처럼 직접 해제합니다(`t.host.free()`).
-- **옵티마이저.** 생성자에 넘기는 `Optimizer`는 종류와 하이퍼파라미터만
-  제공합니다(`Optimizer::from` / `RocmOptimizer::from`). 트레이너는 모델의
-  파라미터를 자기 옵티마이저에 추가합니다.
-- **손실.** 신경망 트레이너는 `TRAIN_LOSS_CE`(클래스 인덱스에 대한
-  소프트맥스 교차 엔트로피), `TRAIN_LOSS_MSE`, `TRAIN_LOSS_BCE`(로짓
-  기준)를 받습니다. 오토인코더와 VAE는 자체 손실로 학습합니다.
-- **`TrainerOptions`** (`TrainerOptions::default()`: `maxBatch` 256, fp32).
-  CPU는 두 필드를 모두 무시합니다. `maxBatch`는 디바이스 버퍼의 크기를
-  정하며, `cfg.batchSize`는 이를 넘을 수 없고, `pg_learner_new`에서는 가장
-  긴 롤아웃 길이입니다. `precision`(`TENSOR_FP16` / `TENSOR_BF16`)은
-  디바이스에서 16비트 활성값을 고릅니다. ROCm에서는
-  [`RocmNet::set_precision`](#rocm-training-mixed-precision)에 해당하며, 신경망
-  트레이너에만 적용됩니다.
-- **GPU에서 잃는 것은 없습니다.** `RocmTrainer::fit_epoch`는
-  `rocm_trainer_fit`의 에폭과 같습니다. 데이터셋은 GPU에 머물고 단계는
-  그래프로 재생됩니다. GAN과 강화 학습 트레이너는 `RocmGan`, `RocmDqn`,
-  `RocmPolicy`를 감쌉니다. 디바이스에서 `train_step`은 배치를 올리고 그
-  손실을 기다리므로, 속도보다는 직접 작성하는 루프에 알맞습니다.
+모든 텐서에는 디바이스가 있습니다: `DEVICE_CPU`, 또는 GPU 백엔드(AMD는
+`DEVICE_ROCM`, NVIDIA는 `DEVICE_CUDA`, Apple Silicon은 `DEVICE_MPS`)입니다.
+연산은 피연산자의 디바이스에서 실행됩니다. 피연산자 중 하나라도 GPU에
+있으면 연산은 그곳에서 실행되며 나머지를 올리고, 결과도 그곳에 둡니다.
+그래서 파라미터가 GPU에 있는 모델은 CPU에서 학습하는 것과 같은 코드로
+그곳에서 학습합니다: 위의 모든 레이어, 손실, 옵티마이저, `trainer_fit`,
+`module_fit` / `model_fit`, 오토인코더, GAN, 강화 학습 에이전트, LoRA
+어댑터가 그렇습니다. 역전파는 각 노드를 순전파가 실행된 곳에서 실행합니다.
 
 ```c
-#include <std/ml/train.h>
-
-static &FloatTensor logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
-
-struct Rng rng = Rng::new(1UL);
-struct Dataset data = Dataset::moons(400UL, (float)0.1, &rng);
-struct Optimizer adam = Optimizer::new(OPT_ADAM, (float)0.01);   // 종류와 하이퍼파라미터
-struct TrainerOptions to = TrainerOptions::default();
-MlpTrainer t = mlp_trainer_new(Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng),
-                               TRAIN_LOSS_CE, &adam, &to);
+struct Mlp net = Mlp::new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
+model_add_params(&net, &opt);
 struct TrainConfig cfg = TrainConfig::default();
-cfg.epochs = 60UL;
-struct TrainReport rep = train_fit(&t, &data, &cfg);         // t.host가 학습된 Mlp
-float acc = trainer_accuracy(&t.host, logits, &data, 64UL);
-t.free();
-t.host.free();
+cfg.device = DEVICE_AUTO;                  // 쓸 수 있는 첫 GPU, 없으면 CPU
+cfg.precision = DEVICE_FP16;               // 선택: 16비트 활성값
+struct TrainReport rep = trainer_fit(&net, clf_loss, &opt, &train, &cfg);
+model_sync(&net);                          // 호스트 사본을 최신으로: 저장, 확인, CPU에서 평가
 ```
 
-### 백엔드 고르기 {#train-backend}
+**디바이스 고르기.**
 
-빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 고르므로, 위 프로그램은
-소스 변경 없이 CPU에서도 AMD GPU에서도 학습합니다.
+| 방법 | 호출 |
+|---|---|
+| 명시적으로 | `TrainConfig.device`(학습 함수가 옵티마이저의 파라미터를 그곳에 두고 데이터셋도 그곳에 둠), 모든 모델에 `model_to(&m, d)`(파라미터와 버퍼: 실행 통계, 평균 생성기), `t.place(d)`는 텐서를 제자리에서 옮김, `t.to(d)`는 `d`에 있는 사본을 돌려줌(그래프 노드: 기울기가 거꾸로 흐름) |
+| 기본값으로 | `device_set_default(d)`. `DEVICE_AUTO`는 `device_default()`로 결정됨 |
+| 자동으로 | `device_auto()`: 프로그램이 함께 빌드된 백엔드 중 쓸 수 있는 첫 GPU(ROCm, CUDA, Metal 순), 없으면 CPU. 환경 변수 `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps`가 이를 덮어씀 |
 
-```toml
-[features]
-rocm = []       # safeguard build --features rocm
-```
+빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 링크합니다.
+아무것도 없이 빌드한 프로그램은 모든 것을 CPU에서 실행하며 GPU
+라이브러리를 링크하지 않습니다:
 
-| Feature | 백엔드 | 비고 |
+| Feature | 백엔드 | 링크 |
 |---|---|---|
-| 없음 | CPU (`train_cpu.h`) | |
-| `rocm` (`SAFEC_FEATURE_ROCM`) | ROCm (`nn_rocm.h`) | `gpu_rocm` 라이브러리를 링크하고, MIOpen 합성곱에는 `-lMIOpen`도 링크합니다. |
-| `cuda` (`SAFEC_FEATURE_CUDA`) | 아직 없음 | 컴파일 오류가 납니다. CUDA에는 연산 단위 커널(`gpu_cuda.h`)은 있지만 디바이스 상주 학습 스택은 아직 없습니다. `rocm`도 함께 켜져 있으면 ROCm을 씁니다. |
+| `rocm` | `device_rocm.sc`: hiprtc가 한 번 컴파일하는 HIP 커널, rocBLAS GEMM, MIOpen 합성곱 | `-lamdhip64 -lhiprtc -lrocblas`, `-lMIOpen`(선택, weak: 없으면 합성곱은 im2col + GEMM) |
+| `cuda` | `device_cuda.sc`: 같은 커널 소스를 NVRTC가 컴파일, cuBLAS, cuDNN | `-lcuda -lcublas -lnvrtc`, `-lcudnn`(선택, weak) |
+| `mps` | `device_mps.sc`: 공유 메모리 버퍼, `mps_gemm`, Metal 옵티마이저 커널. 다른 연산은 공유 메모리 위에서 CPU로 실행 | `-framework Metal -framework Foundation -lobjc` |
 
-`ML_TRAIN_BACKEND`는 선택된 백엔드의 이름 문자열입니다(`"cpu"` 또는
-`"rocm"`). `train.h`의 각 이름은 typedef이고, 각 생성자는 백엔드 자체
-생성자(`cpu_module_trainer_new`, `rocm_mlp_trainer_new`, …)로 넘기는 정적
-함수입니다. CPU 트레이너는 바운드가 있는 제네릭 구조체 —
-`CpuTrainer<M: Module>`, `CpuModelTrainer<M: LossModel>`,
-`CpuGanTrainer<H: GanModel>` — 이며 제네릭 생성자로 만들므로, CPU에서는
-모든 [`Module`](#modules)이 `cpu_module_trainer_new(model, loss, &opt)`로,
-모든 `LossModel`이 `cpu_model_trainer_new(model, &opt)`로 이 인터페이스를
-통해 학습합니다. 한 프로그램에서 두 백엔드를 함께 쓰려면 그 생성자들을 직접
-호출할 수도 있습니다. 앞으로 CUDA 백엔드는 같은 트레이트를 만족하는
-타입과 `train.h`의 분기 하나를 더하게 됩니다.
+`device_compiled(d)`, `device_available(d)`, `device_name(d)`,
+`device_sync(d)`, `device_stats(d)`(`device_stats_reset` 이후의 실행 수,
+GEMM, 전송과 바이트)는 프로그램이 무엇에서 실행되는지 알려 줍니다.
+디바이스 메모리는 스텝이 재사용하는 크기별 캐시에서 나오며,
+`device_bytes_reserved(d)`와 `device_cache_clear(d)`로 관리합니다.
 
-`tests/stdlib/tests/test_ml_traits.sc`는 트레이트를 통해 쓴 모든 CPU
-트레이너가 감싼 API(`trainer_fit`, `Gan::train`, `Dqn`, `PolicyAgent`)와
-비트 단위까지 똑같이 학습하는지 검사합니다. `tests/stdlib/rocm/run.sh`는
-`train.h`만으로 작성한 프로그램 `train_backend_check.sc`를 CPU용으로 한
-번, `rocm` feature로 한 번 빌드합니다. MI100에서 두 빌드는 비교한 모든
-값이 일치합니다: MLP, `ConvNet`, 합성곱 오토인코더의 손실, `train_step`,
-VAE의 손실 수준, 그리고 단계별로 같은 DQN과 PPO 에이전트.
+**호스트 사본과 디바이스 사본.** 텐서는 호스트 값과 디바이스 사본을
+필요할 때 맞춥니다: 디바이스의 연산은 호스트에서 쓴 텐서를 한 번 올리고,
+호스트에서 값을 읽으면(`at1`, `at2`, CPU 전용 연산) 한 번 내려받습니다.
+`t->data`를 직접 읽는 코드를 위해 `t.sync()` / `model_sync(&m)`가 호스트
+사본을 명시적으로 최신으로 만듭니다. 기울기도 같습니다: 디바이스에서
+`zero_grad()`는 기울기를 건드리지 않고 0으로 표시하며, 그 기울기에 처음
+닿는 역전파 연산은 더하는 대신 씁니다.
+
+**디바이스에서 실행되는 것.** 모든 원소 단위 연산과 활성화, 행렬곱,
+바이어스와 행 연산, 합과 평균, concat / slice / gather, softmax와
+log-softmax, 융합 손실(교차 엔트로피, 로짓의 BCE, Huber), 레이어 정규화,
+배치 정규화와 그룹 정규화(각각 뒤따르는 ReLU나 leaky ReLU와 융합),
+최대 / 평균 / 전역 풀링, 최근접 업샘플링, 쌍선형과 쌍삼차 크기 조정,
+합성곱과 전치 합성곱, 희소 곱, 모든 옵티마이저(모든 파라미터에 실행 한 번),
+기울기 노름 클리핑입니다. 축약이 긴 작은 GEMM은 split-K로 실행합니다.
+디바이스 커널이 없는 연산은 피연산자를 먼저 가져와 CPU에서 계산하므로,
+모든 연산이 모든 디바이스에서 동작하고 GPU는 속도만 바꿉니다.
+
+**트레이트.** `DenseTensor`와 [`SparseTensor`](#sparse)는
+`trait DeviceTensor : Tensor`(`device()`, `place(d)`, `sync()`)를 따르므로,
+[제네릭 코드](/ko/reference/generics#composing-traits)는 둘 중 무엇이든 받을
+수 있습니다. `RocmTensor`, `CudaTensor`, `MpsTensor`는 각각
+`DeviceTensor`를 상속하고, 벤더 라이브러리를 직접 부르는 코드를 위해
+그 백엔드에서의 값 버퍼(hipDeviceptr, CUdeviceptr, MTLBuffer)인
+`device_buffer()`를 더합니다.
+
+```c
+generic<T: DeviceTensor>
+int to_host(&T t) { return t.sync(); }   // DenseTensor 또는 SparseTensor
+```
+
+**백엔드.** 백엔드는 정적 함수(alloc, release, upload, download, copy,
+sync, gemm, gemm_batched, conv, launch, offset, storage16)의 구조체이며
+`device_register_backend_(device, &tag)`로 등록합니다. 모든 호출은 컴파일
+타임에 결정되고, 런타임은 텐서를 보고 디바이스만 고릅니다. ROCm과 CUDA
+백엔드는 커널 소스 `device_kernels.cu` 하나를 함께 씁니다.
+
+### 정밀도: 디바이스의 fp16과 bf16 {#device-precision}
+
+<a id="rocm-training-mixed-precision"></a>
+
+`device_set_precision(d, DEVICE_FP16)`(또는 `DEVICE_BF16`), 또는 학습 한
+번에는 `TrainConfig.precision`이 `d`에서 16비트로 학습합니다:
+
+- **저장.** ROCm과 CUDA에서는 활성값과 그 기울기를 16비트로 저장합니다.
+  파라미터, 그 기울기, 옵티마이저 상태는 fp32로 남습니다. 버퍼의 원소
+  형식은 디바이스 핸들과 함께 다니므로 모든 커널, 복사, GEMM, 합성곱이
+  그곳에서 읽습니다. 커널은 fp32로 계산하고 저장하는 값마다 한 번
+  반올림합니다. 커널 소스는 두 번 컴파일됩니다: 평범한 fp32 빌드와
+  16비트 피연산자용 빌드이며, 16비트 피연산자가 없는 실행은 평범한 빌드를
+  고르므로 fp32 학습에는 비용이 없습니다.
+- **계산.** 행렬곱은 fp32로 누적하는 16비트 GEMM(rocBLAS / cuBLAS
+  `gemm_ex`), 합성곱은 MIOpen / cuDNN의 16비트 커널로 실행합니다. 합성곱
+  형태와 방향마다 처음 실행할 때 16비트와 fp32를 재서 그 형태에는 더
+  빠른 쪽을 씁니다(`device_set_precision_pick(DEVICE_PICK_ALWAYS)`는 모두
+  16비트로 실행). 파라미터의 16비트 사본은 옵티마이저 스텝마다 한 번
+  만들어 재사용합니다.
+- **fp16 손실 스케일.** fp16은 PyTorch의 `GradScaler`처럼 디바이스에 동적
+  손실 스케일을 둡니다: 65536에서 시작해 손실의 기울기에 곱하고,
+  `backward()`가 끝날 때 모든 리프 기울기를 원래 크기로 되돌리므로 사용자
+  코드는 스케일된 기울기를 보지 않습니다. 기울기가 넘친 스텝은 옵티마이저가
+  디바이스에서 읽는 플래그를 세워 갱신을 건너뛰고, 스케일은 절반이 되며,
+  2000번 연속 깨끗한 스텝 뒤에는 두 배가 됩니다. `device_loss_scale(d)`가
+  읽습니다. bf16은 fp32와 지수 범위가 같아 스케일링이 필요 없습니다.
+- **Metal.** Metal 백엔드는 fp32 저장을 유지하므로(커널이 공유 메모리
+  위에서 CPU로 실행됨), 그곳에서 16비트 정밀도는 손실 스케일링만 바꿉니다.
+
+MI100에서는 fp16이 더 빠른 16비트 형식입니다: MIOpen의 fp16 커널은 행렬
+코어를 쓰지만 bf16 합성곱은 fp32와 비슷하거나 더 느립니다
+([GPU 학습 벤치마크](/ko/benchmarks#ml-training-gpu)).
+
+### 희소 텐서 {#sparse}
+
+```c
+#include <std/ml/sparse.h>
+```
+
+`SparseTensor`는 0이 아닌 값만 저장하는 CSR 형식의 `rows × cols`
+행렬입니다. 값은 길이 `nnz`의 평범한 `FloatTensor`이므로 희소 행렬이
+학습되는 파라미터(희소 레이어, 그래프의 학습되는 간선 가중치)가 될 수
+있습니다. 기울기는 값에 닿고, 패턴은 고정입니다. 인덱스 배열도 float
+텐서이므로(2^24까지 정확), `place(d)`가 행렬 전체를 디바이스로 옮기고 그
+곱은 그곳에서 실행됩니다.
+
+```c
+struct SparseTensor A = SparseTensor::from_dense(adj, (float)0.0, 1);   // 학습되는 간선 가중치
+&FloatTensor H = tensor_spmm(&A, X);           // [rows, n] = A [rows, cols] . X [cols, n]
+// ... 손실 ... loss.backward();               // A.values->grad, X->grad
+```
+
+| 부분 | 함수 |
+|---|---|
+| 생성 | `SparseTensor::new_csr(rows, cols, &rowPtr, &colIdx, &values, requiresGrad)`, `from_dense(&dense, threshold, requiresGrad)`, `identity(n, requiresGrad)` |
+| 원소 | `at1` / `at2`(패턴 밖은 0), `set1` / `set2`(있는 0 아닌 값), `fill` |
+| 연산 | S의 값과 X로 기울기가 가는 `tensor_spmm(&S, X)`, `to_dense()`, `scale(k)`(패턴 공유), `transpose()`: 그래프 노드 |
+| 디바이스 | `device()`, `place(d)`, `sync()`, `device_buffer()`(값의 버퍼) |
+| 수명 | `backward()`, `zero_grad()`, `free()` |
+
+`SparseTensor`는 `Tensor`와 `DeviceTensor`를 따르므로, 그 트레이트를
+대상으로 쓴 제네릭 코드는 밀집 텐서와 나란히 희소 텐서도 받습니다.
+
+::: tip 검증
+`tests/stdlib/tests/test_ml_device.sc`는 참조 디바이스를 등록합니다. 이는
+GPU와 같은 디스패치·일관성·역전파 경로를 거쳐 모든 디바이스 커널의 CPU
+버전을 실행하는 호스트 메모리입니다. 그 위에서 12개 워크로드(MLP, VAE,
+CVAE, GAN, hinge GAN, DQN, PPO, LoRA, 합성곱 오토인코더, 손실과 레이어
+정규화, 배치 / 그룹 정규화·풀링·잔차 블록이 있는 CNN, 업샘플링·크기
+조정·드롭아웃·concat 신경망)를 CPU와 대조해 학습하고, fp16 / bf16과 넘친
+스텝을 건너뛰는 손실 스케일도 확인합니다.
+`tests/stdlib/device/device_check.sc`는 같은 12개 워크로드를 실제 GPU에서
+학습하며(`tests/stdlib/rocm/run.sh`, `cuda/run.sh`, `mps/run.sh`), fp32는
+CPU와 2e-4 이내, fp16과 bf16은 5% 이내로 맞는지, 희소 곱과 그 기울기가
+유한 차분과 2e-3 이내로 맞는지 봅니다. MI100에서 모든 검사가 통과합니다.
+:::
 
 ## GPU 백엔드 {#gpu-backends}
 
@@ -1513,8 +1545,9 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리입니다(MLX 자체의 셀�
   `tests/stdlib/rocm/run.sh`가 모든 연산, GEMM 전치 조합 네 가지,
   그래프, 호스트 배열 API, fp16/bf16 버퍼(`float16.h`와 비트 단위로 같은
   반올림, 16비트 GEMM, SGD, 혼합 정밀도 연산)를 CPU 결과와 비교하며(검사 325개), [MIOpen과
-  hipFFT 라이브러리](#rocm-miopen-hipfft)도 검사합니다(검사 73개).
-  [ML 벤치마크](/ko/benchmarks#ml-mlp)는
+  hipFFT 라이브러리](#rocm-miopen-hipfft)(검사 73개)와 [디바이스에서의
+  학습](#devices)(fp32·fp16·bf16의 12개 워크로드를 CPU와 대조, 희소 곱)도
+  검사합니다. [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 MPS 경로와 같은 손실까지 학습합니다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했습니다 —
   `tests/stdlib/cuda/run.sh`가 모든 연산, 네 가지 GEMM 전치 조합(ReLU 융합
@@ -1585,9 +1618,8 @@ std::rocm_sgd(W1, dW1, lr);
 `rocm_capture_begin()` 전에 한 번 실행해 두세요. 선택이 시간 측정에서 나오므로,
 두 번의 실행이 다른 솔루션을 골라 마지막 비트가 다를 수 있습니다.
 
-`tensor_rocm.h`는
-호스트 배열 연산을 자동 미분 `FloatTensor` 함수(`tensor_add_rocm`,
-`tensor_matmul_rocm_blas`, …)로 감싸며 CPU 대체 경로가 있습니다.
+자동미분 텐서는 이 호스트 배열 호출이 아니라 [자신의 디바이스](#devices)로
+GPU를 씁니다.
 
 rocBLAS와 직접 작성한 커널의 비교: 이 라이브러리의 타일 SGEMM
 (`rocm_matmul_f32`)은 MI100에서 4096³ 기준 약 9.5 TFLOPS, rocBLAS는 행렬
@@ -1634,121 +1666,6 @@ MI100, 배치 4 × 헤드 16, fp32, 호출당 ms, 같은 GPU의 ROCm용 PyTorch 
 | linear | 64 | 4096 | 아니오 | 0.464 | 1.40 |
 | linear | 64 | 16384 | 예 | 2.76 | 14.6 |
 | linear | 128 | 4096 | 예 | 2.84 | 8.73 |
-
-### ROCm에서 디바이스 상주 학습 — `nn_rocm.h` {#rocm-training}
-
-```c
-#include <std/ml/nn_rocm.h>   // 링크: gpu_rocm 라이브러리, MIOpen 합성곱에는 -lMIOpen도
-```
-
-[`nn.h`](#training), [`trainer.h`](#training), [`convnet.h`](#convnet),
-[`autoencoder.h`](#autoencoders), [`gan.h`](#gans), [`rl.h`](#rl)는 CPU에서
-자동미분으로 학습합니다. `nn_rocm.h`는 같은 모델을 AMD GPU에서 학습하며,
-매개변수, 활성값, 기울기, 옵티마이저 상태, 데이터셋, 누적 손실을 모두 GPU
-메모리에 둡니다. 학습 단계 하나가 호스트와 디바이스 사이에서 아무것도
-옮기지 않습니다. 디바이스 모델은 호스트 모델에서 만들고 각자의 `download`
-메서드로 다시 복사해 오므로, 평가, 샘플링, 저장 같은 `std::ml`의 나머지
-기능을 그 결과에 그대로 쓸 수 있습니다. 같은 모델은 `RocmTrainer`,
-`RocmGanTrainer`, `RocmDqnAgent`, `RocmPgAgent`로도 감싸져 있고 이들은
-[학습 트레이트](#train-traits)를 만족하므로, `train.h`를 대상으로 작성한
-코드는 `rocm` feature로 빌드하면 여기서 실행됩니다.
-
-```c
-struct Mlp net = Mlp::new(784UL, 256UL, 2UL, 10UL, ACT_RELU, ACT_NONE, &rng);
-struct RocmNet dnet = RocmNet::from_mlp(&net, 128UL);           // 최대 128행 배치
-struct RocmOptimizer opt = RocmOptimizer::new(OPT_ADAM, (float)0.001);
-dnet.add_params(&opt);
-struct TrainReport rep = rocm_trainer_fit(&dnet, rocm_net_ce_step, &opt, &train, &cfg);
-dnet.download(&net.params);   // 호스트 Mlp로 되돌림
-```
-
-| 구성 | 함수 |
-|---|---|
-| 신경망 | `RocmNet`: `RocmNet::from_mlp`, `RocmNet::from_convnet`(모든 `ConvNet` 레이어 종류와 그 실행 통계, 학습 모드), 또는 `RocmNet::new`와 `RocmNet`의 메서드 `add_linear` / `add_conv2d(_ex)` / `add_conv_transpose2d(_ex)` / `add_maxpool` / `add_avgpool` / `add_global_pool` / `add_upsample` / `add_resize` / `add_reshape` / `add_batchnorm` / `add_groupnorm` / `add_dropout`, `spectral_norm`, 스킵 연결(`add_save` 다음에 `add_skip`(덧셈, 선택적 1×1 투영) 또는 `add_concat`) |
-| 패스 | `RocmNet`의 메서드 `forward`, `grad_output`, `backward`; `set_training`(배치 정규화 통계, 드롭아웃) |
-| 손실 | `rocm_cross_entropy`(클래스 인덱스), `rocm_bce_logits`, `rocm_mse`: 각각 기울기를 쓰고 GPU의 손실 합에 더합니다 |
-| 단계 | `rocm_net_ce_step`, `rocm_net_mse_step`, `rocm_net_bce_step`, `rocm_net_recon_bce_step`, `rocm_net_recon_mse_step`, `rocm_vae_step`, `rocm_conv_autoencoder_step`: 순전파, 손실, 역전파(`rocm_trainer_fit`에 넘길 수 있도록 함수입니다) |
-| 옵티마이저 | `RocmOptimizer`(`RocmOptimizer::new`, `Optimizer`에서 만드는 `RocmOptimizer::from`, `net.add_params(&opt)`, `opt.step()`): 모든 `OPT_*` 종류를 `Optimizer::step`과 같은 산술로, 기울기 노름 클리핑(`clipNorm`)과 가중치 클램핑(`clampWeights`) 포함 |
-| 학습 루프 | `rocm_trainer_fit(&model, step, &opt, &data, &cfg)`: 배치 순서까지 같은 `trainer_fit` |
-| 모델 | `RocmVae::new` / `RocmVae::new_conv`(+ 조건부), `RocmConvAe::new`, `RocmGan::new` / `RocmGan::new_dcgan`와 `RocmGan::train`(모든 GAN 손실, 기울기 페널티, 조건부 모델, 평균 생성기), `RocmDqn::new`, `RocmPolicy::new`(REINFORCE, A2C, PPO) |
-| 전송 | `RocmNet`의 메서드 `download` / `upload`(매개변수), `download_stats` / `upload_stats`(실행 통계, 스펙트럴 정규화의 `u`), `download_convnet`, `download_mlp`, 그리고 모든 디바이스 모델의 `download` |
-| 엔진, 정밀도 | `rocm_conv_engine(ROCM_CONV_AUTO \| ROCM_CONV_IM2COL)`, `net.set_precision(ROCM_FP16 \| ROCM_BF16)`, `net.set_loss_scale(s)`, `net.loss_scale()` |
-
-**한 단계가 실행되는 방식.** 모든 레이어는 직접 작성한 역전파를 가집니다.
-행렬곱은 rocBLAS로 갑니다. 바이어스, 활성화, 정규화, 풀링, 크기 조정과 그
-기울기는 처음 쓸 때 hiprtc로 컴파일하는 HIP 커널입니다. 배치는 NCHW 행이며,
-`convnet.h`의 배치 방식과 같습니다.
-
-- **학습 루프.** `rocm_trainer_fit`은 데이터셋을 한 번만 올립니다. 에폭마다
-  섞은 행 순서만 올리는데, 이는 같은 시드에서 `trainer_fit`이 쓰는 순서와
-  같습니다. 배치는 GPU에서 모읍니다. 배치 크기마다 첫 단계는 즉시
-  실행되며, 이때 rocBLAS와 MIOpen이 커널을 고릅니다. 그 뒤로는
-  `ROCM_TRAIN_CHUNK`(4)개 단계씩 `RocmGraph`에 기록해 재생합니다. 손실은
-  에폭마다 한 번만 읽어 옵니다.
-- **옵티마이저 상태.** 하이퍼파라미터와 단계 수가 GPU에 있으므로, 기록된
-  단계를 재생해도 올바르게 동작합니다.
-- **합성곱.** 프로그램이 `-lMIOpen`을 링크하면 MIOpen에서 실행되고(심볼은
-  weak입니다), 그렇지 않으면 im2col / col2im + rocBLAS 엔진에서 실행됩니다.
-  fp32 형태마다 첫 패스에서 두 엔진의 시간을 재고, im2col이 확실히 빠르면
-  그것을 씁니다. 호출당 고정 비용이 큰 MIOpen보다 작은 합성곱에서 그렇습니다.
-- **융합.** 배치 정규화는 통계를 한 번의 실행으로 구합니다. 앞선 합성곱의
-  바이어스를 흡수하고, 활성화의 기울기도 같은 패스에서 적용합니다. 스킵
-  레이어는 이웃 레이어의 버퍼를 복사하지 않고 공유합니다. 긴 가중치 기울기는
-  그 형태에서 rocBLAS보다 빠르면 split-K GEMM을 씁니다.
-- **작은 신경망.** 작은 완전 연결 신경망(예: 배치 32의 2-32-32-2)은 단계
-  전체를 커널 하나로 실행합니다. 커널 하나의 고정 비용(MI100에서 그래프 안에서도
-  약 1.3 µs)이 그 계산량보다 크기 때문입니다.
-
-**난수.** GAN, DQN, 정책 경사 에이전트는 모든 무작위 선택을 호스트 모델 자신의
-`Rng`에서 뽑으므로 CPU 버전과 단계마다 똑같이 행동합니다. VAE의
-재매개변수화 노이즈와 드롭아웃 마스크는 GPU에서 뽑으므로 CPU의 값과 다릅니다.
-
-#### 혼합 정밀도 {#rocm-training-mixed-precision}
-
-`net.set_precision(ROCM_FP16)`(또는 `ROCM_BF16`)은 `RocmNet`을 16비트
-활성값으로 바꿉니다. 마지막 레이어 뒤, `RocmNet::add_params` 전에
-호출하십시오.
-
-- **저장.** 활성값과 그 기울기는 16비트로 저장하고, 산술은 모두 fp32입니다.
-  가중치, 기울기, 옵티마이저 상태는 fp32로 남으며, 가중치는 순전파마다
-  16비트로 반올림합니다.
-- **인터페이스는 그대로.** 입력, 출력과 그 기울기는 fp32로 남으므로 손실,
-  단계 함수, `rocm_trainer_fit`은 바꿀 것이 없습니다.
-- **엔진.** 선형 레이어는 16비트 rocBLAS GEMM을 씁니다. 16비트 합성곱에는
-  MIOpen이 필요하며, 없으면 `RocmNet::set_precision`이 0을 반환합니다.
-- **fp16 손실 스케일.** fp16에는 PyTorch의 `GradScaler`처럼 GPU에 있는 동적
-  손실 스케일이 붙습니다. 65536에서 시작해 출력 기울기에 곱해지고,
-  옵티마이저가 다시 나눕니다. 기울기가 넘친 단계는 건너뛰고 스케일을 반으로
-  줄이며, 2000번 연속으로 정상 단계가 나오면 두 배로 늘립니다. 이 모든
-  과정이 GPU에서 일어나므로 재생되는 그래프 안에서도 동작합니다.
-  `RocmNet::loss_scale`로 스케일을 읽습니다.
-- **범위.** GAN, VAE, 강화 학습 모델은 fp32로 남습니다.
-
-MI100에서는 fp16이 더 빠른 16비트 타입입니다. MIOpen의 fp16 커널은 행렬
-코어를 쓰지만, bf16 합성곱은 fp32와 비슷한 속도로 실행됩니다.
-
-MI100, 학습 한 번당 ms, 같은 GPU에서 ROCm용 PyTorch 2.9.1과 비교
-([전체 워크로드](/benchmarks#ml-training-gpu), 영문):
-
-| 워크로드 | SafeC fp32 | SafeC fp16 | SafeC bf16 | PyTorch fp32 | PyTorch AMP fp16 | PyTorch AMP bf16 |
-|---|---:|---:|---:|---:|---:|---:|
-| ResNet(잔차 블록 3개), 3×32×32, 배치 128, 16단계 | 75.3 | **57.9** | 79.5 | 98.9 | 74.3 | 271 |
-| U-Net, 1×32×32, 배치 32, 32단계 | 50.5 | **44.7** | 69.8 | 146 | 154 | 277 |
-| CNN + 배치 정규화, 1×28×28, 배치 128, 32단계 | 31.2 | **29.6** | 32.5 | 60.7 | 58.3 | 94.0 |
-| MLP 784→1024→1024→10, 배치 256, 64단계 | 27.6 | 26.6 | **25.7** | 56.6 | 70.2 | 63.3 |
-| DCGAN, 28×28, 배치 64, D 32단계 + G 32단계 | **56.1** | — | — | 106 | — | — |
-| 합성곱 VAE, 28×28, 배치 64, 32단계 | **26.8** | — | — | 53.3 | — | — |
-
-::: tip 검증
-`tests/stdlib/rocm/nn_rocm_check.sc`(`tests/stdlib/rocm/run.sh`에 포함)는
-모든 레이어 종류의 기울기, 모든 옵티마이저, `rocm_trainer_fit`, 합성곱
-오토인코더, 그리고 GAN, DQN, 정책 경사 단계를 CPU 코드와 비교합니다. 두
-합성곱 엔진 모두에서 약 1e-7까지 일치합니다. VAE는 무작위 값이 다르므로 손실
-수준으로, 드롭아웃은 통계로 비교합니다. 기울기 검사는 fp16(허용 오차 2%)과
-bf16(10%)에서도 다시 실행합니다. 짧은 ResNet 학습으로 16비트 손실이 fp32를
-따라가는지 확인하고, 넘치는 손실 스케일로 시작한 fp16 실행이 회복하는지도
-확인합니다. 모두 387개 검사입니다.
-:::
 
 ### CUDA (NVIDIA) {#cuda}
 
@@ -2102,29 +2019,17 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 
 ### 텐서 래퍼 {#tensor-wrappers}
 
-순전파를 백엔드에서 실행하고 CPU 역전파를 재사용하는 자동미분 `FloatTensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다.
+자체 [디바이스 백엔드](#devices)가 없는 백엔드에서 순전파를 실행하고 CPU 역전파를 재사용하는 자동미분 `FloatTensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다. ROCm·CUDA·Metal 텐서는 대신 모든 연산을 디바이스에서 실행합니다: 텐서를 그곳에 두십시오.
 
 | 헤더 | 함수 | 장치 |
 |--------|-----------|--------|
-| `tensor_gpu.h` | `tensor_{add,sub,mul,scale,relu,square,sum,matmul}_gpu` | MPS |
-| `tensor_cuda.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_cuda`, `tensor_matmul_cuda_blas` | CUDA |
-| `tensor_rocm.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_rocm`, `tensor_matmul_rocm_blas` | ROCm |
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
 | `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`). 다른 플랫폼에서는 core의 SIMD 연산 |
 | `tensor_blas.h` | `tensor_matmul_blas` | `sgemm`을 거쳐: 링크된 CBLAS(Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), 없으면 내장 커널 |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 core(`sgemm`) / vDSP / BLAS 선택 |
 
-`tensor_gpu.h`는 텐서 수준에서 MPS 배칭과 영구 버퍼도 제어합니다:
-
-```c
-void tensor_gpu_batch_begin();
-void tensor_gpu_batch_end();
-void FloatTensor::gpu_mark_persistent() const;   // keep t's data resident on the GPU
-void tensor_gpu_release_all_persistent();
-```
-
-`tensor_auto.h`는 의도적으로 CPU 전용입니다: 측정한 모든 크기(2×2×2부터 128×128×128까지의 행렬곱, 그리고 128×512×1024×256 학습 스텝)에서 BLAS가 (`tensor_matmul`이 `sgemm`으로 바뀌기 전에 측정한) core 루프에 진 적이 없고 MPS가 BLAS를 이긴 적이 없으므로 "auto"는 GPU를 고르지 않습니다. 필요하면 `tensor_matmul_on(..., DEVICE_MPS)`로 명시하세요.
+`tensor_auto.h`는 의도적으로 CPU 전용입니다: 측정한 모든 크기(2×2×2부터 128×128×128까지의 행렬곱, 그리고 128×512×1024×256 학습 스텝)에서 BLAS가 (`tensor_matmul`이 `sgemm`으로 바뀌기 전에 측정한) core 루프에 진 적이 없고 MPS가 BLAS를 이긴 적이 없으므로 "auto"는 GPU를 고르지 않습니다. GPU를 쓰려면 [텐서를 그곳에 두십시오](#devices).
 
 ### 백엔드 상태 {#backend-status}
 
@@ -2139,7 +2044,7 @@ SPIR-V 커널은 바이너리 IR이라 Vulkan 백엔드가 완성되려면 SPIR-
 
 ## fp16 / bf16 {#fp16-bf16}
 
-SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 . 그 위에 반정밀도 텐서와 혼합 정밀도 학습(`tensor_half.h`, 아래)이 있고, MPS, CUDA, WebGPU, ROCm에서는 네이티브 `half`/`bfloat` GPU 연산을 합니다([호스트 배열 API](#host-array-api-mps-cuda-spir-v-webgpu) 참고).
+SafeC 타입 시스템에는 네이티브 16비트 부동소수점이 없습니다(`Type.h`의 `TypeKind`에는 `Float32`/`Float64`뿐 — 표준 라이브러리 변경이 아니라 컴파일러 기능이 필요함). 대신 표준적인 우회 방법을 씁니다: fp16/bf16을 `unsigned short`의 원시 비트로 담고, `float`와의 변환을 명시적으로 올바르게 반올림(최근접 짝수 반올림)합니다 . 그 위에 반정밀도 텐서와 혼합 정밀도 학습(`tensor_half.h`, 아래)이 있고, MPS, CUDA, WebGPU, ROCm에서는 네이티브 `half`/`bfloat` GPU 연산을 하며([호스트 배열 API](#host-array-api-mps-cuda-spir-v-webgpu) 참고), 디바이스에서 16비트로 학습합니다([정밀도](#device-precision)).
 
 | 검사 | 결과 |
 |---|---|
@@ -2380,44 +2285,11 @@ CUDA 버전은 `tests/stdlib/cuda/cuda_check.sc`에 같은 테스트가 있습�
 
 ## 장치 선택 {#device-selection}
 
-모든 백엔드는 연산 이름에 장치를 명시합니다(`tensor_matmul` vs `_blas` vs `_gpu` vs `_cuda` vs `_rocm`) — 정확하지만, 장치를 한 번만 고르고 싶은 호출자에게는 불편합니다. 대신 `tensor_matmul_on(a, b, device)` / `a.relu_on(device)`가 `Device` 열거형으로 분기합니다 — CPU/CPU+BLAS/MPS에서 비트 단위로 같음을 확인했습니다:
-
-| 장치 | Y[0][0] | Y[0][1] |
-|---|---|---|
-| CPU | 0.900000 | 1.300000 |
-| CPU + BLAS | 0.900000 | 1.300000 |
-| MPS | 0.900000 | 1.300000 |
-
-```c
-#include <std/ml/tensor_dispatch.h>
-
-enum Device {
-    DEVICE_CPU = 0, DEVICE_CPU_BLAS = 1, DEVICE_MPS = 2,
-    DEVICE_CUDA = 3, DEVICE_CUDA_BLAS = 4,
-    DEVICE_ROCM = 5, DEVICE_ROCM_BLAS = 6,
-    DEVICE_SPIRV = 7, DEVICE_WEBGPU = 8,
-};
-&FloatTensor tensor_matmul_on(const &FloatTensor a, const &FloatTensor b, enum Device device);
-&FloatTensor FloatTensor::relu_on(enum Device device) const;
-
-#include <std/ml/transformer_dispatch.h>
-&FloatTensor jit_block_forward_on(const &JiTBlock block, const &FloatTensor x, enum Device device);
-&FloatTensor jit_forward_on(const &JiT model, const &FloatTensor patches, const &FloatTensor cond, enum Device device);
-```
-
-이를 만들면서 실제 이름 충돌이 드러났습니다: `activations.sc`(순전파 전용 연산)와 `tensor_nn.sc`(모든 GPU 백엔드에 필요한 자동 미분 연산)가 둘 다 `FloatTensor::sigmoid`/`FloatTensor::relu` 등을 정의해서, 어떤 프로그램도 둘을 함께 링크할 수 없었고, 따라서 `activations.sc` 기반 계층은 GPU 백엔드를 쓸 수 없었습니다. `activations.h`의 순전파 전용 함수에 `_fwd` 접미사를 붙이고 `attention.sc`/`transformer.sc`/`rnn.sc`의 호출부를 고쳐 해결했습니다.
-
-`jit_block_forward_on(block, x, device)`은 실제 계층(JiTBlock의 Q/K/V/출력 투영 + FFN)에 장치 선택을 전달합니다 — CPU/CPU+BLAS/MPS에서 기준값과 비트 단위로 같음을 확인했습니다:
-
-| 경로 | y[0] | y[1] | y[2] |
-|---|---|---|---|
-| `JiTBlock::forward` (기준) | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_CPU)` | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_CPU_BLAS)` | -0.479727 | -0.589425 | -0.537808 |
-| `..._on(DEVICE_MPS)` | -0.479727 | -0.589425 | -0.537808 |
-
-아직 장치 분기가 안 된 것: attention 내부의 QK^T/softmax/·V 행렬곱, `DiTBlock`, `cnn.sc`.
-
+텐서의 디바이스가 연산이 실행될 곳을 고릅니다: `t.place(d)`, `t.to(d)`,
+`model_to(&m, d)`, `TrainConfig.device`, `device_set_default(d)`,
+`device_auto()`([GPU에서 학습](#devices)). 트랜스포머와 디퓨전 블록을
+포함해 텐서 연산으로 만든 모든 레이어는 파라미터와 입력의 디바이스에서
+실행됩니다.
 
 ## LLM 오케스트레이션 {#llm-orchestration}
 
