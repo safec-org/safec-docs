@@ -182,7 +182,10 @@ void highlight_code(const &char lang, const &char code, unsigned long len, &Stri
         // Preprocessor directive: '#word' at line start (C family).
         if (L.preprocessor && c == '#' && line_start) {
             j = i + 1UL;
-            unsafe { while (j < len && (s[j] == ' ' || char_is_alpha((int)s[j]))) { j = j + 1UL; } }
+            unsafe {
+                while (j < len && s[j] == ' ') { j = j + 1UL; }
+                while (j < len && char_is_alpha((int)s[j])) { j = j + 1UL; }
+            }
             span(out, "tok-pp", s + i, j - i);
             i = j; line_start = 0; continue;
         }

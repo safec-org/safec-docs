@@ -1,14 +1,20 @@
 // safec-site — the SafeC documentation site generator.
 //
-//   safeguard run -- build [--base /safec-docs/] [--root <dir with site.yaml>]
-//   safeguard run -- serve [--port 5173]     # build with base "/", then serve dist/
-//   safeguard run -- check                   # build + fail on dead internal links
+//   safec-site build [--base /safec-docs/] [--root <dir with site.yaml>]
+//   safec-site check [--root DIR]          # build + fail on dead links/anchors
+//   safec-site serve [--port 5173] [--root DIR]
+//                                          # build with base "/", serve output/,
+//                                          # rebuild when a source changes
 //
-// Run from site/ (the default --root is the current directory).
+// Run from site/ (the default --root is the current directory), e.g.
+// 'safeguard run -- serve'.
 #include "site.h"
 #include <std/io.h>
+#include <std/io_file.h>
 #include <std/str.h>
 #include <std/sys.h>
+#include <std/dir.h>
+#include <std/path.h>
 #include <std/serial/json.h>
 #include <std/http/http.h>
 
@@ -21,40 +27,28 @@ static int write_or_report(const &char path, const &String data) {
     return 0;
 }
 
-static int copy_theme(const &Site site) {
-    // theme/ -> <output>/assets/ (style.css, site.js, site.wasm).
-    struct String assets = util_path_join(site.output.as_ptr(), "assets");
-    int ok = util_copy_tree(site.theme.as_ptr(), assets.as_ptr());
-    assets.free();
-    return ok;
-}
-
 // ── dead-link check ──────────────────────────────────────────────────────────
 
 // Every href into the site must name an emitted page, and a '#fragment'
-// on it must name a heading id or <a id> on that page. Plain files
-// (public/…) are checked for existence on disk.
+// on it a heading id or an id="" on that page; links to other files must
+// name a file under public/.
 static int check_links(const &Site site, const &Vec<struct Page> pages) {
     int bad = 0;
     for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
         &Page p = pages.at(i);
-        const char* s = p.html.as_ptr();
         unsigned long k = 0UL;
         for (;;) {
-            const ?&char hit;
-            unsafe { hit = str_find((const char*)(s + k), "href=\""); }
-            unsigned long at = 0UL;
-            match (hit) {
-                case some(h): { unsafe { at = (unsigned long)(h - s) + 6UL; } }
-                case null: { break; }
-            }
-            unsigned long e = at;
-            unsafe { while (s[e] != '\0' && s[e] != '"') { e = e + 1UL; } }
-            struct String target;
-            unsafe { target = String::from_n(s + at, e - at); }
+            struct String rest = p.html.substr(k, p.html.len);
+            long long at = rest.index_of("href=\"");
+            rest.free();
+            if (at < 0LL) { break; }
+            unsigned long s = k + (unsigned long)at + 6UL;
+            unsigned long e = s;
+            while (e < p.html.len && p.html.char_at(e) != (int)'"') { e = e + 1UL; }
+            struct String target = p.html.substr(s, e);
             k = e;
             if (!target.starts_with(site.base.as_ptr())) { target.free(); continue; }
-            struct String path = target.substr(site.base.len - 1UL, target.len);  // keep leading '/'
+            struct String path = target.substr(site.base.len - 1UL, target.len);   // keep the leading '/'
             struct String frag = String::new();
             long long hash = path.find_char('#');
             if (hash >= 0LL) {
@@ -80,11 +74,11 @@ static int check_links(const &Site site, const &Vec<struct Page> pages) {
                 }
             }
             if (found == 0) {
-                // Not a page: a file under public/?
-                struct String file = util_path_join(site.public_dir.as_ptr(), path.as_ptr());
-                struct String tmp = String::new();
-                if (path.eq_cstr("/") || util_read_file(file.as_ptr(), &tmp)) { found = 1; }
-                file.free(); tmp.free();
+                struct String rel = path.strip_prefix("/");
+                struct String file = path_join(site.public_dir.as_ptr(), rel.as_ptr());
+                rel.free();
+                if (path.eq_cstr("/") || path_kind(file.as_ptr()) == DIR_FILE) { found = 1; }
+                file.free();
             }
             if (found != 1) {
                 eprint(found == 2 ? "dead anchor: " : "dead link: ");
@@ -111,9 +105,18 @@ static void append_sitemap(const &Site site, const &Page page, &String xml) {
     xml.push("</loc></url>\n");
 }
 
-static int build(&Site site, &Vec<struct Page> pages, int check) {
-    if (!pages_discover(site, pages)) { return 0; }
+static int build(&Site site, int check) {
+    struct Vec<struct Page> pages = Vec::new();
+    if (!pages_discover(site, &pages)) { pages_free(&pages); return 0; }
     int ok = 1;
+    // Start from an empty output: public/ first (pages may overwrite nothing
+    // there), then the theme assets, then the generated files.
+    dir_remove_all(site.output.as_ptr());
+    if (!dir_copy_tree(site.public_dir.as_ptr(), site.output.as_ptr())) { ok = 0; }
+    struct String assets = path_join(site.output.as_ptr(), "assets");
+    if (!dir_copy_tree(site.theme.as_ptr(), assets.as_ptr())) { ok = 0; }
+    assets.free();
+
     struct String sitemap = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
     struct Vec<struct Value> indexes = Vec::new();
     for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) { indexes.push(Value::array()); }
@@ -122,7 +125,7 @@ static int build(&Site site, &Vec<struct Page> pages, int check) {
     for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
         &Page p = pages.at(i);
         struct PageView v;
-        view_build(site, pages, i, &v);
+        view_build(site, &pages, i, &v);
         struct String doc = v.page_class.eq_cstr("home") ? tpl_home(&v) : tpl_doc(&v);
         if (!write_or_report(p.out.as_ptr(), &doc)) { ok = 0; }
         doc.free();
@@ -135,7 +138,7 @@ static int build(&Site site, &Vec<struct Page> pages, int check) {
     struct PageView nf;
     view_build_404(site, 0UL, &nf);
     struct String nf_doc = tpl_not_found(&nf);
-    struct String nf_path = util_path_join(site.output.as_ptr(), "404.html");
+    struct String nf_path = path_join(site.output.as_ptr(), "404.html");
     if (!write_or_report(nf_path.as_ptr(), &nf_doc)) { ok = 0; }
     nf_doc.free(); nf_path.free(); view_free(&nf);
 
@@ -143,7 +146,7 @@ static int build(&Site site, &Vec<struct Page> pages, int check) {
         struct String rel = String::from("assets/search-");
         rel.push_str(&site.locales.at(li).key);
         rel.push(".json");
-        struct String path = util_path_join(site.output.as_ptr(), rel.as_ptr());
+        struct String path = path_join(site.output.as_ptr(), rel.as_ptr());
         struct String json = value_to_json(indexes.at(li));
         if (!write_or_report(path.as_ptr(), &json)) { ok = 0; }
         rel.free(); path.free(); json.free();
@@ -151,21 +154,17 @@ static int build(&Site site, &Vec<struct Page> pages, int check) {
     }
     indexes.free();
     sitemap.push("</urlset>\n");
-    struct String sm_path = util_path_join(site.output.as_ptr(), "sitemap.xml");
+    struct String sm_path = path_join(site.output.as_ptr(), "sitemap.xml");
     if (!write_or_report(sm_path.as_ptr(), &sitemap)) { ok = 0; }
     sm_path.free(); sitemap.free();
-
-    // public/ verbatim, then the theme assets.
-    if (!util_copy_tree(site.public_dir.as_ptr(), site.output.as_ptr())) { ok = 0; }
-    if (!copy_theme(site)) { ok = 0; }
     // .nojekyll: GitHub Pages must not drop files starting with '_'.
-    struct String nj = util_path_join(site.output.as_ptr(), ".nojekyll");
+    struct String nj = path_join(site.output.as_ptr(), ".nojekyll");
     struct String empty = String::new();
     util_write_file(nj.as_ptr(), &empty);
     nj.free(); empty.free();
 
     if (check) {
-        int bad = check_links(site, pages);
+        int bad = check_links(site, &pages);
         if (bad > 0) {
             eprint_int((long long)bad);
             eprintln(" dead link(s)");
@@ -176,22 +175,68 @@ static int build(&Site site, &Vec<struct Page> pages, int check) {
     print_int((long long)pages.len);
     print(" pages -> ");
     println(site.output.as_ptr());
+    pages_free(&pages);
     return ok;
 }
 
 // ── serve ────────────────────────────────────────────────────────────────────
-// Dev server: serves the built output directory. Every request for an HTML
-// page rebuilds the site first, so edits show up on reload.
-// TODO(std web): MIME/ETag/Range via std/http's static file serving and
-// live reload over SSE once those land on claude/web.
+// Dev server over std/http: serves the output directory and, before an
+// HTML page, rebuilds the site if any source, config or theme file changed
+// since the last build (newest mtime under source/, site/locales and
+// site/theme).
 
 static struct String gServeRoot;
 static struct String gSiteRoot;
+static long long gBuiltAt = 0LL;
+
+// Newest modification time among the sources and the site's own files.
+static long long newest_input(const &Site site) {
+    long long newest = 0LL;
+    struct Vec<struct String> files = Vec::new();
+    source_files(site, &files);
+    for (unsigned long i = 0UL; i < files.len; i = i + 1UL) {
+        struct String full = path_join(site.source.as_ptr(), files.at(i).as_ptr());
+        struct FileStat st;
+        if (file_stat(full.as_ptr(), &st) && st.mtime_ns > newest) { newest = st.mtime_ns; }
+        full.free();
+        files.at(i).free();
+    }
+    files.free();
+    const char* extra[3] = { "site.yaml", "locales", "theme" };
+    for (int k = 0; k < 3; k = k + 1) {
+        struct String p;
+        unsafe { p = path_join(site.root.as_ptr(), extra[k]); }
+        struct Vec<struct String> more = Vec::new();
+        if (path_kind(p.as_ptr()) == DIR_DIR) { dir_walk(p.as_ptr(), &more); }
+        else { more.push(String::new()); }
+        for (unsigned long i = 0UL; i < more.len; i = i + 1UL) {
+            struct String full = path_join(p.as_ptr(), more.at(i).as_ptr());
+            struct FileStat st;
+            if (file_stat(full.as_ptr(), &st) && st.mtime_ns > newest) { newest = st.mtime_ns; }
+            full.free();
+            more.at(i).free();
+        }
+        more.free();
+        p.free();
+    }
+    return newest;
+}
+
+static void rebuild_if_changed() {
+    struct Site site;
+    if (!site_load(&site, gSiteRoot.as_ptr(), "/")) { return; }
+    long long newest = newest_input(&site);
+    if (newest > gBuiltAt) {
+        build(&site, 0);
+        gBuiltAt = newest;
+    }
+    site_free(&site);
+}
 
 static const char* mime_for(const &String path) {
     if (path.ends_with(".html")) { return "text/html; charset=utf-8"; }
     if (path.ends_with(".css")) { return "text/css; charset=utf-8"; }
-    if (path.ends_with(".js")) { return "text/javascript; charset=utf-8"; }
+    if (path.ends_with(".js") || path.ends_with(".mjs")) { return "text/javascript; charset=utf-8"; }
     if (path.ends_with(".json")) { return "application/json"; }
     if (path.ends_with(".wasm")) { return "application/wasm"; }
     if (path.ends_with(".svg")) { return "image/svg+xml"; }
@@ -207,23 +252,24 @@ static struct HttpResponse serve_handler(&HttpRequest req) {
     long long q = path.find_char('?');
     if (q >= 0LL) { path.truncate((unsigned long)q); }
     if (path.ends_with("/")) { path.push("index.html"); }
-    else if (path.rfind_char('.') < path.rfind_char('/')) { path.push(".html"); }
-    if (path.contains("..")) { path.clear(); path.push("/404.html"); }
-
-    if (path.ends_with(".html")) {
-        struct Site site;
-        struct Vec<struct Page> pages = Vec::new();
-        if (site_load(&site, gSiteRoot.as_ptr(), "/")) { build(&site, &pages, 0); }
+    else {
+        struct String ext = path_ext(path.as_ptr());
+        if (ext.len == 0UL) { path.push(".html"); }   // GitHub Pages serves /x as /x.html too
+        ext.free();
     }
+    if (path.contains("..")) { path.clear(); path.push("/404.html"); }
+    if (path.ends_with(".html")) { rebuild_if_changed(); }
 
     struct HttpResponse resp;
     resp.status = 200;
     resp.body = String::new();
-    struct String file = util_path_join(gServeRoot.as_ptr(), path.as_ptr());
-    if (!util_read_file(file.as_ptr(), &resp.body)) {
+    struct String rel = path.strip_prefix("/");
+    struct String file = path_join(gServeRoot.as_ptr(), rel.as_ptr());
+    rel.free();
+    if (!File::read_to_string(file.as_ptr(), &resp.body)) {
         resp.status = 404;
-        struct String nf = util_path_join(gServeRoot.as_ptr(), "404.html");
-        util_read_file(nf.as_ptr(), &resp.body);
+        struct String nf = path_join(gServeRoot.as_ptr(), "404.html");
+        File::read_to_string(nf.as_ptr(), &resp.body);
         nf.free();
         path.clear();
         path.push("404.html");
@@ -240,8 +286,8 @@ static struct HttpResponse serve_handler(&HttpRequest req) {
 
 static void usage() {
     eprintln("usage: safec-site build [--base PATH] [--root DIR]");
-    eprintln("       safec-site serve [--port N] [--root DIR]");
     eprintln("       safec-site check [--root DIR]");
+    eprintln("       safec-site serve [--port N] [--root DIR]");
 }
 
 int main(int argc, char** argv) {
@@ -275,8 +321,8 @@ int main(int argc, char** argv) {
     const ?&char base_opt = (const ?&char)null;
     if (has_base) { base_opt = base.as_ptr(); }
     if (!site_load(&site, root.as_ptr(), base_opt)) { return 1; }
-    struct Vec<struct Page> pages = Vec::new();
-    int ok = build(&site, &pages, cmd.eq_cstr("check"));
+    gBuiltAt = newest_input(&site);
+    int ok = build(&site, cmd.eq_cstr("check"));
     if (!serve) { return ok ? 0 : 1; }
 
     gServeRoot = site.output.clone();

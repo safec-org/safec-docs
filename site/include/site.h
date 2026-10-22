@@ -2,17 +2,14 @@
 //
 // Pipeline:
 //
-//   site.yaml + locales/*.yaml ──► Site / Locale          (config.sc)
-//   pages discovered per locale ──► Page                   (pages.sc)
-//   page markdown ──► HTML + heading list                  (render.sc)
-//   Page + Site ──► PageView (prebuilt HTML fragments)     (view.sc)
-//   PageView ──► full document via scx templates           (templates/*.scx)
-//   search index, sitemap.xml, 404.html, public/ copy      (main.sc)
-//
-// Anything here that is really a general-purpose utility (file I/O on
-// whole files, directory creation, path joining) is marked 'STD-CANDIDATE':
-// it lives in the site for now and moves to std once the std additions
-// proposed for this project are approved.
+//   site.yaml + locales/*.yaml ──► Site / Locale                (config.sc)
+//   every .md under 'source' (std dir_walk) ──► Page            (pages.sc)
+//   page markdown ──► std MdNode (GFM + raw HTML + containers + heading ids)
+//     ──► HTML through a render hook: heading anchors, link rewriting,
+//         highlighted code blocks; plus outline and search sections (render.sc)
+//   Page + Site ──► PageView (prebuilt HTML fragments)          (view.sc)
+//   PageView ──► full document via scx templates                (templates/*.scx)
+//   search index, sitemap.xml, 404.html, public/ + theme copy   (main.sc)
 #pragma once
 #include <std/collections/string.h>
 #include <std/collections/vec.h>
@@ -20,27 +17,13 @@
 
 // ── util.sc ──────────────────────────────────────────────────────────────────
 
-// STD-CANDIDATE (std/io_file: File::read_all / File::write_all).
-// Reads the whole file at 'path' into 'out' (appending). 1 on success.
-int  util_read_file(const &char path, &String out);
-// Writes 'data' to 'path' (truncating), creating parent directories. 1 on success.
+// Writes 'data' to 'path', creating parent directories. 1 on success.
 int  util_write_file(const &char path, const &String data);
-
-// STD-CANDIDATE (std/dir: dir_create_all). Interim: shells out to mkdir -p.
-int  util_mkdir_p(const &char path);
-
-// STD-CANDIDATE (std/dir: dir_copy_tree). Interim: shells out to cp -R.
-int  util_copy_tree(const &char from, const &char to);
-
-// STD-CANDIDATE (std/path: path_join). 'a' + '/' + 'b' with exactly one '/'.
-struct String util_path_join(const &char a, const &char b);
-// STD-CANDIDATE (std/path: path_dirname). Everything before the last '/'.
-struct String util_dirname(const &char p);
 
 // Appends 's' HTML-escaped (& < > " ') to 'out'.
 void util_push_esc(&String out, const &char s);
 
-// Value helpers: the string at obj[key], or 'fallback' when missing / not a string.
+// The string at obj[key], or 'fallback' when missing / not a string.
 const &char util_vstr(const &Value obj, const &char key, const &char fallback);
 
 // ── config.sc ────────────────────────────────────────────────────────────────
@@ -54,7 +37,7 @@ struct Locale {
 
 struct Site {
     struct String root;    // directory holding site.yaml
-    struct String source;  // markdown root (absolute or relative to cwd)
+    struct String source;  // markdown root
     struct String public_dir;
     struct String output;
     struct String theme;
@@ -66,19 +49,27 @@ struct Site {
 // Loads <root>/site.yaml and every locales/<key>.yaml it names.
 // 'base_override' (nullable) replaces site.yaml's 'base'. 1 on success.
 int site_load(&Site site, const &char root, const ?&char base_override);
+void site_free(&Site site);
 
 // ── pages.sc ─────────────────────────────────────────────────────────────────
 
 struct Heading {
     int level;
     struct String id;
-    struct String text;    // plain text (tags stripped), for TOC + search
+    struct String text;    // plain text, for the outline
+};
+
+// A stretch of a page between two headings, for the search index.
+struct Section {
+    struct String id;      // "" for the text before the first heading
+    struct String title;
+    struct String text;
 };
 
 struct Page {
     unsigned long locale;  // index into Site.locales
-    struct String url;     // site-relative, no base: "/guide/introduction.html", "/stdlib/"
-    struct String route;   // the link form used in config/markdown: "/guide/introduction", "/stdlib/"
+    struct String route;   // the link form: "/guide/introduction", "/stdlib/", "/"
+    struct String url;     // the served path, no base: "/guide/introduction.html", "/stdlib/"
     struct String src;     // markdown file path
     struct String out;     // output file path
     struct Value  front;   // frontmatter (VAL_OBJECT, possibly empty)
@@ -86,29 +77,38 @@ struct Page {
     struct String html;    // rendered content
     struct String title;
     struct Vec<struct Heading> headings;
+    struct Vec<struct Section> sections;
 };
 
-// Fills 'pages' for every locale: the locale home plus every internal link
-// in its nav and sidebar (interim — becomes a directory walk over 'source'
-// once std/dir lands, with nav/sidebar then only ordering, not discovery).
+// Fills 'pages' with every .md file under site.source (minus site.yaml's
+// 'exclude'), sorted, each assigned to the locale whose directory holds
+// it. 1 on success.
 int pages_discover(const &Site site, &Vec<struct Page> pages);
+
+// Every file under site.source minus the excluded paths (relative,
+// '/'-separated; top-level files first, then each directory sorted).
+int source_files(const &Site site, &Vec<struct String> out);
 
 // Splits a leading '---' YAML block off 'text' into page.front / page.body_md.
 void page_split_frontmatter(&Page page, const &String text);
 
-// Maps a route ("/guide/introduction", "/book/", "/") to its markdown path
-// relative to 'source' and its output path relative to 'output'.
-void route_to_paths(const &char route, &String md_rel, &String html_rel, &String url);
+void pages_free(&Vec<struct Page> pages);
 
 // ── render.sc ────────────────────────────────────────────────────────────────
 
-// Markdown -> HTML for one page, filling page.html, page.headings, page.title.
+// Markdown -> HTML for one page: fills html, headings, sections and title.
 void render_page(const &Site site, &Page page);
 
 // Rewrites one link target the way every href on the site is rewritten:
 // internal routes get the base prefix and '.html'; external links and
 // links to plain files (site.yaml 'file_extensions') are left alone.
 void link_rewrite(const &Site site, const &char href, &String out);
+
+// ── highlight.sc ─────────────────────────────────────────────────────────────
+
+// Appends 'code' (len bytes) HTML-escaped, with <span class="tok-..."> runs
+// for 'lang'.
+void highlight_code(const &char lang, const &char code, unsigned long len, &String out);
 
 // ── view.sc ──────────────────────────────────────────────────────────────────
 
@@ -136,7 +136,11 @@ struct PageView {
     struct String outline_label;
     struct String menu_label;
     struct String search_label;
+    struct String search_placeholder;
+    struct String no_results;   // search: "No results for"
+    struct String copied;       // code blocks: "Copied"
     struct String theme_label;
+    struct String lang_label;
     struct String return_top_label;
     struct String skip_label;
     struct String not_found_title;
@@ -144,7 +148,10 @@ struct PageView {
     struct String not_found_link;
     struct String github;
     struct String page_class;   // "doc" | "home" | "not-found"
-    struct String client_js;    // theme/site.js URL
+    struct String client_js;    // assets/site.js URL
+    struct String css;          // assets/style.css URL
+    struct String locale_key;   // "en" | "ko" (search index, client strings)
+    struct String locale_prefix;
 };
 
 void view_build(const &Site site, const &Vec<struct Page> pages, unsigned long idx, &PageView v);
@@ -159,5 +166,5 @@ struct String tpl_not_found(const &PageView v);
 
 // ── search.sc ────────────────────────────────────────────────────────────────
 
-// Appends one record per page section (heading) to 'index' (VAL_ARRAY).
+// Appends one record per page section to 'index' (VAL_ARRAY).
 void search_add_page(const &Site site, const &Page page, &Value index);

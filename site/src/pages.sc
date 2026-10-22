@@ -2,33 +2,9 @@
 #include "site.h"
 #include <std/serial/yaml.h>
 #include <std/io.h>
-
-void route_to_paths(const &char route, &String md_rel, &String html_rel, &String url) {
-    struct String r = String::from(route);
-    // Drop a "#fragment" and a trailing ".html" if a link carried them.
-    long long hash = r.find_char('#');
-    if (hash >= 0LL) { r.truncate((unsigned long)hash); }
-    if (r.ends_with(".html")) { r.truncate(r.len - 5UL); }
-    if (r.ends_with("/")) {
-        // "/book/" -> book/index.md, book/index.html, URL "/book/"
-        md_rel.push(r.as_ptr());
-        md_rel.push("index.md");
-        html_rel.push(r.as_ptr());
-        html_rel.push("index.html");
-        url.push(r.as_ptr());
-    } else {
-        md_rel.push(r.as_ptr());
-        md_rel.push(".md");
-        html_rel.push(r.as_ptr());
-        html_rel.push(".html");
-        url.push(r.as_ptr());
-        url.push(".html");
-    }
-    // md_rel / html_rel are relative to source / output: no leading '/'.
-    if (md_rel.starts_with("/")) { md_rel.remove_range(0UL, 1UL); }
-    if (html_rel.starts_with("/")) { html_rel.remove_range(0UL, 1UL); }
-    r.free();
-}
+#include <std/io_file.h>
+#include <std/dir.h>
+#include <std/path.h>
 
 void page_split_frontmatter(&Page page, const &String text) {
     page.front = Value::object();
@@ -36,8 +12,7 @@ void page_split_frontmatter(&Page page, const &String text) {
         page.body_md = text.clone();
         return;
     }
-    // Find the closing "\n---" line.
-    struct String rest = text.substr(4UL, text.len);
+    struct String rest = text.substr(text.starts_with("---\r\n") ? 5UL : 4UL, text.len);
     long long end = rest.index_of("\n---");
     if (end < 0LL) {
         rest.free();
@@ -46,7 +21,6 @@ void page_split_frontmatter(&Page page, const &String text) {
     }
     struct String yaml = rest.substr(0UL, (unsigned long)end + 1UL);
     unsigned long body_at = (unsigned long)end + 4UL;
-    // Skip the rest of the closing '---' line.
     while (body_at < rest.len && rest.char_at(body_at) != (int)'\n') { body_at = body_at + 1UL; }
     page.body_md = rest.substr(body_at, rest.len);
     int ok = 0;
@@ -63,90 +37,148 @@ void page_split_frontmatter(&Page page, const &String text) {
     rest.free();
 }
 
-static int has_route(const &Vec<struct Page> pages, const &char route) {
-    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
-        &Page p = pages.at(i);
-        if (p.route.eq_cstr(route)) { return 1; }
+// Is 'rel' (a path under source) excluded by site.yaml's 'exclude' list?
+static int excluded(const &Site site, const &String rel) {
+    ?&Value ex = site.cfg.object_get("exclude");
+    match (ex) {
+        case some(list): {
+            for (unsigned long i = 0UL; i < list.array_len(); i = i + 1UL) {
+                &Value e = list.array_at(i);
+                if (e.kind_of() != VAL_STRING) { continue; }
+                const &char x = e.as_string();
+                if (rel.eq_cstr(x)) { return 1; }
+                struct String dir = String::from(x);
+                dir.push_char('/');
+                int under = rel.starts_with(dir.as_ptr());
+                dir.free();
+                if (under) { return 1; }
+            }
+        }
+        case null: { }
     }
+    // Dot-directories (.github, .vitepress, ...) are never pages.
+    return rel.starts_with(".") || rel.contains("/.");
+}
+
+// The locale whose directory holds 'rel' (the root locale otherwise).
+static unsigned long locale_of(const &Site site, const &String rel) {
+    for (unsigned long i = 0UL; i < site.locales.len; i = i + 1UL) {
+        &Locale l = site.locales.at(i);
+        if (l.dir.len == 0UL) { continue; }
+        struct String d = l.dir.clone();
+        d.push_char('/');
+        int in = rel.starts_with(d.as_ptr());
+        d.free();
+        if (in) { return i; }
+    }
+    return 0UL;
+}
+
+int source_files(const &Site site, &Vec<struct String> out) {
+    // Top level by hand, so excluded trees (dist/, node_modules/, .git/)
+    // are never walked at all; dir_walk below each kept directory.
+    ?&Dir d = Dir::open(site.source.as_ptr());
+    match (d) {
+        case some(h): {
+            struct DirEntry e = DirEntry::new();
+            while (h.next(&e)) {
+                if (excluded(site, &e.name)) { continue; }
+                if (e.kind == DIR_DIR) {
+                    struct String sub = path_join(site.source.as_ptr(), e.name.as_ptr());
+                    struct Vec<struct String> inner = Vec::new();
+                    dir_walk(sub.as_ptr(), &inner);
+                    for (unsigned long i = 0UL; i < inner.len; i = i + 1UL) {
+                        struct String rel = path_join(e.name.as_ptr(), inner.at(i).as_ptr());
+                        if (!excluded(site, &rel)) { out.push(rel); } else { rel.free(); }
+                        inner.at(i).free();
+                    }
+                    inner.free();
+                    sub.free();
+                } else {
+                    out.push(e.name.clone());
+                }
+            }
+            e.free();
+            h.close();
+            return 1;
+        }
+        case null: { }
+    }
+    eprint("safec-site: cannot list ");
+    eprintln(site.source.as_ptr());
     return 0;
 }
 
-static void add_route(const &Site site, unsigned long li, const &char route, &Vec<struct Page> pages) {
-    if (has_route(pages, route)) { return; }
-    struct Page p;
-    p.locale = li;
-    p.route = String::from(route);
-    struct String md_rel = String::new();
-    struct String html_rel = String::new();
-    p.url = String::new();
-    route_to_paths(route, &md_rel, &html_rel, &p.url);
-    p.src = util_path_join(site.source.as_ptr(), md_rel.as_ptr());
-    p.out = util_path_join(site.output.as_ptr(), html_rel.as_ptr());
-    md_rel.free();
-    html_rel.free();
-    p.front = Value::object();
-    p.body_md = String::new();
-    p.html = String::new();
-    p.title = String::new();
-    p.headings = Vec::new();
-    pages.push(p);
-}
-
-// Walks a nav/sidebar item list ({text, link?, items?}*), adding every
-// internal link that belongs to this locale.
-static void walk_items(const &Site site, unsigned long li, const &Value items, &Vec<struct Page> pages) {
-    if (items.kind_of() != VAL_ARRAY) { return; }
-    &Locale loc = site.locales.at(li);
-    for (unsigned long i = 0UL; i < items.array_len(); i = i + 1UL) {
-        &Value it = items.array_at(i);
-        const &char link = util_vstr(it, "link", "");
-        struct String l = String::from(link);
-        int internal = l.starts_with("/") && l.starts_with(loc.prefix.as_ptr());
-        // The root locale's prefix "/" matches every locale's links:
-        // only claim those no other locale owns.
-        if (internal && loc.prefix.eq_cstr("/")) {
-            for (unsigned long k = 0UL; k < site.locales.len; k = k + 1UL) {
-                &Locale other = site.locales.at(k);
-                if (k != li && l.starts_with(other.prefix.as_ptr())) { internal = 0; }
-            }
-        }
-        if (internal) { add_route(site, li, link, pages); }
-        l.free();
-        ?&Value sub = it.object_get("items");
-        match (sub) { case some(s): walk_items(site, li, s, pages); case null: { } }
-    }
-}
-
 int pages_discover(const &Site site, &Vec<struct Page> pages) {
-    for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) {
-        &Locale loc = site.locales.at(li);
-        add_route(site, li, loc.prefix.as_ptr(), pages);
-        ?&Value nav = loc.data.object_get("nav");
-        match (nav) { case some(n): walk_items(site, li, n, pages); case null: { } }
-        ?&Value sb = loc.data.object_get("sidebar");
-        match (sb) {
-            case some(s): {
-                for (unsigned long i = 0UL; i < s.array_len(); i = i + 1UL) {
-                    ?&Value groups = s.array_at(i).object_get("groups");
-                    match (groups) { case some(g): walk_items(site, li, g, pages); case null: { } }
-                }
-            }
-            case null: { }
-        }
-    }
-    // Read every page's source now, so a missing file fails the build early.
+    struct Vec<struct String> files = Vec::new();
+    if (!source_files(site, &files)) { files.free(); return 0; }
     int ok = 1;
-    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
-        &Page p = pages.at(i);
+    for (unsigned long i = 0UL; i < files.len; i = i + 1UL) {
+        &String rel = files.at(i);
+        struct String ext = path_ext(rel.as_ptr());
+        int md = ext.eq_cstr("md");
+        ext.free();
+        if (!md) { continue; }
+
+        struct Page p;
+        p.locale = locale_of(site, rel);
+        // "guide/x.md" -> "/guide/x" + "/guide/x.html"; "a/index.md" -> "/a/".
+        struct String stem = rel.strip_suffix(".md");
+        p.route = String::from("/");
+        p.url = String::from("/");
+        struct String out_rel = String::new();
+        if (stem.eq_cstr("index") || stem.ends_with("/index")) {
+            struct String dir = stem.strip_suffix("index");
+            p.route.push_str(&dir);
+            p.url.push_str(&dir);
+            out_rel.push_str(&stem);
+            out_rel.push(".html");
+            dir.free();
+        } else {
+            p.route.push_str(&stem);
+            p.url.push_str(&stem);
+            p.url.push(".html");
+            out_rel.push_str(&stem);
+            out_rel.push(".html");
+        }
+        stem.free();
+        p.src = path_join(site.source.as_ptr(), rel.as_ptr());
+        p.out = path_join(site.output.as_ptr(), out_rel.as_ptr());
+        out_rel.free();
+        p.html = String::new();
+        p.title = String::new();
+        p.headings = Vec::new();
+        p.sections = Vec::new();
         struct String text = String::new();
-        if (!util_read_file(p.src.as_ptr(), &text)) {
-            eprint("safec-site: missing page source ");
+        if (!File::read_to_string(p.src.as_ptr(), &text)) {
+            eprint("safec-site: cannot read ");
             eprintln(p.src.as_ptr());
             ok = 0;
-        } else {
-            page_split_frontmatter(p, &text);
         }
+        page_split_frontmatter(&p, &text);
         text.free();
+        pages.push(p);
     }
+    for (unsigned long i = 0UL; i < files.len; i = i + 1UL) { files.at(i).free(); }
+    files.free();
     return ok;
+}
+
+void pages_free(&Vec<struct Page> pages) {
+    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
+        &Page p = pages.at(i);
+        p.route.free(); p.url.free(); p.src.free(); p.out.free();
+        p.front.free(); p.body_md.free(); p.html.free(); p.title.free();
+        for (unsigned long k = 0UL; k < p.headings.len; k = k + 1UL) {
+            p.headings.at(k).id.free();
+            p.headings.at(k).text.free();
+        }
+        p.headings.free();
+        for (unsigned long k = 0UL; k < p.sections.len; k = k + 1UL) {
+            &Section s = p.sections.at(k);
+            s.id.free(); s.title.free(); s.text.free();
+        }
+        p.sections.free();
+    }
+    pages.free();
 }

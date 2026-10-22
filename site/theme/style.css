@@ -189,6 +189,8 @@ html.dark .theme-toggle .moon { display: block; }
 .vp-doc strong { font-weight: 600; }
 .vp-doc ul, .vp-doc ol { padding-left: 1.25rem; margin: 16px 0; }
 .vp-doc li + li { margin-top: 8px; }
+.vp-doc li > p { margin: 0; }
+.vp-doc li > ul, .vp-doc li > ol { margin: 8px 0 0; }
 .vp-doc hr { margin: 16px 0; border: 0; border-top: 1px solid var(--c-divider); }
 .vp-doc table { display: block; margin: 20px 0; border-collapse: collapse; overflow-x: auto; }
 .vp-doc tr { background: var(--c-bg); border-top: 1px solid var(--c-divider); transition: background-color 0.5s; }
@@ -290,7 +292,10 @@ body.doc .vp-footer { display: none; }
 .search-results { list-style: none; margin: 8px 0 0; padding: 0; overflow-y: auto; }
 .search-results a { display: block; padding: 8px 12px; border-radius: 4px; color: var(--c-text-1); background: var(--c-bg-alt); margin-top: 8px; }
 .search-results a:hover, .search-results a.selected { background: var(--c-brand-soft); }
-.search-results .crumb { font-size: 12px; color: var(--c-text-2); }
+.search-results .crumb { display: block; font-size: 12px; color: var(--c-text-2); }
+.search-results .title { display: block; font-weight: 600; line-height: 24px; }
+.search-empty { margin: 16px 8px 8px; color: var(--c-text-2); font-size: 14px; }
+.search-empty[hidden] { display: none; }
 .search-results .excerpt { font-size: 13px; color: var(--c-text-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .search-results mark { background: none; color: var(--c-brand-1); font-weight: 600; }
 

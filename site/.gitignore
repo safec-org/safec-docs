@@ -3,3 +3,4 @@ deps/
 client/build/
 client/deps/
 theme/site.wasm
+theme/safec_dom.js

@@ -1,37 +1,103 @@
 name: Deploy to GitHub Pages
 
+# Builds the docs with the SafeC site generator in site/ (markdown ->
+# HTML with std/serial/markdown, scx templates, a wasm32 SafeC client) and
+# deploys dist/ to GitHub Pages. Pull requests build and run the link
+# check (every internal link and #anchor must resolve) without deploying.
+#
+# safec comes from source, not install.sh: the generator relies on std
+# features newer than the latest release. SAFEC_REF pins the SafeC commit;
+# the toolchain build is cached per commit, so only a SafeC bump pays for
+# the compiler build. Once a release carries everything the site needs,
+# this can become install.sh --version=<tag> (plus lld for wasm-ld).
+
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
+    inputs:
+      safec_ref:
+        description: SafeC commit, branch or tag to build with (default the pinned commit)
+        default: ""
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  LLVM_VERSION: "21"
+  # SafeC commit with the std the generator and client build against
+  # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime).
+  SAFEC_REF: ${{ inputs.safec_ref || 'ef2595525d7381f84f72d27f0d7c77e54349cffe' }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Resolve SafeC commit
+        id: safec
+        run: |
+          sha=$(git ls-remote https://github.com/safec-org/SafeC "$SAFEC_REF" | head -1 | cut -f1)
+          echo "sha=${sha:-$SAFEC_REF}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+          repository: safec-org/SafeC
+          ref: ${{ steps.safec.outputs.sha }}
+          path: SafeC
+
+      - name: Install LLVM ${{ env.LLVM_VERSION }} (clang, wasm-ld)
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh && chmod +x llvm.sh
+          sudo ./llvm.sh "$LLVM_VERSION"
+          sudo apt-get install -y "llvm-$LLVM_VERSION-dev" "clang-$LLVM_VERSION" "lld-$LLVM_VERSION" ninja-build
+          echo "/usr/lib/llvm-$LLVM_VERSION/bin" >> "$GITHUB_PATH"
+
+      - name: Cache the SafeC toolchain
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            SafeC/compiler/build/safec
+            SafeC/safeguard/build/safeguard
+          key: safec-${{ runner.os }}-llvm${{ env.LLVM_VERSION }}-${{ steps.safec.outputs.sha }}
+
+      - name: Build safec + safeguard
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -G Ninja -S SafeC/compiler -B SafeC/compiler/build -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR="/usr/lib/llvm-$LLVM_VERSION/lib/cmake/llvm"
+          cmake --build SafeC/compiler/build
+          cmake -G Ninja -S SafeC/safeguard -B SafeC/safeguard/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build SafeC/safeguard/build
+
+      - name: Toolchain on PATH
+        run: |
+          echo "$GITHUB_WORKSPACE/SafeC/compiler/build" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/SafeC/safeguard/build" >> "$GITHUB_PATH"
+          echo "SAFEC_HOME=$GITHUB_WORKSPACE/SafeC" >> "$GITHUB_ENV"
+
+      - name: Build the site (client, generator, pages; fails on dead links)
+        run: site/build.sh check
+
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
-          path: .vitepress/dist
+          path: dist
 
   deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

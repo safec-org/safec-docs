@@ -20,7 +20,7 @@ features:
   - title: Zero Hidden Cost
     details: No implicit allocations, no hidden runtime, no background GC, no implicit exceptions. Every operation has a visible cost.
   - title: C ABI Compatible
-    details: C struct layout, C calling conventions, native #include &lt;stdio.h&gt; support. Link SafeC objects into any C project.
+    details: "C struct layout, C calling conventions, native #include &lt;stdio.h&gt; support. Link SafeC objects into any C project."
   - title: Compile-Time First
     details: consteval functions, static_assert, if const, generics via monomorphization. Everything knowable at compile time is resolved at compile time.
   - title: Bare-Metal Ready

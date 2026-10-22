@@ -183,14 +183,13 @@ static void outline_range(const &Page page, &int lo, &int hi) {
     match (o) {
         case some(v): {
             if (v.kind_of() == VAL_INT) { *lo = (int)v.as_int(); *hi = *lo; }
+            else if (v.kind_of() == VAL_ARRAY && v.array_len() == 2UL) {
+                *lo = (int)v.array_at(0UL).as_int();
+                *hi = (int)v.array_at(1UL).as_int();
+            }
             else if (v.kind_of() == VAL_STRING) {
                 struct String s = String::from(v.as_string());
                 if (s.eq_cstr("deep")) { *hi = 6; }
-                else if (s.starts_with("[") && s.len >= 5UL) {
-                    // std yaml has no flow sequences: '[2, 4]' arrives as text.
-                    *lo = s.char_at(1UL) - (int)'0';
-                    *hi = s.char_at(s.len - 2UL) - (int)'0';
-                }
                 s.free();
             }
         }
@@ -244,17 +243,14 @@ static void build_head(const &Site site, const &Page page, &String out) {
             for (unsigned long i = 0UL; i < h.array_len(); i = i + 1UL) {
                 &Value e = h.array_at(i);
                 out.push("<link");
-                for (unsigned long k = 0UL; k < e.obj_val.len; k = k + 1UL) {
-                    &ObjectEntry kv = e.obj_val.at(k);
-                    const &char key = "";
-                    match (kv.key) { case some(kk): key = kk; case null: { } }
-                    struct String ks = String::from(key);
+                for (unsigned long k = 0UL; k < e.object_len(); k = k + 1UL) {
+                    struct String ks = String::from(e.object_key_at(k));
                     if (!ks.eq_cstr("tag")) {
                         out.push(" ");
-                        out.push(key);
+                        out.push_str(&ks);
                         out.push("=\"");
                         if (ks.eq_cstr("href")) { out.push(site.base.as_ptr()); }
-                        util_push_esc(out, kv.val.as_string());
+                        util_push_esc(out, e.object_value_at(k).as_string());
                         out.push("\"");
                     }
                     ks.free();
@@ -335,6 +331,10 @@ static void common(const &Site site, const &Locale loc, &PageView v) {
     v.github = String::from(util_vstr(&site.cfg, "repo", ""));
     v.client_js = site.base.clone();
     v.client_js.push("assets/site.js");
+    v.css = site.base.clone();
+    v.css.push("assets/style.css");
+    v.locale_key = loc.key.clone();
+    v.locale_prefix = loc.prefix.clone();
     ?&Value footer = loc.data.object_get("footer");
     match (footer) {
         case some(f): {
@@ -350,6 +350,10 @@ static void common(const &Site site, const &Locale loc, &PageView v) {
     v.outline_label    = String::from(util_vstr(empty, "outline", "On this page"));
     v.menu_label       = String::from(util_vstr(empty, "sidebarMenu", "Menu"));
     v.search_label     = String::from(util_vstr(empty, "search", "Search"));
+    v.search_placeholder = String::from(util_vstr(empty, "searchPlaceholder", "Search docs"));
+    v.no_results       = String::from(util_vstr(empty, "noResults", "No results for"));
+    v.copied           = String::from(util_vstr(empty, "copied", "Copied"));
+    v.lang_label       = String::from(util_vstr(empty, "langMenu", "Change language"));
     v.theme_label      = String::from(util_vstr(empty, "darkMode", "Appearance"));
     v.return_top_label = String::from(util_vstr(empty, "returnToTop", "Return to top"));
     v.skip_label       = String::from(util_vstr(empty, "skipToContent", "Skip to content"));
@@ -394,6 +398,29 @@ void view_build_404(const &Site site, unsigned long locale, &PageView v) {
     v.title = String::from("404 | ");
     v.title.push(util_vstr(&loc.data, "title", "SafeC"));
     v.page_class = String::from("not-found");
+    // Other locales' strings, swapped in by the client when the missing
+    // URL is under that locale's prefix.
+    for (unsigned long k = 0UL; k < site.locales.len; k = k + 1UL) {
+        if (k == locale) { continue; }
+        &Locale l = site.locales.at(k);
+        ?&Value lv = l.data.object_get("labels");
+        const &Value labels = &l.data;
+        match (lv) { case some(x): { labels = x; } case null: { } }
+        struct String pre = String::new();
+        link_rewrite(site, l.prefix.as_ptr(), &pre);
+        v.content.push("<div class=\"nf-alt\" hidden data-prefix=\"");
+        util_push_esc(&v.content, pre.as_ptr());
+        v.content.push("\" data-lang=\"");
+        util_push_esc(&v.content, util_vstr(&l.data, "lang", ""));
+        v.content.push("\" data-title=\"");
+        util_push_esc(&v.content, util_vstr(labels, "notFoundTitle", ""));
+        v.content.push("\" data-quote=\"");
+        util_push_esc(&v.content, util_vstr(labels, "notFoundQuote", ""));
+        v.content.push("\" data-link=\"");
+        util_push_esc(&v.content, util_vstr(labels, "notFoundLink", ""));
+        v.content.push("\"></div>");
+        pre.free();
+    }
     // The language menu on 404 just points at each locale's home.
     for (unsigned long k = 0UL; k < site.locales.len; k = k + 1UL) {
         &Locale l = site.locales.at(k);
@@ -412,5 +439,6 @@ void view_free(&PageView v) {
     v.features.free(); v.footer_message.free(); v.footer_copyright.free(); v.outline_label.free();
     v.menu_label.free(); v.search_label.free(); v.theme_label.free(); v.return_top_label.free();
     v.skip_label.free(); v.not_found_title.free(); v.not_found_quote.free(); v.not_found_link.free();
-    v.github.free(); v.page_class.free(); v.client_js.free();
+    v.github.free(); v.page_class.free(); v.client_js.free(); v.css.free();
+    v.search_placeholder.free(); v.no_results.free(); v.copied.free(); v.lang_label.free(); v.locale_key.free(); v.locale_prefix.free();
 }

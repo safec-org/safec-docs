@@ -2,10 +2,12 @@
 #include "site.h"
 #include <std/serial/yaml.h>
 #include <std/io.h>
+#include <std/io_file.h>
+#include <std/path.h>
 
 static int load_yaml(const &char path, &Value out) {
     struct String text = String::new();
-    if (!util_read_file(path, &text)) {
+    if (!File::read_to_string(path, &text)) {
         eprint("safec-site: cannot read ");
         eprintln(path);
         text.free();
@@ -22,16 +24,18 @@ static int load_yaml(const &char path, &Value out) {
     return 1;
 }
 
-// <root>/<rel>, or 'rel' itself when it is absolute.
+// <root>/<rel> normalized ('rel' itself when absolute).
 static struct String resolve(const &char root, const &char rel) {
-    unsafe { if (rel[0] == '/') { return String::from(rel); } }
-    return util_path_join(root, rel);
+    struct String j = path_join(root, rel);
+    struct String n = path_normalize(j.as_ptr());
+    j.free();
+    return n;
 }
 
 int site_load(&Site site, const &char root, const ?&char base_override) {
     site.root = String::from(root);
     site.locales = Vec::new();
-    struct String cfg_path = util_path_join(root, "site.yaml");
+    struct String cfg_path = path_join(root, "site.yaml");
     int ok = load_yaml(cfg_path.as_ptr(), &site.cfg);
     cfg_path.free();
     if (!ok) { return 0; }
@@ -57,7 +61,7 @@ int site_load(&Site site, const &char root, const ?&char base_override) {
                 struct String rel = String::from("locales/");
                 rel.push_str(&loc.key);
                 rel.push(".yaml");
-                struct String path = util_path_join(root, rel.as_ptr());
+                struct String path = path_join(root, rel.as_ptr());
                 rel.free();
                 if (!load_yaml(path.as_ptr(), &loc.data)) { path.free(); return 0; }
                 path.free();
@@ -75,4 +79,15 @@ int site_load(&Site site, const &char root, const ?&char base_override) {
         return 0;
     }
     return 1;
+}
+
+void site_free(&Site site) {
+    for (unsigned long i = 0UL; i < site.locales.len; i = i + 1UL) {
+        &Locale l = site.locales.at(i);
+        l.key.free(); l.prefix.free(); l.dir.free(); l.data.free();
+    }
+    site.locales.free();
+    site.root.free(); site.source.free(); site.public_dir.free();
+    site.output.free(); site.theme.free(); site.base.free();
+    site.cfg.free();
 }
