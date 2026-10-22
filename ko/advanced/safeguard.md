@@ -344,8 +344,18 @@ blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 | `crate_type` | 출력 | 생성 방식 |
 |---|---|---|
 | `"bin"` (기본값) | `build/<output>` | 링크된 실행 파일 |
-| `"staticlib"` | `build/lib<output>.a` | 이 프로젝트 자체 오브젝트의 `ar`로 패킹된 아카이브(링커 없음, `-l`/`-L`/`lto` 없음 — `.a`는 링크되지 않고 이후 링크가 소비할 수 있도록 그저 번들링될 뿐입니다) |
-| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (플랫폼에 따라 다름) | `-shared`로 링크됨 |
+| `"staticlib"` | `build/lib<output>.a`와 `build/include/` | 이 프로젝트 자체 오브젝트의 `ar`로 패킹된 아카이브(링커 없음, `-l`/`-L`/`lto` 없음 — `.a`는 링크되지 않고 이후 링크가 소비할 수 있도록 그저 번들링될 뿐입니다) |
+| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (플랫폼에 따라 다름)와 `build/include/` | `-shared`로 링크됨 |
+
+라이브러리 빌드는 공개 헤더도 `build/include/`로 내보냅니다. 프로젝트의 `include/` 아래 모든 파일과 `src/` 아래의 `.h` 파일을 경로를 유지한 채 복사합니다(`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). 이는 패키지를 소스에서 빌드하는 의존자가 보게 되는 헤더와 같습니다. 이 디렉터리는 빌드할 때마다 새로 만들어지므로, 삭제한 헤더는 여기서도 사라집니다. 같은 경로의 헤더가 `include/`와 `src/` 양쪽에 있으면 오류입니다. 따라서 `build/`는 그대로 [미리 빌드된 의존성](#dependencies)으로 쓸 수 있습니다:
+
+```toml
+[[dependencies]]
+name = "mylib"
+path = "../mylib/build"    # libmylib.a를 링크하고 build/include를 include 경로에 추가
+```
+
+프로젝트의 `include/`는 자체 SafeC, C, C++ 소스의 include 경로에도 들어가므로, 라이브러리 소스는 사용자와 같은 방식으로 자신이 내보내는 헤더를 포함합니다.
 
 `safeguard run`은 `crate_type = "bin"`을 요구합니다 — 정적 또는 동적
 라이브러리는 실행할 진입점이 없으며, 이를 링커에 직접 대고 실행하려

@@ -343,8 +343,18 @@ Libraries are looked up in `AOCL_ROOT`, `MKLROOT` and `OPENBLAS_ROOT` (or their 
 | `crate_type` | Output | How it's produced |
 |---|---|---|
 | `"bin"` (default) | `build/<output>` | linked executable |
-| `"staticlib"` | `build/lib<output>.a` | `ar`-packed archive of this project's own objects (no linker, no `-l`/`-L`/`lto` — a `.a` isn't linked, just bundled for a later link to consume) |
-| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (platform-dependent) | linked with `-shared` |
+| `"staticlib"` | `build/lib<output>.a` and `build/include/` | `ar`-packed archive of this project's own objects (no linker, no `-l`/`-L`/`lto` — a `.a` isn't linked, just bundled for a later link to consume) |
+| `"cdylib"` | `build/lib<output>.{dylib,so,dll}` (platform-dependent) and `build/include/` | linked with `-shared` |
+
+A library build also exports its public headers to `build/include/`: everything under the project's `include/`, and the `.h` files under `src/`, with their paths kept (`include/mylib/config.h` → `build/include/mylib/config.h`, `src/mylib.h` → `build/include/mylib.h`). These are the headers a dependent building the package from source would see. The directory is rebuilt on every build, so a deleted header leaves it too. A header at the same path in both `include/` and `src/` is an error. `build/` is then a [prebuilt dependency](#dependencies) as it stands:
+
+```toml
+[[dependencies]]
+name = "mylib"
+path = "../mylib/build"    # links libmylib.a, puts build/include on the include path
+```
+
+The project's `include/` is on the include path of its own SafeC, C and C++ sources, so a library's sources include the headers it exports the same way its users do.
 
 `safeguard run` requires `crate_type = "bin"` — a static or dynamic library
 has no executable entry point to run, and running it against the linker
