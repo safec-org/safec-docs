@@ -188,6 +188,8 @@ C와 달리 SafeC는 재현 가능한 빌드를 지원하기 위해 의도적으
 ./build/safec legacy.sc --compat-preprocessor --emit-llvm -o legacy.ll
 ```
 
+safeguard 패키지는 `[build] compat_preprocessor = true`로 자기 소스에 이 모드를 켭니다([패키지 매니저](/ko/advanced/safeguard#linking-external-libraries-and-library-output) 참고).
+
 호환 모드에서는 함수형 매크로, 토큰 붙이기, 문자열화가 모두 허용되며, 전처리기가 `__SAFEC_COMPAT_PREPROCESSOR__`를 정의합니다. 선택적인 함수형 편의 매크로를 제공하는 헤더는 이 매크로로 그것을 감싸서, 같은 헤더가 두 모드 모두에서 동작하게 합니다 — 표준 라이브러리는 `ASSERT_*`(`std/test/test.h`), `RING_STATIC`, 로깅·패닉 헬퍼 등에서 이렇게 합니다:
 
 ```c

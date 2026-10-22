@@ -48,6 +48,8 @@ struct Value {
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
     ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
+    const &char     object_key_at(unsigned long idx) const;   // idx번째 항목, 삽입 순서
+    &Value          object_value_at(unsigned long idx) const;
 
     // Building and lifetime.
     void            array_push(struct Value v);                    // takes ownership of v
@@ -78,6 +80,16 @@ match (parsed.object_get("age")) {
 ```
 
 `array_at`은 널이 될 수 없으므로(`array_len()`으로 확인된 범위 내 인덱스를 신뢰합니다), `v.array_at(0).as_string()`처럼 바로 체이닝할 수 있습니다.
+
+객체는 항목을 삽입 순서대로 보관합니다. `object_key_at` / `object_value_at`은 그 순서대로 항목을 순회합니다 — 파싱한 맵의 순서가 중요할 때(YAML 설정의 섹션, 다시 내보낼 JSON 객체) 필요한 기능입니다:
+
+```c
+for (unsigned long i = 0UL; i < cfg.object_len(); i = i + 1UL) {
+    std::print(cfg.object_key_at(i));
+    std::print(" = ");
+    std::println(cfg.object_value_at(i).as_string());
+}
+```
 
 ## 구조체를 직렬화 가능하게 만들기 {#making-a-struct-serializable}
 
@@ -253,6 +265,8 @@ parsed.free();
 
 ```c
 void html_escape(&String out, const &char s);   // 단독 사용 가능, Value 렌더러와 무관
+void html_unescape(&String out, const &char s);   // &lt; &#39; &#x2014; &mdash; ... -> UTF-8 텍스트
+void html_strip_tags(&String out, const &char s); // HTML 조각의 텍스트 내용
 void html_write(const &Value v, &String out);
 struct String value_to_html(const &Value v);
 
@@ -281,6 +295,15 @@ v.free();
 ```
 
 `html_parse`는 이와 동일한 `<dl>`/`<ul>`/`<em>null</em>`/맨 텍스트 형태를 다시 `Value` 트리로 읽어들입니다 — 이는 범용 HTML 파서가 아니며, (`xml_parse`와 마찬가지로) 임의의 HTML 문서가 아니라 이 모듈 자체의 출력을 왕복시키기 위한 것입니다.
+
+`html_escape`, `html_unescape`, `html_strip_tags`는 `Value` 렌더러와 무관하게 모든 텍스트에 사용할 수 있습니다. `html_unescape`는 숫자 참조(`&#39;`, `&#x2014;`)와 자주 쓰이는 이름 참조(`amp lt gt quot apos nbsp copy reg trade hellip mdash ndash`, 곡선 따옴표, `laquo raquo middot bull times divide deg`, 화살표, `ne le ge`)를 디코딩하며, 그 밖의 것은 그대로 복사합니다. `html_strip_tags`는 태그와 주석을 제거하고, `<script>`/`<style>` 내용을 버리며, 인접한 블록의 단어가 붙지 않도록 블록 경계(`</p>`, `<br>`, `</li>`, `</td>`, `</h2>`, ...)마다 공백 하나를 넣습니다. 참조는 인코딩된 채로 두므로, 평문이 필요하면 이어서 `html_unescape`를 호출하십시오:
+
+```c
+struct String tags = String::new();
+html_strip_tags(&tags, "<h2>Title</h2><p>Fish &amp; chips</p>");
+struct String text = String::new();
+html_unescape(&text, tags.as_ptr());     // "Title Fish & chips"
+```
 
 ## CSV {#csv}
 
@@ -315,9 +338,9 @@ rows.free();
 #include <std/serial/yaml.h>
 ```
 
-YAML 1.1의 블록 스타일 서브셋입니다: 블록 스칼라(평문, 각자의 이스케이프 규칙을 따르는 단일/이중 따옴표), 블록 시퀀스(`- item`, 맵 목록의 축약형인 `- key: value` 포함), 블록 매핑(`key: value`, 들여쓰기로 중첩), `#` 주석, `~`/`null`/`true`/`false`/숫자 코어 스키마 스칼라 형태.
+설정 파일과 프런트매터를 다루는 YAML 1.1의 서브셋입니다: 블록 스칼라(평문, 각자의 이스케이프 규칙을 따르는 단일/이중 따옴표), 블록 시퀀스(`- item`, 맵 목록의 축약형인 `- key: value` 포함), 블록 매핑(`key: value`, 들여쓰기로 중첩), 한 줄짜리 플로우 컬렉션(`[a, b]`, `{k: v, n: [1, 2]}`, 중첩 가능, 따옴표 또는 평문 항목), 리터럴/폴디드 블록 스칼라(`|`, `>`, `-` 제거와 `+` 유지 chomping 지원), `#` 주석(줄 맨 앞 또는 공백 뒤 — `a#b`는 평문 스칼라), `~`/`null`/`true`/`false`/숫자 코어 스키마 스칼라 형태.
 
-**지원하지 않는 것**(완전한 YAML 1.2 프로세서는 훨씬 더 큰 작업입니다): 플로우 스타일(`[a, b]` / `{k: v}`), 앵커/앨리어스, 태그, 다중 문서 스트림, 블록 스칼라 리터럴(`|`/`>`), 병합 키. 이들 중 하나를 사용하는 문서는 평문 스칼라 텍스트로 파싱되거나, 아래 `yaml_parse`의 `ok` 계약에 따라 실패합니다.
+**지원하지 않는 것**(완전한 YAML 1.2 프로세서는 훨씬 더 큰 작업입니다): 여러 줄에 걸친 플로우 컬렉션, 앵커/앨리어스, 태그, 다중 문서 스트림, 병합 키. 이들 중 하나를 사용하는 문서는 평문 스칼라 텍스트로 파싱되거나(닫히지 않은 `[1, 2`는 문자열 `"[1, 2"`로 남습니다), 아래 `yaml_parse`의 `ok` 계약에 따라 실패합니다.
 
 ```c
 void yaml_write(const &Value v, &String out);
@@ -343,44 +366,102 @@ yaml.free();
 v.free();
 ```
 
+페이지 프런트매터에서처럼 플로우 컬렉션과 블록 스칼라를 쓰는 예:
+
+```c
+int ok = 0;
+struct Value fm = yaml_parse(
+    "outline: [2, 4]\n"
+    "hero: {name: SafeC, actions: [start, docs]}\n"
+    "summary: >\n"
+    "  Folded lines become\n"
+    "  one paragraph.\n"
+    "code: |\n"
+    "  int x;\n"
+    "  int y;\n", &ok);
+// outline -> [2, 4] (VAL_INT의 VAL_ARRAY)
+// summary -> "Folded lines become one paragraph.\n"
+// code    -> "int x;\nint y;\n"
+fm.free();
+```
+
 ## Markdown {#markdown}
 
 ```c
 #include <std/serial/markdown.h>
 ```
 
-Markdown은 키/값 데이터가 아니라 문서 마크업이므로 `Value` 트리 대신 자체의 작은 AST를 씁니다. CommonMark와 비슷한 부분집합을 파싱한 뒤 HTML(예: [HTTP](/ko/stdlib/http) 응답 본문)이나 다시 Markdown으로 렌더링합니다.
+Markdown은 키/값 데이터가 아니라 문서 마크업이므로 `Value` 트리 대신 자체 AST를 가집니다. `MdNode::parse`는 CommonMark를 읽고, `MdNode::parse_opts`는 GitHub 방식(GFM)과 문서 사이트용 확장을 더합니다. 트리는 HTML(예: [HTTP](/ko/stdlib/http) 응답 본문)이나 다시 Markdown으로 렌더링하거나, 직접 순회할 수 있습니다.
 
-지원하는 블록: `#`–`######` 제목, 문단, 평평한 순서 없는(`-`, `*`, `+`) 및 순서 있는(`1.`) 목록, 펜스 코드 블록, 인용, 수평선. 지원하는 인라인: `**굵게**`/`__굵게__`, `*기울임*`/`_기울임_`, `` `코드` ``, `[텍스트](url)`. 미지원: 표, 이미지, 원시 HTML, 참조형 링크, 중첩 목록.
+**CommonMark**(항상 켜짐): ATX(`#`)와 setext(`===` / `---` 밑줄) 제목, 문단, 구분선, 느슨한 이어쓰기(lazy continuation)를 지원하는 인용 블록, 글머리표(`-` `*` `+`)와 번호(`1.` / `1)`) 목록 — 중첩, tight/loose, 항목 안에 어떤 블록(코드, 인용, 목록)이든 포함 가능 — 정보 문자열이 있는 펜스 코드(```` ``` ```` / `~~~`), 들여쓰기 코드. 인라인은 CommonMark의 구분자 규칙을 따릅니다: `*em*` / `_em_`, `**strong**` / `__strong__`(단어 안의 `_`는 강조가 아니므로 `snake_case_name`은 텍스트로 남습니다), `` `code` ``(강조보다 우선), 백슬래시 이스케이프, 엔티티/숫자 참조(`&copy;`, `&#x2014;`), 제목(title)이 있는 링크와 이미지(링크 텍스트 안에 어떤 인라인이든 가능: ``[`code` *and* em](/url "title")``), `<https://...>`와 `<user@host>` 자동 링크, 강제 줄바꿈(끝의 공백 두 개 또는 `\`). 지원하지 않는 것: 참조 스타일 링크(`[x][ref]`와 `[ref]: url`), 각주.
+
+**확장**(`MdOptions` 필드. `MdOptions::gfm()`은 앞의 세 가지를 켭니다):
+
+| 옵션 | 문법 |
+|---|---|
+| `tables` | GFM 표: 헤더 행, 구분 행(`\|:--\|:-:\|--:\|`가 왼쪽/가운데/오른쪽 정렬을 지정), 본문 행. 셀 안의 파이프는 `\|`로 이스케이프 |
+| `strikethrough` | `~~text~~` |
+| `autolinks` | 맨 `https://…`, `http://…`, `www.…` URL이 링크가 됨(끝의 문장 부호는 제외) |
+| `html` | 원시 HTML 블록과 인라인 태그/주석을 이스케이프 없이 통과 — 기본값은 꺼짐이라 신뢰할 수 없는 입력은 무해하게 남음 |
+| `containers` | `::: kind [title]` … `:::` 블록(`tip`, `warning`, `details`, … — 아무 단어나 가능), 중첩 가능. `<div class="custom-block kind">`와 `<p class="custom-block-title">`(제목, 없으면 kind를 대문자로)로 렌더링되며, `details`는 `<details>`/`<summary>` |
+| `heading_ids` | 모든 제목에 `id` 부여: `## Title {#custom-id}`, 없으면 텍스트의 `md_slugify` 결과(중복 시 `-1`, `-2`, …) |
 
 ```c
-#define MD_DOC        0
-#define MD_HEADING    1
-#define MD_PARAGRAPH  2
-#define MD_LIST       3   // 'ordered' tells - from 1.
-#define MD_LIST_ITEM  4
-#define MD_CODE_BLOCK 5
-#define MD_BLOCKQUOTE 6
-#define MD_HR         7
-#define MD_TEXT       8   // inline text in 'text'
-#define MD_BOLD       9
-#define MD_ITALIC     10
-#define MD_CODE_SPAN  11  // inline code in 'text'
-#define MD_LINK       12  // children are the link text; 'text' is the URL
+#define MD_DOC             0
+#define MD_HEADING         1  // level 1-6; id (heading_ids)
+#define MD_PARAGRAPH       2
+#define MD_LIST            3  // ordered, start, tight
+#define MD_LIST_ITEM       4
+#define MD_CODE_BLOCK      5  // text = code, info = info string ("c", "bash")
+#define MD_BLOCKQUOTE      6
+#define MD_HR              7
+#define MD_TEXT            8  // inline text in 'text' (references decoded)
+#define MD_BOLD            9
+#define MD_ITALIC          10
+#define MD_CODE_SPAN       11 // inline code in 'text'
+#define MD_LINK            12 // children = link text; text = URL; title
+#define MD_TABLE           13 // rows; the first, 'header' row is the thead
+#define MD_TABLE_ROW       14
+#define MD_TABLE_CELL      15 // inline children; align = MD_ALIGN_*
+#define MD_CONTAINER       16 // info = kind; first child MD_CONTAINER_TITLE when titled
+#define MD_HTML_BLOCK      17 // raw HTML in 'text'
+#define MD_HTML_INLINE     18
+#define MD_IMAGE           19 // children = alt text; text = src; title
+#define MD_STRIKE          20
+#define MD_BREAK           21 // hard line break
+#define MD_CONTAINER_TITLE 22
+
+struct MdOptions {
+    int tables, html, containers, heading_ids, strikethrough, autolinks;
+    static struct MdOptions commonmark();   // all off (what parse() uses)
+    static struct MdOptions gfm();          // tables, strikethrough, autolinks
+};
 
 struct MdNode {
     int kind;
-    int level;                          // MD_HEADING: 1-6
-    int ordered;                        // MD_LIST
-    struct String text;
+    int level;      // MD_HEADING
+    int ordered;    // MD_LIST
+    int start;      // MD_LIST: first number of an ordered list
+    int tight;      // MD_LIST: no blank lines between items/blocks (no <p> in items)
+    int align;      // MD_TABLE_CELL: MD_ALIGN_NONE/LEFT/CENTER/RIGHT
+    int header;     // MD_TABLE_ROW/CELL: in the header row
+    struct String text, info, id, title;
     struct Vec<&heap MdNode> children;
 
-    static &heap MdNode parse(const &char text);   // MD_DOC root; release with doc.free()
+    static &heap MdNode parse(const &char text);                                // CommonMark
+    static &heap MdNode parse_opts(const &char text, const &MdOptions opts);   // with extensions
 
-    struct String render_html() const;       // text is HTML-escaped
-    struct String render_markdown() const;   // canonical form, e.g. *b* -> **b**
+    struct String render_html() const;       // text escaped; raw HTML only with the html option
+    struct String render_markdown() const;   // round-trips: parse(render_markdown()) renders the same
+    void          plain_text(&String out) const;   // text content, no markup
     void          free();                    // frees the subtree and the node itself
 };
+
+void md_slugify(const &char text, &String out);   // "2. Temporal Safety" -> "_2-temporal-safety"
+
+generic<C>
+struct String md_render_html_with(const &MdNode node,
+                                  fn int(?&C, const &MdNode, int, &String) hook, ?&C ctx);
 ```
 
 ```c
@@ -390,11 +471,53 @@ struct MdNode {
 int main() {
     &heap MdNode doc = std::MdNode::parse("# Title\n\nSome **bold** text.\n");
     struct String html = doc.render_html();
-    std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
+    std::println(html.as_ptr());   // <h1>Title</h1>\n<p>Some <strong>bold</strong> text.</p>
     html.free();
     doc.free();
     return 0;
 }
+```
+
+`md_slugify`는 GitHub/VitePress 방식의 앵커를 만듭니다: 소문자로 바꾸고, 공백·ASCII 문장 부호·제어 문자(및 곡선 따옴표)의 연속을 `-` 하나로 합치며, 앞뒤의 `-`를 없애고, 숫자로 시작하면 앞에 `_`를 붙입니다. 비ASCII 문자는 그대로 둡니다.
+
+### 훅으로 렌더링하기 {#markdown-hooks}
+
+`md_render_html_with`는 각 노드의 기본 HTML을 쓰기 전에 훅을 호출하므로, 나머지를 다시 구현하지 않고도 링크 대상을 바꾸거나, 제목에 앵커를 붙이거나, 코드에 구문 강조를 적용할 수 있습니다. 진입 시(`entering` = 1) 훅은 노드를 평소대로 렌더링하려면 `0`, 노드의 HTML 전체를 직접 썼으면 `1`, 여는 부분만 썼으면 `2`를 반환합니다. `2`인 경우 자식은 평소대로 렌더링되고, 이어서 `entering` = 0으로 훅이 다시 호출되며, 닫는 부분도 직접 썼으면 `1`(기본 닫기를 쓰려면 `0`)을 반환합니다.
+
+```c
+struct Site { const char* base; };
+
+int site_hook(?&Site site, const &MdNode n, int entering, &String out) {
+    if (n.kind == MD_LINK && entering) {          // prefix every absolute link
+        out.push("<a href=\"");
+        match (site) { case some(s): { unsafe { out.push(s.base); } } case null: { } }
+        html_escape(out, n.text.as_ptr());
+        out.push("\">");
+        return 2;                                 // children + default </a>
+    }
+    if (n.kind == MD_HEADING && !entering) {      // anchor before </hN>
+        out.push(" <a class=\"anchor\" href=\"#");
+        out.push(n.id.as_ptr());
+        out.push("\">#</a></h");
+        out.push_int((long long)n.level);
+        out.push(">\n");
+        return 1;
+    }
+    if (n.kind == MD_HEADING) {
+        out.push("<h"); out.push_int((long long)n.level);
+        out.push(" id=\""); out.push(n.id.as_ptr()); out.push("\">");
+        return 2;
+    }
+    return 0;
+}
+
+struct MdOptions o = MdOptions::gfm();
+o.heading_ids = 1;
+&heap MdNode doc = MdNode::parse_opts(text, &o);
+struct Site site;
+site.base = "/docs";
+struct String html;
+unsafe { html = md_render_html_with(doc, site_hook, (?&Site)&site); }
 ```
 
 ## Protobuf {#protobuf}

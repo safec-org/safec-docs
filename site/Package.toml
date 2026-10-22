@@ -1,0 +1,9 @@
+[package]
+name        = "safec-site"
+version     = "0.1.0"
+author      = "SafeC Contributors"
+description = "Static-site generator for the SafeC documentation, written in SafeC"
+license     = "MIT"
+
+[build]
+edition = "2026"

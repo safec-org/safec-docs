@@ -1,0 +1,352 @@
+# Generated from .vitepress/config.mjs (locale 'root'); edit freely —
+# this file, not config.mjs, is what the SafeC site generator reads.
+lang: en
+label: English
+prefix: /
+title: SafeC
+description: The SafeC Programming Language — Safe, Deterministic Systems Programming
+footer:
+  message: Released under the MIT License.
+  copyright: Copyright 2026 SafeC Contributors
+labels:
+  outline: On this page
+  prev: Previous page
+  next: Next page
+  returnToTop: Return to top
+  langMenu: Change language
+  darkMode: Appearance
+  sidebarMenu: Menu
+  search: Search
+  searchPlaceholder: Search docs
+  noResults: No results for
+  copy: Copy code
+  copied: Copied
+  notFoundTitle: PAGE NOT FOUND
+  notFoundQuote: But if you don't change your direction, and if you keep looking, you may end up where you are heading.
+  notFoundLink: Take me home
+  skipToContent: Skip to content
+  lastUpdated: Last updated
+nav:
+  - text: Guide
+    items:
+      - text: Introduction
+        link: /guide/introduction
+      - text: Getting Started
+        link: /guide/getting-started
+      - text: Design Philosophy
+        link: /guide/design
+      - text: Comparison
+        link: /guide/comparison
+  - text: Book
+    items:
+      - text: Preface
+        link: /book/
+      - text: 1. Getting Started
+        link: /book/ch01-getting-started
+      - text: 2. A First Program
+        link: /book/ch02-first-program
+      - text: 3. Common Concepts
+        link: /book/ch03-common-concepts
+      - text: 4. Functions
+        link: /book/ch04-functions
+      - text: 5. Understanding Regions
+        link: /book/ch05-understanding-regions
+      - text: 6. Structs and Methods
+        link: /book/ch06-structs-and-methods
+      - text: 7. Enums, Unions, and Match
+        link: /book/ch07-enums-and-match
+      - text: 8. Error Handling
+        link: /book/ch08-error-handling
+      - text: 9. Final Project
+        link: /book/ch09-final-project
+  - text: Reference
+    items:
+      - text: Types
+        link: /reference/types
+      - text: Operators
+        link: /reference/operators
+      - text: Literals & Qualifiers
+        link: /reference/literals
+      - text: Memory & Regions
+        link: /reference/memory
+      - text: Functions
+        link: /reference/functions
+      - text: Generics
+        link: /reference/generics
+      - text: Polymorphism & OOP
+        link: /reference/polymorphism
+      - text: Functional Programming
+        link: /reference/functional
+      - text: Namespaces
+        link: /reference/namespaces
+      - text: Native SIMD
+        link: /reference/simd
+      - text: C Superset
+        link: /reference/c-superset
+      - text: Control Flow
+        link: /reference/control-flow
+      - text: Safety
+        link: /reference/safety
+      - text: C Interop (FFI)
+        link: /reference/ffi
+      - text: Concurrency
+        link: /reference/concurrency
+      - text: Bare-Metal
+        link: /reference/baremetal
+      - text: Preprocessor
+        link: /reference/preprocessor
+      - text: Overflow Operators
+        link: /reference/overflow
+  - text: Standard Library
+    items:
+      - text: Overview
+        link: /stdlib/
+      - text: mem
+        link: /stdlib/mem
+      - text: io
+        link: /stdlib/io
+      - text: Files & Directories
+        link: /stdlib/dir
+      - text: str
+        link: /stdlib/str
+      - text: math
+        link: /stdlib/math
+      - text: thread
+        link: /stdlib/thread
+      - text: atomic
+        link: /stdlib/atomic
+      - text: Serialization
+        link: /stdlib/serial
+      - text: Collections
+        link: /stdlib/collections
+      - text: Allocators
+        link: /stdlib/allocators
+      - text: Synchronization
+        link: /stdlib/sync
+      - text: IPC
+        link: /stdlib/ipc
+      - text: Async
+        link: /stdlib/async
+      - text: Real-Time Scheduler
+        link: /stdlib/sched
+      - text: Networking
+        link: /stdlib/net
+      - text: HTTP & Web
+        link: /stdlib/http
+      - text: WebAssembly & DOM
+        link: /stdlib/wasm
+      - text: Machine Learning
+        link: /stdlib/ml
+      - text: GUI
+        link: /stdlib/gui
+      - text: Audio & MIDI
+        link: /stdlib/audio
+      - text: Encoding
+        link: /stdlib/encoding
+      - text: Filesystems
+        link: /stdlib/fs
+      - text: DSP & Real-Time
+        link: /stdlib/dsp
+      - text: Cryptography
+        link: /stdlib/crypto
+      - text: Debugging
+        link: /stdlib/debug
+      - text: SIMD
+        link: /stdlib/simd
+      - text: Hardware Abstraction
+        link: /stdlib/hal
+      - text: Interrupts & MMIO
+        link: /stdlib/interrupt
+      - text: Kernel Primitives
+        link: /stdlib/kernel
+      - text: Testing & Benchmarking
+        link: /stdlib/testing
+      - text: Utilities & C Compatibility
+        link: /stdlib/utilities
+  - text: Advanced
+    items:
+      - text: Compiler Architecture
+        link: /advanced/compiler
+      - text: Package Manager
+        link: /advanced/safeguard
+      - text: scx Templating
+        link: /advanced/scx
+      - text: Safety Model
+        link: /advanced/safety-model
+      - text: Compile-Time Introspection
+        link: /advanced/introspection
+  - text: Benchmarks
+    link: /benchmarks
+  - text: GitHub
+    link: https://github.com/safec-org/SafeC
+sidebar:
+  - prefix: /guide/
+    groups:
+      - text: Getting Started
+        items:
+          - text: Introduction
+            link: /guide/introduction
+          - text: Getting Started
+            link: /guide/getting-started
+          - text: Design Philosophy
+            link: /guide/design
+          - text: Comparison
+            link: /guide/comparison
+  - prefix: /book/
+    groups:
+      - text: The SafeC Book
+        items:
+          - text: Preface
+            link: /book/
+          - text: 1. Getting Started
+            link: /book/ch01-getting-started
+          - text: 2. A First Program
+            link: /book/ch02-first-program
+          - text: 3. Common Concepts
+            link: /book/ch03-common-concepts
+          - text: 4. Functions
+            link: /book/ch04-functions
+          - text: 5. Understanding Regions
+            link: /book/ch05-understanding-regions
+          - text: 6. Structs and Methods
+            link: /book/ch06-structs-and-methods
+          - text: 7. Enums, Unions, and Match
+            link: /book/ch07-enums-and-match
+          - text: 8. Error Handling
+            link: /book/ch08-error-handling
+          - text: 9. Final Project
+            link: /book/ch09-final-project
+  - prefix: /reference/
+    groups:
+      - text: Language Reference
+        items:
+          - text: Types
+            link: /reference/types
+          - text: Operators
+            link: /reference/operators
+          - text: Literals & Qualifiers
+            link: /reference/literals
+          - text: Memory & Regions
+            link: /reference/memory
+          - text: Functions
+            link: /reference/functions
+          - text: Generics
+            link: /reference/generics
+          - text: Polymorphism & OOP
+            link: /reference/polymorphism
+          - text: Functional Programming
+            link: /reference/functional
+          - text: Namespaces
+            link: /reference/namespaces
+          - text: Native SIMD
+            link: /reference/simd
+          - text: C Superset
+            link: /reference/c-superset
+          - text: Control Flow
+            link: /reference/control-flow
+          - text: Safety
+            link: /reference/safety
+          - text: C Interop (FFI)
+            link: /reference/ffi
+          - text: Concurrency
+            link: /reference/concurrency
+          - text: Bare-Metal
+            link: /reference/baremetal
+          - text: Preprocessor
+            link: /reference/preprocessor
+          - text: Overflow Operators
+            link: /reference/overflow
+  - prefix: /stdlib/
+    groups:
+      - text: Standard Library
+        items:
+          - text: Overview
+            link: /stdlib/
+      - text: Core
+        items:
+          - text: mem
+            link: /stdlib/mem
+          - text: io
+            link: /stdlib/io
+          - text: Files & Directories
+            link: /stdlib/dir
+          - text: str
+            link: /stdlib/str
+          - text: math
+            link: /stdlib/math
+          - text: thread
+            link: /stdlib/thread
+          - text: atomic
+            link: /stdlib/atomic
+      - text: Serialization
+        items:
+          - text: JSON / XML / HTML / CSV / YAML / Markdown / Protobuf
+            link: /stdlib/serial
+      - text: Collections
+        items:
+          - text: All Collections
+            link: /stdlib/collections
+      - text: Ecosystem
+        items:
+          - text: Allocators
+            link: /stdlib/allocators
+          - text: Synchronization
+            link: /stdlib/sync
+          - text: IPC
+            link: /stdlib/ipc
+          - text: Async
+            link: /stdlib/async
+          - text: Real-Time Scheduler
+            link: /stdlib/sched
+          - text: Networking
+            link: /stdlib/net
+          - text: HTTP & Web
+            link: /stdlib/http
+          - text: WebAssembly & DOM
+            link: /stdlib/wasm
+          - text: Machine Learning
+            link: /stdlib/ml
+          - text: GUI
+            link: /stdlib/gui
+          - text: Audio & MIDI
+            link: /stdlib/audio
+          - text: Encoding
+            link: /stdlib/encoding
+          - text: Filesystems
+            link: /stdlib/fs
+          - text: DSP & Real-Time
+            link: /stdlib/dsp
+          - text: Cryptography
+            link: /stdlib/crypto
+          - text: Debugging
+            link: /stdlib/debug
+      - text: SIMD & Embedded
+        items:
+          - text: SIMD
+            link: /stdlib/simd
+          - text: Hardware Abstraction
+            link: /stdlib/hal
+          - text: Interrupts & MMIO
+            link: /stdlib/interrupt
+          - text: Kernel Primitives
+            link: /stdlib/kernel
+      - text: Development
+        items:
+          - text: Testing & Benchmarking
+            link: /stdlib/testing
+          - text: Utilities & C Compatibility
+            link: /stdlib/utilities
+  - prefix: /advanced/
+    groups:
+      - text: Advanced
+        items:
+          - text: Compiler Architecture
+            link: /advanced/compiler
+          - text: Package Manager
+            link: /advanced/safeguard
+          - text: scx Templating
+            link: /advanced/scx
+          - text: Safety Model
+            link: /advanced/safety-model
+          - text: Compile-Time Introspection
+            link: /advanced/introspection

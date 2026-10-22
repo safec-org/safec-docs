@@ -1,0 +1,8 @@
+# SafeC Package.lock — auto-generated, do not edit manually
+
+[safec]
+hash = "5f4a9bad1e597922"
+
+[sources]
+"src/main.sc" = "254eff2103b32811"
+

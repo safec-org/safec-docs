@@ -48,6 +48,8 @@ struct Value {
     &Value          array_at(unsigned long idx) const;
     unsigned long   object_len() const;
     ?&Value         object_get(const &char key) const;   // empty (null) if the key isn't present
+    const &char     object_key_at(unsigned long idx) const;   // idx-th entry, insertion order
+    &Value          object_value_at(unsigned long idx) const;
 
     // Building and lifetime.
     void            array_push(struct Value v);                    // takes ownership of v
@@ -78,6 +80,16 @@ match (parsed.object_get("age")) {
 ```
 
 `array_at` is non-nullable (it trusts the index is in range, checked via `array_len()`), so it can be chained directly: `v.array_at(0).as_string()`.
+
+Objects keep their entries in insertion order. `object_key_at` / `object_value_at` walk them in that order — what you need when the order of a parsed map matters (a YAML config's sections, a JSON object you re-emit):
+
+```c
+for (unsigned long i = 0UL; i < cfg.object_len(); i = i + 1UL) {
+    std::print(cfg.object_key_at(i));
+    std::print(" = ");
+    std::println(cfg.object_value_at(i).as_string());
+}
+```
 
 ## Making a Struct Serializable {#making-a-struct-serializable}
 
@@ -253,6 +265,8 @@ parsed.free();
 
 ```c
 void html_escape(&String out, const &char s);   // usable standalone, independent of the Value renderer
+void html_unescape(&String out, const &char s);   // &lt; &#39; &#x2014; &mdash; ... -> UTF-8 text
+void html_strip_tags(&String out, const &char s); // an HTML fragment's text content
 void html_write(const &Value v, &String out);
 struct String value_to_html(const &Value v);
 
@@ -281,6 +295,15 @@ v.free();
 ```
 
 `html_parse` reads this same `<dl>`/`<ul>`/`<em>null</em>`/bare-text shape back into a `Value` tree — it is not a general HTML parser, and (like `xml_parse`) is meant for round-tripping this module's own output, not arbitrary HTML documents.
+
+`html_escape`, `html_unescape` and `html_strip_tags` work on any text, independent of the `Value` renderer. `html_unescape` decodes numeric references (`&#39;`, `&#x2014;`) and the common named ones (`amp lt gt quot apos nbsp copy reg trade hellip mdash ndash`, the curly quotes, `laquo raquo middot bull times divide deg`, the arrows, `ne le ge`); anything else is copied unchanged. `html_strip_tags` drops tags and comments, drops `<script>`/`<style>` content, and puts one space at each block boundary (`</p>`, `<br>`, `</li>`, `</td>`, `</h2>`, ...) so words from adjacent blocks don't run together; it leaves references encoded, so follow it with `html_unescape` for plain text:
+
+```c
+struct String tags = String::new();
+html_strip_tags(&tags, "<h2>Title</h2><p>Fish &amp; chips</p>");
+struct String text = String::new();
+html_unescape(&text, tags.as_ptr());     // "Title Fish & chips"
+```
 
 ## CSV {#csv}
 
@@ -315,9 +338,9 @@ rows.free();
 #include <std/serial/yaml.h>
 ```
 
-A block-style subset of YAML 1.1: block scalars (plain, single- and double-quoted with their respective escaping rules), block sequences (`- item`, including the compact `- key: value` list-of-maps shorthand), block mappings (`key: value`, indentation-nested), `#` comments, and the `~`/`null`/`true`/`false`/numeric core-schema scalar forms.
+A subset of YAML 1.1 that covers configuration files and front matter: block scalars (plain, single- and double-quoted with their respective escaping rules), block sequences (`- item`, including the compact `- key: value` list-of-maps shorthand), block mappings (`key: value`, indentation-nested), flow collections on one line (`[a, b]`, `{k: v, n: [1, 2]}`, nested, with quoted or plain items), literal and folded block scalars (`|`, `>`, with `-` strip and `+` keep chomping), `#` comments (at the start of a line or after whitespace — `a#b` is a plain scalar), and the `~`/`null`/`true`/`false`/numeric core-schema scalar forms.
 
-**Not supported** (a full YAML 1.2 processor is a much larger undertaking): flow style (`[a, b]` / `{k: v}`), anchors/aliases, tags, multi-document streams, block scalar literals (`|`/`>`), and merge keys. A document using any of these either parses as plain scalar text or fails, per `yaml_parse`'s `ok` contract below.
+**Not supported** (a full YAML 1.2 processor is a much larger undertaking): flow collections spanning several lines, anchors/aliases, tags, multi-document streams, and merge keys. A document using any of these either parses as plain scalar text (an unterminated `[1, 2` stays the string `"[1, 2"`) or fails, per `yaml_parse`'s `ok` contract below.
 
 ```c
 void yaml_write(const &Value v, &String out);
@@ -344,44 +367,102 @@ yaml.free();
 v.free();
 ```
 
+Flow collections and block scalars, as in a page's front matter:
+
+```c
+int ok = 0;
+struct Value fm = yaml_parse(
+    "outline: [2, 4]\n"
+    "hero: {name: SafeC, actions: [start, docs]}\n"
+    "summary: >\n"
+    "  Folded lines become\n"
+    "  one paragraph.\n"
+    "code: |\n"
+    "  int x;\n"
+    "  int y;\n", &ok);
+// outline -> [2, 4] (VAL_ARRAY of VAL_INT)
+// summary -> "Folded lines become one paragraph.\n"
+// code    -> "int x;\nint y;\n"
+fm.free();
+```
+
 ## Markdown {#markdown}
 
 ```c
 #include <std/serial/markdown.h>
 ```
 
-Markdown is document markup, not key/value data, so it has its own small AST instead of the `Value` tree. Parse a CommonMark-like subset, then render it to HTML (for example as an [HTTP](/stdlib/http) response body) or back to Markdown.
+Markdown is document markup, not key/value data, so it has its own AST instead of the `Value` tree. `MdNode::parse` reads CommonMark; `MdNode::parse_opts` adds GitHub-flavored and documentation-site extensions. Render the tree to HTML (for example as an [HTTP](/stdlib/http) response body), back to Markdown, or walk it yourself.
 
-Supported blocks: `#`–`######` headings, paragraphs, flat unordered (`-`, `*`, `+`) and ordered (`1.`) lists, fenced code blocks, blockquotes, horizontal rules. Supported inline: `**bold**`/`__bold__`, `*italic*`/`_italic_`, `` `code` ``, `[text](url)`. Not supported: tables, images, raw HTML, reference-style links, nested lists.
+**CommonMark** (always on): ATX (`#`) and setext (`===` / `---` underlined) headings, paragraphs, thematic breaks, block quotes with lazy continuation, bullet (`-` `*` `+`) and ordered (`1.` / `1)`) lists — nested, tight or loose, items holding any blocks (code, quotes, lists) — fenced code (```` ``` ```` / `~~~`) with an info string, and indented code. Inlines follow CommonMark's delimiter rules: `*em*` / `_em_`, `**strong**` / `__strong__` (no intraword `_`, so `snake_case_name` stays text), `` `code` `` (taking precedence over emphasis), backslash escapes, entity and numeric references (`&copy;`, `&#x2014;`), links and images with titles whose text holds any inlines (``[`code` *and* em](/url "title")``), `<https://...>` and `<user@host>` autolinks, and hard line breaks (two trailing spaces or `\`). Not supported: reference-style links (`[x][ref]` with `[ref]: url`) and footnotes.
+
+**Extensions** (`MdOptions` fields; `MdOptions::gfm()` turns on the first three):
+
+| Option | Syntax |
+|---|---|
+| `tables` | GFM tables: a header row, a delimiter row (`\|:--\|:-:\|--:\|` sets left/center/right alignment), body rows; `\|` escapes a pipe inside a cell |
+| `strikethrough` | `~~text~~` |
+| `autolinks` | bare `https://…`, `http://…` and `www.…` URLs become links (trailing punctuation excluded) |
+| `html` | raw HTML blocks and inline tags/comments pass through unescaped — off by default, so untrusted input stays inert |
+| `containers` | `::: kind [title]` … `:::` blocks (`tip`, `warning`, `details`, … — any word), nestable; rendered as `<div class="custom-block kind">` with a `<p class="custom-block-title">` (the title, or the kind upper-cased), `details` as `<details>`/`<summary>` |
+| `heading_ids` | every heading gets an `id`: `## Title {#custom-id}`, else `md_slugify` of its text, deduplicated with `-1`, `-2`, … |
 
 ```c
-#define MD_DOC        0
-#define MD_HEADING    1
-#define MD_PARAGRAPH  2
-#define MD_LIST       3   // 'ordered' tells - from 1.
-#define MD_LIST_ITEM  4
-#define MD_CODE_BLOCK 5
-#define MD_BLOCKQUOTE 6
-#define MD_HR         7
-#define MD_TEXT       8   // inline text in 'text'
-#define MD_BOLD       9
-#define MD_ITALIC     10
-#define MD_CODE_SPAN  11  // inline code in 'text'
-#define MD_LINK       12  // children are the link text; 'text' is the URL
+#define MD_DOC             0
+#define MD_HEADING         1  // level 1-6; id (heading_ids)
+#define MD_PARAGRAPH       2
+#define MD_LIST            3  // ordered, start, tight
+#define MD_LIST_ITEM       4
+#define MD_CODE_BLOCK      5  // text = code, info = info string ("c", "bash")
+#define MD_BLOCKQUOTE      6
+#define MD_HR              7
+#define MD_TEXT            8  // inline text in 'text' (references decoded)
+#define MD_BOLD            9
+#define MD_ITALIC          10
+#define MD_CODE_SPAN       11 // inline code in 'text'
+#define MD_LINK            12 // children = link text; text = URL; title
+#define MD_TABLE           13 // rows; the first, 'header' row is the thead
+#define MD_TABLE_ROW       14
+#define MD_TABLE_CELL      15 // inline children; align = MD_ALIGN_*
+#define MD_CONTAINER       16 // info = kind; first child MD_CONTAINER_TITLE when titled
+#define MD_HTML_BLOCK      17 // raw HTML in 'text'
+#define MD_HTML_INLINE     18
+#define MD_IMAGE           19 // children = alt text; text = src; title
+#define MD_STRIKE          20
+#define MD_BREAK           21 // hard line break
+#define MD_CONTAINER_TITLE 22
+
+struct MdOptions {
+    int tables, html, containers, heading_ids, strikethrough, autolinks;
+    static struct MdOptions commonmark();   // all off (what parse() uses)
+    static struct MdOptions gfm();          // tables, strikethrough, autolinks
+};
 
 struct MdNode {
     int kind;
-    int level;                          // MD_HEADING: 1-6
-    int ordered;                        // MD_LIST
-    struct String text;
+    int level;      // MD_HEADING
+    int ordered;    // MD_LIST
+    int start;      // MD_LIST: first number of an ordered list
+    int tight;      // MD_LIST: no blank lines between items/blocks (no <p> in items)
+    int align;      // MD_TABLE_CELL: MD_ALIGN_NONE/LEFT/CENTER/RIGHT
+    int header;     // MD_TABLE_ROW/CELL: in the header row
+    struct String text, info, id, title;
     struct Vec<&heap MdNode> children;
 
-    static &heap MdNode parse(const &char text);   // MD_DOC root; release with doc.free()
+    static &heap MdNode parse(const &char text);                                // CommonMark
+    static &heap MdNode parse_opts(const &char text, const &MdOptions opts);   // with extensions
 
-    struct String render_html() const;       // text is HTML-escaped
-    struct String render_markdown() const;   // canonical form, e.g. *b* -> **b**
+    struct String render_html() const;       // text escaped; raw HTML only with the html option
+    struct String render_markdown() const;   // round-trips: parse(render_markdown()) renders the same
+    void          plain_text(&String out) const;   // text content, no markup
     void          free();                    // frees the subtree and the node itself
 };
+
+void md_slugify(const &char text, &String out);   // "2. Temporal Safety" -> "_2-temporal-safety"
+
+generic<C>
+struct String md_render_html_with(const &MdNode node,
+                                  fn int(?&C, const &MdNode, int, &String) hook, ?&C ctx);
 ```
 
 ```c
@@ -391,11 +472,53 @@ struct MdNode {
 int main() {
     &heap MdNode doc = std::MdNode::parse("# Title\n\nSome **bold** text.\n");
     struct String html = doc.render_html();
-    std::println(html.as_ptr());   // contains <h1>Title</h1> and <strong>bold</strong>
+    std::println(html.as_ptr());   // <h1>Title</h1>\n<p>Some <strong>bold</strong> text.</p>
     html.free();
     doc.free();
     return 0;
 }
+```
+
+`md_slugify` makes the GitHub/VitePress-style anchor: lower-cased, every run of whitespace, ASCII punctuation and control characters (and curly quotes) collapsed to one `-`, no leading or trailing `-`, a `_` before a leading digit; non-ASCII letters are kept.
+
+### Rendering with a hook {#markdown-hooks}
+
+`md_render_html_with` calls a hook for every node before writing its default HTML, which lets a renderer rewrite link targets, add heading anchors or syntax-highlight code without re-implementing the rest. On entry (`entering` = 1) the hook returns `0` to render the node normally, `1` when it wrote the node's whole HTML itself, or `2` when it wrote only the opening: the children are rendered as usual, then the hook is called again with `entering` = 0 and returns `1` if it wrote the closing too (`0` for the default one).
+
+```c
+struct Site { const char* base; };
+
+int site_hook(?&Site site, const &MdNode n, int entering, &String out) {
+    if (n.kind == MD_LINK && entering) {          // prefix every absolute link
+        out.push("<a href=\"");
+        match (site) { case some(s): { unsafe { out.push(s.base); } } case null: { } }
+        html_escape(out, n.text.as_ptr());
+        out.push("\">");
+        return 2;                                 // children + default </a>
+    }
+    if (n.kind == MD_HEADING && !entering) {      // anchor before </hN>
+        out.push(" <a class=\"anchor\" href=\"#");
+        out.push(n.id.as_ptr());
+        out.push("\">#</a></h");
+        out.push_int((long long)n.level);
+        out.push(">\n");
+        return 1;
+    }
+    if (n.kind == MD_HEADING) {
+        out.push("<h"); out.push_int((long long)n.level);
+        out.push(" id=\""); out.push(n.id.as_ptr()); out.push("\">");
+        return 2;
+    }
+    return 0;
+}
+
+struct MdOptions o = MdOptions::gfm();
+o.heading_ids = 1;
+&heap MdNode doc = MdNode::parse_opts(text, &o);
+struct Site site;
+site.base = "/docs";
+struct String html;
+unsafe { html = md_render_html_with(doc, site_hook, (?&Site)&site); }
 ```
 
 ## Protobuf {#protobuf}

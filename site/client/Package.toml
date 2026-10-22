@@ -1,0 +1,9 @@
+[package]
+name        = "site-client"
+version     = "0.1.0"
+author      = "SafeC Contributors"
+description = "In-browser interactivity for the SafeC docs site (wasm32; build with: safeguard build --release --target wasm32)"
+license     = "MIT"
+
+[build]
+edition = "2026"

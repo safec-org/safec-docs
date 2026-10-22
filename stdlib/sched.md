@@ -55,9 +55,16 @@ struct Reactor {
         // Calls sched->unblock_fd() for every ready (fd, filter). Returns the
         // number of OS events processed (may differ from tasks unblocked, if
         // several tasks await the same fd).
+    // Waits like poll(), but hands each ready (fd, filter) to on_ready(ctx, fd,
+    // filter) instead of a TaskScheduler: how other schedulers drive the
+    // reactor (std/async's IoDriver). poll() is this with a callback that
+    // calls sched->unblock_fd(). Each backend implements only this.
+    generic<T> int poll_events(fn void(?&T, int, int) on_ready, ?&T ctx, long long timeout_ms);
     void close_();
 }
 ```
+
+[`std/async`](/stdlib/async#async-io)'s `IoDriver` is built on `poll_events`: it wakes the futures waiting on a ready fd, and is the async executor's way of waiting.
 
 ## `reactor_run` — the scheduler itself {#reactor_run-the-scheduler-itself}
 

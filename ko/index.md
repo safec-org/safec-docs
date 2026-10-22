@@ -20,7 +20,7 @@ features:
   - title: 숨겨진 비용 없음
     details: 암묵적 할당도, 숨겨진 런타임도, 백그라운드 GC도, 암묵적 예외도 없습니다. 모든 연산의 비용이 눈에 보입니다.
   - title: C ABI 호환
-    details: C 구조체 레이아웃, C 호출 규약, 네이티브 #include &lt;stdio.h&gt; 지원. SafeC 객체를 어떤 C 프로젝트에도 링크할 수 있습니다.
+    details: "C 구조체 레이아웃, C 호출 규약, 네이티브 #include &lt;stdio.h&gt; 지원. SafeC 객체를 어떤 C 프로젝트에도 링크할 수 있습니다."
   - title: 컴파일 타임 우선
     details: consteval 함수, static_assert, if const, 단형화를 통한 제네릭. 컴파일 타임에 알 수 있는 모든 것은 컴파일 타임에 처리됩니다.
   - title: 베어메탈 대응
