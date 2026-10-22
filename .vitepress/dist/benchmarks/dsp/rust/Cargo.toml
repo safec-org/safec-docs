@@ -1,0 +1,11 @@
+[package]
+name = "dsp_rust_bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustfft = "6"
+dasp = { version = "0.11", features = ["signal", "interpolate", "interpolate-sinc", "ring_buffer"] }
+
+[profile.release]
+opt-level = 3

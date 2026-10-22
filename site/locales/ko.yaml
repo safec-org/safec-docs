@@ -139,6 +139,10 @@ nav:
         link: /ko/stdlib/ml
       - text: GUI
         link: /ko/stdlib/gui
+      - text: GUI 그래픽
+        link: /ko/stdlib/gui-graphics
+      - text: GUI 위젯
+        link: /ko/stdlib/gui-widgets
       - text: 오디오 & MIDI
         link: /ko/stdlib/audio
       - text: 인코딩
@@ -308,6 +312,10 @@ sidebar:
             link: /ko/stdlib/ml
           - text: GUI
             link: /ko/stdlib/gui
+          - text: GUI 그래픽
+            link: /ko/stdlib/gui-graphics
+          - text: GUI 위젯
+            link: /ko/stdlib/gui-widgets
           - text: 오디오 & MIDI
             link: /ko/stdlib/audio
           - text: 인코딩
