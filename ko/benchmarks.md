@@ -14,7 +14,7 @@ SafeC를 대표적인 마이크로벤치마크에서 C, C++, Rust, Zig, Go, Pyth
 - **머신러닝**에서 각 프레임워크의 최적 구성끼리 비교하면:
   - SafeC 자체 GPU 백엔드가 작은 MLP를 PyTorch의 최적 구성보다 2.6배(MI100), 7.8배(H200) 빠르게 학습합니다.
   - Gemma 4 E2B를 PyTorch의 최적 구성보다 3.1배(MI100), 1.5배(H200) 빠르게 디코딩합니다.
-  - CPU 학습 스택(분류기, VAE, GAN, DQN, PPO, LoRA, 합성곱 오토인코더)이 7800X3D + MI100에서 PyTorch의 최적 구성보다 1.6–44배 빠릅니다.
+  - 학습 스택(분류기, VAE, GAN, DQN, PPO, LoRA, 합성곱 오토인코더)이 CPU 또는 GPU 경로로 7800X3D + MI100에서 PyTorch의 최적 구성보다 2.2–44배, M1 Pro에서 3.5–28배 빠릅니다.
   - M1 Pro에서는 MLX가 Gemma를 SafeC보다 2.6배 빠르게 디코딩하고, fp16 flash 어텐션도 1.2배 빠르며, PyTorch가 두 MLP를 1.2배 빠르게 학습합니다.
 
 ## 목차 {#index}
@@ -469,22 +469,22 @@ SafeC `std::ml` 테스트 스위트의 학습 워크로드를 라이브러리 �
 
 | 워크로드 | 스텝 | 프레임워크 | 7800X3D + MI100 | Xeon 8570 + H200 | M1 Pro |
 |---|---|---|---|---|---|
-| MLP 분류기, 2→32→32→2, 배치 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>76.8 (ROCm) | — | — |
-|  |  | PyTorch | 159 (CPU) | — | — |
-| MLP 분류기, 784→256→256→10, 배치 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**14.2** (ROCm) | — | — |
-|  |  | PyTorch | 31.8 (ROCm) | — | — |
-| VAE, 100→128→4, 배치 32 | 160 | SafeC | **14.7** (CPU, AOCL)<br>66.8 (ROCm) | — | — |
-|  |  | PyTorch | 97 (CPU) | — | — |
-| GAN, 2D 가우시안, 은닉 32×2, 배치 64 | D 160 + G 160 | SafeC | **8.62** (CPU, AOCL)<br>130 (ROCm) | — | — |
-|  |  | PyTorch | 144 (CPU) | — | — |
-| DQN, 4→64→64→2, Double DQN, 배치 64 | 업데이트 1000 + 행동 1064 | SafeC | **51.2** (CPU, AOCL)<br>485 (ROCm) | — | — |
-|  |  | PyTorch | 624 (CPU) | — | — |
-| PPO, 1024스텝 롤아웃, 4에폭 × 미니배치 16 | 업데이트 5 | SafeC | **25.5** (CPU, AOCL)<br>193 (ROCm) | — | — |
-|  |  | PyTorch | 268 (CPU) | — | — |
-| LoRA, 고정된 2→64→64→2 MLP에 랭크 4 | 480 | SafeC | **11.2** (CPU, AOCL)<br>143 (ROCm) | — | — |
-|  |  | PyTorch | 210 (CPU) | — | — |
-| 합성곱 오토인코더, 1×16×16, 합성곱 2 + 전치 합성곱 2 | 80 | SafeC | **30.4** (CPU, oneMKL)<br>32.6 (ROCm) | — | — |
-|  |  | PyTorch | 80.3 (ROCm) | — | — |
+| MLP 분류기, 2→32→32→2, 배치 32, Adam | 480 | SafeC | **3.64** (CPU, AOCL)<br>76.8 (ROCm) | — | **5.79** (CPU)<br>92.0 (Metal) |
+|  |  | PyTorch | 159 (CPU) | — | 161 (CPU) |
+| MLP 분류기, 784→256→256→10, 배치 128, Adam | 48 | SafeC | 19.9 (CPU, AOCL)<br>**14.2** (ROCm) | — | 29.3 (CPU)<br>**22.2** (Metal) |
+|  |  | PyTorch | 31.8 (ROCm) | — | 78.0 (CPU) |
+| VAE, 100→128→4, 배치 32 | 160 | SafeC | **14.7** (CPU, AOCL)<br>66.8 (ROCm) | — | **18.8** (CPU)<br>158 (Metal) |
+|  |  | PyTorch | 97 (CPU) | — | 109 (CPU) |
+| GAN, 2D 가우시안, 은닉 32×2, 배치 64 | D 160 + G 160 | SafeC | **8.62** (CPU, AOCL)<br>130 (ROCm) | — | **12.5** (CPU)<br>318 (Metal) |
+|  |  | PyTorch | 144 (CPU) | — | 121 (CPU) |
+| DQN, 4→64→64→2, Double DQN, 배치 64 | 업데이트 1000 + 행동 1064 | SafeC | **51.2** (CPU, AOCL)<br>485 (ROCm) | — | **72.1** (CPU)<br>1643 (Metal) |
+|  |  | PyTorch | 624 (CPU) | — | 519 (CPU) |
+| PPO, 1024스텝 롤아웃, 4에폭 × 미니배치 16 | 업데이트 5 | SafeC | **25.5** (CPU, AOCL)<br>193 (ROCm) | — | **33.2** (CPU)<br>373 (Metal) |
+|  |  | PyTorch | 268 (CPU) | — | 327 (CPU) |
+| LoRA, 고정된 2→64→64→2 MLP에 랭크 4 | 480 | SafeC | **11.2** (CPU, AOCL)<br>143 (ROCm) | — | **18.4** (CPU)<br>199 (Metal) |
+|  |  | PyTorch | 210 (CPU) | — | 204 (CPU) |
+| 합성곱 오토인코더, 1×16×16, 합성곱 2 + 전치 합성곱 2 | 80 | SafeC | **30.4** (CPU, oneMKL)<br>32.6 (ROCm) | — | 51.6 (CPU)<br>**41.1** (Metal) |
+|  |  | PyTorch | 80.3 (ROCm) | — | 265 (MPS) |
 
 - **모든 워크로드에서 SafeC의 최선이 PyTorch의 최선보다 2.2~44배 빠릅니다.** 작은 모델에서는 PyTorch 스텝의 대부분이 Python에서 연산마다 하는 디스패치와 autograd 관리라서 격차가 가장 큽니다. 곱셈이 지배하는 784폭 MLP(14.2 대 31.8 ms)와 합성곱 오토인코더(30.4 대 80.3 ms)에서 가장 좁습니다.
 - **이 크기에서는 784폭 MLP를 빼면 CPU가 SafeC의 더 빠른 경로입니다**(784폭 MLP는 GPU 14.2 ms, CPU 19.9 ms). 합성곱 오토인코더는 비슷합니다(32.6 대 30.4). 작은 신경망의 스텝은 작은 커널 수십 개이고, 커널 실행마다 드는 몇 마이크로초의 고정 비용이 그 연산보다 큽니다. 그래도 GPU 경로는 모든 행에서 PyTorch의 최선보다 1.1~2.5배 빠릅니다. GPU가 이득을 보는 것은 [더 큰 모델](#ml-training-gpu)입니다.
@@ -495,6 +495,13 @@ SafeC `std::ml` 테스트 스위트의 학습 워크로드를 라이브러리 �
   - 옵티마이저 갱신은 ISA 수준마다 벡터화된 루프 하나로 스레드 풀에 나뉘어 실행되며, 가중치 27만 개에 대한 Adam이 스텝당 952 µs에서 33 µs가 되었습니다.
 
   두 변경으로 784폭 MLP는 74.3 ms에서 20.7 ms가 되었고, 나머지 워크로드는 1.4배(합성곱 오토인코더)~2.3배(VAE) 빨라졌습니다.
+
+**M1 Pro에서는**(PyTorch 2.14.1의 `cpu`와 `mps` 장치, `sgemm`에 Accelerate를 쓰는 SafeC CPU 경로, [Metal 장치](/ko/stdlib/ml#devices)의 SafeC GPU 경로) 같은 프로그램을 7회 실행한 최솟값입니다.
+
+- **모든 워크로드에서 SafeC의 최선이 PyTorch의 최선보다 3.5~28배 빠릅니다.** 작은 MLP에서 28배(5.79 대 161 ms), 784폭 MLP에서 3.5배(22.2 대 78.0 ms), 합성곱 오토인코더에서 6.5배(41.1 대 265 ms)입니다.
+- **SafeC에서는 784폭 MLP와 합성곱 오토인코더만 Metal 경로가 더 빠릅니다**(22.2 대 29.3 ms, 41.1 대 51.6 ms). 나머지 워크로드는 CPU가 더 빠릅니다.
+- **작은 모델에서는 Metal 경로가 PyTorch의 CPU 경로보다 느립니다**(VAE, GAN, DQN, PPO. LoRA는 비슷합니다). 이런 모델의 스텝은 작은 커널 수십 개이고, 커널마다 드는 고정 디스패치 비용이 그 연산보다 큽니다. DQN이 극단적인 경우입니다. 행동 1064번마다 행동을 고르려고 Q값을 호스트로 복사하므로, 행동마다 GPU를 기다립니다.
+- **PyTorch의 최선은 8개 중 7개 워크로드에서 CPU 경로입니다.** `mps` 장치는 합성곱 오토인코더를 빼면 자신의 CPU보다 1.3~7.7배 느립니다.
 
 더 큰 합성곱 신경망과 혼합 정밀도는 [GPU에서 학습](#ml-training-gpu)에 있습니다.
 
@@ -620,7 +627,7 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 | DSP(작업 7개, 정밀도 2가지) | 모든 행에서 가장 빠름 | 모든 행에서 가장 빠름 | 모든 행에서 가장 빠름 |
 | CPU FFT, 2²⁰점 | 가장 빠름 | oneMKL / PyTorch와 같음 | 가장 빠름(FFTW의 1.8배) |
 | MLP 학습, 최적 대 최적(작은 / 큰 모델) | PyTorch보다 2.6배 / 1.7배 빠름 | 7.8배 / 8.4배 빠름 | PyTorch가 1.2배 / 1.2배 빠름 |
-| 학습 스택(8개 워크로드), 최적 대 최적 | PyTorch보다 1.6–44배 빠름 | — | — |
+| 학습 스택(8개 워크로드), 최적 대 최적 | PyTorch보다 2.2–44배 빠름 | — | PyTorch보다 3.5–28배 빠름 |
 | Flash 어텐션, 가장 빠른 데이터 타입 | PyTorch보다 5.3배 빠름 | PyTorch와 같음(cuDNN) | MLX가 1.2배 빠름 |
 | 선형 어텐션 | PyTorch보다 5.3배 빠름 | 2.3배 빠름 | MLX보다 3.0배 빠름 |
 | Gemma 4 E2B 디코딩 | PyTorch보다 3.1배 빠름 | 1.5배 빠름 | MLX가 2.6배 빠름 |

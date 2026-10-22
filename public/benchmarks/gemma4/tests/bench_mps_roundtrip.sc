@@ -39,8 +39,8 @@ int main() {
     }
     unsigned short* outBits; unsafe { outBits = (unsigned short*)malloc(2UL * K); }
 
-    void* aBuf; unsafe { aBuf = std::mps_upload_persistent((const float*)aBf, 2UL * N); }
-    void* bBuf; unsafe { bBuf = std::mps_upload_persistent((const float*)bBf, 2UL * N * K); }
+    struct MpsBuf aBuf; unsafe { aBuf = MpsBuf::upload_bits(aBf, N, MPS_BF16); }
+    struct MpsBuf bBuf; unsafe { bBuf = MpsBuf::upload_bits(bBf, N * K, MPS_BF16); }
 
     // (a) separate round trips -- today's per-op pattern.
     unsigned long long t0 = std::time_mono_ns();
@@ -79,8 +79,8 @@ int main() {
            overheadPerRoundTrip, 100.0 * overheadPerRoundTrip / perCallSeparate);
 
     unsafe {
-        std::mps_release_persistent(aBuf, 2UL * N);
-        std::mps_release_persistent(bBuf, 2UL * N * K);
+        aBuf.free();
+        bBuf.free();
         free((void*)aF32); free((void*)bF32); free((void*)aBf); free((void*)bBf); free((void*)outBits);
     }
     printf("DONE\n");

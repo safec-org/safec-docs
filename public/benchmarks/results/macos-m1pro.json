@@ -1211,5 +1211,143 @@
    },
    "note": "SAFEC_NUM_THREADS=1 ./build/fft/safec_cpu, best of 3"
   }
+ },
+ "ml_nn": {
+  "safec_cpu": {
+   "mlp_small": {
+    "train_ms": 5.792,
+    "last_loss": 0.0297226
+   },
+   "mlp_big": {
+    "train_ms": 29.273,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 18.786,
+    "last_loss": 31.5691
+   },
+   "gan": {
+    "train_ms": 12.547,
+    "last_loss": 1.40552
+   },
+   "dqn": {
+    "train_ms": 72.131,
+    "last_loss": 0.138698
+   },
+   "ppo": {
+    "train_ms": 33.232,
+    "last_loss": 48.7648
+   },
+   "lora": {
+    "train_ms": 18.385,
+    "last_loss": 0.0219908
+   },
+   "conv_ae": {
+    "train_ms": 51.64,
+    "last_loss": 0.255294
+   }
+  },
+  "safec_mps": {
+   "mlp_small": {
+    "train_ms": 92.018,
+    "last_loss": 0.0297224
+   },
+   "mlp_big": {
+    "train_ms": 22.207,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 157.846,
+    "last_loss": 31.5691
+   },
+   "gan": {
+    "train_ms": 318.498,
+    "last_loss": 1.40552
+   },
+   "dqn": {
+    "train_ms": 1642.72,
+    "last_loss": 0.138697
+   },
+   "ppo": {
+    "train_ms": 373.301,
+    "last_loss": 48.7648
+   },
+   "lora": {
+    "train_ms": 199.333,
+    "last_loss": 0.0219904
+   },
+   "conv_ae": {
+    "train_ms": 41.116,
+    "last_loss": 0.255294
+   }
+  },
+  "pytorch_cpu": {
+   "mlp_small": {
+    "train_ms": 161.118,
+    "last_loss": 0.0331768
+   },
+   "mlp_big": {
+    "train_ms": 78.022,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 108.603,
+    "last_loss": 50.6271
+   },
+   "gan": {
+    "train_ms": 121.186,
+    "last_loss": 1.42086
+   },
+   "dqn": {
+    "train_ms": 518.67,
+    "last_loss": 0.126866
+   },
+   "ppo": {
+    "train_ms": 326.975,
+    "last_loss": 41.1927
+   },
+   "lora": {
+    "train_ms": 203.802,
+    "last_loss": 0.0405097
+   },
+   "conv_ae": {
+    "train_ms": 912.88,
+    "last_loss": 0.484414
+   }
+  },
+  "pytorch_mps": {
+   "mlp_small": {
+    "train_ms": 965.951,
+    "last_loss": 0.0256877
+   },
+   "mlp_big": {
+    "train_ms": 99.555,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 430.751,
+    "last_loss": 50.467
+   },
+   "gan": {
+    "train_ms": 671.545,
+    "last_loss": 1.48902
+   },
+   "dqn": {
+    "train_ms": 4000.093,
+    "last_loss": 0.223788
+   },
+   "ppo": {
+    "train_ms": 1261.356,
+    "last_loss": 34.5712
+   },
+   "lora": {
+    "train_ms": 1260.209,
+    "last_loss": 0.0458703
+   },
+   "conv_ae": {
+    "train_ms": 265.456,
+    "last_loss": 0.498442
+   }
+  }
  }
 }

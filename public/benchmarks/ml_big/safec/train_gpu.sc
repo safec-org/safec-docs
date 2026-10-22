@@ -31,7 +31,7 @@ double now_ms() { return std::time_ns_to_ms(std::time_mono_ns()); }
 // Y2 (X/W1/W2 never change during inference), so summing yOut[0] 'count'
 // times after one shared readback is exactly equivalent, floating-point-
 // wise, to what N separate per-pass buffers would have produced.
-double run_inference_batch(void* bufX, void* bufW1, void* bufW2,
+double run_inference_batch(struct MpsBuf bufX, struct MpsBuf bufW1, struct MpsBuf bufW2,
                             float* scratch1, float* scratch2, float* yOut,
                             unsigned long count) {
     double sum = 0.0;
@@ -40,9 +40,9 @@ double run_inference_batch(void* bufX, void* bufW1, void* bufW2,
         unsigned long p = 0UL;
         while (p < count) {
             std::mps_matmul_f32_persistent(bufX, bufW1, scratch1, BATCH, IN_DIM, HIDDEN);
-            void* m1Buf = std::mps_batch_last_output_buffer();
+            struct MpsBuf m1Buf = MpsBuf::batch_last_output();
             std::mps_relu_f32_chained(m1Buf, scratch2, BATCH * HIDDEN);
-            void* reluBuf = std::mps_batch_last_output_buffer();
+            struct MpsBuf reluBuf = MpsBuf::batch_last_output();
             std::mps_matmul_f32_persistent(reluBuf, bufW2, yOut, BATCH, HIDDEN, OUT_DIM);
             p = p + 1UL;
         }
@@ -82,9 +82,9 @@ int main() {
         // in place on the GPU -- no per-step re-upload the way a CPU-
         // resident ->data array (and a CPU-side SGD loop reading/writing
         // it) would need.
-        void* bufX = std::mps_upload_persistent((const float*)xbuf, BATCH * IN_DIM * sizeof(float));
-        void* bufW1 = std::mps_upload_persistent((const float*)w1buf, IN_DIM * HIDDEN * sizeof(float));
-        void* bufW2 = std::mps_upload_persistent((const float*)w2buf, HIDDEN * OUT_DIM * sizeof(float));
+        struct MpsBuf bufX = MpsBuf::upload((const float*)xbuf, BATCH * IN_DIM);
+        struct MpsBuf bufW1 = MpsBuf::upload((const float*)w1buf, IN_DIM * HIDDEN);
+        struct MpsBuf bufW2 = MpsBuf::upload((const float*)w2buf, HIDDEN * OUT_DIM);
 
         float* scratchZ1 = (float*)malloc(sizeof(float) * BATCH * HIDDEN);
         float* scratchH = (float*)malloc(sizeof(float) * BATCH * HIDDEN);
@@ -106,15 +106,15 @@ int main() {
 
             // forward
             std::mps_matmul_f32_persistent(bufX, bufW1, scratchZ1, BATCH, IN_DIM, HIDDEN);
-            void* bufZ1 = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufZ1 = MpsBuf::batch_last_output();
             std::mps_relu_f32_chained(bufZ1, scratchH, BATCH * HIDDEN);
-            void* bufH = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufH = MpsBuf::batch_last_output();
             std::mps_matmul_f32_persistent(bufH, bufW2, scratchY, BATCH, HIDDEN, OUT_DIM);
-            void* bufY = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufY = MpsBuf::batch_last_output();
 
             // loss = sum((Y - target)^2)
             std::mps_sub_f32_chained(bufY, (const float*)tbuf, scratchDiff, BATCH * OUT_DIM);
-            void* bufDiff = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDiff = MpsBuf::batch_last_output();
 
             // hand-derived backward (MSE + 2-layer ReLU MLP has a known
             // closed form -- no generic autograd graph walk needed):
@@ -122,19 +122,19 @@ int main() {
             //   dW2 = H^T . dY            dH  = dY . W2^T
             //   dZ1 = relu'(Z1) * dH      dW1 = X^T . dZ1
             std::mps_scale_f32_chained(bufDiff, 2.0f, scratchDY, BATCH * OUT_DIM);
-            void* bufDY = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDY = MpsBuf::batch_last_output();
 
             std::mps_matmul_atb_f32_chained_ab(bufH, bufDY, scratchDW2, BATCH, HIDDEN, OUT_DIM);
-            void* bufDW2 = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDW2 = MpsBuf::batch_last_output();
 
             std::mps_matmul_abt_f32_persistent(bufDY, bufW2, scratchDH, BATCH, OUT_DIM, HIDDEN);
-            void* bufDH = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDH = MpsBuf::batch_last_output();
 
             std::mps_relu_backward_f32_chained_ab(bufZ1, bufDH, scratchDZ1, BATCH * HIDDEN);
-            void* bufDZ1 = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDZ1 = MpsBuf::batch_last_output();
 
             std::mps_matmul_atb_f32_chained_ab(bufX, bufDZ1, scratchDW1, BATCH, IN_DIM, HIDDEN);
-            void* bufDW1 = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufDW1 = MpsBuf::batch_last_output();
 
             // SGD, in place. dH above reads bufW2 BEFORE this encodes a
             // write to it, so it correctly sees this step's pre-update W2
@@ -144,7 +144,7 @@ int main() {
 
             // loss value, for monitoring only -- not consumed by anything above.
             std::mps_square_f32_chained(bufDiff, scratchSq, BATCH * OUT_DIM);
-            void* bufSq = std::mps_batch_last_output_buffer();
+            struct MpsBuf bufSq = MpsBuf::batch_last_output();
             std::mps_sum_f32_chained(bufSq, lossOut, BATCH * OUT_DIM);
 
             std::mps_batch_end();
@@ -170,9 +170,9 @@ int main() {
         printf("inference_ms_per_%lu=%.3f checksum=%.6f gpu_batches_total=%lu\n",
                (unsigned long)INFERENCE_PASSES, t3 - t2, checksum, (unsigned long)GPU_BATCHES_TOTAL_INFERENCE);
 
-        std::mps_release_persistent(bufX, BATCH * IN_DIM * sizeof(float));
-        std::mps_release_persistent(bufW1, IN_DIM * HIDDEN * sizeof(float));
-        std::mps_release_persistent(bufW2, HIDDEN * OUT_DIM * sizeof(float));
+        bufX.free();
+        bufW1.free();
+        bufW2.free();
     }
 
     return 0;

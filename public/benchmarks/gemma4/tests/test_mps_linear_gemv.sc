@@ -71,13 +71,13 @@ static int __run_shape(unsigned long N, unsigned long K, const char* label) {
     unsigned short* gpuOutBits; unsafe { gpuOutBits = (unsigned short*)malloc(2UL * K); }
     int rc;
     unsafe {
-        void* aBuf = mps_upload_persistent((const float*)aBf, 2UL * N);
-        void* bBuf = mps_upload_persistent((const float*)bBf, 2UL * N * K);
+        struct MpsBuf aBuf = MpsBuf::upload_bits(aBf, N, MPS_BF16);
+        struct MpsBuf bBuf = MpsBuf::upload_bits(bBf, N * K, MPS_BF16);
         mps_batch_begin();
         rc = mps_matmul_abt_bf16_persistent(aBuf, bBuf, gpuOutBits, 1UL, N, K);
         mps_batch_end();
-        mps_release_persistent(aBuf, 2UL * N);
-        mps_release_persistent(bBuf, 2UL * N * K);
+        aBuf.free();
+        bBuf.free();
     }
     if (!rc) {
         printf("%s: mps_matmul_abt_bf16_persistent returned 0 (GPU path unavailable) -- skipping\n", label);

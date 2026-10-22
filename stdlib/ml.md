@@ -2034,40 +2034,62 @@ int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-Host arrays are passed as references to their first element; device buffers below are opaque `&void` handles, since their memory belongs to the GPU driver.
+Host arrays are passed as references to their first element. Device buffers below are opaque `&void` handles on CUDA, SPIR-V and WebGPU, since their memory belongs to the GPU driver; Metal's are `MpsBuf`s (below), as ROCm's are `RocmBuf`s.
 
 **Persistent buffers** keep weights on the device across calls, so a training loop doesn't re-upload them:
 
 ```c
+// <p> = cuda | spirv | webgpu
 ?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void   <p>_release_persistent(&void buf);                               // MPS: (&void buf, unsigned long bytes)
-int   <p>_persistent_available();                                      // cuda, spirv, webgpu
+void   <p>_release_persistent(&void buf);
+int    <p>_persistent_available();
 int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
-                                unsigned long M, unsigned long K, unsigned long N); // mps, cuda, webgpu
+                                unsigned long M, unsigned long K, unsigned long N); // cuda, webgpu
 int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
 int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
+```
+
+On Metal a device buffer is a `struct MpsBuf`: the `MTLBuffer` handle, its size in bytes and its element type (`0` = fp32, `MPS_FP16`, `MPS_BF16`). Its memory is shared with the CPU, so `read` and `write` are copies without a transfer. A zero-initialized `MpsBuf` is invalid, every op returns 0 for an invalid one, and `free()` on it does nothing.
+
+```c
+struct MpsBuf {
+    void* handle; unsigned long bytes; int dtype;
+    int  valid() const;
+    void free();                                          // back to the buffer pool
+    int  read(&void dst, unsigned long bytes) const;      // valid once the batches writing it have ended
+    int  write(const &void src, unsigned long bytes);
+    static struct MpsBuf alloc(unsigned long n, int dtype);                 // n elements
+    static struct MpsBuf upload(const &float host, unsigned long n);        // n fp32 values
+    static struct MpsBuf upload_f16(const &float host, unsigned long n);    // rounded on the CPU; also upload_bf16
+    static struct MpsBuf upload_bits(const &unsigned short bits, unsigned long n, int dtype);  // raw fp16 / bf16
+    static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
+    static struct MpsBuf batch_last_output();             // owned by the open batch: don't free()
+};
+int mps_matmul_f32_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &float out,
+                              unsigned long M, unsigned long K, unsigned long N);
+int mps_sgd_update_f32_chained(struct MpsBuf bufW, struct MpsBuf bufGrad, float lr, unsigned long n);  // in place
 ```
 
 **Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below). ROCm keeps 16-bit data in `RocmHalfBuf`s instead; see its table above.
 
 ```c
-?&void mps_upload_f16_persistent(const &float data, unsigned long n);    // also _bf16; cuda_ and webgpu_ (f16) too
-int    mps_matmul_f16_persistent(&void bufA, &void bufB, &unsigned short out,
-                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_
+?&void cuda_upload_f16_persistent(const &float data, unsigned long n);   // also _bf16; webgpu_ (f16); Metal: MpsBuf::upload_f16
+int    mps_matmul_f16_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out,
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_ (&void)
 int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
 int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
 ```
 
-**MPS batching.** Between `mps_batch_begin()` and `mps_batch_end()`, MPS ops encode onto one shared command buffer instead of each committing and waiting, so a fused forward + loss + backward step runs as one GPU submission. `*_chained` variants take the previous op's output buffer (`mps_batch_last_output_buffer()`) as input without a round trip through host memory.
+**MPS batching.** Between `mps_batch_begin()` and `mps_batch_end()`, MPS ops encode onto one shared command buffer instead of each committing and waiting, so a fused forward + loss + backward step runs as one GPU submission. `*_chained` variants take the previous op's output buffer (`MpsBuf::batch_last_output()`) as input without a round trip through host memory. `mps_batch_submit()` sends what the open batch holds so far to the GPU without waiting, so long batches overlap encoding with execution.
 
 ```c
 void  mps_batch_begin();
 void  mps_batch_end();                      // commit, wait, run finalizers
+void  mps_batch_submit();                   // send what's encoded so far, don't wait
 int   mps_batch_is_active();
 generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  // runs after mps_batch_end's wait
-?&void mps_batch_last_output_buffer();
 
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
@@ -2085,7 +2107,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 //   mps_relu_backward_{f16,bf16}_chained_ab, mps_sgd_update_{f16,bf16}_chained
 ```
 
-The `_ab` suffix means both inputs are already GPU buffers. See `std/ml/gpu_mps.h` for each one's argument order.
+The `_ab` suffix means both inputs are already GPU buffers (`MpsBuf`s, passed by value). See `std/ml/gpu_mps.h` for each one's argument order.
 
 ### Attention on MPS {#mps-flash-linear-attention}
 
@@ -2095,8 +2117,8 @@ The `_ab` suffix means both inputs are already GPU buffers. See `std/ml/gpu_mps.
 
 The same batched multi-head [`flash_attention_forward` and
 `linear_attention_forward`](#attention) as [CUDA's](#cuda-attention), on
-Metal buffers (`mps_upload_persistent`, `mps_upload_f16/bf16_persistent`,
-`mps_alloc_persistent`). Forward only; all math in fp32.
+Metal buffers (`MpsBuf::upload`, `MpsBuf::upload_f16` / `upload_bf16`,
+`MpsBuf::alloc`). Forward only; all math in fp32.
 
 - **Flash attention**, `softmax(Q Kᵀ · scale) V` without the score matrix: FlashAttention-2 on the GPU's 8×8 simdgroup matrix units for head dims up to 256 (Q block in registers, K/V tiles in threadgroup memory, online softmax on the fragments), a simdgroup-reduction kernel at 512. fp16 multiplies in half precision; bf16 is converted to fp32 as tiles are staged, since the M1 family has no bf16 matrix units.
 - **Linear attention**, φ(x) = elu(x) + 1, in O(n d²). Head dims 64 and 128 run chunk-parallel on the matrix units — per-segment states φ(K)ᵀV, a prefix over 64-row chunks (causal) or their total (non-causal), then every chunk's outputs at once, with the states in a scratch buffer the library keeps. Other head dims, a KV-cache offset with `causal`, and the recurrent form below walk the sequence per head.
@@ -2109,7 +2131,7 @@ Metal buffers (`mps_upload_persistent`, `mps_upload_f16/bf16_persistent`,
 | Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
 | Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
 | Host arrays | `mps_flash_attention_f32`, `mps_linear_attention_f32` (upload, compute, read back) |
-| Buffers | `mps_alloc_persistent(bytes)`, `mps_read_persistent(buf, dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+| Buffers | `MpsBuf::alloc(n, dtype)`, `buf.read(dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
 
 On an M1 Pro, fp32 flash attention is 1.01–1.42× faster than MLX's fused attention and 1.13–1.70× faster than PyTorch's `mps` device, bf16 at head dim 128 is level with MLX, fp16 and bf16 at 64 reach 0.80–1.02× of them (2.6–3.4 TFLOPS), and linear attention is 2.0–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#ml-attention).
 
@@ -2144,41 +2166,42 @@ int mps_linear_attn_bf16(const &unsigned short q, const &unsigned short k, const
                          int causal);
 
 // Recurrent linear-attention state (S and z for every head), GPU-resident.
-?&void        mps_linear_attn_state_new(unsigned long numHeads, unsigned long headDim);   // zeroed
-unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim); // for mps_release_persistent
-int mps_linear_attn_bf16_chained(&void bufQ, &void bufK, &void bufV, &void bufState, &unsigned short out,
+struct MpsBuf MpsBuf::linear_attn_state(unsigned long numHeads, unsigned long headDim);  // zeroed
+unsigned long mps_linear_attn_state_bytes(unsigned long numHeads, unsigned long headDim);
+int mps_linear_attn_bf16_chained(struct MpsBuf bufQ, struct MpsBuf bufK, struct MpsBuf bufV, struct MpsBuf bufState,
+                                 &unsigned short out,
                                  unsigned long seqLen, unsigned long numHeads,
                                  unsigned long numKvHeads, unsigned long headDim);
 
 // Chained bf16 elementwise/normalization ops for the rest of the layer:
-int mps_gated_gelu_bf16_chained(&void bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
-int mps_add_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);       // residuals
-int mps_gelu_mul_bf16_chained(&void bufA, &void bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
-int mps_rmsnorm_bf16_chained(&void bufX, &void weightBuf, &unsigned short out,
+int mps_gated_gelu_bf16_chained(struct MpsBuf bufRaw, &unsigned short out, unsigned long rows, unsigned long intermediateSize);
+int mps_add_bf16_chained(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out, unsigned long n);       // residuals
+int mps_gelu_mul_bf16_chained(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out, unsigned long n);  // gelu(a) * b
+int mps_rmsnorm_bf16_chained(struct MpsBuf bufX, struct MpsBuf weightBuf, &unsigned short out,
                              unsigned long rows, unsigned long cols, float eps);
 ```
 
 - **Masking.** With `causal`, query `i` sits at position `kvLen - seqLen + i` — the last `seqLen` keys are the queries' own tokens and any before them are a cache — and sees keys at or before it. `isSliding` also hides keys `slidingWindow` or more positions behind the query. `mps_attn_batch_bf16`'s `cacheLens[b]` is each sequence's KV length including the new token.
 - **Scale.** `mps_flash_attn_bf16` multiplies `q·k` by `scale`: pass `1/sqrt(headDim)` to match `flash_attention_forward`, or `1.0` for models that pre-scale q. The decode kernel applies no scale. Linear attention needs none, since dividing by `phi(q)·z` cancels any scaling of q.
-- **Batching.** The one-shot functions work inside an open batch (results land in `out` at `mps_batch_end()`) or on their own (filled on return). `mps_attn_batch_bf16_chained` and `mps_flash_attn_bf16_chained` take device buffers and leave their output as `mps_batch_last_output_buffer()` — so attention can feed the output projection (`mps_matmul_abt_bf16_persistent`) in the same submission. `mps_matmul_abt_bf16_persistent` with `M == 1` uses a dedicated matrix-vector kernel.
+- **Batching.** The one-shot functions work inside an open batch (results land in `out` at `mps_batch_end()`) or on their own (filled on return). `mps_attn_batch_bf16_chained` and `mps_flash_attn_bf16_chained` take device buffers and leave their output as `MpsBuf::batch_last_output()` — so attention can feed the output projection (`mps_matmul_abt_bf16_persistent`) in the same submission. `mps_matmul_abt_bf16_persistent` with `M == 1` uses a dedicated matrix-vector kernel.
 
 Linear attention decode loop:
 
 ```c
-match (mps_linear_attn_state_new(numHeads, headDim)) {
-    case some(state): {
-        mps_batch_begin();
-        mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
-                                     numHeads, numKvHeads, headDim);
-        mps_batch_end();
-        // each generated token:
-        mps_batch_begin();
-        mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
-        mps_batch_end();
-        // ...
-        mps_release_persistent(state, mps_linear_attn_state_bytes(numHeads, headDim));
-    }
-    case null: { /* no Metal device: use linear_attention_forward on the CPU */ }
+struct MpsBuf state = MpsBuf::linear_attn_state(numHeads, headDim);
+if (state.valid()) {
+    mps_batch_begin();
+    mps_linear_attn_bf16_chained(promptQ, promptK, promptV, state, promptOut, promptLen,
+                                 numHeads, numKvHeads, headDim);
+    mps_batch_end();
+    // each generated token:
+    mps_batch_begin();
+    mps_linear_attn_bf16_chained(tokQ, tokK, tokV, state, tokOut, 1, numHeads, numKvHeads, headDim);
+    mps_batch_end();
+    // ...
+    state.free();
+} else {
+    // no Metal device: use linear_attention_forward on the CPU
 }
 ```
 

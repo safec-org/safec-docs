@@ -45,7 +45,7 @@ static struct Gemma4Bf16Tensor __g4ffn_forward_cpu_gelu(const &Gemma4Bf16Tensor 
 
 // Fully GPU-chained FFN body: gate/up matmul -> gated_gelu_kernel_bf16
 // (fused GELU+multiply, see gpu_mps_kernels.metal) -> down matmul, ALL on
-// the SAME shared command buffer via mps_batch_last_output_buffer()
+// the SAME shared command buffer via MpsBuf::batch_last_output()
 // feeding each step's still-pending GPU output straight into the next
 // step's input. MUST be called inside an already-open batch
 // (mps_batch_begin() already called by the caller) -- does NOT call
@@ -56,7 +56,7 @@ static struct Gemma4Bf16Tensor __g4ffn_forward_cpu_gelu(const &Gemma4Bf16Tensor 
 // a GPU buffer -- NOT re-uploaded here, so a caller with 'x' already
 // GPU-resident (another chained op's output) pays no extra CPU<->GPU
 // round trip for it either. On success, the down-proj's pending output is
-// available via mps_batch_last_output_buffer() (also written to
+// available via MpsBuf::batch_last_output() (also written to
 // 'outScratch', throwaway until mps_batch_end() per the usual *_chained
 // contract -- 'outScratch' must be sized for the FINAL [rows, inF] output,
 // NOT the [rows, intermediateSize] intermediate; the intermediate gated-
@@ -72,7 +72,7 @@ static struct Gemma4Bf16Tensor __g4ffn_forward_cpu_gelu(const &Gemma4Bf16Tensor 
 // leaving the batch's pending-op list as far as it got (caller decides
 // whether to still call mps_batch_end() and fall back, same discipline as
 // every other *_chained caller in this codebase).
-int gemma4_bf16_ffn_forward_chained_body(void* bufX, void* gateUpWBuf, void* downWBuf,
+int gemma4_bf16_ffn_forward_chained_body(struct MpsBuf bufX, struct MpsBuf gateUpWBuf, struct MpsBuf downWBuf,
                                            unsigned long rows, unsigned long inF, unsigned long intermediateSize,
                                            unsigned short* gateUpScratch, unsigned short* gatedScratch,
                                            unsigned short* outScratch) {
@@ -80,10 +80,10 @@ int gemma4_bf16_ffn_forward_chained_body(void* bufX, void* gateUpWBuf, void* dow
     unsafe {
         int rc1 = mps_matmul_abt_bf16_persistent(bufX, gateUpWBuf, gateUpScratch, rows, inF, 2UL * intermediateSize);
         if (rc1) {
-            void* gateUpBuf = mps_batch_last_output_buffer();
+            struct MpsBuf gateUpBuf = MpsBuf::batch_last_output();
             rc = mps_gated_gelu_bf16_chained(gateUpBuf, gatedScratch, rows, intermediateSize);
             if (rc) {
-                void* gatedBuf = mps_batch_last_output_buffer();
+                struct MpsBuf gatedBuf = MpsBuf::batch_last_output();
                 rc = mps_matmul_abt_bf16_persistent(gatedBuf, downWBuf, outScratch, rows, intermediateSize, inF);
             }
         }
@@ -109,22 +109,21 @@ struct Gemma4Bf16Tensor gemma4_bf16_ffn_forward_fused(const &Gemma4Bf16Tensor x,
         return __g4ffn_forward_cpu_gelu(x, gateUpProjW, downProjW, intermediateSize);
     }
 
-    void* gateUpWBuf;
-    void* downWBuf;
+    struct MpsBuf gateUpWBuf;
+    struct MpsBuf downWBuf;
     unsafe {
         gateUpWBuf = gemma4_bf16_get_weight_buf(gateUpProjW);
         downWBuf = gemma4_bf16_get_weight_buf(downProjW);
     }
-    if (gateUpWBuf == (void*)0 || downWBuf == (void*)0) {
+    if (!gateUpWBuf.valid() || !downWBuf.valid()) {
         return __g4ffn_forward_cpu_gelu(x, gateUpProjW, downProjW, intermediateSize);
     }
 
     unsigned long rows = x.shape0;
     unsigned long inF = x.shape1;
-    unsigned long xBytes = x.size * 2UL;
-    void* xBuf;
-    unsafe { xBuf = mps_upload_persistent((const float*)x.data, xBytes); }
-    if (xBuf == (void*)0) {
+    struct MpsBuf xBuf;
+    unsafe { xBuf = MpsBuf::upload_bits(x.data, x.size, MPS_BF16); }
+    if (!xBuf.valid()) {
         return __g4ffn_forward_cpu_gelu(x, gateUpProjW, downProjW, intermediateSize);
     }
 
@@ -140,7 +139,7 @@ struct Gemma4Bf16Tensor gemma4_bf16_ffn_forward_fused(const &Gemma4Bf16Tensor x,
         rc = gemma4_bf16_ffn_forward_chained_body(xBuf, gateUpWBuf, downWBuf, rows, inF, intermediateSize,
                                                      gateUpScratch, gatedScratch, out.data);
         mps_batch_end();
-        mps_release_persistent(xBuf, xBytes);
+        xBuf.free();
         free((void*)gateUpScratch); free((void*)gatedScratch);
     }
 

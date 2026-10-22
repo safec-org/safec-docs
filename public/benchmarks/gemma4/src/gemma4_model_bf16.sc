@@ -592,9 +592,9 @@ static struct Gemma4Bf16Tensor __g4mbf16_layer_tail_chained(
         int* outOk) {
     unsigned long rows = concatOut.shape0;
 
-    void* oProjWBuf; void* postAttnLnWBuf; void* preFfLnWBuf;
-    void* gateUpWBuf; void* downWBuf; void* postFfLnWBuf;
-    void* perLayerGateWBuf; void* perLayerProjWBuf; void* postPerLayerNormWBuf;
+    struct MpsBuf oProjWBuf; struct MpsBuf postAttnLnWBuf; struct MpsBuf preFfLnWBuf;
+    struct MpsBuf gateUpWBuf; struct MpsBuf downWBuf; struct MpsBuf postFfLnWBuf;
+    struct MpsBuf perLayerGateWBuf; struct MpsBuf perLayerProjWBuf; struct MpsBuf postPerLayerNormWBuf;
     unsafe {
         oProjWBuf = gemma4_bf16_get_weight_buf(oProjW);
         postAttnLnWBuf = gemma4_bf16_get_weight_buf(postAttnLnW);
@@ -606,29 +606,22 @@ static struct Gemma4Bf16Tensor __g4mbf16_layer_tail_chained(
         perLayerProjWBuf = gemma4_bf16_get_weight_buf(perLayerProjW);
         postPerLayerNormWBuf = gemma4_bf16_get_weight_buf(postPerLayerNormW);
     }
-    if (oProjWBuf == (void*)0 || postAttnLnWBuf == (void*)0 || preFfLnWBuf == (void*)0 ||
-        gateUpWBuf == (void*)0 || downWBuf == (void*)0 || postFfLnWBuf == (void*)0 ||
-        perLayerGateWBuf == (void*)0 || perLayerProjWBuf == (void*)0 || postPerLayerNormWBuf == (void*)0) {
+    if (!oProjWBuf.valid() || !postAttnLnWBuf.valid() || !preFfLnWBuf.valid() ||
+        !gateUpWBuf.valid() || !downWBuf.valid() || !postFfLnWBuf.valid() ||
+        !perLayerGateWBuf.valid() || !perLayerProjWBuf.valid() || !postPerLayerNormWBuf.valid()) {
         unsafe { *outOk = 0; }
         return __g4mbf16_empty();
     }
 
-    unsigned long concatBytes = concatOut.size * 2UL;
-    unsigned long residualBytes = residual1.size * 2UL;
-    unsigned long pleSliceBytes = pleSlice.size * 2UL;
-    void* concatBuf; void* residualBuf; void* pleSliceBuf;
+    struct MpsBuf concatBuf; struct MpsBuf residualBuf; struct MpsBuf pleSliceBuf;
     unsafe {
-        concatBuf = mps_upload_persistent((const float*)concatOut.data, concatBytes);
-        residualBuf = mps_upload_persistent((const float*)residual1.data, residualBytes);
-        pleSliceBuf = mps_upload_persistent((const float*)pleSlice.data, pleSliceBytes);
+        concatBuf = MpsBuf::upload_bits(concatOut.data, concatOut.size, MPS_BF16);
+        residualBuf = MpsBuf::upload_bits(residual1.data, residual1.size, MPS_BF16);
+        pleSliceBuf = MpsBuf::upload_bits(pleSlice.data, pleSlice.size, MPS_BF16);
     }
-    if (concatBuf == (void*)0 || residualBuf == (void*)0 || pleSliceBuf == (void*)0) {
-        unsafe {
-            if (concatBuf != (void*)0) { mps_release_persistent(concatBuf, concatBytes); }
-            if (residualBuf != (void*)0) { mps_release_persistent(residualBuf, residualBytes); }
-            if (pleSliceBuf != (void*)0) { mps_release_persistent(pleSliceBuf, pleSliceBytes); }
-            *outOk = 0;
-        }
+    if (!concatBuf.valid() || !residualBuf.valid() || !pleSliceBuf.valid()) {
+        concatBuf.free(); residualBuf.free(); pleSliceBuf.free();   // free() of an invalid buffer is a no-op
+        unsafe { *outOk = 0; }
         return __g4mbf16_empty();
     }
 
@@ -664,30 +657,28 @@ static struct Gemma4Bf16Tensor __g4mbf16_layer_tail_chained(
     }
 
     int ok = 1;
-    void* attnRawBuf = (void*)0; void* attnNormedBuf = (void*)0; void* afterAttnBuf = (void*)0;
-    void* normed2Buf = (void*)0; void* ffnOutBuf = (void*)0; void* ffnNormedBuf = (void*)0;
-    void* afterFfnBuf = (void*)0; void* gateHBuf = (void*)0; void* gated2Buf = (void*)0;
-    void* pleProjBuf = (void*)0; void* pleNormedBuf = (void*)0; void* afterPleBuf = (void*)0;
+    struct MpsBuf attnRawBuf; struct MpsBuf attnNormedBuf; struct MpsBuf afterAttnBuf;   // zero-initialized: invalid
+    struct MpsBuf normed2Buf; struct MpsBuf ffnOutBuf; struct MpsBuf ffnNormedBuf;
+    struct MpsBuf afterFfnBuf; struct MpsBuf gateHBuf; struct MpsBuf gated2Buf;
+    struct MpsBuf pleProjBuf; struct MpsBuf pleNormedBuf; struct MpsBuf afterPleBuf;
     unsafe {
         mps_batch_begin();
-        if (ok) { ok = mps_matmul_abt_bf16_persistent(concatBuf, oProjWBuf, s_attnRaw, rows, attnConcatDim, hiddenSize); if (ok) { attnRawBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_rmsnorm_bf16_chained(attnRawBuf, postAttnLnWBuf, s_attnNormed, rows, hiddenSize, eps); if (ok) { attnNormedBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_add_bf16_chained(residualBuf, attnNormedBuf, s_afterAttn, rows * hiddenSize); if (ok) { afterAttnBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_rmsnorm_bf16_chained(afterAttnBuf, preFfLnWBuf, s_normed2, rows, hiddenSize, eps); if (ok) { normed2Buf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = gemma4_bf16_ffn_forward_chained_body(normed2Buf, gateUpWBuf, downWBuf, rows, hiddenSize, intermediateSize, s_gateUp, s_gated, s_ffnOut); if (ok) { ffnOutBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_rmsnorm_bf16_chained(ffnOutBuf, postFfLnWBuf, s_ffnNormed, rows, hiddenSize, eps); if (ok) { ffnNormedBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_add_bf16_chained(afterAttnBuf, ffnNormedBuf, s_afterFfn, rows * hiddenSize); if (ok) { afterFfnBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_matmul_abt_bf16_persistent(afterFfnBuf, perLayerGateWBuf, s_gateH, rows, hiddenSize, pleDim); if (ok) { gateHBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_gelu_mul_bf16_chained(gateHBuf, pleSliceBuf, s_gated2, rows * pleDim); if (ok) { gated2Buf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_matmul_abt_bf16_persistent(gated2Buf, perLayerProjWBuf, s_pleProj, rows, pleDim, hiddenSize); if (ok) { pleProjBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_rmsnorm_bf16_chained(pleProjBuf, postPerLayerNormWBuf, s_pleNormed, rows, hiddenSize, eps); if (ok) { pleNormedBuf = mps_batch_last_output_buffer(); } }
-        if (ok) { ok = mps_add_bf16_chained(afterFfnBuf, pleNormedBuf, s_afterPle, rows * hiddenSize); if (ok) { afterPleBuf = mps_batch_last_output_buffer(); } }
+        if (ok) { ok = mps_matmul_abt_bf16_persistent(concatBuf, oProjWBuf, s_attnRaw, rows, attnConcatDim, hiddenSize); if (ok) { attnRawBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_rmsnorm_bf16_chained(attnRawBuf, postAttnLnWBuf, s_attnNormed, rows, hiddenSize, eps); if (ok) { attnNormedBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_add_bf16_chained(residualBuf, attnNormedBuf, s_afterAttn, rows * hiddenSize); if (ok) { afterAttnBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_rmsnorm_bf16_chained(afterAttnBuf, preFfLnWBuf, s_normed2, rows, hiddenSize, eps); if (ok) { normed2Buf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = gemma4_bf16_ffn_forward_chained_body(normed2Buf, gateUpWBuf, downWBuf, rows, hiddenSize, intermediateSize, s_gateUp, s_gated, s_ffnOut); if (ok) { ffnOutBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_rmsnorm_bf16_chained(ffnOutBuf, postFfLnWBuf, s_ffnNormed, rows, hiddenSize, eps); if (ok) { ffnNormedBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_add_bf16_chained(afterAttnBuf, ffnNormedBuf, s_afterFfn, rows * hiddenSize); if (ok) { afterFfnBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_matmul_abt_bf16_persistent(afterFfnBuf, perLayerGateWBuf, s_gateH, rows, hiddenSize, pleDim); if (ok) { gateHBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_gelu_mul_bf16_chained(gateHBuf, pleSliceBuf, s_gated2, rows * pleDim); if (ok) { gated2Buf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_matmul_abt_bf16_persistent(gated2Buf, perLayerProjWBuf, s_pleProj, rows, pleDim, hiddenSize); if (ok) { pleProjBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_rmsnorm_bf16_chained(pleProjBuf, postPerLayerNormWBuf, s_pleNormed, rows, hiddenSize, eps); if (ok) { pleNormedBuf = MpsBuf::batch_last_output(); } }
+        if (ok) { ok = mps_add_bf16_chained(afterFfnBuf, pleNormedBuf, s_afterPle, rows * hiddenSize); if (ok) { afterPleBuf = MpsBuf::batch_last_output(); } }
         if (ok) { ok = mps_scale_bf16_chained(afterPleBuf, layerScalarVal, result.data, rows * hiddenSize); }
         mps_batch_end();
 
-        mps_release_persistent(concatBuf, concatBytes);
-        mps_release_persistent(residualBuf, residualBytes);
-        mps_release_persistent(pleSliceBuf, pleSliceBytes);
+        concatBuf.free(); residualBuf.free(); pleSliceBuf.free();
         free((void*)s_attnRaw); free((void*)s_attnNormed); free((void*)s_afterAttn);
         free((void*)s_normed2); free((void*)s_gateUp); free((void*)s_gated); free((void*)s_ffnOut);
         free((void*)s_ffnNormed); free((void*)s_afterFfn); free((void*)s_gateH); free((void*)s_gated2);
