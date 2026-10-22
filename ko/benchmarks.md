@@ -629,6 +629,7 @@ SafeC GPU 백엔드([ROCm](/ko/stdlib/ml#rocm-attention), [CUDA](/ko/stdlib/ml#c
 | CPU FFT, 2²⁰점 | 가장 빠름 | oneMKL / PyTorch와 같음 | 가장 빠름(FFTW의 1.8배) |
 | MLP 학습, 최적 대 최적(작은 / 큰 모델) | PyTorch보다 2.6배 / 1.7배 빠름 | 7.8배 / 8.4배 빠름 | PyTorch가 1.2배 / 1.2배 빠름 |
 | 학습 스택(8개 워크로드), 최적 대 최적 | PyTorch보다 2.2–44배 빠름 | 7.4–38배 빠름 | PyTorch보다 3.5–28배 빠름 |
+| GPU 학습: ResNet, U-Net, CNN, MLP, DCGAN, 합성곱 VAE | PyTorch보다 1.3–3.3배 빠름(fp32 / AMP) | 2.5–9.3배 빠름 | — |
 | Flash 어텐션, 가장 빠른 데이터 타입 | PyTorch보다 5.3배 빠름 | PyTorch와 같음(cuDNN) | MLX가 1.2배 빠름 |
 | 선형 어텐션 | PyTorch보다 5.3배 빠름 | 2.3배 빠름 | MLX보다 3.0배 빠름 |
 | Gemma 4 E2B 디코딩 | PyTorch보다 3.1배 빠름 | 1.5배 빠름 | MLX가 2.6배 빠름 |
