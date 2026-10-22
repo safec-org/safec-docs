@@ -32,7 +32,7 @@ env:
   LLVM_VERSION: "21"
   # SafeC commit with the std the generator and client build against
   # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime).
-  SAFEC_REF: ${{ inputs.safec_ref || 'c9857e2f8675fa64dd75963f3aa10c089bef1ea7' }}
+  SAFEC_REF: ${{ inputs.safec_ref || 'b279a6f59f98892be2f95b864ef8333c49240e1a' }}
 
 jobs:
   build:
