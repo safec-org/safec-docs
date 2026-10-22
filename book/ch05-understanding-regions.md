@@ -181,17 +181,15 @@ error: use of 'p' (&arena<Pool> reference) after arena_reset<Pool>(),
 
 — the same category of bug `dangling()` demonstrated at the top of this
 chapter, caught the same way: at compile time, before it can become a
-runtime use-after-free. (This check is flow-*sensitive* across if/else
-branches — a reset in one branch doesn't affect the other — and loop
-bodies — a reset anywhere in a loop is treated as possibly having
-happened before every statement in that loop, since a later iteration
-re-runs the top of the body after an earlier iteration's reset — but
-it's a sound approximation, not a full control-flow dataflow analysis,
-so it can still occasionally flag code that's actually safe at runtime
-in less common shapes; see [Memory &
-Regions](/reference/memory#_4-arena-references-die-on-reset) for the exact
-shape of what's covered and the `unsafe` workaround when you're sure a
-flagged reference really is still valid.)
+runtime use-after-free. (This check is a dataflow analysis that follows
+the function's control flow — a reset in one branch of an if/else
+doesn't affect the other, and a reset anywhere in a loop reaches the top
+of the body on the next iteration — and follows the reference through
+copies, struct fields and function calls. It can still flag a few shapes
+that are actually safe at runtime; see [Memory &
+Regions](/reference/memory#_4-arena-references-die-on-reset) for what's
+covered and the `unsafe` workaround when you're sure a flagged reference
+really is still valid.)
 
 ### The escape hatch: `&T` with no region
 
@@ -280,14 +278,10 @@ of an entire category of "it usually works but sometimes doesn't"
 C bugs. SafeC's aliasing check turns that into a compile-time error
 instead of a Heisenbug.
 
-::: tip One syntax trap worth knowing about early
-Notice `&stack const int` — `const` written *after* the region qualifier.
-Writing it before (`const &stack int`) is currently accepted by the
-parser but silently produces a *mutable* borrow instead, a known parser
-bug. Get in the habit of writing `const` after the region qualifier
-(`&stack const int`, `&heap const int`, ...) and you'll never hit it — see
-[Safety](/reference/safety#aliasing-rules-borrow-checker) for the full
-detail.
+::: tip Where `const` goes
+`&stack const int` and `const &stack int` are the same type — a reference
+to a `const int` — so `const` may go on either side of the region
+qualifier.
 :::
 
 Borrows are also scope-tracked: a mutable borrow taken inside an inner
