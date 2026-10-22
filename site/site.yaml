@@ -1,0 +1,59 @@
+# SafeC documentation site — global configuration, read by the SafeC site
+# generator in this directory (site/src). Per-locale labels, nav and
+# sidebars live in locales/<key>.yaml (one file per entry under 'locales').
+#
+# Parsed with std/serial/yaml (block style only: no '[a, b]' / '{k: v}').
+
+title: SafeC
+# Every URL the site emits is prefixed with this (GitHub Pages project site).
+# 'safeguard run -- serve' overrides it to '/' locally unless --base is given.
+base: /safec-docs/
+repo: https://github.com/safec-org/SafeC
+# Absolute origin, for sitemap.xml and <link rel="canonical">.
+origin: https://safec-org.github.io
+
+# Paths are relative to this file.
+source: ..          # markdown root: index.md, guide/, ko/, ...
+public: ../public   # copied verbatim to the output root
+output: ../dist
+theme: theme        # style.css, the client .wasm and its JS loader
+
+# Directories/files under 'source' that are never pages.
+exclude:
+  - site
+  - public
+  - dist
+  - node_modules
+  - README.md
+
+# Non-page files linked from pages (public/benchmarks/*.sc, ...): links
+# with these extensions are left alone instead of getting '.html'.
+file_extensions: sc scx h c cpp hpp cc cuh go py rs zig toml lock sh metal cu hip cl wgsl mod sum md txt json
+
+# Root locale first. 'key' names locales/<key>.yaml; the locale's URL
+# prefix and its markdown subdirectory come from that file's 'prefix'.
+locales:
+  - key: en
+  - key: ko
+
+head:
+  - tag: link
+    rel: icon
+    type: image/x-icon
+    href: favicon.ico
+  - tag: link
+    rel: icon
+    type: image/png
+    sizes: 32x32
+    href: favicon-32x32.png
+  - tag: link
+    rel: icon
+    type: image/png
+    sizes: 16x16
+    href: favicon-16x16.png
+  - tag: link
+    rel: apple-touch-icon
+    href: apple-touch-icon.png
+  - tag: link
+    rel: manifest
+    href: site.webmanifest

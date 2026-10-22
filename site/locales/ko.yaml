@@ -1,0 +1,336 @@
+# Generated from .vitepress/config.mjs (locale 'ko'); edit freely —
+# this file, not config.mjs, is what the SafeC site generator reads.
+lang: ko-KR
+label: 한국어
+prefix: /ko/
+title: SafeC
+description: SafeC 프로그래밍 언어 — 안전하고 결정론적인 시스템 프로그래밍
+footer:
+  message: MIT 라이선스로 배포됩니다.
+  copyright: Copyright 2026 SafeC Contributors
+labels:
+  outline: 이 페이지에서
+  prev: 이전 페이지
+  next: 다음 페이지
+  returnToTop: 맨 위로
+  langMenu: 언어 변경
+  darkMode: 테마 변경
+  sidebarMenu: 메뉴
+  search: 검색
+  searchPlaceholder: 문서 검색
+  noResults: "검색 결과 없음:"
+  copy: 코드 복사
+  copied: 복사됨
+  notFoundTitle: 페이지를 찾을 수 없습니다
+  notFoundQuote: 경로를 확인해 주세요. 아직 번역되지 않은 페이지일 수 있습니다.
+  notFoundLink: 홈으로 돌아가기
+  skipToContent: 본문으로 건너뛰기
+  lastUpdated: 마지막 업데이트
+nav:
+  - text: 가이드
+    items:
+      - text: 소개
+        link: /ko/guide/introduction
+      - text: 시작하기
+        link: /ko/guide/getting-started
+      - text: 설계 철학
+        link: /ko/guide/design
+      - text: 비교
+        link: /ko/guide/comparison
+  - text: 북
+    items:
+      - text: 서문
+        link: /ko/book/
+      - text: 1. 시작하기
+        link: /ko/book/ch01-getting-started
+      - text: 2. 첫 프로그램
+        link: /ko/book/ch02-first-program
+      - text: 3. 공통 개념
+        link: /ko/book/ch03-common-concepts
+      - text: 4. 함수
+        link: /ko/book/ch04-functions
+      - text: 5. 리전 이해하기
+        link: /ko/book/ch05-understanding-regions
+      - text: 6. 구조체와 메서드
+        link: /ko/book/ch06-structs-and-methods
+      - text: 7. 열거형, 유니온, match
+        link: /ko/book/ch07-enums-and-match
+      - text: 8. 에러 처리
+        link: /ko/book/ch08-error-handling
+      - text: 9. 최종 프로젝트
+        link: /ko/book/ch09-final-project
+  - text: 레퍼런스
+    items:
+      - text: 타입
+        link: /ko/reference/types
+      - text: 연산자
+        link: /ko/reference/operators
+      - text: 리터럴과 한정자
+        link: /ko/reference/literals
+      - text: 메모리와 리전
+        link: /ko/reference/memory
+      - text: 함수
+        link: /ko/reference/functions
+      - text: 제네릭
+        link: /ko/reference/generics
+      - text: 다형성과 OOP
+        link: /ko/reference/polymorphism
+      - text: 함수형 프로그래밍
+        link: /ko/reference/functional
+      - text: 네임스페이스
+        link: /ko/reference/namespaces
+      - text: 네이티브 SIMD
+        link: /ko/reference/simd
+      - text: C 슈퍼셋
+        link: /ko/reference/c-superset
+      - text: 제어 흐름
+        link: /ko/reference/control-flow
+      - text: 안전성
+        link: /ko/reference/safety
+      - text: C 상호운용 (FFI)
+        link: /ko/reference/ffi
+      - text: 동시성
+        link: /ko/reference/concurrency
+      - text: 베어메탈
+        link: /ko/reference/baremetal
+      - text: 전처리기
+        link: /ko/reference/preprocessor
+      - text: 오버플로 연산자
+        link: /ko/reference/overflow
+  - text: 표준 라이브러리
+    items:
+      - text: 개요
+        link: /ko/stdlib/
+      - text: mem
+        link: /ko/stdlib/mem
+      - text: io
+        link: /ko/stdlib/io
+      - text: str
+        link: /ko/stdlib/str
+      - text: math
+        link: /ko/stdlib/math
+      - text: thread
+        link: /ko/stdlib/thread
+      - text: atomic
+        link: /ko/stdlib/atomic
+      - text: 직렬화
+        link: /ko/stdlib/serial
+      - text: 컬렉션
+        link: /ko/stdlib/collections
+      - text: 얼로케이터
+        link: /ko/stdlib/allocators
+      - text: 동기화
+        link: /ko/stdlib/sync
+      - text: IPC
+        link: /ko/stdlib/ipc
+      - text: 실시간 스케줄러
+        link: /ko/stdlib/sched
+      - text: 네트워킹
+        link: /ko/stdlib/net
+      - text: HTTP와 웹
+        link: /ko/stdlib/http
+      - text: 머신러닝
+        link: /ko/stdlib/ml
+      - text: GUI
+        link: /ko/stdlib/gui
+      - text: 인코딩
+        link: /ko/stdlib/encoding
+      - text: 파일시스템
+        link: /ko/stdlib/fs
+      - text: DSP와 실시간
+        link: /ko/stdlib/dsp
+      - text: 암호화
+        link: /ko/stdlib/crypto
+      - text: 디버깅
+        link: /ko/stdlib/debug
+      - text: SIMD
+        link: /ko/stdlib/simd
+      - text: 하드웨어 추상화
+        link: /ko/stdlib/hal
+      - text: 인터럽트와 MMIO
+        link: /ko/stdlib/interrupt
+      - text: 커널 프리미티브
+        link: /ko/stdlib/kernel
+      - text: 테스트와 벤치마킹
+        link: /ko/stdlib/testing
+      - text: 유틸리티와 C 호환
+        link: /ko/stdlib/utilities
+  - text: 고급
+    items:
+      - text: 컴파일러 아키텍처
+        link: /ko/advanced/compiler
+      - text: 패키지 매니저
+        link: /ko/advanced/safeguard
+      - text: scx 템플릿
+        link: /ko/advanced/scx
+      - text: 안전성 모델
+        link: /ko/advanced/safety-model
+      - text: 컴파일 타임 인트로스펙션
+        link: /ko/advanced/introspection
+  - text: 벤치마크
+    link: /ko/benchmarks
+  - text: GitHub
+    link: https://github.com/safec-org/SafeC
+sidebar:
+  - prefix: /ko/guide/
+    groups:
+      - text: 시작하기
+        items:
+          - text: 소개
+            link: /ko/guide/introduction
+          - text: 시작하기
+            link: /ko/guide/getting-started
+          - text: 설계 철학
+            link: /ko/guide/design
+          - text: 비교
+            link: /ko/guide/comparison
+  - prefix: /ko/book/
+    groups:
+      - text: SafeC 북
+        items:
+          - text: 서문
+            link: /ko/book/
+          - text: 1. 시작하기
+            link: /ko/book/ch01-getting-started
+          - text: 2. 첫 프로그램
+            link: /ko/book/ch02-first-program
+          - text: 3. 공통 개념
+            link: /ko/book/ch03-common-concepts
+          - text: 4. 함수
+            link: /ko/book/ch04-functions
+          - text: 5. 리전 이해하기
+            link: /ko/book/ch05-understanding-regions
+          - text: 6. 구조체와 메서드
+            link: /ko/book/ch06-structs-and-methods
+          - text: 7. 열거형, 유니온, match
+            link: /ko/book/ch07-enums-and-match
+          - text: 8. 에러 처리
+            link: /ko/book/ch08-error-handling
+          - text: 9. 최종 프로젝트
+            link: /ko/book/ch09-final-project
+  - prefix: /ko/reference/
+    groups:
+      - text: 언어 레퍼런스
+        items:
+          - text: 타입
+            link: /ko/reference/types
+          - text: 연산자
+            link: /ko/reference/operators
+          - text: 리터럴과 한정자
+            link: /ko/reference/literals
+          - text: 메모리와 리전
+            link: /ko/reference/memory
+          - text: 함수
+            link: /ko/reference/functions
+          - text: 제네릭
+            link: /ko/reference/generics
+          - text: 다형성과 OOP
+            link: /ko/reference/polymorphism
+          - text: 함수형 프로그래밍
+            link: /ko/reference/functional
+          - text: 네임스페이스
+            link: /ko/reference/namespaces
+          - text: 네이티브 SIMD
+            link: /ko/reference/simd
+          - text: C 슈퍼셋
+            link: /ko/reference/c-superset
+          - text: 제어 흐름
+            link: /ko/reference/control-flow
+          - text: 안전성
+            link: /ko/reference/safety
+          - text: C 상호운용 (FFI)
+            link: /ko/reference/ffi
+          - text: 동시성
+            link: /ko/reference/concurrency
+          - text: 베어메탈
+            link: /ko/reference/baremetal
+          - text: 전처리기
+            link: /ko/reference/preprocessor
+          - text: 오버플로 연산자
+            link: /ko/reference/overflow
+  - prefix: /ko/stdlib/
+    groups:
+      - text: 표준 라이브러리
+        items:
+          - text: 개요
+            link: /ko/stdlib/
+      - text: 코어
+        items:
+          - text: mem
+            link: /ko/stdlib/mem
+          - text: io
+            link: /ko/stdlib/io
+          - text: str
+            link: /ko/stdlib/str
+          - text: math
+            link: /ko/stdlib/math
+          - text: thread
+            link: /ko/stdlib/thread
+          - text: atomic
+            link: /ko/stdlib/atomic
+      - text: 직렬화
+        items:
+          - text: JSON / XML / HTML / CSV / YAML / Markdown / Protobuf
+            link: /ko/stdlib/serial
+      - text: 컬렉션
+        items:
+          - text: 전체 컬렉션
+            link: /ko/stdlib/collections
+      - text: 에코시스템
+        items:
+          - text: 얼로케이터
+            link: /ko/stdlib/allocators
+          - text: 동기화
+            link: /ko/stdlib/sync
+          - text: IPC
+            link: /ko/stdlib/ipc
+          - text: 실시간 스케줄러
+            link: /ko/stdlib/sched
+          - text: 네트워킹
+            link: /ko/stdlib/net
+          - text: HTTP와 웹
+            link: /ko/stdlib/http
+          - text: 머신러닝
+            link: /ko/stdlib/ml
+          - text: GUI
+            link: /ko/stdlib/gui
+          - text: 인코딩
+            link: /ko/stdlib/encoding
+          - text: 파일시스템
+            link: /ko/stdlib/fs
+          - text: DSP와 실시간
+            link: /ko/stdlib/dsp
+          - text: 암호화
+            link: /ko/stdlib/crypto
+          - text: 디버깅
+            link: /ko/stdlib/debug
+      - text: SIMD와 임베디드
+        items:
+          - text: SIMD
+            link: /ko/stdlib/simd
+          - text: 하드웨어 추상화
+            link: /ko/stdlib/hal
+          - text: 인터럽트와 MMIO
+            link: /ko/stdlib/interrupt
+          - text: 커널 프리미티브
+            link: /ko/stdlib/kernel
+      - text: 개발
+        items:
+          - text: 테스트와 벤치마킹
+            link: /ko/stdlib/testing
+          - text: 유틸리티와 C 호환
+            link: /ko/stdlib/utilities
+  - prefix: /ko/advanced/
+    groups:
+      - text: 고급
+        items:
+          - text: 컴파일러 아키텍처
+            link: /ko/advanced/compiler
+          - text: 패키지 매니저
+            link: /ko/advanced/safeguard
+          - text: scx 템플릿
+            link: /ko/advanced/scx
+          - text: 안전성 모델
+            link: /ko/advanced/safety-model
+          - text: 컴파일 타임 인트로스펙션
+            link: /ko/advanced/introspection

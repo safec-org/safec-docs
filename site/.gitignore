@@ -1,0 +1,5 @@
+build/
+deps/
+client/build/
+client/deps/
+theme/site.wasm

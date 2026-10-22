@@ -31,3 +31,6 @@ public/benchmarks/gemma4/tests/*
 !public/benchmarks/gemma4/tests/bench_pytorch_compiled.py
 !public/benchmarks/gemma4/tests/ref_transformers.py
 !public/benchmarks/gemma4/tests/ref_transformers_generate.py
+
+# SafeC site generator output (site/)
+/dist/
