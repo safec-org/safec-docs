@@ -629,6 +629,8 @@ Objective-C 런타임, X11, 또는 user32와 gdi32). SafeC 저장소의
 | `std/math.h`, `std/fenv.h` | `-lm` | `-lm` | (C 런타임에 포함) |
 | `std/thread.h`, 채널, `spawn` | — | `-lpthread` | — |
 | `std/gui/gui.h` | `-framework Cocoa -lobjc` | `-lX11` (.deb: `libx11-6`) | `-luser32 -lgdi32` |
+| `std/audio/audio.h` | `-framework CoreAudio -framework CoreFoundation` | `-ldl -lpthread` (libasound, libjack은 실행 시점에 로드) | `-lole32` |
+| `std/audio/midi.h` | `-framework CoreMIDI -framework CoreFoundation` | `-ldl -lpthread` | `-lwinmm` |
 | `std/http/http.h`, `std/sched/` | — | — | `-lws2_32` |
 | `std/crypto/rng.h` | — | — | `-lbcrypt` |
 | `std/simd/gemm.h`(이를 통한 `std::ml`, `std::dsp` 포함) | [`[build] blas`](#linking-external-libraries-and-library-output)의 선택: 기본값은 Accelerate | `[build] blas`의 선택 | — |
@@ -660,7 +662,7 @@ deb libx11-6
 
 **std 전체.** `[build] std = "all"`은 모듈 도입 이전과 같이 모든 std 모듈을 아카이브에 컴파일합니다. 손으로 링크하는 아카이브(`clang prog.ll build/deps/libsafec_std.a ...`)나, 헤더를 포함하지 않고 `extern` 선언으로 std에 접근하는 코드에 사용합니다. [staticlib](#linking-external-libraries-and-library-output)은 소스가 포함하는 std 파일을 `build/lib<output>.a.std`에, 코드가 호출하는 심볼을 `build/lib<output>.a.refs`에 기록하므로, 이를 미리 빌드된 의존성으로 링크하는 프로그램도 그 모듈을 빌드합니다. 다른 방식으로 빌드된 라이브러리를 사용하는 프로그램에는 `std = "all"`이 필요합니다.
 
-**std 작성.** std 헤더 `dir/foo.h`는 `dir/foo.sc`와, 자체 헤더가 없는 `dir/foo_<suffix>.sc` 파일(플랫폼 변형인 `gui_cocoa.sc`, `fft_f32.sc` 등)이 구현합니다. 그 밖의 관계와 시스템 라이브러리는 std 소스의 주석 줄로 선언합니다:
+**std 작성.** std 헤더 `dir/foo.h`는 `dir/foo.sc`와, 자체 헤더가 없는 `dir/foo_<suffix>.sc` 파일(플랫폼 변형인 `gui_cocoa.sc`, `fft_f32.sc` 등)이 구현합니다. 플랫폼 변형의 접미사가 빌드 대상 타깃을 정합니다: `_linux`/`_epoll`은 Linux, `_bsd`/`_kqueue`는 macOS와 BSD, `_cocoa`/`_macos`는 macOS, `_x11`은 Linux와 BSD, `_win32`는 Windows, `_posix`는 Windows가 아닌 호스트, `_wasm`은 WebAssembly, `_fb`는 베어메탈. 그 밖의 관계와 시스템 라이브러리는 std 소스의 주석 줄로 선언합니다:
 
 ```c
 // safeguard: implements <std/gui/gui.h>        이 파일이 구현하는 다른 헤더
