@@ -23,9 +23,16 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 |---|---|
 | `--prefix=<path>` | Install directory (default: `~/safec`) |
 | `--version=<tag>` | Release tag to install, e.g. `v0.2.0` (default: latest) |
+| `--std=<sections>` | The [prebuilt std](/advanced/safeguard#prebuilt-std) sections to install, e.g. `core,collections,gui` (default: `all`). std's sources are always installed; a section that isn't is compiled from source when a build needs it |
+| `--std=+<sections>` | Add prebuilt std sections to an existing install, from the release it came from |
 | `--skip-env` | Skip shell environment configuration |
 
-macOS/Linux publish `arm64`/`x86_64` binaries; Windows publishes `x86_64`. See [Releases](https://github.com/safec-org/SafeC/releases) for the full asset list.
+`install.ps1` takes the same as `-Prefix`, `-Version`, `-Std` and `-SkipEnv`.
+
+Published binaries: macOS `arm64`, Linux `x86_64`, Windows `x86_64`. See [Releases](https://github.com/safec-org/SafeC/releases) for the full asset list. They need:
+
+- **macOS 11** (Big Sur) or newer: the binaries and the prebuilt std are built for 11.0.
+- **Linux with glibc 2.25** or newer (Debian 10, Ubuntu 18.04, RHEL 8 and later): the binaries are built against an older glibc and checked for it, and the prebuilt std calls nothing newer than 2.25 (`getrandom`). Musl-based distributions (Alpine) aren't supported by the release binaries.
 
 ::: tip
 Building from source (needed for a platform the release workflow doesn't publish, or to build from an unreleased commit) is still possible via each component's own `CMakeLists.txt` under `compiler/`, `safeguard/`, and the sibling `sc-language-server` repo — see [Compiler Architecture](/advanced/compiler).

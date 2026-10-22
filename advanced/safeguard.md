@@ -12,7 +12,7 @@
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
 | `safeguard std-modules [std/x.h\|file...]` | List the std sources a build compiles and the system libraries it links for them (see [Standard Library Modules](#standard-library-linking)) |
-| `safeguard std-prebuilt <prefix>` | Compile std for this machine into `<prefix>/lib/<triple>/libsafec_std.a`, the [prebuilt std](#prebuilt-std) a release ships |
+| `safeguard std-prebuilt <prefix>` | Compile std for this machine into `<prefix>/lib/<triple>/std/<section>.a`, one archive per section: the [prebuilt std](#prebuilt-std) a release ships |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
@@ -621,7 +621,7 @@ A build compiles and links only the parts of the standard library (`std/`) it us
 
 **What the code calls.** Some of std is called by code no header names: safec compiles `new` to a call into `std/mem.sc`, channels (`chan_create` and the rest) into `std/sync/channel.sc`, and `spawn`/`join` on Linux and macOS into `pthread_create`/`pthread_join`. safeguard reads the external symbols of the IR it compiles — the project's sources, a SafeC dependency's, and the std sources in the build — and adds the std sources they call, along with whatever those include and call in turn. A program with no channels and no threads compiles neither `sync/channel.sc` nor `thread.sc`, and links no `-lpthread` on Linux; one using channels gets both, and `spawn` alone brings `thread.sc` for `-lpthread`.
 
-**Caching.** Each std source compiles to its own object under `build/deps/std/` (`build/deps/<target>/std/` for a [cross target](#cross-targets)), recompiled only when it, a std header it includes, or the compiler changes; the build's objects are packed into `build/deps/libsafec_std.a`, from which the linker still takes only what the program references. A hello world on `std/io.h` compiles 4 std sources instead of all 219 (0.4 s instead of 15 s on an M1 Pro), and a program including no std header and calling nothing above, none. A [release install](#prebuilt-std) compiles none of them at all.
+**Caching.** Each std source compiles to its own object under `build/deps/std/` (`build/deps/<target>/std/` for a [cross target](#cross-targets)), recompiled only when it, a std header it includes, or the compiler changes; the build's objects are packed into `build/deps/libsafec_std.a`, from which the linker still takes only what the program references. std is always compiled optimized, with the flags of the [prebuilt std](#prebuilt-std) (`-O2`, and on macOS `-mmacosx-version-min=11.0` or your `MACOSX_DEPLOYMENT_TARGET`), whether the build is a debug or a `--release` one: the two share these objects, and a debug build doesn't get a slow std. Your own code still follows the build's mode. (Objects compiled before this rule, at `-O0`, are rebuilt once.) A hello world on `std/io.h` compiles 4 std sources instead of all 219 (0.4 s instead of 15 s on an M1 Pro), and a program including no std header and calling nothing above, none. A [release install](#prebuilt-std) compiles none of them at all.
 
 **System libraries.** The libraries std's modules call into are added to the link — after the objects and archives, deduplicated, and only for the modules in the build:
 
@@ -681,16 +681,42 @@ Each SafeC dependency built from source is similarly compiled to `build/deps/lib
 
 ### Prebuilt std {#prebuilt-std}
 
-A release archive (and so an install from `install.sh`/`install.ps1`) ships std already compiled for its platform:
+A release archive (and so an install from `install.sh`/`install.ps1`) ships std already compiled for its platform, in sections: one archive per top-level directory of `std/`, and `core` for the files directly in it.
 
 ```
-<prefix>/lib/aarch64-apple-darwin/      (x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)
-├── libsafec_std.a        every std source no feature gates, compiled with --release
-├── libsafec_std.stamp    the safec that built it (a hash of the binary) and the target
-└── libsafec_std.units    each source's input hash and the symbols its code calls
+<prefix>/lib/aarch64-apple-darwin/std/  (x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)
+├── core.a            std/*.sc: io, fmt, mem, string, math, thread, ...
+├── core.units        its stamp (the safec that built it, a hash of the binary, and
+│                     the target), each source's input hash and the symbols it calls
+├── collections.a     std/collections/
+├── collections.units
+├── gui.a, gui.units
+├── ml.a, ml.units
+└── ...               alloc, crypto, debug, dsp, encoding, fs, hal, http, interrupt,
+                      ipc, kernel, net, reactive, rpc, sched, scx, serial, simd, sync, test
 ```
 
-A native build looks for it beside the `safec` it uses (`<bin>/../lib/<triple>/`) and under `$SAFEC_HOME/lib/<triple>/`, and when the stamp matches that compiler and the host, links it instead of compiling std. The modules are still worked out as above, for the system libraries; only what the archive doesn't have is compiled — a GPU backend whose feature is on, or a std source changed since the archive was built — and packed with a copy of it into `build/deps/libsafec_std.a`, the replaced sources' old objects removed. A hello world, a `std::gui` window or a `std::ml` training loop then compiles no std at all. The archive is a release build and serves debug builds too (std carries no debug info either way). Cross, bare-metal and WebAssembly builds don't use it; neither does a build with `[build] std_prebuilt = false` or `SAFEC_STD_FROM_SOURCE=1`. A stamp for another compiler or target is passed over, with a note under `--verbose`. `safeguard std-prebuilt <prefix>` writes these files (the release workflow runs it through `.github/scripts/package.sh`, which lays out the whole install).
+Each archive holds the section's sources that no [feature](#feature-flags) gates, compiled optimized as above (for macOS 11.0 and later on macOS). A native build looks for the sections beside the `safec` it uses (`<bin>/../lib/<triple>/std/`) and under `$SAFEC_HOME/lib/<triple>/std/`. The modules are worked out as above; then each one comes from its section when that section is installed and its stamp matches the compiler and the host, and is compiled otherwise. The build links only the sections holding its modules: a hello world on `std/io.h` and `std/collections/vec.h` links `core.a` and `collections.a`, not `gui.a` or `ml.a`, and compiles no std at all; nor does a `std::gui` window or a `std::ml` training loop.
+
+What a section doesn't have is compiled into `build/deps/libsafec_std.a`:
+
+- **a section that isn't installed** (`install.sh --std=...`, see below): its sources the build uses are compiled, the other sections still linked prebuilt;
+- **a GPU backend whose feature is on** (`--features mps`, ...);
+- **a std source changed since the release was built**: it is compiled, and the section is linked from a copy without its old object (`build/deps/std-prebuilt/<section>.a`), so no source is linked twice.
+
+`--verbose` says which sections are linked and which sources are compiled and why:
+
+```
+safeguard: std modules (6): atomic.sc collections/vec.sc io.sc io_file.sc mem.sc panic.sc
+safeguard: std section 'collections' is not installed in ~/safec/lib/aarch64-apple-darwin/std; compiling its units from source: std/collections/vec.sc
+safeguard: linking the prebuilt std sections core from ~/safec/lib/aarch64-apple-darwin/std
+```
+
+Cross, bare-metal and WebAssembly builds don't use the prebuilt std; neither does a build with `[build] std_prebuilt = false`, `SAFEC_STD_FROM_SOURCE=1` or extra compiler flags, or, on macOS, with a `MACOSX_DEPLOYMENT_TARGET` older than 11.0. A section stamped for another compiler or target is passed over and compiled from source, with a note under `--verbose`. On macOS the sections are built for 11.0, so a program built for 11.0 or later links them without "built for newer macOS version" warnings; safeguard passes no minimum of its own, and clang's default (the running macOS) or `MACOSX_DEPLOYMENT_TARGET` applies to your code.
+
+**Choosing sections.** `install.sh --std=core,collections,gui` installs only those sections (`install.ps1 -Std core,collections,gui`); the default is `all`. `--std=+ml` (`-Std +ml`) adds sections to an existing install later, from the release it was installed from (recorded in `<prefix>/.release`), changing nothing else. std's sources are always installed, so any section works either way; a missing one only costs its compile time, once per project.
+
+`safeguard std-prebuilt <prefix>` writes the sections (the release workflow runs it through `.github/scripts/package.sh`, which lays out the whole install). `tests/std_modules/check.py --prebuilt <prefix>/lib/<triple>/std` checks them: each section holds exactly its sources, no symbol is defined in two sections, and each std header's modules are complete with only their sections linked.
 
 `SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a` links that archive instead, whatever it is: nothing is compiled, the linker takes the members the program references, and the system libraries still come from the modules the sources include when `std/` is found (`SAFEC_HOME`). Without `std/`, safeguard can't tell which modules are used and adds none: list them in `[build] libs`/`frameworks`.
 
@@ -706,7 +732,7 @@ This should point to the SafeC repository root. From there, `safeguard` auto-dis
 
 - The `safec` compiler binary at `$SAFEC_HOME/compiler/build/safec`
 - The standard library at `$SAFEC_HOME/std/`
-- In an install, the [prebuilt std](#prebuilt-std) at `$SAFEC_HOME/lib/<triple>/`
+- In an install, the [prebuilt std](#prebuilt-std) sections at `$SAFEC_HOME/lib/<triple>/std/`
 
 ## Project Structure {#project-structure}
 
