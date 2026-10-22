@@ -781,7 +781,7 @@ int main() {
 }
 ```
 
-Limits: `ASYNC_IO_WAITERS` (256) concurrent waits per driver (a wait that finds the table full re-polls instead); on Linux an fd is awaited for one direction at a time (epoll registers an fd once — a read and a write waiting on the same socket at the same time make the second re-poll); on Windows the driver parks at most `ASYNC_IO_REMOTE_MS` (20 ms) at a time, so wakes from other threads are seen within that.
+Limits: `ASYNC_IO_WAITERS` (256) concurrent waits per driver (a wait that finds the table full re-polls instead); on Linux an fd is awaited for one direction at a time (epoll registers an fd once — a read and a write waiting on the same socket at the same time make the second re-poll); on Windows the driver parks at most `ASYNC_IO_REMOTE_MS` (20 ms) at a time, so wakes from other threads are seen within that; and WSAPoll on Windows before 10 version 2004 never reports a refused connect, so give connects a `timeout()` there.
 
 ## Example project {#example}
 
