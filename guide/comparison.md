@@ -274,7 +274,7 @@ extern void c_process_point(const Point* p);
 | Runtime | Minimal (panic handler, allocator) | None (`--freestanding`) |
 | C interop | FFI layer required | Native, zero-cost |
 | Self-referential structs | Difficult (Pin, unsafe) | Natural (arena regions) |
-| Async | Built-in (async/await) | Not built-in (pthreads, channels) |
+| Async | Built-in (async/await) | Library ([`std/async`](/stdlib/async): futures, executors, `goto`-based coroutine macros) |
 
 ## Compared to Zig {#compared-to-zig}
 
@@ -385,7 +385,7 @@ SafeC may not be the best fit when:
 
 - You need a large ecosystem of libraries (Rust's crates.io is far more mature)
 - You prefer automatic memory management (ownership transfer, RAII)
-- You need async/await for high-concurrency network services
+- You want async/await as language syntax (SafeC's [`std/async`](/stdlib/async) gives the same model as a library, with explicit state structs)
 - Your team is already productive in Rust or Zig
 
 ## Summary {#summary}

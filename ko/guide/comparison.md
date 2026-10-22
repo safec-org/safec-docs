@@ -274,7 +274,7 @@ extern void c_process_point(const Point* p);
 | 런타임 | 최소한 (패닉 핸들러, 할당자) | 없음 (`--freestanding`) |
 | C 상호운용 | FFI 계층 필요 | 네이티브, 제로 코스트 |
 | 자기 참조 구조체 | 어려움 (Pin, unsafe) | 자연스러움 (arena 리전) |
-| 비동기 | 내장 (async/await) | 내장되지 않음 (pthreads, 채널) |
+| 비동기 | 내장 (async/await) | 라이브러리([`std/async`](/ko/stdlib/async): 퓨처, 실행기, `goto` 기반 코루틴 매크로) |
 
 ## Zig와 비교 {#compared-to-zig}
 
@@ -385,7 +385,7 @@ int readFile(const &char path, &char buf, int bufLen) {
 
 - 성숙한 라이브러리 생태계가 필요한 경우(Rust의 crates.io가 훨씬 더 성숙합니다)
 - 자동 메모리 관리(소유권 이전, RAII)를 선호하는 경우
-- 고동시성 네트워크 서비스를 위한 async/await가 필요한 경우
+- async/await를 언어 문법으로 원하는 경우(SafeC의 [`std/async`](/ko/stdlib/async)는 같은 모델을 명시적인 상태 구조체를 쓰는 라이브러리로 제공합니다)
 - 팀이 이미 Rust나 Zig에 생산적인 경우
 
 ## 요약 {#summary}
