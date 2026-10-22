@@ -11,6 +11,7 @@
 | `safeguard fetch` | Clone the git dependencies listed in `Package.toml` and build the ones from source |
 | `safeguard build [--release]` | Compile the project and all dependencies |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
+| `safeguard std-modules [std/x.h\|file...]` | List the std sources a build compiles and the system libraries it links for them (see [Standard Library Modules](#standard-library-linking)) |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
@@ -128,10 +129,10 @@ safeguard build --target arm-7em --release
 safeguard test --target rv32e        # builds every test for RV32E, doesn't run them
 ```
 
-- The std archive is built per target under `build/deps/<target>/libsafec_std.a`, from just the sources that apply to it (OS-specific backends are skipped on bare metal).
+- The std archive is built per target under `build/deps/<target>/libsafec_std.a`, from the [std modules](#standard-library-linking) the project uses, in the variant for that target (OS-specific backends are skipped on bare metal).
 - Objects — SafeC, C, C++ and Objective-C alike — are compiled with the target's clang flags (`safec --print-target-clang-flags`), and bare-metal links use `ld.lld` with `-nostdlib -static`: supply the linker script, startup code and runtime (`memcpy`, `memset`, any `malloc`, compiler-rt builtins) through `[build] cflags`/`libs`.
 - Functions your project defines that freestanding mode would otherwise flag as hosted-only (a runtime's own `malloc`, say) are passed to the compiler as `--provides`, so they don't warn.
-- WebAssembly targets link a library module instead: no entry point, exports are the functions marked `export_name`, unresolved externs become imports, and the std archive includes `std/wasm` (the wasm runtime). See [WebAssembly](/reference/baremetal#wasm).
+- WebAssembly targets link a library module instead: no entry point, exports are the functions marked `export_name`, unresolved externs become imports, and the std archive includes `std/wasm/wasm_rt` (the wasm runtime). See [WebAssembly](/reference/baremetal#wasm).
 - `test` builds the test binaries without running them (they're for another machine); `run` refuses a cross target.
 
 ## Package.toml {#package-toml}
@@ -414,19 +415,24 @@ the code a C function to call.
 `[build.macos]`, `[build.linux]` and `[build.windows]` take `cflags`,
 `libs`, `lib_dirs` and `frameworks`, added to `[build]`'s own only when
 building for that OS (the `--target`'s, or the host's) — one manifest can
-then name each platform's system libraries:
+then name each platform's libraries for the project's own code:
 
 ```toml
 [build.macos]
-frameworks = ["Cocoa"]
-libs       = ["objc"]
+frameworks = ["Security"]
 
 [build.linux]
-libs = ["X11"]
+libs = ["sqlite3"]
 
 [build.windows]
-libs = ["user32", "gdi32"]
+libs = ["winsqlite3", "crypt32"]
 ```
+
+The system libraries std's own modules call into (Cocoa, X11 or
+user32/gdi32 for `std::gui`, Metal for the GPU backends, `ws2_32` for
+networking on Windows, ...) needn't be listed: safeguard links them for
+the modules in the build (see [Standard Library
+Modules](#standard-library-linking)).
 
 Any other `[build.<name>]` table, or another key in one, is an error.
 
@@ -447,7 +453,9 @@ std's parent directory goes on the C/C++ include path so its headers are
 reachable as `<std/...>` (never `std/` itself, whose `stdint.h` and
 friends would shadow the system's). `safeguard new <name> --lang c --std`
 writes that key when the project is created. `std = false` never links
-std, even with SafeC sources.
+std, even with SafeC sources; `std = "all"` compiles every std module into
+the archive, not just the ones the sources include (see [Standard Library
+Modules](#standard-library-linking)).
 
 ```toml
 [build]
@@ -471,7 +479,7 @@ crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
 blas       = "auto"             # CPU BLAS for std's sgemm (see below)
 ```
 
-`blas` picks the CPU vendor's BLAS that [`sgemm`](/stdlib/simd#gemm) — and through it `tensor_matmul` and `Conv2D::forward` — uses, chosen when the program is linked:
+`blas` picks the CPU vendor's BLAS that [`sgemm`](/stdlib/simd#gemm) — and through it `tensor_matmul` and `Conv2D::forward` — uses, chosen when the program is linked. It is linked only when the build includes `std/simd/gemm.h` (directly, or through `std::ml` or `std::dsp`):
 
 | `blas` | Links |
 |---|---|
@@ -551,7 +559,7 @@ copyright          = "Copyright 2026 Example"
 subsystem          = "windows"               # Windows: "windows" (default) or "console"
 min_system_version = "11.0"                  # macOS LSMinimumSystemVersion (default 11.0)
 codesign_identity  = "-"                     # macOS: "-" ad-hoc (default), an identity, "none"
-depends            = ["libx11-6"]            # Linux: the .deb's Depends
+depends            = ["libsqlite3-0"]        # Linux: more of the .deb's Depends
 ```
 
 ```bash
@@ -590,20 +598,82 @@ under `/usr/share/<pkg>/`, and the dependencies' shared libraries under
 `/usr/lib/<pkg>/` (on the executable's rpath). `DEBIAN/control` has
 `Package` (the package name in Debian's form, `_` becoming `-`),
 `Version`, `Architecture` (`dpkg --print-architecture`), `Maintainer`
-(the package's `author`), `Description`, `Installed-Size` and `Depends`.
+(the package's `author`), `Description`, `Installed-Size` and `Depends`:
+`[bundle] depends`, plus the packages std's modules name for the system
+libraries they link (`libx11-6` for `std::gui` on X11).
 The same tree, with `AppRun`, the desktop entry and the icon at its top,
 is `build/<name>.AppDir`, ready for `appimagetool`. Without `dpkg` only the
 AppDir is made, with a warning.
 
 A GUI program uses [`std::gui`](/stdlib/gui), whose backend calls each
-platform's own libraries — name them with [per-platform
-settings](#per-platform-settings). The SafeC repository's
+platform's own libraries; safeguard links them by itself (Cocoa and the
+Objective-C runtime, X11, or user32 and gdi32). The SafeC repository's
 `examples/gui_hello/` opens a window, draws for a second and closes it
-again; its manifest is the `[bundle]` above.
+again; its manifest is the `[bundle]` above, without `depends`, and names
+no library.
 
-## Standard Library Linking {#standard-library-linking}
+## Standard Library Modules {#standard-library-linking}
 
-The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed — except a [package with no SafeC in it](#c-c-and-objective-c-packages).
+A build compiles and links only the parts of the standard library (`std/`) it uses — no manual configuration needed — except a [package with no SafeC in it](#c-c-and-objective-c-packages), which doesn't use std at all.
+
+**Which modules.** safeguard reads the `#include <std/...>` lines of the project's sources (and of the project headers they include, and of a SafeC dependency's sources; with [`std = true`](#c-c-and-objective-c-packages), of its C, C++ and Objective-C sources too). Each std header brings in the std sources implementing it, whose own includes count in turn: `std/gui/gui.h` brings `gui/gui_cocoa.sc` on macOS (`gui_x11.sc` on Linux, `gui_win32.sc` on Windows), `std/ml/tensor.h` the tensor core, `sgemm` and the threading it uses. `safeguard test` does the same for the files under `tests/`. Includes inside an `#if` count, unless the condition is a plain test of `__APPLE__`, `_WIN32` or `__linux__` (decided by the target) or, in the project's own files, of a `SAFEC_FEATURE_<NAME>` macro (decided by its [features](#feature-flags)). The GPU device backends of `std::ml` come with their features: `--features mps` builds `device_mps.sc`, `rocm` and `cuda` theirs.
+
+**Caching.** Each std source compiles to its own object under `build/deps/std/` (`build/deps/<target>/std/` for a [cross target](#cross-targets)), recompiled only when it, a std header it includes, or the compiler changes; the build's objects are packed into `build/deps/libsafec_std.a`, from which the linker still takes only what the program references. A hello world compiles 6 std sources instead of all 219 (0.9 s instead of 15 s on an M1 Pro).
+
+**System libraries.** The libraries std's modules call into are added to the link — after the objects and archives, deduplicated, and only for the modules in the build:
+
+| Module | macOS | Linux | Windows |
+|---|---|---|---|
+| `std/math.h`, `std/fenv.h` | `-lm` | `-lm` | (in the C runtime) |
+| `std/thread.h` | — | `-lpthread` | — |
+| `std/gui/gui.h` | `-framework Cocoa -lobjc` | `-lX11` (.deb: `libx11-6`) | `-luser32 -lgdi32` |
+| `std/http/http.h`, `std/sched/` | — | — | `-lws2_32` |
+| `std/simd/gemm.h` (and `std::ml`, `std::dsp` through it) | the [`[build] blas`](#linking-external-libraries-and-library-output) choice: Accelerate by default | the `[build] blas` choice | — |
+| `std/ml/tensor_vdsp.h`, `tensor_blas.h` | `-framework Accelerate` | — | — |
+| `std/ml/gpu_mps.h`, `--features mps` | `-framework Metal -framework Foundation -lobjc` | | |
+| `std/ml/gpu_rocm.h`, `--features rocm` | | `-lamdhip64 -lhiprtc -lrocblas` | |
+| `std/ml/gpu_miopen.h` / `std/dsp/fft_rocm.h` | | `-lMIOpen` / `-lhipfft` | |
+| `std/ml/gpu_cuda.h`, `--features cuda` | | `-lcuda -lcublas -lcublasLt -lnvrtc` | the same |
+| `std/ml/gpu_cudnn.h` / `std/dsp/fft_cuda.h` | | `-lcudnn` / `-lcufft` | the same |
+| `std/ml/gpu_spirv.h` | `-lvulkan` | `-lvulkan` | `-lvulkan-1` |
+| `std/ml/gpu_webgpu.h` | `-lwgpu_native` | `-lwgpu_native` | `-lwgpu_native` |
+
+ROCm's libraries are looked up in `$ROCM_PATH/lib` (default `/opt/rocm/lib`), CUDA's in `$CUDA_HOME/lib64` (default `/usr/local/cuda/lib64`; `$CUDA_PATH/lib/x64` on Windows), Vulkan's in `$VULKAN_SDK`, wgpu's in `$WGPU_HOME/lib` — each added with an rpath when the directory exists. MIOpen and cuDNN stay optional for the device backends (weak references: without them convolutions use im2col + GEMM); a program including `gpu_miopen.h` or `gpu_cudnn.h` itself links them. The C library comes with the compiler driver as always. `[build] libs`/`frameworks` and `[build.<os>]` add the project's own libraries after these.
+
+`safeguard std-modules` prints what a build takes from std — the sources (`unit` lines) and the system libraries (`link`, and `deb` for a `.deb`'s Depends) — for the project, or for std headers and files given on the command line:
+
+```bash
+$ safeguard std-modules std/gui/gui.h
+unit std/atomic.sc
+unit std/gui/gui_cocoa.sc
+...
+link -framework Cocoa
+link -lobjc
+$ safeguard std-modules --target x86_64-unknown-linux-gnu std/gui/gui.h
+...
+link -lX11
+link -lpthread
+deb libx11-6
+```
+
+**All of std.** `[build] std = "all"` compiles every std module into the archive, as before modules: for an archive linked by hand (`clang prog.ll build/deps/libsafec_std.a ...`), or for code that reaches std through `extern` declarations without including its headers. A [staticlib](#linking-external-libraries-and-library-output) records the std files its sources include in `build/lib<output>.a.std`, so a program linking it as a prebuilt dependency builds those modules too; a library built otherwise needs `std = "all"` in the program using it.
+
+**A prebuilt std archive.** `SAFEC_STD_ARCHIVE=/path/to/libsafec_std.a` links that archive instead of compiling std: nothing is compiled, the linker takes the members the program references, and the system libraries still come from the modules the sources include when `std/` is found (`SAFEC_HOME`). Without `std/`, safeguard can't tell which modules are used and adds none: list them in `[build] libs`/`frameworks`.
+
+**Writing std.** A std header `dir/foo.h` is implemented by `dir/foo.sc` and by the `dir/foo_<suffix>.sc` files that have no header of their own (the platform variants `gui_cocoa.sc`, `fft_f32.sc`, ...). Anything else, and the system libraries, is declared in comment lines a std source carries:
+
+```c
+// safeguard: implements <std/gui/gui.h>        another header this file implements
+// safeguard: sources <std/x/extra.sc>          (in a header) another file implementing it
+// safeguard: feature mps                       only in builds with this feature
+// safeguard: runtime                           always built: safec calls into it without an #include
+// safeguard: link macos -framework Cocoa -lobjc
+// safeguard: link linux -L${ROCM_PATH:-/opt/rocm}/lib -lamdhip64
+// safeguard: link hosted blas                  the [build] blas choice
+// safeguard: deb linux libx11-6
+```
+
+The OS of a `link` or `deb` line is `macos`, `linux`, `windows`, `bsd`, `unix` (macOS, Linux, BSD), `hosted`, `baremetal`, `wasm` or `any`. `tests/std_modules/check.py`, run by CI, compiles every std header alone and fails if a function it declares, or a symbol the modules it brings leave undefined, is defined by a std source outside them.
 
 Each SafeC dependency built from source is similarly compiled to `build/deps/lib<name>.a`, a C/C++ one into `build/deps/<name>/`; prebuilt ones are linked from where they are.
 
