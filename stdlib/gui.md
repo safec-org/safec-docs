@@ -1,441 +1,414 @@
 # GUI (`std/gui/`)
 
-A software-rendered GUI toolkit: a portable window + event API, a pixel rasterizer, bitmap fonts, PNG and SVG decoding, and a retained-mode widget tree on top. All of it draws into one CPU-side RGBA8888 buffer, so a UI looks the same on every backend.
+A GUI toolkit written in SafeC from the ground up: windows and input on X11, Win32, Cocoa and bare-metal framebuffers, an anti-aliased vector canvas with TrueType text, and a retained widget toolkit with layouts, themes and 30+ widgets. Everything is rendered on the CPU into one RGBA buffer per window, so a UI looks the same, byte for byte, on every platform.
+
+This page covers windows, events and the application loop. The other two parts have their own pages:
+
+- [GUI Graphics](/stdlib/gui-graphics) — `GuiCanvas` (paths, gradients, strokes, clipping, blend modes, images) and TrueType text (`GuiTypeface`, `GuiTextLayout`).
+- [GUI Widgets](/stdlib/gui-widgets) — the widget tree, layout, themes, focus, menus, dialogs and every widget.
 
 ```c
-#include <std/gui/gui.h>         // window, events, pixel buffer
-#include <std/gui/gui_draw.h>    // rectangles, lines, built-in 8x8 text
-#include <std/gui/gui_font.h>    // loadable bitmap fonts
-#include <std/gui/gui_png.h>     // PNG decoder
-#include <std/gui/gui_svg.h>     // SVG subset renderer
-#include <std/gui/gui_widget.h>  // retained-mode widgets (includes gui.h, gui_draw.h, gui_font.h)
+#include <std/gui/gui.h>          // windows, events, colors, clipboard, clock
+#include <std/gui/gui_app.h>      // GuiApp: several windows, timers, animation
+#include <std/gui/gui_canvas.h>   // the vector canvas (and gui_path.h, gui_text.h)
+#include <std/gui/gui_widget.h>   // widgets
+#include <std/gui/gui_png.h>      // GuiImage: PNG load/save, scaling
+#include <std/gui/gui_headless.h> // the in-memory backend, for tests
 ```
 
 `std/prelude.h` does not include the GUI headers — include them directly.
 
----
-
-## Backends {#backends}
-
-Every backend implements the same `gui.h` API. Exactly one may be linked into a program, since they all define the same symbols.
-
-| Backend | Target | Status |
-|---------|--------|--------|
-| `gui_cocoa.sc` | macOS — Objective-C runtime (`objc_msgSend`) + Core Graphics, layer-backed `NSView` | Built and run on real hardware |
-| `gui_win32.sc` | Windows — `RegisterClassExA`/`CreateWindowExA`, `StretchDIBits` | Run under Wine (`tests/stdlib/win32/run.sh`): drawing read back with `GetPixel`, key, text, mouse, wheel, resize and close events; not yet run on a Windows host |
-| `gui_x11.sc` | Linux/BSD — Xlib, `XPutImage` | Run against an X server (`tests/stdlib/x11/run.sh`, Xvfb): drawing read back with `XGetImage`, key, text, mouse, scroll, resize and close events |
-| `gui_fb.sc` | Bare metal — linear framebuffer from the bootloader; setup calls in `gui/gui_fb.h` | Built and run; no OS dependency |
-
-`safeguard` picks the backend for you: the std archive for a target contains only the variant that matches it (`_cocoa` on Apple, `_x11` on Linux/BSD, `_win32` on Windows, `_fb` on bare-metal targets). See [Package Manager](/advanced/safeguard).
-
-The OS backends call system libraries, which `safeguard` adds to the link of a program that includes `gui.h` (see [Standard Library Modules](/advanced/safeguard#standard-library-linking)) — nothing to list in `Package.toml`:
-
-| Backend | Libraries |
-|---------|-----------|
-| Cocoa | `-framework Cocoa -lobjc` (AppKit and Core Graphics through Cocoa) |
-| Win32 | `-luser32 -lgdi32` |
-| X11 | `-lX11` (and `libx11-6` in a `.deb`'s Depends) |
-
-Building without `safeguard`, pass them to the link yourself.
-
-There is no GPU path. Each frame, `win.present()` copies the pixel buffer to the screen (a `CGImage` set as the layer's contents on Cocoa, `StretchDIBits` on Win32, `XPutImage` on X11, a format-converting copy on bare metal). This is the same scope as Rust's `minifb`/`softbuffer`.
-
----
-
-## Window and Events — `gui.h` {#window-and-events-gui-h}
+### A first program {#a-first-program}
 
 ```c
-struct GuiWindow {
-    ?&void               platform;    // backend handle; null on failure
-    &heap unsigned char  pixels;      // width*height*4 bytes, RGBA8888, top-left origin, row-major
-    int                  width;
-    int                  height;
-    int                  shouldClose; // set when the platform close control is used
+#include <std/gui/gui_app.h>
 
-    static struct GuiWindow create(const &char title, int width, int height);
-    int  poll_event(&GuiEvent outEvent);   // 1 = got an event, 0 = queue empty; never blocks
-    void present();                        // blit pixels to the screen
-    void set_pixel(int x, int y, unsigned int rgba); // 0xRRGGBBAA; out of bounds = no-op
-    void destroy();
-
-    // drawing, see gui_draw.h and gui_svg.h
-    void fill_rect(int x, int y, int w, int h, struct GuiColor color);
-    void draw_rect_border(int x, int y, int w, int h, struct GuiColor color, int thickness);
-    void draw_line(int x0, int y0, int x1, int y1, struct GuiColor color);
-    int  draw_text(int x, int y, const &char text, struct GuiColor color, int scale);
-    int  draw_svg(int ox, int oy, const &char svgText);
-};
-
-struct GuiEvent {
-    int          kind;       // GUI_EVENT_*
-    double       x, y;       // mouse position, window-local
-    int          button;     // 0 = left, 1 = right, 2 = other
-    int          keycode;    // GUI_KEY_*
-    unsigned int codepoint;  // the typed character (GUI_EVENT_KEY_DOWN / GUI_EVENT_CHAR)
-    double       scrollDx, scrollDy;
-    int          width, height;      // GUI_EVENT_RESIZE
-    int          defaultPrevented;   // see prevent_default()
-
-    void prevent_default();  // skip the widget tree's default key action
-};
-
-struct GuiColor {
-    unsigned char r, g, b, a;
-
-    static struct GuiColor rgba(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-    static struct GuiColor rgb(unsigned char r, unsigned char g, unsigned char b);  // a = 255
-};
-```
-
-`GuiWindow::create` returns a window with `platform == null` and zero size on failure — check it before use.
-
-The event and key constants are `#define`s, so they work from any namespace:
-
-| Events | Keys |
-|--------|------|
-| `GUI_EVENT_NONE`, `GUI_EVENT_CLOSE`, `GUI_EVENT_RESIZE` | `GUI_KEY_LEFT`, `GUI_KEY_RIGHT`, `GUI_KEY_UP`, `GUI_KEY_DOWN` |
-| `GUI_EVENT_MOUSE_DOWN`, `GUI_EVENT_MOUSE_UP`, `GUI_EVENT_MOUSE_MOVE` | `GUI_KEY_ENTER`, `GUI_KEY_ESCAPE`, `GUI_KEY_TAB` |
-| `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_KEY_UP`, `GUI_EVENT_CHAR` | `GUI_KEY_BACKSPACE`, `GUI_KEY_SPACE`, `GUI_KEY_DELETE` |
-| `GUI_EVENT_SCROLL` | `GUI_KEY_UNKNOWN` |
-
-Each backend translates native key codes to `GUI_KEY_*`, so application code never sees a platform key code. A key press that types a character carries it in `codepoint` (printable ASCII); when the size changes, `poll_event` resizes `win.pixels`, `win.width` and `win.height` to the new client area before returning `GUI_EVENT_RESIZE`, so redraw everything after one.
-
-### Example — raw drawing loop {#example-raw-drawing-loop}
-
-```c
-#include <std/gui/gui.h>
-#include <std/gui/gui_draw.h>
+static void on_click(&Widget w, ?&Widget label) {
+    match (label) { case some(l): { l.set_text("Clicked!"); } case null: { } }
+}
 
 int main() {
-    struct GuiWindow win = std::GuiWindow::create("Hello", 320, 200);
-    if (win.platform.is_null()) { return 1; }
-
-    struct GuiEvent ev;
-    while (!win.shouldClose) {
-        while (win.poll_event(&ev)) {
-            if (ev.kind == GUI_EVENT_KEY_DOWN && ev.keycode == GUI_KEY_ESCAPE) {
-                win.shouldClose = 1;
-            }
+    struct GuiApp app = GuiApp::new();
+    ?&GuiWindow ow = app.open_window("Hello", 360, 200);
+    match (ow) {
+        case null: { return 1; }                 // no display
+        case some(win): {
+            &Widget root = Widget::vstack().set_padding(16);
+            &Widget label = Widget::label("Hello from SafeC");
+            root.add_child(label);
+            root.add_child(Widget::button("Click me").on_click(on_click, label));
+            app.set_root(win, root);             // the window owns the tree now
+            app.run();                           // until the window closes
         }
-        win.fill_rect(0, 0, win.width, win.height, std::GuiColor::rgb(30, 30, 40));
-        win.draw_rect_border(10, 10, 300, 180, std::GuiColor::rgb(200, 200, 220), 2);
-        win.draw_text(24, 24, "Hello, SafeC", std::GuiColor::rgb(255, 255, 255), 2);
-        win.present();
     }
-    win.destroy();
+    app.free();
     return 0;
 }
 ```
 
----
-
-## Drawing — `gui_draw.h` {#drawing-gui-draw-h}
-
-The drawing primitives are `GuiWindow` methods, declared in `gui.h` next to
-`GuiColor` and defined in `gui_draw.sc`. They all write through
-`set_pixel`, so they work on every backend; out-of-bounds pixels are
-clipped.
-
-```c
-win.fill_rect(x, y, w, h, color);
-win.draw_rect_border(x, y, w, h, color, thickness);
-win.draw_line(x0, y0, x1, y1, color);
-
-// Built-in 8x8 font, printable ASCII (0x20-0x7E); other bytes draw as a blank cell.
-// Each glyph is 8*scale x 8*scale pixels. Returns the pixel width drawn.
-int n = win.draw_text(x, y, "text", GuiColor::rgb(255, 255, 255), scale);
-```
-
-`gui_draw.h` adds the built-in font's metrics, for sizing without drawing:
-
-```c
-int gui_text_width(const &char text, int scale);
-int gui_text_height(int scale);
-```
+`examples/gui_hello` is a small complete program, and `examples/gui_gallery` shows every widget and most of the canvas in two windows (`safeguard run -- --snapshot DIR` renders them to PNG files without a display).
 
 ---
 
-## Fonts — `gui_font.h` {#fonts-gui-font-h}
-
-A `GuiFont` is a bit-packed glyph bitmap of any glyph size. Build one in code, save it, load it back, and draw with its own `draw_text`.
+## Windows — `gui.h` {#windows-gui-h}
 
 ```c
-struct GuiFont {
-    int glyphW, glyphH;
-    int first;                  // first codepoint covered
-    int count;                  // codepoints first .. first+count-1
-    &heap unsigned char bitmap;
+struct GuiWindowOptions {
+    const &char title;
+    int x, y;                 // GUI_POS_DEFAULT: let the system place it
+    int width, height;        // client area, logical units
+    int minWidth, minHeight;  // 0 = no limit
+    int maxWidth, maxHeight;
+    int resizable;            // default 1
+    int decorated;            // title bar and border; default 1
+    int visible;              // default 1
+    int hiDpi;                // a buffer at the display's scale; default 1
+    int topmost;              // default 0
 
-    static struct GuiFont new(int glyphW, int glyphH, int first, int count); // blank
-    static struct GuiFont default();          // heap copy of the built-in 8x8 font
+    static struct GuiWindowOptions new(const &char title, int width, int height);
+};
 
-    int  get_bit(int cp, int px, int py) const;   // (0,0) = glyph top-left
-    void set_bit(int cp, int px, int py, int value);
+struct GuiWindow {
+    ?&void platform;          // null if creation failed
+    &heap unsigned char pixels; // width*height*4 bytes: premultiplied RGBA8888, R first
+    int width, height;        // the buffer, in pixels
+    int shouldClose;          // set by GUI_EVENT_CLOSE
+    double scale;             // pixels per logical unit
+    unsigned int id;          // unique, never 0
 
-    int  save(const &char path) const;  // 1 = ok
-    int  load(const &char path);        // 1 = ok; overwrites without freeing, untouched on failure
-    void free();
+    static struct GuiWindow create(const &char title, int width, int height);
+    static struct GuiWindow create_with(const &GuiWindowOptions opts);
+    static struct GuiWindow offscreen(int width, int height);  // a buffer, no window
 
-    int  draw_text(&GuiWindow win, int x, int y, const &char text,
-                   struct GuiColor color, int scale) const;
-    int  text_width(const &char text, int scale) const;
-    int  text_height(int scale) const;
+    int  poll_event(&GuiEvent out);       // 1 = got one; never blocks
+    int  wait_event(&GuiEvent out, int timeoutMs);
+    void present();                       // show the buffer
+    void present_rect(int x, int y, int w, int h);
+    void destroy();
+
+    void set_title(const &char title);    // UTF-8
+    void set_size(int width, int height); // logical
+    void set_position(int x, int y);
+    int  pos_x() const; int pos_y() const;
+    void set_min_size(int w, int h); void set_max_size(int w, int h);
+    void show(); void hide(); int is_visible() const;
+    void focus(); int is_focused() const;
+    void set_cursor(int cursor);          // GUI_CURSOR_*
+    int  logical_width() const; int logical_height() const;
+    void request_close();                 // posts a GUI_EVENT_CLOSE
+    unsigned long long native_handle() const;  // X11 Window / HWND / NSWindow*
+
+    void set_pixel(int x, int y, unsigned int rgba);   // raw store, 0xRRGGBBAA
+    unsigned int get_pixel(int x, int y) const;
+    void clear(struct GuiColor c);
+    // and the integer drawing helpers below (fill_rect, draw_text, draw_svg, ...)
 };
 ```
 
-Out-of-range codepoints or pixels read as 0 and are ignored on write. Call
-`load` on a fresh `struct GuiFont f;` (or after `free()`), since it does not
-free the font's previous bitmap.
+A window always has a buffer `width × height` pixels large. With `hiDpi` (the default) on a high-density display, the buffer is larger than the window's logical size by `scale` (2.0 on a Retina display, 1.25–2.0 on Windows and X11 depending on the system setting; `SAFEC_GUI_SCALE` overrides it). Mouse coordinates arrive in buffer pixels, so hit-testing needs no conversion; the widget toolkit and `GuiCanvas::scale()` take care of drawing at the right size.
 
-The file format is `SCXF` version 1, little-endian:
+`create` fails cleanly — `platform` is null and the size is 0 — when there is no display (a CI runner without X, say). Check before use, or use `GuiApp::open_window`, which returns `null`.
 
-| Offset | Size | Field |
-|--------|------|-------|
-| 0 | 4 | magic `"SCXF"` |
-| 4 | 1 | version (`1`) |
-| 5 | 1 | glyph width (1–255) |
-| 6 | 1 | glyph height (1–255) |
-| 7 | 1 | reserved (`0`) |
-| 8 | 4 | first codepoint (u32) |
-| 12 | 4 | glyph count (u32) |
-| 16 | … | `count * ceil(w*h/8)` bytes, row-major, MSB first, no padding |
+The buffer is reallocated when the window is resized: `poll_event` updates `pixels`, `width` and `height` before returning the `GUI_EVENT_RESIZE`.
 
-TTF/OTF is not supported: a font must already be rasterized into a `GuiFont`.
+### Events {#events}
+
+```c
+struct GuiEvent {
+    int kind;                 // GUI_EVENT_*
+    double x, y;              // pointer position, buffer pixels
+    int button;               // GUI_BUTTON_LEFT / RIGHT / MIDDLE
+    int clicks;               // 1, 2 (double click), 3 ... on MOUSE_DOWN
+    int keycode;              // GUI_KEY_*: named keys, 'A'..'Z', '0'..'9'
+    int modifiers;            // GUI_MOD_SHIFT | CTRL | ALT | META
+    unsigned int codepoint;   // the typed character (KEY_DOWN, CHAR)
+    double scrollDx, scrollDy;// in lines; +y = away from the user
+    int width, height;        // RESIZE / SCALE: the new buffer size; MOVE: x, y
+    unsigned int windowId;
+    double timeMs;            // gui_time_ms() when it happened
+    int defaultPrevented;
+
+    void prevent_default();   // see the widget toolkit's default actions
+    int  has_mod(int mod) const;
+    int  primary_mod() const; // Cmd on macOS, Ctrl elsewhere
+};
+```
+
+| Event | When |
+|-------|------|
+| `GUI_EVENT_CLOSE` | The close button (or Alt+F4, Cmd+W from the system). The window stays open until you destroy it. |
+| `GUI_EVENT_RESIZE` | New size; the buffer is already reallocated. |
+| `GUI_EVENT_MOVE` | The window moved (`width`/`height` hold the new x/y). |
+| `GUI_EVENT_FOCUS_IN` / `_OUT` | The window gained / lost the keyboard focus. |
+| `GUI_EVENT_MOUSE_DOWN` / `_UP` / `_MOVE` | Buttons and motion; the window captures the pointer while a button is held. |
+| `GUI_EVENT_MOUSE_ENTER` / `_LEAVE` | The pointer entered / left the window. |
+| `GUI_EVENT_SCROLL` | Wheel or touchpad. |
+| `GUI_EVENT_KEY_DOWN` / `_UP` | Keys, with modifiers; `KEY_DOWN` carries the typed character. Repeats arrive as more `KEY_DOWN`s. |
+| `GUI_EVENT_CHAR` | Text with no key behind it (an input method, compose sequences). |
+| `GUI_EVENT_SCALE` | Moved to a display with another scale factor; the buffer is reallocated. |
+| `GUI_EVENT_EXPOSE` | The system lost the window's contents: present again. |
+
+Each backend translates native key codes, so programs only see `GUI_KEY_*`: arrows, Enter, Escape, Tab, Backspace, Space, Delete, Home/End, PageUp/PageDown, Insert, F1–F12, Shift/Control/Alt/Meta/Menu, and letters and digits as their uppercase ASCII codes (`'A'`, `'7'`), whatever the keyboard layout produces as text. Text input goes through the platform's input method where it has one (XIM on X11, `WM_CHAR` with surrogate pairs on Windows, `NSEvent.characters` on macOS), so `codepoint` is a full Unicode scalar.
+
+### Clipboard, time, cursors {#clipboard-time-cursors}
+
+```c
+int    gui_clipboard_set_text(const &char utf8);    // 1 = ok
+int    gui_clipboard_get_text(&String out);         // 1 = got text
+double gui_time_ms();                               // monotonic milliseconds
+int    gui_primary_mod();                           // GUI_MOD_META on macOS, else GUI_MOD_CTRL
+double gui_display_scale();                         // the scale a hiDpi window would get
+```
+
+The clipboard is the system's: `CLIPBOARD` on X11 (served to other clients while the program runs; large `INCR` transfers aren't supported), `CF_UNICODETEXT` on Windows, `NSPasteboard` on macOS.
+
+Cursors: `GUI_CURSOR_ARROW`, `_IBEAM`, `_HAND`, `_CROSSHAIR`, `_RESIZE_EW`, `_RESIZE_NS`, `_RESIZE_NWSE`, `_RESIZE_NESW`, `_MOVE`, `_WAIT`, `_NOT_ALLOWED`, `_HIDDEN`.
+
+### Colors {#colors}
+
+```c
+struct GuiColor {
+    unsigned char r, g, b, a;           // straight (not premultiplied) alpha
+
+    static struct GuiColor rgba(r, g, b, a);
+    static struct GuiColor rgb(r, g, b);
+    static struct GuiColor hex(unsigned int rrggbb);
+    static struct GuiColor hexa(unsigned int rrggbbaa);
+    static struct GuiColor rgbaf(float r, float g, float b, float a);   // 0..1
+    static struct GuiColor hsv(float h, float s, float v, float a);     // h in degrees
+    struct GuiColor with_alpha(unsigned char a) const;
+    struct GuiColor mix(struct GuiColor other, float t) const;
+    struct GuiColor shade(float amount) const;   // > 0 lighter, < 0 darker
+    unsigned int packed() const;                 // 0xRRGGBBAA
+    void to_hsv(&float h, &float s, &float v) const;
+};
+```
 
 ---
 
-## Images — `gui_png.h` {#images-gui-png-h}
+## The application — `gui_app.h` {#the-application-gui-app-h}
 
-A from-scratch PNG decoder, including its own DEFLATE (RFC 1951) inflater.
+`GuiApp` runs any number of windows from one event loop: it pumps the platform's events, routes each to the window it belongs to (its widget tree and/or your callback), fires timers and per-frame animation callbacks, repaints the windows that changed and presents them, and closes a window when its close button is clicked.
 
 ```c
-struct GuiImage {
-    &heap unsigned char pixels; // width*height*4, RGBA8888
-    int width;
-    int height;
+struct GuiApp {
+    static struct GuiApp new();
 
-    int  load_png(const &unsigned char data, unsigned long size); // in place; 1 = ok, 0 = failed (image zeroed)
-    void draw(&GuiWindow win, int x, int y) const;                 // straight copy, no blending
-    void free();
+    ?&GuiWindow open_window(const &char title, int width, int height);
+    ?&GuiWindow open(const &GuiWindowOptions opts);
+    void close_window(&GuiWindow win);          // destroys it (and its widget tree) now
+    unsigned long window_count() const;
+    ?&GuiWindow window_at(unsigned long i) const;
+    ?&GuiWindow find_window(unsigned int id) const;
+
+    &GuiUi set_root(&GuiWindow win, &Widget root);   // show a widget tree in the window
+    ?&GuiUi ui_of(const &GuiWindow win) const;
+    void redraw(&GuiWindow win);                     // repaint on the next iteration
+
+    generic<T> void on_event(&GuiWindow win, fn int(&GuiApp, &GuiWindow, &GuiEvent, ?&T) cb, ?&T data);
+    generic<T> void on_draw(&GuiWindow win, fn void(&GuiApp, &GuiWindow, &GuiCanvas, ?&T) cb, ?&T data);
+    generic<T> void on_frame(&GuiWindow win, fn int(&GuiApp, &GuiWindow, double, ?&T) cb, ?&T data);
+
+    generic<T> unsigned int set_timeout(double ms, fn void(&GuiApp, unsigned int, ?&T) cb, ?&T data);
+    generic<T> unsigned int set_interval(double ms, fn void(&GuiApp, unsigned int, ?&T) cb, ?&T data);
+    void cancel_timer(unsigned int id);
+
+    int  pump(int timeoutMs);   // one iteration; 0 once the app should stop
+    int  run();                 // pump() until then; returns quit()'s code
+    void quit(int exitCode);
+    double now_ms() const;
+    void set_frame_interval(double ms);   // default 1000/60
+    void free();                // closes every window
 };
 ```
 
-```c
-struct GuiImage img;
-if (img.load_png(data, size)) {
-    img.draw(&win, 10, 10);
-    img.free();
-}
-```
+- **Rendering.** A window with a widget root is laid out and painted by its `GuiUi`. A window with an `on_draw` callback gets a [`GuiCanvas`](/stdlib/gui-graphics) over its buffer — after the widgets, if it has both. A window with neither shows whatever you wrote into `win.pixels`. Windows are repainted only when something changed: an input event a widget or your `on_event` handled (return 1), a resize, a timer, an animation frame, or `app.redraw(win)`.
+- **Closing.** `GUI_EVENT_CLOSE` closes the window after your `on_event` callback saw it — unless the callback called `ev.prevent_default()` (to ask "save changes?" first, say). `run()` returns when the last window is gone or `quit()` was called.
+- **Animation.** `on_frame` callbacks run once per frame (`set_frame_interval`, 60 Hz by default) with the time in milliseconds, for as long as they return 1; the window is repainted after each.
+- **Timers** run on the loop thread, never concurrently with event handling, as close to their due time as the loop allows. Ids are never 0.
+- **Waiting.** `run()` sleeps in the platform's event wait (`poll` on the X connection, `MsgWaitForMultipleObjects`, `nextEventMatchingMask`) until the next event, timer or frame is due, so an idle app uses no CPU.
 
-Supported: 8-bit-per-channel, non-interlaced, color types 0 (grayscale), 2 (RGB) and 6 (RGBA), all five scanline filters. Not supported: palette images (type 3), 16-bit depth, Adam7 interlacing, ancillary chunks such as `tRNS`/`gAMA`. Unsupported files fail with `0` rather than decoding wrongly. Chunk CRCs are not checked.
+### Driving the loop yourself {#driving-the-loop-yourself}
 
-`load_png` takes bytes already in memory; read the file yourself first (for example with `std/io_file.h`).
+Call `app.pump(0)` once per iteration of your own loop (a game, an embedding host, a WebAssembly page driven by `requestAnimationFrame`): it does one iteration without waiting and returns 0 once the app should stop. `app.pump(ms)` waits up to `ms` milliseconds for the next event, timer or frame.
 
----
-
-## SVG — `gui_svg.h` {#svg-gui-svg-h}
-
-The renderer is a `GuiWindow` method, declared in `gui.h` and defined in
-`gui_svg.sc`; there is no retained SVG object.
+### Example — two windows and a timer {#example-two-windows-and-a-timer}
 
 ```c
-// Parses a complete <svg>...</svg> document and draws it with its top-left at (ox, oy).
-// Returns 1 if the <svg> root parsed, 0 on malformed or unsupported input.
-int GuiWindow::draw_svg(int ox, int oy, const &char svgText);
-```
+#include <std/gui/gui_app.h>
 
-Supported elements: `<svg>`, `<g>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, and `<path>` with `M`/`L`/`H`/`V`/`C`/`Z` (cubic curves are flattened). `fill`/`stroke` accept `#rrggbb`, `none`, and the names black, white, red, green, blue, yellow, cyan, magenta, gray, transparent.
+struct State { int seconds; &Widget label; };
 
-Not supported: `viewBox`, `transform`, gradients, clip paths, `<text>`, `<use>`, CSS. Parsing and drawing happen in one pass, so shapes before a parse error are already drawn.
-
----
-
-## Widgets — `gui_widget.h` {#widgets-gui-widget-h}
-
-A retained-mode widget tree. Build it once, then lay it out, dispatch events, and render every frame:
-
-```c
-root.layout(0, 0, win.width, win.height);
-while (win.poll_event(&ev)) { root.dispatch_event(&ev); }
-root.render(&win);
-win.present();
-```
-
-### Built-in widgets {#built-in-widgets}
-
-| Constructor | Kind | Notes |
-|-------------|------|-------|
-| `Widget::vstack()` | `WIDGET_VSTACK` | Lays children out top to bottom |
-| `Widget::hstack()` | `WIDGET_HSTACK` | Lays children out left to right |
-| `Widget::button(text)` | `WIDGET_BUTTON` | Fires `onClick` on press + release inside it |
-| `Widget::label(text)` | `WIDGET_LABEL` | Static text |
-| `Widget::checkbox(text, checked)` | `WIDGET_CHECKBOX` | Toggles `checked`, fires `onChange` |
-| `Widget::textinput(placeholder)` | `WIDGET_TEXTINPUT` | Single-line edit; `text` and `caret`; fires `onChange` |
-| `Widget::slider(min, max, value)` | `WIDGET_SLIDER` | Drag to set `sliderValue`; fires `onChange` |
-| `Widget::spacer()` | `WIDGET_SPACER` | Empty space; give it a stretch to push siblings apart |
-| `Widget::custom(draw, layout, eventFn, userData)` | `WIDGET_CUSTOM` | Your own drawing, layout and event handling |
-
-Every constructor is a [static method](/reference/functions#static-methods) returning a non-null, heap-allocated `&Widget` with default styling. `parent.add_child(child)` builds the tree; `root.free()` frees the whole subtree.
-
-### Customization {#customization}
-
-Every setter returns the same widget, so calls chain
-(`Widget::button("Go").set_padding(8).set_bg(60, 120, 200, 255)`):
-
-```c
-struct Widget {
-    // ...
-    void    add_child(&Widget child);
-
-    &Widget set_bg(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-    &Widget set_fg(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
-    &Widget set_border(unsigned char r, unsigned char g, unsigned char b, unsigned char a, int width);
-    &Widget set_padding(int padding);
-    &Widget set_spacing(int spacing);         // gap between children of a stack
-    &Widget set_pref_size(int prefW, int prefH); // 0 = size to content
-    &Widget set_stretch(int stretch);         // 0 = natural size, >0 = flex weight
-    &Widget set_alignment(int alignment);     // cross axis: WIDGET_ALIGN_START, _CENTER, _END, _STRETCH
-    &Widget set_font_scale(int scale);
-    &Widget set_font(const ?&GuiFont font);   // null = built-in font
-    &Widget set_visible(int visible);
-    &Widget set_enabled(int enabled);
-    &Widget set_text(const &char text);
-
-    generic<T> &Widget on_click(fn void(&Widget, ?&T) cb, ?&T userData);
-    generic<T> &Widget on_change(fn void(&Widget, ?&T) cb, ?&T userData);
-
-    void layout(int x, int y, int w, int h);
-    void render(&GuiWindow win);
-    int  dispatch_event(&GuiEvent ev);
-    void free();                              // the whole subtree
-};
-```
-
-`on_click`/`on_change` are [methods with their own type parameter](/reference/generics#methods-with-their-own-type-parameters): `T` is inferred from the callback, which is checked against its context type at compile time. The widget stores the pair type-erased, because one tree holds buttons, sliders and custom widgets with unrelated context types (see [Generic Pattern](/stdlib/#generic-pattern)).
-
-### Layout {#layout}
-
-`root.layout(x, y, w, h)` positions the whole tree inside the box. A stack first gives each child with `stretch == 0` its preferred or natural size, then splits the remaining space among stretched children by weight. `padding` applies inside a container, `spacing` between its children, and `alignment` places each child on the cross axis.
-
-### Events and keyboard defaults {#events-and-keyboard-defaults}
-
-`root.dispatch_event(&ev)` sends the event to the deepest widget under the cursor first, updates `hover`/`pressed`/`focused`, fires `onClick`/`onChange`, and calls a custom widget's event hook. It returns 1 if a widget used the event.
-
-For `GUI_EVENT_KEY_DOWN`, a default action then runs, like a browser's default action for a key:
-
-| Key | Default action |
-|-----|----------------|
-| Tab | Focus the next focusable widget (wraps) |
-| Enter | Activate the focused widget (click a button, toggle a checkbox) |
-| Escape | Clear focus |
-| Left / Right | Move a focused slider by 5% of its range |
-
-These run even when a widget already handled the event. To stop one, call `ev.prevent_default()` from a custom widget's event hook.
-
-### Custom widgets {#custom-widgets}
-
-```c
-typedef fn void(&GuiWindow, &Widget) WidgetDrawFn;               // draw inside widget.x/y/w/h
-typedef fn void(&Widget, int, int, int, int) WidgetLayoutFn;      // set widget.x/y/w/h, lay out children
-typedef fn int(&Widget, &GuiEvent) WidgetCustomEventFn;           // 1 = handled, stop dispatch
-
-struct Widget {
-    // ...
-    generic<T>
-    static &Widget custom(WidgetDrawFn draw, WidgetLayoutFn layout,
-                          WidgetCustomEventFn eventFn, ?&T userData);
-};
-```
-
-`draw` and `layout` are required. `eventFn` may be null: the widget then gets the same hover, press and click handling as a button. Set it only when you need raw events, such as drag deltas on a canvas:
-
-```c
-static int canvas_event(&Widget w, &GuiEvent ev) {
-    if (ev.kind == GUI_EVENT_KEY_DOWN && ev.keycode == GUI_KEY_TAB) {
-        ev.prevent_default();   // keep focus here: no default Tab action
-        return 1;
-    }
-    return 0;
-}
-
-struct Canvas c;
-&Widget canvas;
-unsafe { canvas = std::Widget::custom(canvas_draw, canvas_layout, canvas_event, (?&Canvas)&c); }
-```
-
-### Example — counter {#example-counter}
-
-```c
-#include <std/gui/gui_widget.h>
-
-struct Counter {
-    int clicks;
-    &Widget label;
-};
-
-static void on_click(&Widget w, ?&Counter ctx) {
-    match (ctx) {
-        case some(c): {
-            c.clicks = c.clicks + 1;
-            c.label.set_text(c.clicks == 1 ? "Clicked once" : "Clicked again");
+static void tick(&GuiApp app, unsigned int id, ?&State os) {
+    match (os) {
+        case some(s): {
+            s.seconds = s.seconds + 1;
+            char buf[32];
+            unsafe { snprintf(&buf[0], 32UL, "%d s", s.seconds); }
+            s.label.set_text(&buf[0]);
         }
         case null: { }
     }
 }
 
+static void draw(&GuiApp app, &GuiWindow win, &GuiCanvas c, ?&State os) {
+    c.clear(GuiColor::hex(0x202830U));
+    c.set_fill_color(GuiColor::hex(0x4DABF7U));
+    c.fill_circle((float)win.width / 2.0f, (float)win.height / 2.0f, 40.0f * (float)win.scale);
+}
+
 int main() {
-    struct GuiWindow win = std::GuiWindow::create("Counter", 320, 160);
-    if (win.platform.is_null()) { return 1; }
+    struct GuiApp app = GuiApp::new();
+    ?&GuiWindow oa = app.open_window("Widgets", 300, 120);
+    ?&GuiWindow ob = app.open_window("Canvas", 300, 200);
+    if (oa.is_null() || ob.is_null()) { return 1; }
+    &GuiWindow a; &GuiWindow b;
+    unsafe { a = (struct GuiWindow*)oa; b = (struct GuiWindow*)ob; }
 
-    &Widget root   = std::Widget::vstack().set_padding(12).set_spacing(8);
-    &Widget label  = std::Widget::label("Not clicked");
-    &Widget button = std::Widget::button("Click me").set_bg(60, 120, 200, 255);
-
-    struct Counter counter;
-    counter.clicks = 0;
-    counter.label = label;
-    unsafe { button.on_click(on_click, (?&Counter)&counter); }
-
-    root.add_child(label);
-    root.add_child(button);
-
-    struct GuiEvent ev;
-    while (!win.shouldClose) {
-        root.layout(0, 0, win.width, win.height);
-        while (win.poll_event(&ev)) { root.dispatch_event(&ev); }
-        root.render(&win);
-        win.present();
-    }
-
-    root.free();
-    win.destroy();
-    return 0;
+    struct State s;
+    s.seconds = 0;
+    s.label = Widget::label("0 s");
+    &Widget root = Widget::vstack().set_padding(16);
+    root.add_child(s.label);
+    app.set_root(a, root);
+    app.on_draw(b, draw, &s);
+    app.set_interval(1000.0, tick, &s);
+    int code = app.run();
+    app.free();
+    return code;
 }
 ```
 
 ---
 
-## Bare Metal — `gui_fb.sc` {#bare-metal-gui-fb-sc}
+## Backends {#backends}
+
+Everything platform-specific sits behind one table of function pointers, `struct GuiBackend` (`gui_backend.h`). The portable layer — windows, the clipboard, the clock, `GuiApp` — calls only through it, and the canvas, text and widget code only ever see a window's pixel buffer.
+
+| Backend | Target | Tested |
+|---------|--------|--------|
+| `gui_x11.sc` | Linux, BSD — Xlib, `XPutImage`, XIM text input, `CLIPBOARD`, EWMH | Against Xvfb (`tests/stdlib/x11/run.sh`): pixels read back with `XGetImage`; keys, text, mouse, scroll, resize, close; two windows under one `GuiApp`; UTF-8 titles; the clipboard both ways with a second X client |
+| `gui_win32.sc` | Windows — wide-character Win32, `StretchDIBits`, per-monitor DPI | Under Wine (`tests/stdlib/win32/run.sh`): pixels read back with `GetPixel`; posted input; two windows; the clipboard |
+| `gui_cocoa.sc` | macOS — AppKit through the Objective-C runtime, a layer-backed `NSView` | Compiled for arm64 and x86_64 macOS |
+| `gui_fb.sc` | Bare metal — a linear framebuffer; input injected from your drivers | Compiled for every bare-metal target |
+| `gui_headless.sc` | Any target — in memory, with a virtual clock | `tests/stdlib/tests/test_gui_widgets.sc`, `test_gui_app.sc` |
+
+`safeguard` links the backend for the target by filename suffix (`_x11` on Linux/BSD, `_win32` on Windows, `_cocoa` on Apple, `_fb` on bare metal) and adds its system libraries to the link — nothing to list in `Package.toml`:
+
+| Backend | Libraries |
+|---------|-----------|
+| Cocoa | `-framework Cocoa -lobjc` |
+| Win32 | `-luser32 -lgdi32` |
+| X11 | `-lX11` (and `libx11-6` in a `.deb`'s Depends) |
+
+Building without `safeguard`, pass them to the link yourself.
+
+### The headless backend {#the-headless-backend}
+
+`gui_use_headless()` (from `gui_headless.h`, before the first window) swaps the platform backend for one that keeps windows in memory, with a virtual clock that only moves when the loop waits or you advance it. It drives tests: inject input and read the pixels back.
+
+```c
+gui_use_headless();
+struct GuiWindow win = GuiWindow::create("test", 200, 100);
+gui_headless_click(&win, 50.0, 20.0);          // MOUSE_DOWN + MOUSE_UP
+gui_headless_key(&win, GUI_KEY_TAB, GUI_MOD_SHIFT, 0U);
+gui_headless_type(&win, "héllo");             // one KEY_DOWN per character
+gui_headless_scroll(&win, 10.0, 10.0, 0.0, -3.0);
+gui_headless_resize(&win, 300, 120);
+gui_headless_close(&win);
+gui_headless_advance(600.0);                   // the clock, in ms
+gui_headless_set_scale(2.0);                   // windows made from now on are 2x
+int cur = gui_headless_cursor(&win);           // GUI_CURSOR_* last asked for
+unsigned long n = gui_headless_present_count(&win);
+```
+
+### Writing a backend {#writing-a-backend}
+
+`gui_backend.h` documents the contract in full. In short, a backend is one `.sc` file that fills in a `GuiBackend`:
+
+| Entry | Does |
+|-------|------|
+| `init()` | Connect to the display server; 0 if there is none. |
+| `window_create(st, opts)` | Create the native window; set `st.key` (native id), `st.scale`, `st.pixelW/H`, `st.x/y`. |
+| `window_destroy`, `window_set_title/size/position/visible`, `window_focus`, `window_set_cursor`, `window_update_limits` | Apply a change. |
+| `window_present(st, px, bufW, bufH, x, y, w, h)` | Show a rectangle of the premultiplied RGBA buffer, converting to the native pixel order. |
+| `pump(timeoutMs)` | Read native events, translate them, `gui_backend_post()` them; wait up to `timeoutMs` if none was pending. |
+| `wake()` | Make a blocked `pump()` return (any thread). |
+| `now_ns`, `clipboard_set/get`, `display_scale`, `native_handle` | Clock, clipboard, scale, handles for GPU presenters. |
+
+A new **platform default** is a new suffix rule in safeguard's `stdVariantMatches` plus a `gui_<suffix>.sc` defining `gui_platform_backend()`. An **alternative** next to an existing default — Wayland beside X11 — defines its own `gui_wayland_backend()` and a setup call that installs it with `gui_set_backend()`, optionally chosen at run time by the X11 file when `$WAYLAND_DISPLAY` is set.
+
+A **WebAssembly `<canvas>`** backend's `pump()` never waits; the page drives `GuiApp::pump(0)` from `requestAnimationFrame`, `window_present` hands the buffer to an imported JS function that puts it into an `ImageData`, and DOM input reaches the program through exported functions that call `gui_backend_post()`.
+
+**GPU presentation.** Rendering stays on the CPU, but the finished buffer can reach the screen through the GPU instead of the backend's blit: a `GuiPresenter` (`attach`, `present`, `detach`), attached per window with `gui_window_set_presenter()`, uploads the damaged rectangle into a texture and draws one quad — OpenGL/EGL on X11 or Wayland, Metal on a `CAMetalLayer`, Direct3D 11 on a DXGI swap chain. `window.native_handle()` / `GuiBackend.native_handle()` give it the display, window, view and visual handles it needs. No presenter ships yet.
+
+---
+
+## Bare metal — `gui_fb.h` {#bare-metal-gui-fb-h}
 
 There is no windowing system or input stack on bare metal. Tell the backend where the framebuffer is before creating the window, and feed it input from your own drivers.
 
 ```c
-#include <std/gui/gui_fb.h>   // these declarations, on top of gui.h
+#include <std/gui/gui_fb.h>
 
 struct GuiFbConfig {
     &volatile unsigned char base;  // linear framebuffer memory
-    unsigned long pitch;  // bytes per scanline (may include padding)
+    unsigned long pitch;           // bytes per scanline (may include padding)
     int width;
     int height;
-    int bpp;              // 32 (xRGB/xBGR) or 16 (RGB565)
+    int bpp;                       // 32 (xRGB/xBGR) or 16 (RGB565)
     int redShift; int greenShift; int blueShift; // channel bit positions, 32 bpp only
 };
 
-void gui_fb_configure(struct GuiFbConfig cfg);                 // call once, before GuiWindow::create()
-void gui_fb_inject_event(&GuiWindow win, struct GuiEvent ev);  // call from your keyboard/mouse/touch ISR
+void gui_fb_configure(struct GuiFbConfig cfg);                 // once, before GuiWindow::create()
+void gui_fb_inject_event(&GuiWindow win, struct GuiEvent ev);  // from your keyboard/mouse/touch ISR
+void gui_fb_set_clock(fn long long() nowNs);                   // a monotonic clock, for timers and animation
 ```
 
-The values usually come from the bootloader, for example a Multiboot2 framebuffer tag (`framebuffer_addr`, `framebuffer_pitch`, `framebuffer_bpp`) or a VESA VBE mode. Without `gui_fb_configure`, `GuiWindow::create` fails (`platform` is null). Injected events go into a 32-entry queue (`GUI_FB_QUEUE_CAP`) that `win.poll_event` drains; events are dropped when it is full. `win.present()` converts the RGBA buffer to the framebuffer's pixel format as it copies.
+The values usually come from the bootloader, for example a Multiboot2 framebuffer tag or a VESA VBE mode. Without `gui_fb_configure`, window creation fails. Injected events go into a 32-entry ring (`GUI_FB_QUEUE_CAP`) that `poll_event` drains; events are dropped when it is full. `present()` converts the RGBA buffer to the framebuffer's pixel format as it copies. The canvas, text (with the built-in fallback font) and widgets all work unchanged.
 
 See [Bare-Metal](/reference/baremetal) for targets and linking.
+
+---
+
+## Simple drawing, bitmap fonts, PNG and SVG {#simple-drawing}
+
+The original integer helpers are still there for quick pixel work (they write the buffer directly, without blending or anti-aliasing — use the [canvas](/stdlib/gui-graphics) for anything else):
+
+```c
+win.fill_rect(x, y, w, h, color);
+win.draw_rect_border(x, y, w, h, color, thickness);
+win.draw_line(x0, y0, x1, y1, color);
+int n = win.draw_text(x, y, "text", color, scale);   // built-in 8x8 font, ASCII
+int ok = win.draw_svg(ox, oy, svgText);              // an SVG subset, see below
+int gui_text_width(const &char text, int scale);     // gui_draw.h
+int gui_text_height(int scale);
+```
+
+**Bitmap fonts — `gui_font.h`.** A `GuiFont` is a bit-packed glyph bitmap of any glyph size (`GuiFont::new`, `GuiFont::default()` for the built-in 8×8 font, `get_bit`/`set_bit`, `save`/`load` in the `SCXF` format, `draw_text`, `text_width`). A widget given one with `set_font()` draws its text with it. For real text, use [TrueType fonts](/stdlib/gui-graphics#text).
+
+**Images — `gui_png.h`.**
+
+```c
+struct GuiImage {
+    &heap unsigned char pixels;   // width*height*4, RGBA8888
+    int width, height;
+    int premultiplied;            // 1 for canvas-ready pixels
+
+    static struct GuiImage new(int width, int height);           // transparent
+    static struct GuiImage from_window(const &GuiWindow win);    // a copy of the buffer
+    int  load_png(const &unsigned char data, unsigned long size);
+    int  load_png_file(const &char path);
+    int  save_png(const &char path) const;                       // RGBA, stored deflate blocks
+    void premultiply(); void unpremultiply();
+    struct GuiImage copy() const;
+    struct GuiImage scaled(int width, int height, int smooth) const;  // area average / bilinear
+    unsigned int get_pixel(int x, int y) const; void set_pixel(int x, int y, unsigned int rgba);
+    void draw(&GuiWindow win, int x, int y) const;              // a straight copy
+    void free();
+};
+```
+
+The PNG decoder (with its own DEFLATE inflater) reads 8-bit grayscale, RGB and RGBA, non-interlaced; palette images, 16-bit depth and Adam7 fail cleanly with 0. Draw images with blending, scaling and filtering through the canvas (`draw_image*`, image patterns).
+
+**SVG — `draw_svg`.** Parses a `<svg>` document and draws `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>` and `<path>` (`M`/`L`/`H`/`V`/`C`/`Z`) with `fill`/`stroke` colors; no `viewBox`, transforms, gradients or text. For vector graphics with anti-aliasing, `GuiPath::add_svg()` parses full SVG path data (every command, arcs included) into a canvas path.

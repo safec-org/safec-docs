@@ -124,13 +124,19 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| gui | `gui/gui.h` | RGBA8888 소프트웨어 프레임버퍼 위의 포터블 `GuiWindow`/`GuiEvent` API; Cocoa, Win32, X11, 베어메탈 프레임버퍼 백엔드 |
-| draw | `gui/gui_draw.h` | 사각형, 테두리, 선, 내장 8x8 비트맵 텍스트 |
+| gui | `gui/gui.h` | 창마다 RGBA8888 버퍼를 갖는 창(옵션, HiDPI, 커서, 포커스), 이벤트, 색, 클립보드, 시계; X11, Win32, Cocoa, 베어메탈 프레임버퍼 백엔드 |
+| app | `gui/gui_app.h` | `GuiApp`: 하나의 이벤트 루프로 여러 창, 타이머, 프레임별 애니메이션, 변경 시 다시 그리기, 직접 돌릴 수 있는 루프 |
+| backend | `gui/gui_backend.h` | 모든 백엔드가 구현하는 `GuiBackend` 인터페이스와 GPU 프레젠테이션용 `GuiPresenter` |
+| headless | `gui/gui_headless.h` | 테스트용, 가상 시계와 입력 주입을 갖춘 메모리 백엔드 |
+| canvas | `gui/gui_canvas.h` | 안티에일리어싱 벡터 캔버스: 경로, 스트로크, 대시, 그라디언트, 패턴, 변환, 클리핑, 블렌드 모드, 이미지, 텍스트 — [GUI 그래픽](/ko/stdlib/gui-graphics) 참고 |
+| path | `gui/gui_path.h` | `GuiPath`(SVG 경로 데이터 포함), `GuiMatrix`, `GuiRect` |
+| text | `gui/gui_text.h` | TrueType/OpenType 리더(`GuiTypeface`, 커닝, 시스템 폰트, 내장 폴백 서체)와 `GuiTextLayout` |
+| widget | `gui/gui_widget.h` | 리테인드 위젯 툴킷: 레이아웃, 테마, 포커스, 메뉴, 대화상자, 툴팁, 30개 이상의 위젯 — [GUI 위젯](/ko/stdlib/gui-widgets) 참고 |
+| png | `gui/gui_png.h` | `GuiImage`: 처음부터 작성한 PNG 디코더와 인코더, 크기 조절 |
+| draw | `gui/gui_draw.h` | 정수 좌표 사각형, 테두리, 선, 내장 8x8 비트맵 텍스트 |
 | font | `gui/gui_font.h` | 임의 글리프 크기의 `GuiFont` 비트맵 폰트; `SCXF` 저장/로드 |
-| png | `gui/gui_png.h` | 처음부터 작성한 PNG 디코더 (자체 DEFLATE 인플레이터) |
 | svg | `gui/gui_svg.h` | SVG 부분집합 렌더러 (도형, 3차 곡선 경로) |
-| widget | `gui/gui_widget.h` | 리테인드 모드 위젯 트리: 스택, 버튼, 레이블, 체크박스, 텍스트 입력, 슬라이더, 커스텀 위젯 |
-| fb | `gui/gui_fb.h` | 베어메탈 프레임버퍼 백엔드 설정: `gui_fb_configure`, `gui_fb_inject_event` |
+| fb | `gui/gui_fb.h` | 베어메탈 프레임버퍼 백엔드 설정: `gui_fb_configure`, `gui_fb_inject_event`, `gui_fb_set_clock` |
 
 ### [파일시스템](/ko/stdlib/fs) {#filesystems}
 

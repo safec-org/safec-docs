@@ -124,13 +124,19 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| gui | `gui/gui.h` | Portable `GuiWindow`/`GuiEvent` API over an RGBA8888 software framebuffer; Cocoa, Win32, X11 and bare-metal framebuffer backends |
-| draw | `gui/gui_draw.h` | Rectangles, borders, lines, built-in 8x8 bitmap text |
+| gui | `gui/gui.h` | Windows (options, HiDPI, cursors, focus), events, colors, the clipboard and clock over an RGBA8888 buffer per window; X11, Win32, Cocoa and bare-metal framebuffer backends |
+| app | `gui/gui_app.h` | `GuiApp`: several windows from one event loop, timers, per-frame animation, redraw-on-change, a pumpable loop |
+| backend | `gui/gui_backend.h` | The `GuiBackend` interface every backend implements, and `GuiPresenter` for GPU presentation |
+| headless | `gui/gui_headless.h` | An in-memory backend with a virtual clock and input injection, for tests |
+| canvas | `gui/gui_canvas.h` | Anti-aliased vector canvas: paths, strokes, dashes, gradients, patterns, transforms, clipping, blend modes, images, text — see [GUI Graphics](/stdlib/gui-graphics) |
+| path | `gui/gui_path.h` | `GuiPath` (with SVG path data), `GuiMatrix`, `GuiRect` |
+| text | `gui/gui_text.h` | TrueType/OpenType reader (`GuiTypeface`, kerning, system fonts, a built-in fallback face) and `GuiTextLayout` |
+| widget | `gui/gui_widget.h` | Retained widget toolkit: layouts, themes, focus, menus, dialogs, tooltips and 30+ widgets — see [GUI Widgets](/stdlib/gui-widgets) |
+| png | `gui/gui_png.h` | `GuiImage`: from-scratch PNG decoder and encoder, scaling |
+| draw | `gui/gui_draw.h` | Integer rectangles, borders, lines, built-in 8x8 bitmap text |
 | font | `gui/gui_font.h` | `GuiFont` bitmap fonts of any glyph size; `SCXF` save/load |
-| png | `gui/gui_png.h` | From-scratch PNG decoder (own DEFLATE inflater) |
 | svg | `gui/gui_svg.h` | SVG subset renderer (shapes, paths with cubic curves) |
-| widget | `gui/gui_widget.h` | Retained-mode widget tree: stacks, button, label, checkbox, text input, slider, custom widgets |
-| fb | `gui/gui_fb.h` | Bare-metal framebuffer backend setup: `gui_fb_configure`, `gui_fb_inject_event` |
+| fb | `gui/gui_fb.h` | Bare-metal framebuffer backend setup: `gui_fb_configure`, `gui_fb_inject_event`, `gui_fb_set_clock` |
 
 ### [Filesystems](/stdlib/fs) {#filesystems}
 
