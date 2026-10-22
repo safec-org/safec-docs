@@ -273,37 +273,111 @@ concatenates results). Also in this file:
   output within tolerance for a block size that doesn't evenly divide
   `kvLen`.
 
+Every one of them records its backward edges like `tensor_matmul` does, so
+attention layers [train](#training), and runs where its operands live
+([devices](#devices)). Q/K/V are `[seqLen, dim]` tensors: no batch
+dimension (call once per sequence) and no positional encoding baked in.
+
 ```c
 &FloatTensor FloatTensor::softmax_rows() const;
+&FloatTensor FloatTensor::softmax_rows_mask(int causal, unsigned long window) const;
 &FloatTensor FloatTensor::transpose() const;
 &FloatTensor FloatTensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
-void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);
+void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);   // in place, no gradient
 
 &FloatTensor attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
 &FloatTensor mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long numHeads);
+&FloatTensor attention_forward_mask(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                                    int causal, unsigned long window);
+&FloatTensor mha_forward_mask(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                              unsigned long numHeads, int causal, unsigned long window);
 &FloatTensor gated_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, const &FloatTensor gateLogits);
 &FloatTensor gated_mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
                           unsigned long numHeads, const &FloatTensor gateLogits);
 &FloatTensor linear_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
 &FloatTensor flash_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long kvBlockSize);
+int attention_set_fused(int on);   // GPU multi-head ops: 1 fused kernels (default), 0 composed ops; returns the previous
 ```
 
-Forward-only (inference-focused, no backward pass) throughout. Verified
-against a hand-computed 2×2 example, a self-consistency check between
-`mha_forward` and manual per-head slicing, and per-variant hand-computed/
-cross-checked tests for the gated/linear/flash forms.
+**Masks.** Query row `i` sits at position `pos = i + (kvLen - seqLen)`: the
+last `seqLen` keys are the queries' own tokens, any before them a KV cache.
+`causal` hides keys `j > pos`; a sliding `window` w > 0 hides keys
+`j <= pos - w`, so each query sees its last w positions. A query with no
+visible key gets zeros. These are the masks of the GPU inference kernels
+below ([ROCm](#rocm-attention), [CUDA](#cuda-attention), [Metal](#mps-flash-linear-attention)).
 
-Flash and linear attention also run on Apple GPUs, in bf16 and multi-head
-with grouped-query K/V — see [MPS attention and transformer ops](#mps-attention).
+**How it runs.**
+
+| | On the CPU | On a GPU |
+|---|---|---|
+| `mha_forward[_mask]`, `attention_forward[_mask]` | per head: `transpose`, `tensor_matmul`, `scale`, `softmax_rows_mask`, `tensor_matmul`; heads joined with `tensor_concat_cols` | one fused launch for every head (below); with `attention_set_fused(0)`, or a head wider than 128, the same composed ops on the device (a transpose kernel, the masked softmax kernel) |
+| `flash_attention_forward` | the tiled loop; when an input requires grad, the fused op over the host buffers | the fused op |
+| `linear_attention_forward` | the loop; when an input requires grad, composed ops (`elu`, `transpose`, `tensor_matmul`, `sum_rows`, ...) | the composed ops |
+| gated forms | the attention above times `sigmoid(gateLogits)` | the same |
+
+The fused op is FlashAttention-2's tiling (Dao 2023) in `device_kernels.cu`,
+shared by ROCm and CUDA: a block of 256 threads takes one head's tile of 16
+query rows and walks the keys in tiles of 16 through shared memory with an
+online softmax, so the `[seqLen, kvLen]` score matrix is never formed; tiles
+a causal or windowed mask hides entirely are skipped. It keeps each row's
+log-sum-exp, and its backward is two more launches (dQ by query tiles, then
+dK and dV by key tiles) that recompute the scores from it. On Metal, and on
+the CPU for `flash_attention_forward`, the same arithmetic runs one row at
+a time (`device_ref.sc`). With 16-bit activations ([precision](#device-precision))
+the kernels read and write fp16 / bf16 and compute in fp32.
+
+On an MI100, a causal 4-head forward + backward pass:
+
+| seqLen | headDim 16 | headDim 64 | headDim 128 |
+|---|---|---|---|
+| 32 | 0.06 ms (composed 0.52) | 0.12 ms (0.51) | 0.21 ms (0.51) |
+| 512 | 0.48 ms (13.0) | 1.41 ms (13.4) | 2.86 ms (13.8) |
+| 2048 | 4.0 ms (49.9) | 12.9 ms (51.5) | 23.5 ms (52.7) |
+
+The inference kernels in [`gpu_rocm.h`](#rocm-attention),
+[`gpu_cuda_attention.h`](#cuda-attention) and [`gpu_mps.h`](#mps-attention)
+(grouped-query K/V, bf16, matrix cores) stay the faster choice for a forward
+pass alone on their own `[heads][seqLen][headDim]` buffers; they keep no
+log-sum-exp and have no backward.
 
 **`MultiHeadAttention`** is a self-attention layer with its own
-projections, `mha_forward(X Wq, X Wk, X Wv, numHeads) Wo`, forward only
-like the ops above. It is a [`Module`](#modules).
+projections, `mha_forward_mask(X Wq, X Wk, X Wv, numHeads, causal, window) Wo`.
+Its weights require grad, and it is a [`Module`](#modules). Set `causal`
+for a decoder.
 
 ```c
+struct MultiHeadAttention { &FloatTensor Wq; &FloatTensor Wk; &FloatTensor Wv; &FloatTensor Wo;
+                            unsigned long numHeads; int causal; unsigned long window; };
 static struct MultiHeadAttention MultiHeadAttention::new(unsigned long dModel, unsigned long numHeads, &Rng rng);
 &FloatTensor MultiHeadAttention::forward(const &FloatTensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
 void    MultiHeadAttention::free();
+```
+
+A small decoder language model, trained on a GPU through `trainer_fit`
+(a batch is one sequence: the dataset's rows are consecutive tokens, `x` the
+token and `y` the next one, iterated in order):
+
+```c
+struct TinyLm {
+    &FloatTensor E;      // [vocab, dim] token embedding
+    &FloatTensor P;      // [seq, dim] learned positions
+    &FloatTensor Wout;   // [dim, vocab]
+    struct LayerNorm ln1; struct LayerNorm ln2;
+    struct MultiHeadAttention mha;   // mha.causal = 1
+    struct Mlp ffn;
+};
+
+static &FloatTensor lm_loss(&TinyLm m, const &FloatTensor x, const &FloatTensor y) {
+    &FloatTensor h = tensor_add(tensor_gather_rows(m.E, x), m.P);
+    &FloatTensor h1 = tensor_add(h, m.mha.forward(m.ln1.forward(h)));
+    &FloatTensor h2 = tensor_add(h1, m.ffn.forward(m.ln2.forward(h1)));
+    return tensor_cross_entropy_loss(tensor_matmul(h2, m.Wout), y);
+}
+
+// ... add every parameter to opt, then:
+struct TrainConfig cfg = TrainConfig::default();
+cfg.batchSize = seq; cfg.shuffle = 0; cfg.device = DEVICE_AUTO;
+struct TrainReport rep = trainer_fit(&lm, lm_loss, &opt, &tokens, &cfg);
 ```
 
 ## Advanced attention
@@ -316,8 +390,10 @@ void    MultiHeadAttention::free();
   compresses K/V into a shared low-rank latent before up-projecting back
   to full width, saving KV-cache memory. `EgMla` shares one latent across
   independent per-group up-projections (grouped-query attention's
-  KV-sharing layered onto MLA's compression). Both are layers holding
-  their weights, and [`Module`](#modules)s.
+  KV-sharing layered onto MLA's compression, the groups joined with
+  `tensor_concat_cols`). Both are layers holding their weights, which
+  require grad, and [`Module`](#modules)s: they train like
+  [`MultiHeadAttention`](#attention), on a GPU too.
 - **`windowed_attention_forward`** — Shifted-Window (Swin) attention
   adapted to 1D sequences: partitions into fixed-size local windows,
   with a cyclic shift (`shift` param) so the next layer's windows
@@ -329,7 +405,9 @@ void    MultiHeadAttention::free();
 
 Verified via self-consistency checks against manual per-group/per-window
 reconstruction, and a hand-computed 2-step state trace for Gated
-DeltaNet.
+DeltaNet. `windowed_attention_forward` and `GatedDeltaNet` are forward-only
+host loops (for a trainable local window, use
+`mha_forward_mask`'s `window`).
 
 ```c
 struct Mla { &FloatTensor Wq; &FloatTensor Wdkv; &FloatTensor Wuk; &FloatTensor Wuv; unsigned long numHeads; };
@@ -649,6 +727,27 @@ The model is your own struct, holding its weights; the solver calls its `predict
   conditioning added once, up front, to the token embeddings (as
   opposed to DiT's per-layer adaptive modulation) — the architectural
   distinction this implementation draws between the two.
+
+Both are built from [`mha_forward`](#attention), `layer_norm`,
+`tensor_mul_row` / `tensor_add_bias` (the adaLN modulation) and a ReLU
+feed-forward block. Their weights require grad, so they train through
+`trainer_fit` — on a GPU with `TrainConfig.device`, where the attention runs
+as the fused kernels:
+
+```c
+struct DitModel { struct DiTBlock blk; &FloatTensor c; };   // c: [1, condDim]
+static &FloatTensor dit_loss(&DitModel m, const &FloatTensor x, const &FloatTensor y) {
+    return tensor_mse_loss(m.blk.forward(x, m.c), y);
+}
+struct DitModel m;
+m.blk = DiTBlock::new(64UL, 256UL, 16UL, 4UL);
+// ... m.c, then:
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
+model_add_params(&m.blk, &opt);
+struct TrainConfig cfg = TrainConfig::default();
+cfg.batchSize = 16UL; cfg.shuffle = 0; cfg.device = DEVICE_AUTO;   // a batch: one 16-token sequence
+struct TrainReport rep = trainer_fit(&m, dit_loss, &opt, &tokens, &cfg);
+```
 
 ```c
 static struct DiTBlock DiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long dModelCond, unsigned long numHeads);
@@ -1457,8 +1556,10 @@ way: `zero_grad()` on a device marks the gradient zero without touching it,
 and the first backward op that reaches it writes instead of adding.
 
 **What runs on the device.** Every elementwise op and activation, matmul,
-bias and row ops, sums and means, concat / slice / gather, softmax and
-log-softmax, the fused losses (cross-entropy, BCE on logits, Huber),
+bias and row ops, sums and means, concat / slice / gather, transpose,
+softmax (with attention's causal / sliding-window masks) and log-softmax,
+[multi-head attention](#attention) as one fused launch for every head (and
+its backward), the fused losses (cross-entropy, BCE on logits, Huber),
 layer norm, batch norm and group norm (each fused with a following ReLU or
 leaky ReLU), max / average / global pooling, nearest upsampling, bilinear
 and bicubic resizing, convolutions and transposed convolutions, sparse

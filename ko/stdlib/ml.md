@@ -262,7 +262,7 @@ void AdamState::free();
 - **`gated_attention_forward`/`gated_mha_forward`** — 시그모이드 출력
   게이팅으로, 어텐션 결과에 원소 단위로 곱해집니다.
 - **`linear_attention_forward`** — `phi(x) = elu(x)+1` 커널 트릭
-  재구성(Katharopoulos 외), 전체 O(seqLen·kvLen·headDim²) 점수 행렬
+  재구성(Katharopoulos 외), 전체 O(seqLen·kvLen·headDim) 점수 행렬
   대신 O((seqLen+kvLen)·headDim²).
 - **`flash_attention_forward`** — 타일 방식의, 온라인 소프트맥스
   어텐션(Dao 외): K/V를 블록 단위로 처리하며 [seqLen,kvLen] 전체 점수
@@ -270,38 +270,110 @@ void AdamState::free();
   크기에 대해서도 `attention_forward`의 출력과 허용 오차 내에서
   일치함이 검증되었습니다.
 
+모두 `tensor_matmul`처럼 역방향 간선을 기록하므로 어텐션 레이어를
+[학습](#training)할 수 있고, 피연산자가 있는 곳([디바이스](#devices))에서
+실행됩니다. Q/K/V는 `[seqLen, dim]` 텐서입니다. 배치 차원이 없고(시퀀스마다
+한 번 호출) 위치 인코딩도 들어 있지 않습니다.
+
 ```c
 &FloatTensor FloatTensor::softmax_rows() const;
+&FloatTensor FloatTensor::softmax_rows_mask(int causal, unsigned long window) const;
 &FloatTensor FloatTensor::transpose() const;
 &FloatTensor FloatTensor::slice_cols(unsigned long startCol, unsigned long numCols) const;
-void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);
+void    tensor_set_cols(&FloatTensor dst, unsigned long startCol, const &FloatTensor src);   // 제자리 쓰기, 기울기 없음
 
 &FloatTensor attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
 &FloatTensor mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long numHeads);
+&FloatTensor attention_forward_mask(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                                    int causal, unsigned long window);
+&FloatTensor mha_forward_mask(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
+                              unsigned long numHeads, int causal, unsigned long window);
 &FloatTensor gated_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, const &FloatTensor gateLogits);
 &FloatTensor gated_mha_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V,
                           unsigned long numHeads, const &FloatTensor gateLogits);
 &FloatTensor linear_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V);
 &FloatTensor flash_attention_forward(const &FloatTensor Q, const &FloatTensor K, const &FloatTensor V, unsigned long kvBlockSize);
+int attention_set_fused(int on);   // GPU 멀티헤드 연산: 1 융합 커널(기본), 0 조합 연산; 이전 값을 반환
 ```
 
-전체적으로 순방향 전용입니다(추론 중심, 역방향 패스 없음). 손으로 계산한
-2×2 예제, `mha_forward`와 수동 헤드별 슬라이싱 간의 자기 일관성 검사,
-그리고 gated/linear/flash 각 변형에 대한 손으로 계산/교차 검증된
-테스트를 통해 검증되었습니다.
+**마스크.** 쿼리 행 `i`의 위치는 `pos = i + (kvLen - seqLen)`입니다. 마지막
+`seqLen`개의 키가 쿼리 자신의 토큰이고, 그 앞은 KV 캐시입니다. `causal`은
+`j > pos`인 키를 가리고, 슬라이딩 `window` w > 0은 `j <= pos - w`인 키를
+가려서 각 쿼리는 자신의 마지막 w개 위치를 봅니다. 보이는 키가 없는 쿼리는
+0을 얻습니다. 아래 GPU 추론 커널([ROCm](#rocm-attention),
+[CUDA](#cuda-attention), [Metal](#mps-flash-linear-attention))과 같은 마스크입니다.
 
-flash 어텐션과 linear 어텐션은 Apple GPU에서도 bf16으로, 그룹 쿼리 K/V를
-갖춘 멀티헤드 형태로 실행됩니다 — [MPS 어텐션과 트랜스포머
-연산](#mps-attention)을 참고하세요.
+**실행 방식.**
+
+| | CPU에서 | GPU에서 |
+|---|---|---|
+| `mha_forward[_mask]`, `attention_forward[_mask]` | 헤드마다 `transpose`, `tensor_matmul`, `scale`, `softmax_rows_mask`, `tensor_matmul`; 헤드는 `tensor_concat_cols`로 합침 | 모든 헤드를 융합 실행 한 번으로(아래); `attention_set_fused(0)`이거나 헤드 폭이 128을 넘으면 디바이스에서 같은 조합 연산(전치 커널, 마스크 소프트맥스 커널) |
+| `flash_attention_forward` | 타일 루프; 입력이 기울기를 요구하면 호스트 버퍼 위의 융합 연산 | 융합 연산 |
+| `linear_attention_forward` | 루프; 입력이 기울기를 요구하면 조합 연산(`elu`, `transpose`, `tensor_matmul`, `sum_rows`, ...) | 조합 연산 |
+| 게이트 형태 | 위의 어텐션에 `sigmoid(gateLogits)`를 곱함 | 같음 |
+
+융합 연산은 `device_kernels.cu`에 있는 FlashAttention-2(Dao 2023)의
+타일링이며 ROCm과 CUDA가 공유합니다. 256개 스레드의 블록 하나가 한 헤드의
+쿼리 16행 타일을 맡아 키를 16개씩 공유 메모리로 가져오며 온라인
+소프트맥스로 처리하므로, `[seqLen, kvLen]` 점수 행렬을 만들지 않습니다.
+causal이나 윈도우 마스크가 전부 가리는 타일은 건너뜁니다. 각 행의
+log-sum-exp를 보관하며, 역방향은 그것으로 점수를 다시 계산하는 실행 두
+번(쿼리 타일별 dQ, 이어서 키 타일별 dK와 dV)입니다. Metal과, CPU의
+`flash_attention_forward`에서는 같은 산술을 행 하나씩 실행합니다
+(`device_ref.sc`). 16비트 활성화([정밀도](#device-precision))에서는 커널이
+fp16 / bf16을 읽고 쓰며 fp32로 계산합니다.
+
+MI100에서 causal 4헤드의 순방향 + 역방향:
+
+| seqLen | headDim 16 | headDim 64 | headDim 128 |
+|---|---|---|---|
+| 32 | 0.06 ms (조합 0.52) | 0.12 ms (0.51) | 0.21 ms (0.51) |
+| 512 | 0.48 ms (13.0) | 1.41 ms (13.4) | 2.86 ms (13.8) |
+| 2048 | 4.0 ms (49.9) | 12.9 ms (51.5) | 23.5 ms (52.7) |
+
+[`gpu_rocm.h`](#rocm-attention), [`gpu_cuda_attention.h`](#cuda-attention),
+[`gpu_mps.h`](#mps-attention)의 추론 커널(그룹 쿼리 K/V, bf16, 행렬 코어)은
+자체 `[heads][seqLen][headDim]` 버퍼에서 순방향만 할 때는 여전히 더 빠른
+선택입니다. 이 커널들은 log-sum-exp를 보관하지 않으며 역방향이 없습니다.
 
 **`MultiHeadAttention`** 은 자체 프로젝션을 가진 셀프 어텐션 레이어로,
-`mha_forward(X Wq, X Wk, X Wv, numHeads) Wo`를 계산합니다. 위의 연산들처럼
-순전파 전용이며, [`Module`](#modules)입니다.
+`mha_forward_mask(X Wq, X Wk, X Wv, numHeads, causal, window) Wo`를
+계산합니다. 가중치는 기울기를 요구하며, [`Module`](#modules)입니다.
+디코더라면 `causal`을 설정합니다.
 
 ```c
+struct MultiHeadAttention { &FloatTensor Wq; &FloatTensor Wk; &FloatTensor Wv; &FloatTensor Wo;
+                            unsigned long numHeads; int causal; unsigned long window; };
 static struct MultiHeadAttention MultiHeadAttention::new(unsigned long dModel, unsigned long numHeads, &Rng rng);
 &FloatTensor MultiHeadAttention::forward(const &FloatTensor X) const;   // [seqLen, dModel] -> [seqLen, dModel]
 void    MultiHeadAttention::free();
+```
+
+`trainer_fit`으로 GPU에서 학습하는 작은 디코더 언어 모델입니다(배치 하나가
+시퀀스 하나: 데이터셋의 행은 연속된 토큰이고, `x`는 토큰, `y`는 다음
+토큰이며, 순서대로 순회합니다):
+
+```c
+struct TinyLm {
+    &FloatTensor E;      // [vocab, dim] 토큰 임베딩
+    &FloatTensor P;      // [seq, dim] 학습되는 위치
+    &FloatTensor Wout;   // [dim, vocab]
+    struct LayerNorm ln1; struct LayerNorm ln2;
+    struct MultiHeadAttention mha;   // mha.causal = 1
+    struct Mlp ffn;
+};
+
+static &FloatTensor lm_loss(&TinyLm m, const &FloatTensor x, const &FloatTensor y) {
+    &FloatTensor h = tensor_add(tensor_gather_rows(m.E, x), m.P);
+    &FloatTensor h1 = tensor_add(h, m.mha.forward(m.ln1.forward(h)));
+    &FloatTensor h2 = tensor_add(h1, m.ffn.forward(m.ln2.forward(h1)));
+    return tensor_cross_entropy_loss(tensor_matmul(h2, m.Wout), y);
+}
+
+// ... 모든 파라미터를 opt에 추가한 뒤:
+struct TrainConfig cfg = TrainConfig::default();
+cfg.batchSize = seq; cfg.shuffle = 0; cfg.device = DEVICE_AUTO;
+struct TrainReport rep = trainer_fit(&lm, lm_loss, &opt, &tokens, &cfg);
 ```
 
 ## 고급 어텐션 {#advanced-attention}
@@ -314,8 +386,9 @@ void    MultiHeadAttention::free();
   공유된 저차원(low-rank) 잠재 표현으로 압축한 뒤 전체 폭으로 다시
   업프로젝션하여 KV 캐시 메모리를 절약합니다. `EgMla`는 하나의 잠재 표현을
   독립적인 그룹별 업프로젝션들이 공유합니다(그룹드 쿼리 어텐션의 KV 공유를
-  MLA의 압축 위에 얹은 형태). 둘 다 가중치를 가진 레이어이며
-  [`Module`](#modules)입니다.
+  MLA의 압축 위에 얹은 형태이며, 그룹은 `tensor_concat_cols`로 합칩니다).
+  둘 다 기울기를 요구하는 가중치를 가진 레이어이며 [`Module`](#modules)이므로,
+  [`MultiHeadAttention`](#attention)처럼 GPU에서도 학습됩니다.
 - **`windowed_attention_forward`** — 1D 시퀀스에 맞게 적용한 Shifted-
   Window(Swin) 어텐션: 고정 크기의 로컬 윈도우로 분할하되, 순환
   시프트(`shift` 파라미터)를 적용해 다음 레이어의 윈도우가 이 레이어의
@@ -327,6 +400,8 @@ void    MultiHeadAttention::free();
 
 수동 그룹별/윈도우별 재구성에 대한 자기 일관성 검사와, Gated
 DeltaNet에 대한 손으로 계산한 2단계 상태 추적을 통해 검증되었습니다.
+`windowed_attention_forward`와 `GatedDeltaNet`은 순방향 전용 호스트
+루프입니다(학습되는 로컬 윈도우에는 `mha_forward_mask`의 `window`를 씁니다).
 
 ```c
 struct Mla { &FloatTensor Wq; &FloatTensor Wdkv; &FloatTensor Wuk; &FloatTensor Wuv; unsigned long numHeads; };
@@ -637,6 +712,26 @@ generic<M: DenoiseModel>
 - **`JiTBlock`/`JiT`** — 컨디셔닝을 (DiT의 레이어별 적응적
   변조와 달리) 토큰 임베딩에 처음 한 번만 더하는, 평범한 pre-LN
   트랜스포머입니다 — 이 구현이 둘 사이에 두는 아키텍처적 구분입니다.
+
+둘 다 [`mha_forward`](#attention), `layer_norm`, `tensor_mul_row` /
+`tensor_add_bias`(adaLN 변조)와 ReLU 피드포워드 블록으로 만들어집니다.
+가중치가 기울기를 요구하므로 `trainer_fit`으로 학습되며, `TrainConfig.device`로
+GPU에서 학습하면 어텐션은 융합 커널로 실행됩니다:
+
+```c
+struct DitModel { struct DiTBlock blk; &FloatTensor c; };   // c: [1, condDim]
+static &FloatTensor dit_loss(&DitModel m, const &FloatTensor x, const &FloatTensor y) {
+    return tensor_mse_loss(m.blk.forward(x, m.c), y);
+}
+struct DitModel m;
+m.blk = DiTBlock::new(64UL, 256UL, 16UL, 4UL);
+// ... m.c를 정한 뒤:
+struct Optimizer opt = Optimizer::new(OPT_ADAM, (float)0.001);
+model_add_params(&m.blk, &opt);
+struct TrainConfig cfg = TrainConfig::default();
+cfg.batchSize = 16UL; cfg.shuffle = 0; cfg.device = DEVICE_AUTO;   // 배치 하나: 16토큰 시퀀스 하나
+struct TrainReport rep = trainer_fit(&m, dit_loss, &opt, &tokens, &cfg);
+```
 
 ```c
 static struct DiTBlock DiTBlock::new(unsigned long dModel, unsigned long dHidden, unsigned long dModelCond, unsigned long numHeads);
@@ -1410,8 +1505,10 @@ GEMM, 전송과 바이트)는 프로그램이 무엇에서 실행되는지 알�
 닿는 역전파 연산은 더하는 대신 씁니다.
 
 **디바이스에서 실행되는 것.** 모든 원소 단위 연산과 활성화, 행렬곱,
-바이어스와 행 연산, 합과 평균, concat / slice / gather, softmax와
-log-softmax, 융합 손실(교차 엔트로피, 로짓의 BCE, Huber), 레이어 정규화,
+바이어스와 행 연산, 합과 평균, concat / slice / gather, 전치, softmax(어텐션의
+causal / 슬라이딩 윈도우 마스크 포함)와 log-softmax, 모든 헤드를 융합 실행 한
+번으로 처리하는 [멀티헤드 어텐션](#attention)(과 그 역방향), 융합 손실(교차
+엔트로피, 로짓의 BCE, Huber), 레이어 정규화,
 배치 정규화와 그룹 정규화(각각 뒤따르는 ReLU나 leaky ReLU와 융합),
 최대 / 평균 / 전역 풀링, 최근접 업샘플링, 쌍선형과 쌍삼차 크기 조정,
 합성곱과 전치 합성곱, 희소 곱, 모든 옵티마이저(모든 파라미터에 실행 한 번),
