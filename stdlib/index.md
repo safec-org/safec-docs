@@ -21,6 +21,8 @@ int main() {
 | [io](/stdlib/io) | `io.h` | Formatted output (stdout/stderr), stdin input, buffer formatting |
 | [io_traits](/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` traits composed into `Stream` / `SeekableStream`; `read_exact`, `write_all`, `copy_stream` over any stream |
 | [io_buf](/stdlib/io) | `io_buf.h` | `BufReader<R>` / `BufWriter<W>` buffering over any `Reader` / `Writer` (themselves a `Reader` / `Writer`) |
+| [dir](/stdlib/dir) | `dir.h` | Directory listing, `file_stat` (kind, size, mtime), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
+| [path](/stdlib/dir#path) | `path.h` | Path strings: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/stdlib/str) | `str.h` | String length, comparison, copy, search, tokenisation, duplication |
 | [math](/stdlib/math) | `math.h` | Constants (PI, E, …), float/double math, classification |
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
@@ -115,7 +117,7 @@ int main() {
 | rpc | `rpc/rpc.h` | gRPC-inspired RPC-over-HTTP (length-prefixed framing, path-based dispatch) |
 | server_fn | `rpc/server_fn.h` | "Write once, call from anywhere" JSON-marshaled server functions (Dioxus/Leptos-style) |
 | reactive | `reactive/signal.h` | `Signal<T>` fine-grained reactive state (WASM client hydration) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (bump `malloc`/`free`, `mem*`, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (size-class `malloc`/`free` over `memory.grow`, `mem*`/`str*`/`strto*`/`qsort`, 128-bit compiler-rt builtins, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
 | scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
 
 ### Machine Learning — see [ML](/stdlib/ml) {#machine-learning-see-ml}

@@ -3,8 +3,8 @@
 `.scx` is SafeC's answer to JSX/TSX/RSX: HTML-like markup embedded directly
 in source, for writing server-rendered pages without hand-building strings
 tag by tag. Like JSX-to-`React.createElement` or `rsx!`-to-DOM-ops, it's a
-transpiler — a `.scx` file is ordinary SafeC source, plus one extra piece of
-syntax, rewritten into plain SafeC calls *before* `safec` ever sees the
+transpiler — a `.scx` file is ordinary SafeC source, plus markup as a
+value, rewritten into plain SafeC calls *before* `safec` ever sees the
 file. `safeguard build`/`check`/`test` do this automatically for every
 `.scx` file they discover; `safec` itself has no knowledge that `.scx`
 exists.
@@ -16,8 +16,9 @@ response body), not for client-side reactivity or diffed re-rendering.
 
 ## Syntax {#syntax}
 
-Markup may appear in exactly one place: as the entire operand of a `return`
-statement.
+Markup may appear in three statement positions: as the operand of `return`,
+as a declaration's initializer, and as the right-hand side of an
+assignment.
 
 ```c
 struct String render_home(const &char visitor_name) {
@@ -29,22 +30,47 @@ struct String render_home(const &char visitor_name) {
         </body>
     </html>;
 }
+
+void fill(&Page page, const &char title) {
+    struct String heading = <h1 class="title">{title}</h1>;   // initializer
+    if (page.draft) page.banner = <p class="draft">Draft</p>;  // assignment (any lvalue)
+    page.body.push_str(&heading);
+    heading.free();
+}
 ```
 
 - Tags are identifiers (`[a-zA-Z][a-zA-Z0-9-]*`, hyphens allowed for custom
   elements), opened and closed like HTML/XML: `<div>...</div>` or
   self-closing `<br/>`.
-- Attributes: `name="literal text"` or `name={expr}`.
+- Attributes: `name="literal text"`, `name={expr}`, or a bare `name`
+  (written as `name=""`).
 - `{expr}` interpolates a SafeC expression's value into the output,
   **HTML-escaped** (`&`, `<`, `>`, `"`, `'` become entities) — the safe
   default, same as JSX auto-escaping `{expr}` children.
 - `{!expr}` interpolates **raw, unescaped** — for embedding pre-rendered
   trusted HTML (see [Composing pages](#composing-pages) below).
-- Everything outside a `return <markup>;` statement is unmodified, ordinary
-  SafeC — imports, structs, plain functions. A `.scx` file's non-markup
-  majority is exactly a `.sc` file; string/char literals and `//`/`/* */`
-  comments are scanned over untouched, so a stray `<` or `return` inside
-  one is never mistaken for markup.
+- The markup may be a *fragment*: several top-level elements, plus
+  `<!doctype html>` declarations and `<!-- comments -->`, which are kept
+  verbatim — so a whole page can be `return <!doctype html><html>...</html>;`.
+- `<script>` and `<style>` hold raw text: everything up to the closing tag
+  is copied as written, so JavaScript and CSS braces need no escaping (and
+  there is no `{...}` interpolation inside them).
+- Everything outside markup is unmodified, ordinary SafeC — imports,
+  structs, plain functions. A `.scx` file's non-markup majority is exactly
+  a `.sc` file; string/char literals and `//`/`/* */` comments are scanned
+  over untouched, so a stray `<` or `return` inside one is never mistaken
+  for markup. A comparison is never mistaken for markup either: markup
+  starts only where an expression has to start (after `return` or `=`).
+- A quoted `#include "header.h"` resolves next to the `.scx` file, as it
+  would for a `.sc` file (the transpiled source is compiled from
+  `build/scx/`, so scx rewrites the path to an absolute one).
+
+The output follows HTML's rules for empty elements: a void element (`br`,
+`hr`, `img`, `input`, `link`, `meta`, `source`, ...) is written as a start
+tag only, every other empty element gets its closing tag (`<div></div>`,
+`<script src="app.js"></script>` — `<div/>` would parse as an *open* tag in
+HTML), and only inside `<svg>`/`<math>` are empty elements written
+self-closed (`<path d="..."/>`).
 
 Every `{expr}`/`{!expr}` expression must evaluate to a C string,
 `const &char` — a string literal, a `const &char` parameter, or a
@@ -54,24 +80,25 @@ does no type-checking of its own (it runs as a text-level pass, before
 Sema ever runs), so a type mismatch surfaces as an ordinary `safec` compile
 error on the generated code, pointing at the synthesized call site.
 
-## Why only `return <markup>;` {#why-only-return-markup}
+## Why statements, not any expression {#why-only-return-markup}
 
 Real JSX/TSX integrate markup into the host language's full expression
-grammar (assignable to a variable, passed as an argument, used in a
-ternary, embedded in a loop) because their transpilers are built on a real
-JavaScript/TypeScript parser that already understands expression position.
-scx's transpiler is a lightweight, standalone text-level pass — it doesn't
-share `safec`'s parser or its notion of expression context, and SafeC has
-no statement-expression construct (`({ ... })`) to fall back on for
-building a value out of multiple statements mid-expression.
+grammar (passed as an argument, used in a ternary, embedded in a loop)
+because their transpilers are built on a real JavaScript/TypeScript parser
+that already understands expression position. scx's transpiler is a
+lightweight, standalone text-level pass — it doesn't share `safec`'s
+parser, and SafeC has no statement-expression construct (`({ ... })`) to
+fall back on for building a value out of multiple statements
+mid-expression.
 
-Restricting markup to `return <markup>;` sidesteps all of that: the
-generated builder statements go exactly where the original `return`
-statement was, in the same function, with the same parameters and locals
-already in scope — no hoisting, no capture analysis, no new grammar in
-`safec` itself. In exchange, a "component" in scx is simply *a function
-that returns markup* — write `render_x(...)` returning `struct String`,
-and call it like any other function.
+Restricting markup to whole statements — `return <markup>;`,
+`T name = <markup>;`, `lvalue = <markup>;` — sidesteps all of that: the
+generated builder statements go exactly where the original statement was,
+in the same function, with the same parameters and locals already in scope
+— no hoisting, no capture analysis, no new grammar in `safec` itself. A
+"component" in scx is simply *a function that returns markup* — write
+`render_x(...)` returning `struct String`, and call it like any other
+function.
 
 ## Composing pages {#composing-pages}
 
@@ -142,7 +169,7 @@ position back onto the `.scx` buffer's own lines — you never see the
 generated code. That mapping is line-level: it's exact everywhere outside
 a markup expansion (which is most of a typical file), and for a
 diagnostic *inside* one — e.g. a type error on a `{expr}` interpolation —
-it points at the line the enclosing `return <markup>;` starts on rather
+it points at the line the enclosing markup statement starts on rather
 than the exact sub-line, since a markup block doesn't correspond 1:1 to
 the code it expands to. Malformed markup itself (a mismatched closing tag,
 an unterminated `{`) is reported the same way, at the exact line the

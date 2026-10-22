@@ -105,6 +105,8 @@ nav:
         link: /stdlib/mem
       - text: io
         link: /stdlib/io
+      - text: Files & Directories
+        link: /stdlib/dir
       - text: str
         link: /stdlib/str
       - text: math
@@ -260,6 +262,8 @@ sidebar:
             link: /stdlib/mem
           - text: io
             link: /stdlib/io
+          - text: Files & Directories
+            link: /stdlib/dir
           - text: str
             link: /stdlib/str
           - text: math

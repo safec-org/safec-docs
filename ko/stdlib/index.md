@@ -21,6 +21,8 @@ int main() {
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
 | [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
 | [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
+| [dir](/ko/stdlib/dir) | `dir.h` | 디렉터리 나열, `file_stat`(종류, 크기, 수정 시각), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
+| [path](/ko/stdlib/dir#path) | `path.h` | 경로 문자열: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
 | [math](/ko/stdlib/math) | `math.h` | 상수(PI, E 등), float/double 수학, 분류 |
 | [thread](/ko/stdlib/thread) | `thread.h` | 스레드, 뮤텍스, 조건 변수, 읽기-쓰기 락 |
@@ -115,7 +117,7 @@ int main() {
 | rpc | `rpc/rpc.h` | gRPC에서 영감을 받은 HTTP 기반 RPC (길이 프리픽스 프레이밍, 경로 기반 디스패치) |
 | server_fn | `rpc/server_fn.h` | "한 번 작성하고 어디서든 호출" 방식의 JSON 마셜링 서버 함수 (Dioxus/Leptos 스타일) |
 | reactive | `reactive/signal.h` | `Signal<T>` 세밀한 반응형 상태 (WASM 클라이언트 하이드레이션) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(범프 `malloc`/`free`, `mem*`, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(`memory.grow` 위의 크기 클래스 `malloc`/`free`, `mem*`/`str*`/`strto*`/`qsort`, 128비트 compiler-rt 내장 함수, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
 | scx | 해당 없음 (트랜스파일러) | JSX/TSX 스타일 HTML 템플릿 — `.scx` 파일은 `safec`가 보기 전에 일반 SafeC로 트랜스파일됨 |
 
 ### 머신러닝 — [ML](/ko/stdlib/ml) 참고 {#machine-learning-see-ml}

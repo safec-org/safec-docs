@@ -119,7 +119,7 @@ instance.exports.bump(5);                     // host saw 5
 
 속성은 선언 앞이나 뒤, 프로토타입이나 정의 어디에든 붙일 수 있고 함께 쓸 수 있습니다: `__attribute__((import_module("console"), import_name("log"))) void log_i(int v);`는 `console.log`를 임포트합니다. 다른 타깃에서는 무시됩니다.
 
-런타임은 `std/wasm/wasm_rt.sc`입니다. `malloc`/`free`/`calloc`/`realloc`(4MiB 정적 풀 `WASM_RT_POOL_SIZE` 위의 범프 할당자이며 `free`는 회수하지 않음)과 `memcpy`/`memmove`/`memset`/`memcmp`를 제공합니다. `abort()`는 wasm의 네이티브 트랩이라 호스트에는 `RuntimeError: unreachable`로 보이고, `printf`/`fprintf`는 출력을 버리며, `std::panic`도 같은 방식으로 트랩합니다. 그래서 모듈에는 자기 코드가 선언한 것 외의 호스트 임포트가 필요 없습니다.
+런타임은 `std/wasm/wasm_rt.sc`입니다. `malloc`/`free`/`calloc`/`realloc` — 모듈의 선형 메모리 위의 크기 클래스 할당자로, 블록은 2의 거듭제곱 크기이고, 해제된 블록은 같은 크기 클래스의 다음 할당에 재사용되며, 메모리는 링커의 `__heap_base`부터 필요할 때 늘어나므로(`memory.grow`) 오래 실행되는 페이지도 할당과 해제를 계속할 수 있습니다 — 과 함께 std 자체 소스가 호출하는 libc 함수(`memcpy`/`memmove`/`memset`/`memcmp`/`memchr`, `strlen`/`strcmp`/`strchr`/`strstr` 등 std가 쓰는 `str*` 계열, `strtoll`/`strtoull`/`strtod`/`atoi`, `qsort`)와 LLVM이 128비트 산술을 위해 내보내는 compiler-rt 내장 함수(`__multi3`, `__ashlti3`, `__lshrti3`, `__ashrti3`)를 제공합니다. `snprintf`는 제공하지 않으므로 wasm에서 실수 서식화(`fmt_float`, `String::push_float`)에는 호스트 측 임포트가 필요합니다. `abort()`는 wasm의 네이티브 트랩이라 호스트에는 `RuntimeError: unreachable`로 보이고, `printf`/`fprintf`는 출력을 버리며, `std::panic`도 같은 방식으로 트랩합니다. 그래서 모듈에는 자기 코드가 선언한 것 외의 호스트 임포트가 필요 없습니다.
 
 `safeguard build --target wasm32`는 다른 타깃에는 없는 `std/wasm`을 포함해 wasm용 std 아카이브를 빌드하고, 같은 방식의 라이브러리 모듈로 링크합니다. `std/wasm/dom.h`와 `hydrate.h`는 [풀스택 예제](https://github.com/safec-org/SafeC/tree/main/examples/fullstack_demo)를 위한 DOM 상호 운용과 클라이언트 하이드레이션을 제공합니다.
 

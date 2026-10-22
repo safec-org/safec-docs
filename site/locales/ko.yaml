@@ -105,6 +105,8 @@ nav:
         link: /ko/stdlib/mem
       - text: io
         link: /ko/stdlib/io
+      - text: 파일과 디렉터리
+        link: /ko/stdlib/dir
       - text: str
         link: /ko/stdlib/str
       - text: math
@@ -260,6 +262,8 @@ sidebar:
             link: /ko/stdlib/mem
           - text: io
             link: /ko/stdlib/io
+          - text: 파일과 디렉터리
+            link: /ko/stdlib/dir
           - text: str
             link: /ko/stdlib/str
           - text: math
