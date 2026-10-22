@@ -28,13 +28,15 @@
 
 백엔드는 `safeguard`가 골라 줍니다: 타깃의 std 아카이브에는 그 타깃에 맞는 변형만 들어갑니다(Apple은 `_cocoa`, Linux/BSD는 `_x11`, Windows는 `_win32`, 베어메탈 타깃은 `_fb`). [패키지 매니저](/ko/advanced/safeguard)를 참고하십시오.
 
-OS 백엔드는 시스템 라이브러리를 호출하므로, `[build] libs`로 최종 링크에 추가합니다:
+OS 백엔드는 시스템 라이브러리를 호출하며, `safeguard`는 `gui.h`를 포함하는 프로그램의 링크에 이를 추가합니다([표준 라이브러리 모듈](/ko/advanced/safeguard#standard-library-linking) 참고). `Package.toml`에 지정할 것은 없습니다:
 
 | 백엔드 | 라이브러리 |
 |---------|-----------|
-| Cocoa | `objc`, AppKit 및 Core Graphics 프레임워크 |
-| Win32 | `user32`, `gdi32` |
-| X11 | `X11` |
+| Cocoa | `-framework Cocoa -lobjc`(AppKit과 Core Graphics는 Cocoa를 통해) |
+| Win32 | `-luser32 -lgdi32` |
+| X11 | `-lX11`(`.deb`의 Depends에는 `libx11-6`) |
+
+`safeguard` 없이 빌드할 때는 링크에 직접 전달하십시오.
 
 GPU 경로는 없습니다. 매 프레임 `win.present()`가 픽셀 버퍼를 화면으로 복사합니다(Cocoa는 `CGImage`를 레이어의 contents로 설정, Win32는 `StretchDIBits`, X11은 `XPutImage`, 베어메탈은 픽셀 포맷을 변환하며 복사). Rust의 `minifb`/`softbuffer`와 같은 범위입니다.
 

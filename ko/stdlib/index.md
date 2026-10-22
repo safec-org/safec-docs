@@ -323,9 +323,9 @@ int main() {
 #include <std/prelude.h>
 ```
 
-`safeguard` 패키지 매니저로 빌드할 때는 표준 라이브러리가 자동으로 `build/deps/libsafec_std.a`로 컴파일되어 링크됩니다.
+`safeguard` 패키지 매니저로 빌드할 때는 프로그램이 포함하는 std 모듈이 `build/deps/libsafec_std.a`로 컴파일되어, 그 모듈에 필요한 시스템 라이브러리와 함께 링크됩니다([표준 라이브러리 모듈](/ko/advanced/safeguard#standard-library-linking) 참고).
 
-수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), `safeguard`가 빌드한(또는 모든 `std/**/*.sc`로 직접 빌드한) std 아카이브를 링크합니다:
+수동으로 빌드할 때는 SafeC 체크아웃을 include 경로에 두고(헤더 이름은 `<std/...>`), std 전체의 아카이브(`[build] std = "all"`인 프로젝트를 `safeguard build`하면 만들어지며, 모든 `std/**/*.sc`로 직접 빌드해도 됩니다)를 사용하는 모듈의 시스템 라이브러리(`safeguard std-modules std/x.h`가 나열합니다)와 함께 링크합니다:
 ```bash
 safec myfile.sc -I /path/to/SafeC -o myfile.ll
 clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile

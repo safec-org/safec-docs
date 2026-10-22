@@ -1532,8 +1532,9 @@ model_sync(&net);                          // host copies current: save, inspect
 | Automatically | `device_auto()`: the first usable GPU among the backends the program was built with (ROCm, then CUDA, then Metal), else the CPU. `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps` in the environment overrides it. |
 
 The build's [features](/advanced/safeguard#feature-flags) link the backends
-in. A program built without any runs everything on the CPU and links no GPU
-library:
+in, and `safeguard` adds each one's libraries to the link (the Link column;
+by hand, pass them yourself). A program built without any runs everything
+on the CPU and links no GPU library:
 
 | Feature | Backend | Link |
 |---|---|---|
@@ -1714,7 +1715,7 @@ discrete memory model needs.
 ### ROCm / HIP (AMD)
 
 ```c
-#include <std/ml/gpu_rocm.h>   // link: -lamdhip64 -lhiprtc -lrocblas
+#include <std/ml/gpu_rocm.h>   // links -lamdhip64 -lhiprtc -lrocblas (safeguard adds them)
 ```
 
 Data lives in `RocmBuf`s — GPU buffers described by a device address and an
@@ -1827,7 +1828,7 @@ the same GPU ([full results](/benchmarks#ml-attention)):
 ### CUDA (NVIDIA) {#cuda}
 
 ```c
-#include <std/ml/gpu_cuda.h>   // link: -lcuda -lcublas -lcublasLt -lnvrtc
+#include <std/ml/gpu_cuda.h>   // links -lcuda -lcublas -lcublasLt -lnvrtc (safeguard adds them)
 ```
 
 The same model as the ROCm backend, with the same function names under
@@ -2112,7 +2113,7 @@ The `_ab` suffix means both inputs are already GPU buffers (`MpsBuf`s, passed by
 ### Attention on MPS {#mps-flash-linear-attention}
 
 ```c
-#include <std/ml/gpu_mps.h>   // Apple GPUs; link -framework Metal -framework Foundation
+#include <std/ml/gpu_mps.h>   // Apple GPUs; links Metal and Foundation (safeguard adds them)
 ```
 
 The same batched multi-head [`flash_attention_forward` and

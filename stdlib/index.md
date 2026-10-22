@@ -323,9 +323,9 @@ Where a container must hold callbacks with *different* context types at once (a 
 #include <std/prelude.h>
 ```
 
-When building with the `safeguard` package manager, the standard library is automatically compiled to `build/deps/libsafec_std.a` and linked.
+When building with the `safeguard` package manager, the std modules the program includes are compiled into `build/deps/libsafec_std.a` and linked, with the system libraries they need (see [Standard Library Modules](/advanced/safeguard#standard-library-linking)).
 
-When building manually, put the SafeC checkout on the include path (headers are named `<std/...>`) and link the std archive that `safeguard` builds (or that you build from every `std/**/*.sc`):
+When building manually, put the SafeC checkout on the include path (headers are named `<std/...>`) and link an archive of all of std — `safeguard build` of a project with `[build] std = "all"` makes one (or build it from every `std/**/*.sc`) — with the system libraries of the modules you use (`safeguard std-modules std/x.h` lists them):
 ```bash
 safec myfile.sc -I /path/to/SafeC -o myfile.ll
 clang myfile.ll /path/to/libsafec_std.a -lm -lpthread -o myfile
