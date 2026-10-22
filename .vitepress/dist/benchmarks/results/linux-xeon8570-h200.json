@@ -1,0 +1,1551 @@
+{
+ "machine": {
+  "safec": "safec 1.0.0",
+  "clang": "Ubuntu clang version 21.1.8 (++20251221032922+2078da43e25a-1~exp1~20251221153059.70)",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "go": "go version go1.27.3 linux/amd64",
+  "zig": "0.17.0",
+  "python": "Python 3.12.3",
+  "torch": "2.10.0a0+b558c986e8.nv25.11",
+  "tensorflow": "2.21.0",
+  "numpy": "1.26.4",
+  "cpu": "INTEL(R) XEON(R) PLATINUM 8570",
+  "os": "Ubuntu 24.04.3 LTS",
+  "cores": 12,
+  "cuda": "Build cuda_13.0.r13.0/compiler.36424714_0",
+  "gpu": "NVIDIA H200, 580.126.20"
+ },
+ "ml": {
+  "small/safec_cpu": {
+   ":train_ms": 24.336,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 54.046
+  },
+  "small/safec_blas": {
+   ":train_ms": 21.565,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 55.292
+  },
+  "big/safec_cpu": {
+   ":train_ms": 115.608,
+   ":last_loss": 95.426926,
+   ":inference_ms_per_200": 117.33
+  },
+  "big/safec_blas": {
+   ":train_ms": 195.304,
+   ":last_loss": 95.424927,
+   ":inference_ms_per_200": 174.633
+  },
+  "small/safec_cpu_mkl": {
+   ":train_ms": 25.862,
+   ":last_loss": 100.333267,
+   ":inference_ms_per_1000": 39.252
+  },
+  "big/safec_cpu_mkl": {
+   ":train_ms": 101.323,
+   ":last_loss": 95.427391,
+   ":inference_ms_per_200": 61.273
+  },
+  "cuda/safec": {
+   "small 128-256-64 plain": {
+    "train_ms": 6.77,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 940164.82,
+    "inference_ms_per_1000": 38.92,
+    "checksum": -98.959379
+   },
+   "big 512-1024-256 plain": {
+    "train_ms": 4.098,
+    "last_loss": 95.427292,
+    "throughput_samples_per_sec": 1559728.21,
+    "inference_ms_per_200": 8.233,
+    "checksum": 0.721703
+   },
+   "small 128-256-64 fused": {
+    "train_ms": 6.154,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 1035796.32,
+    "inference_ms_per_1000": 34.923,
+    "checksum": -98.959379
+   },
+   "big 512-1024-256 fused": {
+    "train_ms": 3.768,
+    "last_loss": 95.427292,
+    "throughput_samples_per_sec": 1685656.62,
+    "inference_ms_per_200": 7.569,
+    "checksum": 0.721703
+   },
+   "small 128-256-64 graph": {
+    "train_ms": 3.812,
+    "last_loss": 100.333282,
+    "throughput_samples_per_sec": 1672568.99,
+    "inference_ms_per_1000": 19.881,
+    "checksum": -98.959379
+   },
+   "big 512-1024-256 graph": {
+    "train_ms": 3.129,
+    "last_loss": 95.427277,
+    "throughput_samples_per_sec": 2045006.8,
+    "inference_ms_per_200": 5.604,
+    "checksum": 0.721703
+   },
+   "small 128-256-64 tf32": {
+    "train_ms": 3.799,
+    "last_loss": 100.334084,
+    "throughput_samples_per_sec": 1684872.04,
+    "inference_ms_per_1000": 19.61,
+    "checksum": -99.043354
+   },
+   "big 512-1024-256 tf32": {
+    "train_ms": 2.31,
+    "last_loss": 90.685493,
+    "throughput_samples_per_sec": 2770803.92,
+    "inference_ms_per_200": 5.575,
+    "checksum": 0.770854
+   },
+   "small 128-256-64 fp16": {
+    "train_ms": 2.983,
+    "last_loss": 100.335869,
+    "throughput_samples_per_sec": 2145332.91,
+    "inference_ms_per_1000": 19.653,
+    "checksum": -98.999023
+   },
+   "big 512-1024-256 fp16": {
+    "train_ms": 1.895,
+    "last_loss": 93.444328,
+    "throughput_samples_per_sec": 3366778.51,
+    "inference_ms_per_200": 3.995,
+    "checksum": 0.961304
+   },
+   "small 128-256-64 bf16": {
+    "train_ms": 2.985,
+    "last_loss": 99.95108,
+    "throughput_samples_per_sec": 2143859.67,
+    "inference_ms_per_1000": 19.664,
+    "checksum": -89.84375
+   },
+   "big 512-1024-256 bf16": {
+    "train_ms": 1.899,
+    "last_loss": 62.00618,
+    "throughput_samples_per_sec": 3365121.5,
+    "inference_ms_per_200": 3.993,
+    "checksum": -2.807617
+   }
+  },
+  "small/pytorch_cpu": {
+   "cpu:train_ms": 23.216,
+   ":last_loss": 100.018272,
+   "cpu:inference_ms_per_1000": 42.989
+  },
+  "small/pytorch_cuda": {
+   "cuda:train_ms": 47.572,
+   ":last_loss": 103.07663,
+   "cuda:inference_ms_per_1000": 55.685
+  },
+  "small/pytorch_cuda_fp16": {
+   "cuda:train_ms": 49.1,
+   ":last_loss": 103.0625,
+   "cuda:inference_ms_per_1000": 52.521
+  },
+  "small/pytorch_cuda_bf16": {
+   "cuda:train_ms": 48.143,
+   ":last_loss": 103.0,
+   "cuda:inference_ms_per_1000": 52.353
+  },
+  "big/pytorch_cpu": {
+   "cpu:train_ms": 63.148,
+   ":last_loss": 106.544487,
+   "cpu:inference_ms_per_200": 53.564
+  },
+  "big/pytorch_cuda": {
+   "cuda:train_ms": 18.45,
+   ":last_loss": 871.826538,
+   "cuda:inference_ms_per_200": 11.811
+  },
+  "big/pytorch_cuda_fp16": {
+   "cuda:train_ms": 17.259,
+   ":last_loss": 1281.0,
+   "cuda:inference_ms_per_200": 10.459
+  },
+  "big/pytorch_cuda_bf16": {
+   "cuda:train_ms": 16.742,
+   ":last_loss": 91.5,
+   "cuda:inference_ms_per_200": 10.52
+  },
+  "small/tensorflow_cpu": {
+   "cpu:train_ms": 122.926,
+   ":last_loss": 106.182999,
+   "cpu:inference_ms_per_1000": 264.942
+  },
+  "big/tensorflow_cpu": {
+   "cpu:train_ms": 228.456,
+   ":last_loss": 316.611603,
+   "cpu:inference_ms_per_200": 236.028
+  },
+  "small/pytorch_cuda_fp32": {
+   "cuda:train_ms": 51.266,
+   ":last_loss": 103.071129,
+   "cuda:inference_ms_per_1000": 56.562,
+   "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0 (the NGC container defaults to 1, i.e. TF32), best of 3"
+  },
+  "big/pytorch_cuda_fp32": {
+   "cuda:train_ms": 15.9,
+   ":last_loss": 1754.826172,
+   "cuda:inference_ms_per_200": 11.78,
+   "note": "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0, best of 3"
+  }
+ },
+ "fib": {
+  "safec": {
+   "debug": 0.2082,
+   "release": 0.0892,
+   "rss_mb": 8.8,
+   "compile_s": 0.119
+  },
+  "c": {
+   "debug": 0.1849,
+   "release": 0.0869,
+   "rss_mb": 8.8,
+   "compile_s": 0.099
+  },
+  "cpp": {
+   "debug": 0.1851,
+   "release": 0.0886,
+   "rss_mb": 10.5,
+   "compile_s": 0.127
+  },
+  "rust": {
+   "debug": 0.263,
+   "release": 0.0924,
+   "rss_mb": 10.5,
+   "compile_s": 0.162
+  },
+  "zig": {
+   "debug": 0.2775,
+   "release": 0.072,
+   "rss_mb": 2.8,
+   "compile_s": 14.478
+  },
+  "go": {
+   "debug": 0.1629,
+   "release": 0.1324,
+   "rss_mb": 2.8,
+   "compile_s": 0.064
+  },
+  "python": {
+   "debug": 2.4344,
+   "release": 2.4316,
+   "rss_mb": 19.2,
+   "compile_s": null
+  }
+ },
+ "nbody": {
+  "safec": {
+   "debug": 0.5092,
+   "release": 0.1446,
+   "rss_mb": 8.8,
+   "compile_s": 0.143
+  },
+  "c": {
+   "debug": 0.3223,
+   "release": 0.1459,
+   "rss_mb": 8.8,
+   "compile_s": 0.133
+  },
+  "cpp": {
+   "debug": 0.3212,
+   "release": 0.1466,
+   "rss_mb": 10.5,
+   "compile_s": 0.26
+  },
+  "rust": {
+   "debug": 0.5972,
+   "release": 0.1547,
+   "rss_mb": 10.5,
+   "compile_s": 0.181
+  },
+  "zig": {
+   "debug": 0.3421,
+   "release": 0.1541,
+   "rss_mb": 2.8,
+   "compile_s": 14.796
+  },
+  "go": {
+   "debug": 0.3515,
+   "release": 0.1898,
+   "rss_mb": 2.8,
+   "compile_s": 0.059
+  },
+  "python": {
+   "debug": 9.3038,
+   "release": 9.3366,
+   "rss_mb": 19.2,
+   "compile_s": null
+  }
+ },
+ "binarytrees": {
+  "safec": {
+   "debug": 0.5135,
+   "release": 0.2816,
+   "rss_mb": 33.2,
+   "compile_s": 0.14
+  },
+  "c": {
+   "debug": 1.313,
+   "release": 1.1751,
+   "rss_mb": 42.0,
+   "compile_s": 0.11
+  },
+  "cpp": {
+   "debug": 1.693,
+   "release": 1.3632,
+   "rss_mb": 43.8,
+   "compile_s": 0.136
+  },
+  "rust": {
+   "debug": 3.0609,
+   "release": 1.4048,
+   "rss_mb": 43.8,
+   "compile_s": 0.171
+  },
+  "zig": {
+   "debug": 6.4545,
+   "release": 1.2527,
+   "rss_mb": 42.0,
+   "compile_s": 13.758
+  },
+  "go": {
+   "debug": 6.8466,
+   "release": 3.5104,
+   "rss_mb": 34.8,
+   "compile_s": 0.043
+  },
+  "python": {
+   "debug": 29.4874,
+   "release": 29.1657,
+   "rss_mb": 92.0,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "debug": 1.3327,
+   "release": 0.9452,
+   "rss_mb": 47.1,
+   "compile_s": 0.135
+  }
+ },
+ "binarytrees_mt": {
+  "safec": {
+   "release": 0.0921,
+   "rss_mb": 95.9,
+   "compile_s": 0.239
+  },
+  "c": {
+   "release": 0.4175,
+   "rss_mb": 161.0,
+   "compile_s": 0.116
+  },
+  "cpp": {
+   "release": 0.4635,
+   "rss_mb": 168.0,
+   "compile_s": 0.371
+  },
+  "rust": {
+   "release": 0.457,
+   "rss_mb": 164.5,
+   "compile_s": 0.331
+  },
+  "zig": {
+   "error": "command failed (1): /home/work/.local/zig-x86_64-linux-0.17.0/zig build-exe -O ReleaseFast /home/work/safec-docs/public/benchmarks/binarytrees_mt/zig/binarytrees_mt.zig -femit-bin=/home/work/safec-doc"
+  },
+  "go": {
+   "release": 0.4097,
+   "rss_mb": 139.9,
+   "compile_s": 0.051
+  },
+  "python": {
+   "release": 76.8511,
+   "rss_mb": 320.8,
+   "compile_s": null
+  },
+  "safec_heap": {
+   "release": 0.333,
+   "rss_mb": 202.9,
+   "compile_s": 0.159
+  }
+ },
+ "simd": {
+  "safec": {
+   "scalar": 0.1213,
+   "vec": 0.1108
+  },
+  "c": {
+   "scalar": 0.115,
+   "vec": 0.1181
+  },
+  "cpp": {
+   "scalar": 0.1246,
+   "vec": 0.1165
+  },
+  "rust": {
+   "scalar": 0.1155,
+   "vec": 0.1122
+  },
+  "zig": {
+   "scalar": 0.1041,
+   "vec": 0.0976
+  },
+  "go": {
+   "scalar": 0.1185
+  },
+  "python": {
+   "scalar": 4.0799,
+   "vec": 0.3329
+  }
+ },
+ "collections": {
+  "safec": {
+   "vec push": 3.333,
+   "vec sort": 76.3,
+   "map insert": 56.294,
+   "map get": 20.093,
+   "list push+pop": 13.282,
+   "queue enq+deq": 3.296,
+   "bst insert": 348.75,
+   "bst get": 350.97
+  },
+  "c": {
+   "vec push": 1.945,
+   "vec sort": 149.042,
+   "map insert": 53.944,
+   "map get": 18.611,
+   "list push+pop": 27.242,
+   "queue enq+deq": 6.641,
+   "bst insert": 312.025,
+   "bst get": 337.789
+  }
+ },
+ "memalloc": {
+  "std_ns_per_pair": 10.4,
+  "malloc_ns_per_pair": 8.83,
+  "std_ms": 119.67,
+  "malloc_ms": 126.05
+ },
+ "web": {
+  "safec": {
+   "rps": 33730.4,
+   "p50_ms": 1,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 14.2
+  },
+  "c": {
+   "rps": 32196.22,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 14.0
+  },
+  "cpp": {
+   "rps": 32522.7,
+   "p50_ms": 1,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 15.7
+  },
+  "zig": {
+   "error": "command failed (1): /home/work/.local/zig-x86_64-linux-0.17.0/zig build-exe -O ReleaseFast /home/work/safec-docs/public/benchmarks/webservice/zig/server.zig -femit-bin=/home/work/safec-docs/public/ben"
+  },
+  "go": {
+   "rps": 32218.62,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 25.3
+  },
+  "rust": {
+   "rps": 32592.03,
+   "p50_ms": 2,
+   "p99_ms": 2,
+   "failed": 0,
+   "rss_mb": 13.6
+  },
+  "python": {
+   "rps": 2887.48,
+   "p50_ms": 17,
+   "p99_ms": 30,
+   "failed": 0,
+   "rss_mb": 60.8
+  }
+ },
+ "conv": {
+  "safec_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_image": 0.854,
+    "checksum": 528.229
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_image": 3.315,
+    "checksum": 994785.1153
+   }
+  },
+  "safec_cpu_mkl": {
+   "conv64 b=1 cpu": {
+    "ms_per_image": 0.71,
+    "checksum": 528.229
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_image": 2.65,
+    "checksum": 994785.1082
+   }
+  },
+  "safec_cuda": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.0181,
+    "ms_per_image": 0.01808
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.1642,
+    "ms_per_image": 0.00513
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.1557,
+    "ms_per_image": 0.15567
+   },
+   "unet128 b=1 graph fp32": {
+    "ms_per_batch": 0.1437,
+    "ms_per_image": 0.14372
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 0.5342,
+    "ms_per_image": 0.03339
+   },
+   "conv64 b=1 tf32": {
+    "ms_per_batch": 0.0181,
+    "ms_per_image": 0.01814
+   },
+   "conv64 b=32 tf32": {
+    "ms_per_batch": 0.0838,
+    "ms_per_image": 0.00262
+   },
+   "unet128 b=1 tf32": {
+    "ms_per_batch": 0.104,
+    "ms_per_image": 0.10404
+   },
+   "unet128 b=1 graph tf32": {
+    "ms_per_batch": 0.0874,
+    "ms_per_image": 0.08743
+   },
+   "unet128 b=16 tf32": {
+    "ms_per_batch": 0.4537,
+    "ms_per_image": 0.02836
+   }
+  },
+  "pytorch_cpu": {
+   "conv64 b=1 cpu": {
+    "ms_per_batch": 0.4239,
+    "ms_per_image": 0.42394
+   },
+   "unet128 b=1 cpu": {
+    "ms_per_batch": 3.2874,
+    "ms_per_image": 3.28736
+   }
+  },
+  "pytorch_cuda": {
+   "conv64 b=1 fp32": {
+    "ms_per_batch": 0.0225,
+    "ms_per_image": 0.02249
+   },
+   "conv64 b=32 fp32": {
+    "ms_per_batch": 0.257,
+    "ms_per_image": 0.00803
+   },
+   "unet128 b=1 fp32": {
+    "ms_per_batch": 0.2082,
+    "ms_per_image": 0.20823
+   },
+   "unet128 b=16 fp32": {
+    "ms_per_batch": 0.8766,
+    "ms_per_image": 0.05479
+   },
+   "conv64 b=1 tf32": {
+    "ms_per_batch": 0.038,
+    "ms_per_image": 0.03799
+   },
+   "conv64 b=32 tf32": {
+    "ms_per_batch": 0.0976,
+    "ms_per_image": 0.00305
+   },
+   "unet128 b=1 tf32": {
+    "ms_per_batch": 0.2689,
+    "ms_per_image": 0.26892
+   },
+   "unet128 b=16 tf32": {
+    "ms_per_batch": 0.5566,
+    "ms_per_image": 0.03479
+   },
+   "conv64 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.0223,
+    "ms_per_image": 0.02232
+   },
+   "conv64 b=32 fp32 heuristic": {
+    "ms_per_batch": 0.257,
+    "ms_per_image": 0.00803
+   },
+   "unet128 b=1 fp32 heuristic": {
+    "ms_per_batch": 0.2074,
+    "ms_per_image": 0.2074
+   },
+   "unet128 b=16 fp32 heuristic": {
+    "ms_per_batch": 0.8763,
+    "ms_per_image": 0.05477
+   }
+  }
+ },
+ "fft": {
+  "safec_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 1.205
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 1.081
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 2.963
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 2.313
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 3.063
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 2.012
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 3.163
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 2.358
+   }
+  },
+  "safec_cpu_mkl": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 1.179
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 0.837
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 1.647
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 1.364
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 2.85
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 1.112
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 1.602
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 0.812
+   }
+  },
+  "safec_cuda": {
+   "fft1d n=1048576 c128 cuda": {
+    "ms_per_call": 1.2539
+   },
+   "fft2d 1024x1024 c128 cuda": {
+    "ms_per_call": 1.2572
+   },
+   "batch 1024x4096 c2c cuda": {
+    "ms_per_call": 0.0244
+   },
+   "rfft 1024x4096 r2c cuda": {
+    "ms_per_call": 0.0109
+   }
+  },
+  "pytorch_cpu": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 1.1811
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 0.654
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 3.1884
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 0.2876
+   }
+  },
+  "pytorch_cuda": {
+   "fft1d n=1048576 c128 cuda": {
+    "ms_per_call": 2.0526
+   },
+   "fft2d 1024x1024 c128 cuda": {
+    "ms_per_call": 2.0447
+   },
+   "batch 1024x4096 c2c cuda": {
+    "ms_per_call": 0.0238
+   },
+   "rfft 1024x4096 r2c cuda": {
+    "ms_per_call": 0.012
+   }
+  },
+  "fftw_1t": {
+   "fft1d n=1048576 c128 st": {
+    "ms_per_call": 11.394
+   },
+   "fft2d 1024x1024 c128 st": {
+    "ms_per_call": 7.273
+   },
+   "batch 1024x4096 c2c st": {
+    "ms_per_call": 10.667
+   },
+   "rfft 1024x4096 r2c st": {
+    "ms_per_call": 7.351
+   },
+   "fft1d n=1048576 c64 st": {
+    "ms_per_call": 8.719
+   },
+   "fft2d 1024x1024 c64 st": {
+    "ms_per_call": 4.292
+   },
+   "batch 1024x4096 c2c f32 st": {
+    "ms_per_call": 6.194
+   },
+   "rfft 1024x4096 r2c f32 st": {
+    "ms_per_call": 6.5
+   }
+  },
+  "fftw_16t": {
+   "fft1d n=1048576 c128 mt": {
+    "ms_per_call": 2.354
+   },
+   "fft2d 1024x1024 c128 mt": {
+    "ms_per_call": 2.588
+   },
+   "batch 1024x4096 c2c mt": {
+    "ms_per_call": 2.947
+   },
+   "rfft 1024x4096 r2c mt": {
+    "ms_per_call": 2.017
+   },
+   "fft1d n=1048576 c64 mt": {
+    "ms_per_call": 2.456
+   },
+   "fft2d 1024x1024 c64 mt": {
+    "ms_per_call": 1.862
+   },
+   "batch 1024x4096 c2c f32 mt": {
+    "ms_per_call": 1.755
+   },
+   "rfft 1024x4096 r2c f32 mt": {
+    "ms_per_call": 2.079
+   }
+  },
+  "kfr": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 6.35
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 5.147
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 12.34
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 7.324
+   },
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 42.831
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 6.583
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 4.45
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 88.977
+   },
+   "resample draft n=1048576 44100->48000": {
+    "ms_per_call": 58.096
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 3.311
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 3.068
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 6.03
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 3.735
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 37.111
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 3.278
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 4.266
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 53.364
+   },
+   "resample draft n=1048576 44100->48000 f32": {
+    "ms_per_call": 60.623
+   }
+  },
+  "rust": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 8.781
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 14.826
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 4.119
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 7.754
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 657.65
+   }
+  }
+ },
+ "dsp": {
+  "safec_cpu": {
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 7.459,
+    "checksum": 965.503541
+   },
+   "fir block n=1048576 taps=127": {
+    "ms_per_call": 0.73,
+    "checksum": 965.503541
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 4.536,
+    "checksum": 11438.877046
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 0.782,
+    "checksum": -646.722217
+   },
+   "stft n=1048576 frame=1024 hop=256": {
+    "ms_per_call": 5.691,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 7.38,
+    "checksum": -704.289117
+   },
+   "conv2d 1024x1024 k=5x5": {
+    "ms_per_call": 0.601,
+    "checksum": 205.652439
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 3.826,
+    "checksum": 965.503677
+   },
+   "fir block n=1048576 taps=127 f32": {
+    "ms_per_call": 0.649,
+    "checksum": 965.503676
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 4.233,
+    "checksum": 11438.881763
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 0.773,
+    "checksum": -646.722416
+   },
+   "stft n=1048576 frame=1024 hop=256 f32": {
+    "ms_per_call": 4.883,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 11.129,
+    "checksum": -704.28909
+   }
+  },
+  "safec_cpu_mkl": {
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 7.374,
+    "checksum": 965.503541
+   },
+   "fir block n=1048576 taps=127": {
+    "ms_per_call": 0.686,
+    "checksum": 965.503541
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 3.817,
+    "checksum": 11438.877046
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 0.782,
+    "checksum": -646.722217
+   },
+   "stft n=1048576 frame=1024 hop=256": {
+    "ms_per_call": 5.471,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 8.029,
+    "checksum": -704.289117
+   },
+   "conv2d 1024x1024 k=5x5": {
+    "ms_per_call": 0.715,
+    "checksum": 205.652439
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 3.855,
+    "checksum": 965.503677
+   },
+   "fir block n=1048576 taps=127 f32": {
+    "ms_per_call": 0.673,
+    "checksum": 965.503676
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 2.205,
+    "checksum": 11438.877545
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 0.785,
+    "checksum": -646.722416
+   },
+   "stft n=1048576 frame=1024 hop=256 f32": {
+    "ms_per_call": 4.145,
+    "frames": 4093.0
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 10.764,
+    "checksum": -704.28909
+   }
+  },
+  "scipy": {
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 27.497
+   },
+   "fir block n=1048576 taps=127": {
+    "ms_per_call": 25.093
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 60.509
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 6.989
+   },
+   "stft n=1048576 frame=1024 hop=256": {
+    "ms_per_call": 92.369
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 17.51
+   },
+   "conv2d 1024x1024 k=5x5": {
+    "ms_per_call": 53.208
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 16.04
+   },
+   "fir block n=1048576 taps=127 f32": {
+    "ms_per_call": 15.695
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 32.152
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 6.342
+   },
+   "stft n=1048576 frame=1024 hop=256 f32": {
+    "ms_per_call": 95.062
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 16.534
+   }
+  },
+  "kfr": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 6.355
+   },
+   "fft2d 1024x1024 c128 cpu": {
+    "ms_per_call": 5.149
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 12.082
+   },
+   "rfft 1024x4096 r2c cpu": {
+    "ms_per_call": 7.391
+   },
+   "fir stream n=1048576 taps=127": {
+    "ms_per_call": 42.818
+   },
+   "fftconv n=1048576 taps=4096": {
+    "ms_per_call": 6.57
+   },
+   "biquad n=1048576": {
+    "ms_per_call": 4.446
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 88.398
+   },
+   "resample draft n=1048576 44100->48000": {
+    "ms_per_call": 58.135
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 3.289
+   },
+   "fft2d 1024x1024 c64 cpu": {
+    "ms_per_call": 3.071
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 6.005
+   },
+   "rfft 1024x4096 r2c f32 cpu": {
+    "ms_per_call": 3.766
+   },
+   "fir stream n=1048576 taps=127 f32": {
+    "ms_per_call": 37.163
+   },
+   "fftconv n=1048576 taps=4096 f32": {
+    "ms_per_call": 3.28
+   },
+   "biquad n=1048576 f32": {
+    "ms_per_call": 4.265
+   },
+   "resample n=1048576 44100->48000 f32": {
+    "ms_per_call": 53.183
+   },
+   "resample draft n=1048576 44100->48000 f32": {
+    "ms_per_call": 60.616
+   }
+  },
+  "q_madronalib": {
+   "biquad q n=1048576 f32": {
+    "ms_per_call": 2.814,
+    "checksum": 996.364585
+   },
+   "biquad madronalib n=1048576 f32": {
+    "ms_per_call": 5.367,
+    "checksum": 996.365938
+   }
+  },
+  "rust": {
+   "fft1d n=1048576 c128 cpu": {
+    "ms_per_call": 8.88
+   },
+   "batch 1024x4096 c2c cpu": {
+    "ms_per_call": 14.922
+   },
+   "fft1d n=1048576 c64 cpu": {
+    "ms_per_call": 4.169
+   },
+   "batch 1024x4096 c2c f32 cpu": {
+    "ms_per_call": 7.187
+   },
+   "resample n=1048576 44100->48000": {
+    "ms_per_call": 656.88
+   }
+  }
+ },
+ "attention": {
+  "safec_cuda": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 0.0432,
+    "tflops": 397.96
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 0.0359,
+    "tflops": 238.91
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 0.5719,
+    "tflops": 480.65
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 0.3363,
+    "tflops": 407.45
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 0.0601,
+    "tflops": 570.69
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 0.0487,
+    "tflops": 352.2
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 0.8314,
+    "tflops": 660.91
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 0.4803,
+    "tflops": 572.09
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 0.0429,
+    "tflops": 400.46
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 0.0359,
+    "tflops": 238.97
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 0.5688,
+    "tflops": 483.27
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 0.3361,
+    "tflops": 408.93
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 0.0585,
+    "tflops": 586.27
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 0.0483,
+    "tflops": 353.73
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 0.7982,
+    "tflops": 688.04
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 0.4663,
+    "tflops": 588.62
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 0.3867,
+    "tflops": 44.42
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 0.2632,
+    "tflops": 32.63
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 5.8086,
+    "tflops": 47.3
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 3.1128,
+    "tflops": 44.15
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 0.7481,
+    "tflops": 45.93
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 0.502,
+    "tflops": 33.91
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 11.3259,
+    "tflops": 48.53
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 6.0671,
+    "tflops": 45.02
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 0.8926,
+    "tflops": 614.68
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 0.2307
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 0.3847
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 0.8681
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 1.4385
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 0.6329
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 1.0303
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 0.2284
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 0.3924
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 0.8526
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 1.4759
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 0.6188
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 1.0093
+   }
+  },
+  "pytorch_cuda": {
+   "flash fp16 d64 s1024 c0": {
+    "ms_per_call": 0.0437,
+    "tflops": 392.99
+   },
+   "flash fp16 d64 s1024 c1": {
+    "ms_per_call": 0.0352,
+    "tflops": 244.2
+   },
+   "flash fp16 d64 s4096 c0": {
+    "ms_per_call": 0.575,
+    "tflops": 478.02
+   },
+   "flash fp16 d64 s4096 c1": {
+    "ms_per_call": 0.332,
+    "tflops": 413.98
+   },
+   "flash fp16 d128 s1024 c0": {
+    "ms_per_call": 0.0599,
+    "tflops": 573.53
+   },
+   "flash fp16 d128 s1024 c1": {
+    "ms_per_call": 0.0498,
+    "tflops": 344.92
+   },
+   "flash fp16 d128 s4096 c0": {
+    "ms_per_call": 0.8215,
+    "tflops": 669.18
+   },
+   "flash fp16 d128 s4096 c1": {
+    "ms_per_call": 0.4781,
+    "tflops": 574.91
+   },
+   "flash bf16 d64 s1024 c0": {
+    "ms_per_call": 0.0433,
+    "tflops": 396.13
+   },
+   "flash bf16 d64 s1024 c1": {
+    "ms_per_call": 0.035,
+    "tflops": 245.27
+   },
+   "flash bf16 d64 s4096 c0": {
+    "ms_per_call": 0.573,
+    "tflops": 479.4
+   },
+   "flash bf16 d64 s4096 c1": {
+    "ms_per_call": 0.3309,
+    "tflops": 414.0
+   },
+   "flash bf16 d128 s1024 c0": {
+    "ms_per_call": 0.0587,
+    "tflops": 584.86
+   },
+   "flash bf16 d128 s1024 c1": {
+    "ms_per_call": 0.0494,
+    "tflops": 347.11
+   },
+   "flash bf16 d128 s4096 c0": {
+    "ms_per_call": 0.786,
+    "tflops": 698.93
+   },
+   "flash bf16 d128 s4096 c1": {
+    "ms_per_call": 0.4634,
+    "tflops": 590.8
+   },
+   "flash fp32 d64 s1024 c0": {
+    "ms_per_call": 0.5192,
+    "tflops": 32.82
+   },
+   "flash fp32 d64 s1024 c1": {
+    "ms_per_call": 0.3532,
+    "tflops": 24.32
+   },
+   "flash fp32 d64 s4096 c0": {
+    "ms_per_call": 7.7843,
+    "tflops": 35.31
+   },
+   "flash fp32 d64 s4096 c1": {
+    "ms_per_call": 4.1783,
+    "tflops": 32.83
+   },
+   "flash fp32 d128 s1024 c0": {
+    "ms_per_call": 0.7885,
+    "tflops": 43.58
+   },
+   "flash fp32 d128 s1024 c1": {
+    "ms_per_call": 0.4848,
+    "tflops": 35.44
+   },
+   "flash fp32 d128 s4096 c0": {
+    "ms_per_call": 11.8905,
+    "tflops": 46.23
+   },
+   "flash fp32 d128 s4096 c1": {
+    "ms_per_call": 6.1937,
+    "tflops": 44.38
+   },
+   "flash bf16 gqa32/8 d128 s4096 c1": {
+    "ms_per_call": 0.8845,
+    "tflops": 621.55
+   },
+   "linear fp32 d64 s4096 c0": {
+    "ms_per_call": 0.3497
+   },
+   "linear fp32 ieee d64 s4096 c0": {
+    "ms_per_call": 0.5004
+   },
+   "linear fp32 d64 s4096 c1": {
+    "ms_per_call": 0.8793
+   },
+   "linear fp32 ieee d64 s4096 c1": {
+    "ms_per_call": 0.9975
+   },
+   "linear fla fp32 d64 s4096 c1": {
+    "ms_per_call": 0.815,
+    "maxdiff": 0.00121
+   },
+   "linear fp32 d64 s16384 c0": {
+    "ms_per_call": 1.4064
+   },
+   "linear fp32 ieee d64 s16384 c0": {
+    "ms_per_call": 1.9723
+   },
+   "linear fp32 d64 s16384 c1": {
+    "ms_per_call": 3.3205
+   },
+   "linear fp32 ieee d64 s16384 c1": {
+    "ms_per_call": 3.7411
+   },
+   "linear fla fp32 d64 s16384 c1": {
+    "ms_per_call": 3.0786,
+    "maxdiff": 0.0012
+   },
+   "linear fp32 d128 s4096 c0": {
+    "ms_per_call": 0.6287
+   },
+   "linear fp32 ieee d128 s4096 c0": {
+    "ms_per_call": 0.934
+   },
+   "linear fp32 d128 s4096 c1": {
+    "ms_per_call": 1.6911
+   },
+   "linear fp32 ieee d128 s4096 c1": {
+    "ms_per_call": 2.043
+   },
+   "linear fla fp32 d128 s4096 c1": {
+    "ms_per_call": 1.5867,
+    "maxdiff": 0.00121
+   },
+   "linear bf16 d64 s4096 c0": {
+    "ms_per_call": 0.5038
+   },
+   "linear bf16 d64 s4096 c1": {
+    "ms_per_call": 1.0312
+   },
+   "linear fla bf16 d64 s4096 c1": {
+    "ms_per_call": 0.6434,
+    "maxdiff": 0.00398
+   },
+   "linear bf16 d64 s16384 c0": {
+    "ms_per_call": 1.9759
+   },
+   "linear bf16 d64 s16384 c1": {
+    "ms_per_call": 3.891
+   },
+   "linear fla bf16 d64 s16384 c1": {
+    "ms_per_call": 2.383,
+    "maxdiff": 0.00393
+   },
+   "linear bf16 d128 s4096 c0": {
+    "ms_per_call": 0.9215
+   },
+   "linear bf16 d128 s4096 c1": {
+    "ms_per_call": 1.9817
+   },
+   "linear fla bf16 d128 s4096 c1": {
+    "ms_per_call": 1.152,
+    "maxdiff": 0.00392
+   }
+  }
+ },
+ "ml_nn": {
+  "safec_cpu": {
+   "mlp_small": {
+    "train_ms": 6.0465,
+    "last_loss": 0.0297225
+   },
+   "mlp_big": {
+    "train_ms": 53.7706,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 24.1021,
+    "last_loss": 31.5691
+   },
+   "gan": {
+    "train_ms": 14.1811,
+    "last_loss": 1.40552
+   },
+   "dqn": {
+    "train_ms": 82.9076,
+    "last_loss": 0.138698
+   },
+   "ppo": {
+    "train_ms": 43.5158,
+    "last_loss": 48.7648
+   },
+   "lora": {
+    "train_ms": 19.7919,
+    "last_loss": 0.0219908
+   },
+   "conv_ae": {
+    "train_ms": 72.2017,
+    "last_loss": 0.255294
+   }
+  },
+  "safec_cpu_mkl": {
+   "mlp_small": {
+    "train_ms": 5.69948,
+    "last_loss": 0.0297225
+   },
+   "mlp_big": {
+    "train_ms": 39.7831,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 20.5492,
+    "last_loss": 31.5691
+   },
+   "gan": {
+    "train_ms": 12.0997,
+    "last_loss": 1.40552
+   },
+   "dqn": {
+    "train_ms": 67.8341,
+    "last_loss": 0.138698
+   },
+   "ppo": {
+    "train_ms": 35.3655,
+    "last_loss": 48.7648
+   },
+   "lora": {
+    "train_ms": 18.5055,
+    "last_loss": 0.0219908
+   },
+   "conv_ae": {
+    "train_ms": 65.3947,
+    "last_loss": 0.255294
+   }
+  },
+  "safec_cuda": {
+   "mlp_small": {
+    "train_ms": 82.7629,
+    "last_loss": 0.0297225
+   },
+   "mlp_big": {
+    "train_ms": 9.8884,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 65.5617,
+    "last_loss": 31.5691
+   },
+   "gan": {
+    "train_ms": 116.84,
+    "last_loss": 1.40552
+   },
+   "dqn": {
+    "train_ms": 402.048,
+    "last_loss": 0.138697
+   },
+   "ppo": {
+    "train_ms": 168.715,
+    "last_loss": 48.7648
+   },
+   "lora": {
+    "train_ms": 184.215,
+    "last_loss": 0.0219907
+   },
+   "conv_ae": {
+    "train_ms": 13.9268,
+    "last_loss": 0.255294
+   }
+  },
+  "pytorch_cpu": {
+   "mlp_small": {
+    "train_ms": 217.26,
+    "last_loss": 0.0331768
+   },
+   "mlp_big": {
+    "train_ms": 72.979,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 163.502,
+    "last_loss": 50.6271
+   },
+   "gan": {
+    "train_ms": 209.274,
+    "last_loss": 1.42086
+   },
+   "dqn": {
+    "train_ms": 1170.296,
+    "last_loss": 0.126866
+   },
+   "ppo": {
+    "train_ms": 453.073,
+    "last_loss": 41.1927
+   },
+   "lora": {
+    "train_ms": 303.985,
+    "last_loss": 0.0405097
+   },
+   "conv_ae": {
+    "train_ms": 170.561,
+    "last_loss": 0.484414
+   }
+  },
+  "pytorch_cuda": {
+   "mlp_small": {
+    "train_ms": 1086.569,
+    "last_loss": 0.0556656
+   },
+   "mlp_big": {
+    "train_ms": 110.98,
+    "last_loss": 0.0
+   },
+   "vae": {
+    "train_ms": 774.459,
+    "last_loss": 50.4145
+   },
+   "gan": {
+    "train_ms": 1320.124,
+    "last_loss": 1.47957
+   },
+   "dqn": {
+    "train_ms": 2600.045,
+    "last_loss": 0.223958
+   },
+   "ppo": {
+    "train_ms": 2017.787,
+    "last_loss": 36.4079
+   },
+   "lora": {
+    "train_ms": 1804.658,
+    "last_loss": 0.0498237
+   },
+   "conv_ae": {
+    "train_ms": 212.94,
+    "last_loss": 0.500654
+   }
+  }
+ }
+}

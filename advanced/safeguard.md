@@ -70,8 +70,8 @@ normally fails outside `--compat-preprocessor` mode ("function-like
 macros are not allowed in safe mode..."), even in the macro-free calling
 style shown above. `safeguard test` specifically compiles every file
 under `tests/` with `--compat-preprocessor` (unlike `build`/`check`,
-which compile `src/` without it) precisely so `<std/test/test.h>` can be
-included — verified against a real `safeguard test` run of the example
+which compile `src/` without it unless `[build] compat_preprocessor = true`)
+precisely so `<std/test/test.h>` can be included — verified against a real `safeguard test` run of the example
 above.
 :::
 
@@ -464,6 +464,17 @@ edition = "2026"
 std     = true      # build and link SafeC's std in a C/C++/ObjC package
 ```
 
+`compat_preprocessor = true` compiles the package's SafeC sources with
+`safec --compat-preprocessor`: function-like macros, `##` and `#`, which
+the default safe mode rejects (see [Preprocessor](/reference/preprocessor#safe-mode-vs-compatibility-mode)).
+[`std/async`](/stdlib/async)'s coroutine macros (`ASYNC_BEGIN`, `AWAIT`, ...)
+are the usual reason:
+
+```toml
+[build]
+compat_preprocessor = true
+```
+
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
 Four more `[build]` keys configure the final link step and what kind of
@@ -630,6 +641,8 @@ A build compiles and links only the parts of the standard library (`std/`) it us
 | `std/math.h`, `std/fenv.h` | `-lm` | `-lm` | (in the C runtime) |
 | `std/thread.h`, channels, `spawn` | — | `-lpthread` | — |
 | `std/gui/gui.h` | `-framework Cocoa -lobjc` | `-lX11` (.deb: `libx11-6`) | `-luser32 -lgdi32` |
+| `std/audio/audio.h` | `-framework CoreAudio -framework CoreFoundation` | `-ldl -lpthread` (libasound, libjack loaded at run time) | `-lole32` |
+| `std/audio/midi.h` | `-framework CoreMIDI -framework CoreFoundation` | `-ldl -lpthread` | `-lwinmm` |
 | `std/http/http.h`, `std/sched/` | — | — | `-lws2_32` |
 | `std/crypto/rng.h` | — | — | `-lbcrypt` |
 | `std/simd/gemm.h` (and `std::ml`, `std::dsp` through it) | the [`[build] blas`](#linking-external-libraries-and-library-output) choice: Accelerate by default | the `[build] blas` choice | — |
@@ -661,7 +674,7 @@ deb libx11-6
 
 **All of std.** `[build] std = "all"` compiles every std module into the archive, as before modules: for an archive linked by hand (`clang prog.ll build/deps/libsafec_std.a ...`), or for code that reaches std through `extern` declarations without including its headers. A [staticlib](#linking-external-libraries-and-library-output) records the std files its sources include in `build/lib<output>.a.std`, and the symbols its code calls in `build/lib<output>.a.refs`, so a program linking it as a prebuilt dependency builds those modules too; a library built otherwise needs `std = "all"` in the program using it.
 
-**Writing std.** A std header `dir/foo.h` is implemented by `dir/foo.sc` and by the `dir/foo_<suffix>.sc` files that have no header of their own (the platform variants `gui_cocoa.sc`, `fft_f32.sc`, ...). Anything else, and the system libraries, is declared in comment lines a std source carries:
+**Writing std.** A std header `dir/foo.h` is implemented by `dir/foo.sc` and by the `dir/foo_<suffix>.sc` files that have no header of their own (the platform variants `gui_cocoa.sc`, `fft_f32.sc`, ...). A platform variant's suffix picks the targets it builds for: `_linux`/`_epoll` Linux, `_bsd`/`_kqueue` macOS and the BSDs, `_cocoa`/`_macos` macOS, `_x11` Linux and the BSDs, `_win32` Windows, `_posix` every hosted target but Windows, `_wasm` WebAssembly, `_fb` bare metal. Anything else, and the system libraries, is declared in comment lines a std source carries:
 
 ```c
 // safeguard: implements <std/gui/gui.h>        another header this file implements

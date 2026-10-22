@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 인코딩, HTTP/RPC/wasm, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>
@@ -21,6 +21,8 @@ int main() {
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
 | [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
 | [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
+| [dir](/ko/stdlib/dir) | `dir.h` | 디렉터리 나열, `file_stat`(종류, 크기, 수정 시각), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
+| [path](/ko/stdlib/dir#path) | `path.h` | 경로 문자열: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
 | [math](/ko/stdlib/math) | `math.h` | 상수(PI, E 등), float/double 수학, 분류 |
 | [thread](/ko/stdlib/thread) | `thread.h` | 스레드, 뮤텍스, 조건 변수, 읽기-쓰기 락 |
@@ -82,6 +84,21 @@ int main() {
 | pipe | `ipc/pipe.h` | 익명 파이프 (호스티드) — 단방향 바이트 스트림, 보통 `fork()` 이후 부모/자식 간 |
 | uds | `ipc/uds.h` | 유닉스 도메인 소켓 (호스티드) — 무관한 프로세스 간의 이름 지정 IPC, 논블로킹/`Reactor`와 페어링 가능 |
 
+### [비동기](/ko/stdlib/async) {#async}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| future | `async/future.h` | `Poll<T>`, `Future` 트레이트, `Waker`, `Context`, `WakerSlot`/`WaitList`, `Ready`/`Pending`/`YieldNow` |
+| coro | `async/coro.h` | `ASYNC_BEGIN` / `AWAIT` / `ASYNC_RETURN`: `switch` + `goto` 상태 기계로 만든 스택리스 코루틴 |
+| executor | `async/executor.h` | `AsyncTask<F, T>`, `JoinHandle<T>`, 힙 없는 결정적 `LocalExecutor`, `Park`(`VirtualClock`, `FnPark`) |
+| timer | `async/timer.h` | `TimerQueue`(`dsp/timer_wheel` 기반), `Sleep`, `Interval` |
+| combinator | `async/combinator.h` | `join2`/`join3`/`join_all`, `select2`/`select_any`, `timeout`, `map_fut`, `and_then` |
+| channel | `async/channel.h` | `Oneshot<T>`, 유계 MPMC `AsyncChannel<T>` |
+| sync | `async/sync.h` | `AsyncMutex`, `AsyncSemaphore`, `AsyncNotify`, `CancelToken`, `with_cancel` |
+| host | `async/host.h` | `block_on(&fut)`, `HostPark`(호스트) |
+| pool | `async/pool.h` | `ThreadPool`: 멀티스레드 실행기(호스트) |
+| net | `async/net.h` | 리액터 위의 `IoDriver`, `Runtime`, `AsyncTcpListener` / `AsyncTcpStream`(호스트) |
+
 ### [실시간 스케줄러](/ko/stdlib/sched) {#real-time-scheduler}
 
 | 모듈 | 헤더 | 설명 |
@@ -107,15 +124,22 @@ int main() {
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버 (`http_serve`/`http_serve_threaded`), 요청/응답 타입 |
+| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버: keep-alive `HttpServer`, 리다이렉트와 gzip을 처리하는 URL 클라이언트(`http_fetch`), 요청/응답 헬퍼, 청크 인코딩 |
+| headers | `http/headers.h` | 대소문자를 구분하지 않는 헤더 맵 `HttpHeaders`, 헤더 파라미터 |
+| router | `http/router.h`, `http/route.h` | `:param`/`*` 패턴, 404/405, 미들웨어(로거, CORS, gzip, 본문 제한)를 갖춘 `Router` |
+| static_files | `http/static_files.h` | 정적 파일 제공: MIME 타입, ETag/Last-Modified/304, 바이트 범위 |
+| cookie | `http/cookie.h` | Cookie 헤더 파싱, `Set-Cookie` 생성 |
+| multipart | `http/multipart.h` | `multipart/form-data` 파싱 + 생성 |
+| sse | `http/sse.h` | Server-Sent Events: 서버 스트림, 파서, 클라이언트 |
+| date | `http/date.h` | HTTP 날짜 형식화/파싱 |
 | cors | `http/cors.h` | CORS 프리플라이트 감지 + 응답 헤더 |
 | jwt | `http/jwt.h` | HS256 JWT 서명/검증 (HMAC-SHA256) |
 | oauth2 | `http/oauth2.h` | OAuth2 클라이언트: 인가 코드 + 리프레시 토큰 교환 (RFC 6749) |
-| websocket | `http/websocket.h` | WebSocket 핸드셰이크 + 프레임 읽기/쓰기 |
+| websocket | `http/websocket.h` | WebSocket 클라이언트 + 서버, 라우터에서의 업그레이드, 메시지 재조립 |
 | rpc | `rpc/rpc.h` | gRPC에서 영감을 받은 HTTP 기반 RPC (길이 프리픽스 프레이밍, 경로 기반 디스패치) |
 | server_fn | `rpc/server_fn.h` | "한 번 작성하고 어디서든 호출" 방식의 JSON 마셜링 서버 함수 (Dioxus/Leptos 스타일) |
 | reactive | `reactive/signal.h` | `Signal<T>` 세밀한 반응형 상태 (WASM 클라이언트 하이드레이션) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM 상호 운용 + 클라이언트 하이드레이션; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(범프 `malloc`/`free`, `mem*`, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | [wasm32 DOM과 브라우저 API](/ko/stdlib/wasm)(이벤트, 타이머, fetch, 스토리지, history) + 시그널 하이드레이션, `wasm/safec_dom.js` 글루 포함; `wasm/wasm_rt.h`는 wasm32/wasm64용 프리스탠딩 런타임(`memory.grow` 위의 크기 클래스 `malloc`/`free`, `mem*`/`str*`/`strto*`/`qsort`, 128비트 compiler-rt 내장 함수, 트랩하는 `abort`) — wasm 타깃의 std 아카이브에만 포함됨([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
 | scx | 해당 없음 (트랜스파일러) | JSX/TSX 스타일 HTML 템플릿 — `.scx` 파일은 `safec`가 보기 전에 일반 SafeC로 트랜스파일됨 |
 
 ### 머신러닝 — [ML](/ko/stdlib/ml) 참고 {#machine-learning-see-ml}
@@ -137,6 +161,14 @@ int main() {
 | font | `gui/gui_font.h` | 임의 글리프 크기의 `GuiFont` 비트맵 폰트; `SCXF` 저장/로드 |
 | svg | `gui/gui_svg.h` | SVG 부분집합 렌더러 (도형, 3차 곡선 경로) |
 | fb | `gui/gui_fb.h` | 베어메탈 프레임버퍼 백엔드 설정: `gui_fb_configure`, `gui_fb_inject_event`, `gui_fb_set_clock` |
+
+### [오디오 & MIDI](/ko/stdlib/audio) {#audio-midi}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| audio | `audio/audio.h` | 실시간 오디오 I/O(RtAudio 스타일): API, 장치 열거, 실시간 콜백을 쓰는 출력/입력/듀플렉스 스트림; ALSA, JACK, Core Audio, WASAPI, Web Audio, 더미 백엔드 |
+| midi | `audio/midi.h` | 실시간 MIDI I/O(RtMidi 스타일): 포트, 가상 포트, 콜백 또는 락 없는 큐 입력; 메시지 빌더, running status 파서/인코더; ALSA 시퀀서, JACK, Core MIDI, WinMM, Web MIDI, 더미 백엔드 |
+| convert | `audio/audio_convert.h` | 샘플 포맷(i8/i16/i24/i32/f32/f64, TPDF 디더) 및 레이아웃 변환; std/dsp `Fixed`/`AudioBuffer` 연동 |
 
 ### [파일시스템](/ko/stdlib/fs) {#filesystems}
 
@@ -253,8 +285,9 @@ int main() {
 |--------|--------|-------------|
 | ascii | `encoding/ascii.h` | ASCII 검증, 분류, 대소문자 변환 |
 | utf8 | `encoding/utf8.h` | UTF-8 인코드/디코드/검증, 코드포인트 개수 |
-| url | `encoding/url.h` | RFC 3986 퍼센트 인코딩 (컴포넌트 방식) |
+| url | `encoding/url.h` | `Url` 파싱/직렬화/상대 참조 해석, `QueryParams`, 퍼센트·폼 인코딩 |
 | base64 | `encoding/base64.h` | 패딩을 포함한 RFC 4648 Base64 |
+| deflate | `encoding/deflate.h` | DEFLATE 압축/해제, zlib + gzip 컨테이너, CRC-32, Adler-32 |
 
 ### [유틸리티](/ko/stdlib/utilities) {#utilities}
 

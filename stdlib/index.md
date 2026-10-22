@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, encoding, HTTP/RPC/wasm, the real-time scheduler, ML and SIMD are included by their own headers.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, audio/MIDI, encoding, HTTP/RPC/wasm, async, the real-time scheduler, ML and SIMD are included by their own headers.
 
 ```c
 #include <std/prelude.h>
@@ -21,6 +21,8 @@ int main() {
 | [io](/stdlib/io) | `io.h` | Formatted output (stdout/stderr), stdin input, buffer formatting |
 | [io_traits](/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` traits composed into `Stream` / `SeekableStream`; `read_exact`, `write_all`, `copy_stream` over any stream |
 | [io_buf](/stdlib/io) | `io_buf.h` | `BufReader<R>` / `BufWriter<W>` buffering over any `Reader` / `Writer` (themselves a `Reader` / `Writer`) |
+| [dir](/stdlib/dir) | `dir.h` | Directory listing, `file_stat` (kind, size, mtime), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
+| [path](/stdlib/dir#path) | `path.h` | Path strings: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/stdlib/str) | `str.h` | String length, comparison, copy, search, tokenisation, duplication |
 | [math](/stdlib/math) | `math.h` | Constants (PI, E, …), float/double math, classification |
 | [thread](/stdlib/thread) | `thread.h` | Threads, mutexes, condition variables, read-write locks |
@@ -82,6 +84,21 @@ int main() {
 | pipe | `ipc/pipe.h` | Anonymous pipes (hosted) — one-way byte stream, typically parent/child after `fork()` |
 | uds | `ipc/uds.h` | Unix domain sockets (hosted) — named IPC between unrelated processes, non-blocking/`Reactor`-pairable |
 
+### [Async](/stdlib/async) {#async}
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| future | `async/future.h` | `Poll<T>`, the `Future` trait, `Waker`, `Context`, `WakerSlot`/`WaitList`, `Ready`/`Pending`/`YieldNow` |
+| coro | `async/coro.h` | `ASYNC_BEGIN` / `AWAIT` / `ASYNC_RETURN`: stackless coroutines as `switch` + `goto` state machines |
+| executor | `async/executor.h` | `AsyncTask<F, T>`, `JoinHandle<T>`, the no-heap deterministic `LocalExecutor`, `Park` (`VirtualClock`, `FnPark`) |
+| timer | `async/timer.h` | `TimerQueue` (over `dsp/timer_wheel`), `Sleep`, `Interval` |
+| combinator | `async/combinator.h` | `join2`/`join3`/`join_all`, `select2`/`select_any`, `timeout`, `map_fut`, `and_then` |
+| channel | `async/channel.h` | `Oneshot<T>`, bounded MPMC `AsyncChannel<T>` |
+| sync | `async/sync.h` | `AsyncMutex`, `AsyncSemaphore`, `AsyncNotify`, `CancelToken`, `with_cancel` |
+| host | `async/host.h` | `block_on(&fut)`, `HostPark` (hosted) |
+| pool | `async/pool.h` | `ThreadPool`: the multi-threaded executor (hosted) |
+| net | `async/net.h` | `IoDriver` on the reactor, `Runtime`, `AsyncTcpListener` / `AsyncTcpStream` (hosted) |
+
 ### [Real-Time Scheduler](/stdlib/sched) {#real-time-scheduler}
 
 | Module | Header | Description |
@@ -107,15 +124,22 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 client + server (`http_serve`/`http_serve_threaded`), request/response types |
+| http | `http/http.h` | HTTP/1.1 client + server: keep-alive `HttpServer`, URL client with redirects + gzip (`http_fetch`), request/response helpers, chunked coding |
+| headers | `http/headers.h` | `HttpHeaders` case-insensitive header map, header parameters |
+| router | `http/router.h`, `http/route.h` | `Router` with `:param`/`*` patterns, 404/405, middleware (logger, CORS, gzip, body limit) |
+| static_files | `http/static_files.h` | Static file serving: MIME types, ETag/Last-Modified/304, byte ranges |
+| cookie | `http/cookie.h` | Cookie header parsing, `Set-Cookie` building |
+| multipart | `http/multipart.h` | `multipart/form-data` parsing + building |
+| sse | `http/sse.h` | Server-Sent Events: server stream, parser, client |
+| date | `http/date.h` | HTTP date formatting/parsing |
 | cors | `http/cors.h` | CORS preflight detection + response headers |
 | jwt | `http/jwt.h` | HS256 JWT sign/verify (HMAC-SHA256) |
 | oauth2 | `http/oauth2.h` | OAuth2 client: authorization-code + refresh-token exchange (RFC 6749) |
-| websocket | `http/websocket.h` | WebSocket handshake + frame read/write |
+| websocket | `http/websocket.h` | WebSocket client + server, upgrades on the router, message reassembly |
 | rpc | `rpc/rpc.h` | gRPC-inspired RPC-over-HTTP (length-prefixed framing, path-based dispatch) |
 | server_fn | `rpc/server_fn.h` | "Write once, call from anywhere" JSON-marshaled server functions (Dioxus/Leptos-style) |
 | reactive | `reactive/signal.h` | `Signal<T>` fine-grained reactive state (WASM client hydration) |
-| wasm | `wasm/dom.h`, `wasm/hydrate.h` | wasm32 DOM interop + client hydration; `wasm/wasm_rt.h` is the freestanding runtime (bump `malloc`/`free`, `mem*`, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
+| wasm | `wasm/dom.h`, `wasm/hydrate.h` | [wasm32 DOM and browser APIs](/stdlib/wasm) (events, timers, fetch, storage, history) + signal hydration, with the `wasm/safec_dom.js` glue; `wasm/wasm_rt.h` is the freestanding runtime (size-class `malloc`/`free` over `memory.grow`, `mem*`/`str*`/`strto*`/`qsort`, 128-bit compiler-rt builtins, trapping `abort`) for wasm32/wasm64 — only a wasm target's std archive includes it (see [WebAssembly](/reference/baremetal#wasm)) |
 | scx | n/a (transpiler) | JSX/TSX-style HTML templating — `.scx` files transpile to plain SafeC before `safec` ever sees them |
 
 ### Machine Learning — see [ML](/stdlib/ml) {#machine-learning-see-ml}
@@ -137,6 +161,14 @@ int main() {
 | font | `gui/gui_font.h` | `GuiFont` bitmap fonts of any glyph size; `SCXF` save/load |
 | svg | `gui/gui_svg.h` | SVG subset renderer (shapes, paths with cubic curves) |
 | fb | `gui/gui_fb.h` | Bare-metal framebuffer backend setup: `gui_fb_configure`, `gui_fb_inject_event`, `gui_fb_set_clock` |
+
+### [Audio & MIDI](/stdlib/audio) {#audio-midi}
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| audio | `audio/audio.h` | Real-time audio I/O (RtAudio-style): APIs, device enumeration, output/input/duplex streams with a real-time callback; ALSA, JACK, Core Audio, WASAPI, Web Audio and dummy backends |
+| midi | `audio/midi.h` | Real-time MIDI I/O (RtMidi-style): ports, virtual ports, callback or lock-free queue input; message builders, running-status parser/encoder; ALSA sequencer, JACK, Core MIDI, WinMM, Web MIDI and dummy backends |
+| convert | `audio/audio_convert.h` | Sample-format (i8/i16/i24/i32/f32/f64, TPDF dither) and layout conversion; std/dsp `Fixed`/`AudioBuffer` interop |
 
 ### [Filesystems](/stdlib/fs) {#filesystems}
 
@@ -253,8 +285,9 @@ int main() {
 |--------|--------|-------------|
 | ascii | `encoding/ascii.h` | ASCII validation, classification, case conversion |
 | utf8 | `encoding/utf8.h` | UTF-8 encode/decode/validate, codepoint count |
-| url | `encoding/url.h` | RFC 3986 percent-encoding (component style) |
+| url | `encoding/url.h` | `Url` parse/serialize/resolve, `QueryParams`, percent and form encoding |
 | base64 | `encoding/base64.h` | RFC 4648 Base64 with padding |
+| deflate | `encoding/deflate.h` | DEFLATE compress/decompress, zlib + gzip containers, CRC-32, Adler-32 |
 
 ### [Utilities](/stdlib/utilities) {#utilities}
 

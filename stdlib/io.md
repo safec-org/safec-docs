@@ -122,6 +122,10 @@ struct File {
     int       flush();                             // flush buffered writes; 0 on success
 
     long long size();                              // file size in bytes, -1 on error
+
+    // Whole files (static).
+    static int read_to_string(const &char path, &String out);           // appends the contents; 1 on success
+    static int write_bytes(const &char path, const &char data, unsigned long n); // create/truncate + write; 1 on success
 };
 ```
 
@@ -148,6 +152,19 @@ struct File {
 ### Convenience {#convenience}
 
 `f.size()` seeks to the end, reads the position and seeks back: the size in bytes, or -1 on error. [`stream_size`](#io-traits) does the same for any `Seekable`.
+
+### Whole files {#whole-files}
+
+`File::read_to_string(path, &out)` appends a whole file to a `String` (binary-safe; `out` stays NUL-terminated) and returns 1, or 0 if the file can't be opened or a read fails. `File::write_bytes(path, data, n)` creates or truncates the file and writes `n` bytes, returning 1 only when every byte was written and the file closed cleanly. For listing, creating and copying directories, see [dir](/stdlib/dir).
+
+```c
+struct String text = String::new();
+if (std::File::read_to_string("notes.md", &text)) {
+    text.push("\n- one more line\n");
+    std::File::write_bytes("notes.md", text.as_ptr(), text.len);
+}
+text.free();
+```
 
 ## io_traits -- Readers and writers {#io-traits}
 

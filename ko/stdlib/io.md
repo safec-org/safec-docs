@@ -134,6 +134,10 @@ struct File {
     int       flush();                             // flush buffered writes; 0 on success
 
     long long size();                              // file size in bytes, -1 on error
+
+    // 파일 전체 (정적 메서드).
+    static int read_to_string(const &char path, &String out);           // 내용을 덧붙임, 성공 시 1
+    static int write_bytes(const &char path, const &char data, unsigned long n); // 생성/잘라내기 후 쓰기, 성공 시 1
 };
 ```
 
@@ -174,6 +178,19 @@ struct File {
 `f.size()`는 끝으로 이동해 위치를 읽고 원래 위치로 돌아옵니다: 크기(바이트)
 또는 오류 시 -1입니다. [`stream_size`](#io-traits)는 모든 `Seekable`에
 대해 같은 일을 합니다.
+
+### 파일 전체 {#whole-files}
+
+`File::read_to_string(path, &out)`은 파일 전체를 `String`에 덧붙이고(바이너리 안전, `out`은 계속 NUL로 끝남) 1을 반환하며, 파일을 열 수 없거나 읽기에 실패하면 0을 반환합니다. `File::write_bytes(path, data, n)`은 파일을 생성하거나 잘라낸 뒤 `n` 바이트를 쓰고, 모든 바이트를 쓰고 파일이 깨끗이 닫혔을 때만 1을 반환합니다. 디렉터리 나열, 생성, 복사는 [dir](/ko/stdlib/dir)을 참고하십시오.
+
+```c
+struct String text = String::new();
+if (std::File::read_to_string("notes.md", &text)) {
+    text.push("\n- one more line\n");
+    std::File::write_bytes("notes.md", text.as_ptr(), text.len);
+}
+text.free();
+```
 
 ## io_traits -- 리더와 라이터 {#io-traits}
 
