@@ -124,12 +124,11 @@ that has already run does (see below).
 
 ### Compile-Time Use-After-Free and Double-Free Checking {#compile-time-use-after-free-and-double-free-checking}
 
-A `&heap T` variable freed with `std::dealloc(p)` is tracked the same
-flow-sensitive way arena references are (if/else branches checked
-independently and merged conservatively; loop bodies pre-scanned so a
-free on one iteration is visible to code textually before it on the
-next) — reading `p` after that point is a compile error, and freeing it
-again is a double-free, also caught at compile time:
+A `&heap T` reference freed with `std::dealloc(p)` (or an allocator's
+`.dealloc(p)` method) is tracked by the same dataflow analysis as arena
+references (see [Arena References Die on Reset](#_4-arena-references-die-on-reset)):
+reading it after that point is a compile error, and freeing it again is a
+double free, also caught at compile time:
 
 ```c
 #include <std/mem.h>
@@ -154,24 +153,59 @@ p = new int;        // OK: fresh allocation, fresh binding
 std::dealloc(p);
 ```
 
-::: warning Intra-procedural, and 'std::dealloc(p)' specifically
-This check is keyed to the underlying allocation, followed through one
-hop of direct-copy aliasing: `&heap T q = p;` and `q = p;` (a bare-
-identifier initializer/RHS) share `p`'s own tracking key, so
-`std::dealloc()` through *either* `p` or `q` correctly invalidates both.
-It doesn't go further than that single hop — an allocation reached
-through a struct field, an array element, or a different function
-(the same pointer value threaded through a call) isn't tracked, so it's
-sound within a function but not exhaustive across every possible alias
-shape or call boundaries. It also only recognizes calls that resolve
-syntactically to `std::dealloc(p)` with a bare identifier argument — a
-raw libc `free(p)` call (as in the first example on this page, which
-predates this check), an allocator-instance method like a
-`PoolAllocator`'s `.dealloc()` (see [std/alloc/pool.h](/stdlib/index)),
-or `std::dealloc(some_expr())` with a non-identifier argument fall
-outside this analysis entirely and rely on the runtime double-free/
-invalid-free protection described in [Safety](/reference/safety) instead.
-`unsafe {}` bypasses the check, same as every other region rule.
+The analysis tracks each pointer, not each variable name. A free
+reaches every copy of the pointer (through any number of assignments),
+every struct field and array element it was stored in, and, through
+per-function summaries, the caller's copies when a callee frees its
+parameter or a field of it. When the callee itself is fine but what the
+caller passes it was already freed, the error is reported at the call:
+
+```c
+#include <std/mem.h>
+
+struct Box { &heap int v; };
+
+void release(&heap int p) { std::dealloc(p); }
+void release_box(&Box b)  { std::dealloc(b.v); }
+int  peek(&Box b)         { return *b.v; }
+
+void g() {
+    &heap int p = new int;
+    &heap int q = p;           // any number of copies...
+    struct Box b;
+    b.v = q;                   // ...and fields or array elements
+    release(b.v);              // release() frees its parameter
+    *p = 1;                    // ERROR: use of 'p' (&heap reference) after
+                               //        std::dealloc() freed it
+    int n = peek(&b);          // ERROR: call to 'peek' reads a &heap reference
+                               //        after std::dealloc() freed it
+    release_box(&b);           // ERROR: call to 'release_box' frees memory
+                               //        after std::dealloc() freed it
+}
+```
+
+::: warning Trusted, not checked
+Within its model the check is sound; the full statement is under
+[Temporal Safety](/advanced/safety-model#_2-temporal-safety). Outside it:
+
+- A raw libc `free(p)`, any other function with no body (`extern`
+  declarations, C imports), calls through function pointers or `fn`
+  values, and the function a `spawn` starts are assumed to free nothing
+  and keep no pointer to their arguments. A pointer freed that way isn't
+  caught at compile time; it relies on the runtime double-free/
+  invalid-free protection described in [Safety](/reference/safety).
+- Memory reached through a raw pointer, or pointer indexing in
+  `unsafe {}` (the buffers of `std::Vec` and the other std containers),
+  isn't tracked; a pointer read back from there counts as live.
+- Distinct parameters (and globals) of one function are assumed not to
+  point to the same allocation.
+
+Two shapes that are actually fine are still reported: a free and a use
+guarded by complementary conditions (`if (owned)` / `if (!owned)`), and a
+loop that frees a linked structure node by node through safe references
+(write it recursively, or walk it with raw pointers in `unsafe {}`).
+`unsafe {}` suppresses the reports inside it, same as every other region
+rule; its frees still count for the code after it.
 :::
 
 ## Arena Regions {#arena-regions}
@@ -263,33 +297,36 @@ keep->v = 5;      // OK: 'keep' was bound before any mark() — never staled by 
 scratch->v = 5;   // ERROR: 'scratch' was bound after the mark — correctly caught
 ```
 
-::: warning Not precise across nested marks
-Like the generation counter described below, this is tracked with a
-running mark-nesting *depth*, updated as the compiler walks the
-function — see "Arena References Die on Reset" below for how much of
-that walk is now flow-*sensitive* (if/else branches, and loop bodies,
-including `arena_mark`/`arena_free_to` as well as plain
-`arena_reset`/`arena_destroy` — see below). A reference bound while any
-`arena_mark<R>()` scope is active (depth > 0) is invalidated by *any*
-later `arena_free_to<R>()` call while still inside that nesting —
-precise for the common single-level "mark, allocate scratch, free_to"
-pattern shown above, but conservative for deeply nested marks where an
-outer scope's own references could, in principle, survive an inner
-scope's free_to: this is a design characteristic of tracking one nesting
-depth per region rather than a per-mark-level record, independent of
-flow-sensitivity, so it isn't something branch/loop tracking can fix
-(sound either way — it can over-flag a deeply-nested-mark reference that
-was actually still valid, but it never misses a genuine use-after-free_to).
+Every `arena_mark<R>()` call is tracked as its own checkpoint, so nested
+marks are precise: rewinding to an inner mark leaves references
+allocated between the outer and inner marks valid.
 
-The loop pre-scan described below (for catching an earlier-iteration call
-invalidating a use earlier in the same loop body) now covers
-`arena_mark`/`arena_free_to` the same way it already covered
-`arena_reset`/`arena_destroy`: a mark/free_to pair inside a loop body is
-fine (each iteration's free_to cancels that iteration's mark, so the
-depth returns to baseline every time, as in the scratch-allocation
-example above), and an *unpaired* `arena_free_to<R>()` inside a loop,
-invalidating an outer reference used earlier in the same body on a later
-iteration, is caught too:
+```c
+region Pool { capacity: 4096 }
+
+void nested() {
+    unsigned long outer = arena_mark<Pool>();
+    &arena<Pool> struct Sample a = new<Pool> struct Sample;
+    unsigned long inner = arena_mark<Pool>();
+    &arena<Pool> struct Sample b = new<Pool> struct Sample;
+    arena_free_to<Pool>(inner);
+    a->v = 1;      // OK: 'a' was allocated before 'inner'
+    b->v = 1;      // ERROR: use of 'b' (&arena<Pool> reference) after arena_reset<Pool>(),
+                   //        arena_destroy<Pool>(), or arena_free_to<Pool>() invalidated it
+    arena_free_to<Pool>(outer);
+    a->v = 2;      // ERROR: same message, for 'a'
+}
+```
+
+Only a mark the checker can't identify (one passed in by the caller that
+it can't resolve, or a value that may be one of several marks) makes
+`arena_free_to<R>()` invalidate more than that, conservatively. A callee
+that rewinds to a mark it was passed is applied at the call site.
+
+Inside a loop, a mark/free_to pair is fine (each iteration's free_to
+rewinds only that iteration's allocations, as in the scratch example
+above), and an `arena_free_to<R>()` that invalidates a reference used
+earlier in the same body is caught on the next iteration:
 
 ```c
 region Pool { capacity: 4096 }
@@ -305,8 +342,7 @@ void process() {
 }
 ```
 
-`unsafe {}` bypasses the check entirely, same as every other region rule.
-:::
+`unsafe {}` bypasses the check, same as every other region rule.
 
 ### Arena Runtime Representation {#arena-runtime-representation}
 
@@ -441,12 +477,12 @@ void example() {
 
 `arena_reset<R>()` and `arena_destroy<R>()` invalidate *every* outstanding
 reference into region `R`, since the memory they point into may be handed
-out again by a later `new<R>`. The compiler tracks this with a generation
-counter per region: every reset/destroy call bumps `R`'s generation, and
-reading a `&arena<R> T` reference whose generation doesn't match is a
-compile error. `arena_free_to<R>()` uses a separate, narrower check — see
-"Partially Freeing an Arena" above — that only invalidates references
-bound after the checkpoint being freed to.
+out again by a later `new<R>`. After a reset or destroy, every reference
+into `R` (and every copy of one, in a variable, field or array element)
+may be dangling, and reading it is a compile error.
+`arena_free_to<R>()` is narrower — see
+[Partially Freeing an Arena](#partially-freeing-an-arena) — and only
+invalidates references allocated after the checkpoint being freed to.
 
 ```c
 region Pool { capacity: 1024 }
@@ -460,13 +496,13 @@ int main() {
 }
 ```
 
-The generation counter is updated as the compiler walks the function's
-control flow, not just its raw text order — two cases worth knowing:
+This is a dataflow analysis that follows the function's control flow,
+not its text order — two cases worth knowing:
 
 - **if/else branches don't bleed into each other.** A reset inside one
-  branch only affects the generation *within that branch* and *after the
-  if-statement merges* (conservatively — since either branch might have
-  run) — not the *other* branch:
+  branch affects the rest of *that branch* and the code *after the
+  if-statement* (where that branch may have run) — not the *other*
+  branch:
   ```c
   if (cond) {
       arena_reset<Pool>();
@@ -485,22 +521,19 @@ control flow, not just its raw text order — two cases worth knowing:
       arena_reset<Pool>();
   }
   ```
-  This loop-body check is a syntactic pre-scan for `arena_reset`/
-  `arena_destroy`/`arena_free_to` calls reachable anywhere in the body
-  (not a full type-checking pass) — it covers the common statement/
-  expression forms such a call appears in, not literally every possible
-  expression nesting. The same pre-scan catches an unpaired
-  `arena_free_to<R>()` inside a loop invalidating an outer reference used
-  earlier in the same body — see the nested-marks warning above for the
-  one thing it still doesn't attempt (per-nesting-level precision, a
-  separate design characteristic of the mark/free_to counters themselves).
+  Each loop is analyzed until its state stops changing, so a reset
+  reaches the code before it in the body on the next iteration wherever
+  in the body (or inside whatever expression) it appears, and reaches
+  the code after the loop only through the exits that can follow it.
 
-Both of these are still sound in the same direction as the rest of this
-checker: a real use-after-reset (or use-after-free_to) is never missed,
-and the remaining imprecision (deeply unusual expression nesting inside a
-loop; conservativeness across deeply nested marks) only means some code
-that's actually safe might still be conservatively flagged — never the
-reverse.
+The same holds for `switch` fallthrough, `match`, `?:`, `&&`/`||`,
+`break`/`continue`/`goto`/`return`/`try`, and `defer`/`errdefer` (which
+run at each return), and for heap frees as well as arena resets. A
+function that resets the region, or rewinds to a mark it was passed,
+invalidates the caller's references at the call. The check is sound —
+a real use-after-reset or use-after-free_to is never missed — up to the
+trust boundaries listed under
+[Temporal Safety](/advanced/safety-model#_2-temporal-safety).
 
 Rebinding a stale reference to a fresh allocation recovers it — the check
 is about reading a *specific* stale binding, not about the variable name:
@@ -508,7 +541,7 @@ is about reading a *specific* stale binding, not about the variable name:
 ```c
 &arena<Pool> int p = new<Pool> int;
 arena_reset<Pool>();
-p = new<Pool> int;   // OK: fresh binding, judged against the current generation
+p = new<Pool> int;   // OK: fresh allocation, made after the reset
 *p = 42;              // OK
 ```
 

@@ -35,36 +35,74 @@ No use-after-free: region annotations tie reference lifetimes to allocation scop
 void heap_example() {
     &heap int p = new int;
     std::dealloc(p);
-    *p = 1;              // compile-time error: use of 'p' after std::dealloc() freed it
+    *p = 1;              // compile-time error: use of 'p' (&heap reference) after std::dealloc() freed it
     std::dealloc(p);      // compile-time error: double-free, same check
 }
 ```
 
-::: warning Flow-sensitive, not exhaustive
-Both the arena and heap sides of this (see [Memory & Regions](/reference/memory#_4-arena-references-die-on-reset)
-and [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking))
-are generation-counter checks, updated as the compiler walks the
-function's actual control flow (if/else branches don't bleed into each
-other; a reset/free_to/dealloc anywhere in a loop body is treated as
-possibly having happened before every statement in that body, not just
-the ones after it) rather than a naive linear pass — sound (a genuine
-use-after-reset, use-after-free_to, use-after-free, or double-free is
-never missed) but not a full dataflow fixpoint, so it can still
-over-flag references that are actually valid in less common shapes: the
-loop-body check is a syntactic pre-scan covering the common statement/
-expression forms a reset/destroy/free_to/dealloc call appears in, not
-literally every nesting; `arena_mark<R>()`/`arena_free_to<R>()` remain
-conservative across *deeply nested* marks independent of
-flow-sensitivity — a design characteristic of tracking one nesting depth
-per region rather than a per-level record, not something loop/branch
-tracking addresses. Heap tracking is intra-procedural, and follows a
-direct-copy alias one hop deep — `&heap T q = p;` or `q = p;` shares p's
-own tracking key, so `std::dealloc()` through *either* name correctly
-invalidates both — but no further: an allocation reached through a struct
-field, array element, or function parameter/return isn't tracked (see the
-warning in [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking)
-for the exact scope). `unsafe {}` remains the escape hatch for cases the
-checker can't (yet) prove safe on its own.
+::: warning Sound up to stated trust boundaries
+Both the arena and heap sides of this (see [Arena References Die on Reset](/reference/memory#_4-arena-references-die-on-reset)
+and [Compile-Time Use-After-Free and Double-Free Checking](/reference/memory#compile-time-use-after-free-and-double-free-checking))
+are one dataflow analysis, run over every function body once type checking is
+done. It tracks each allocation as an abstract object and each pointer as the
+set of objects it may point to, with its own "may be dangling" mark, through
+every copy (any number of hops, and through branches that assign different
+values), struct field, and array element: a constant index is its own
+element, and a store through an unknown index may reach any element. Control
+flow is followed exactly: if/else, `switch` fallthrough, `match`, `?:` and
+`&&`/`||` (a free inside one operand only affects the outcomes where that
+operand ran), `break`/`continue`/`goto`/`return`/`try`, and `defer`/`errdefer`
+running at each return. Loops, and functions with labels, are iterated to a
+fixpoint, so a reset or free reaches code before it in the loop body on the
+next iteration, and code after the loop only through the exits it can take.
+`arena_free_to<R>(m)` invalidates exactly the references allocated after mark
+`m`: every mark is tracked separately, so nested marks are precise. Only a
+mark the checker cannot identify (one passed in from the caller and not
+resolvable, or a value that may be one of several marks) invalidates more
+than that, and then conservatively.
+
+Calls are checked through summaries. For every function with a body (generic
+instances and methods included), the checker computes what it may free,
+which regions it may reset or `free_to` (including through a mark it was
+passed), which pointers it reads from its arguments' memory, and what it
+leaves in its parameters' and globals' memory and returns, all in terms of
+its parameters. Summaries are computed callees first, iterating to a
+fixpoint for recursive functions. A callee that frees its parameter, frees
+or replaces a field, returns its parameter, or reads memory the caller has
+already freed is checked at the call site, which reports
+`call to 'f' reads a &heap reference after std::dealloc() freed it` (or
+its `&arena<R>` counterpart) or `call to 'f' frees memory after std::dealloc() freed it` when the callee
+itself is fine but the arguments are not.
+
+Within this model the check is sound: a genuine use-after-reset,
+use-after-free_to, use-after-free or double-free is never missed. The
+following are trusted, not checked:
+
+- Calls through function pointers or `fn` values, the thread function a
+  `spawn` starts, and functions with no body (`extern` declarations, C
+  imports). They are assumed to free and reset nothing, to keep no pointer to
+  their arguments, and to return fresh memory. That includes
+  `std::realloc_buf()`, which frees its argument but is implemented by an
+  extern.
+- Memory reached through a raw pointer, or through pointer indexing on a
+  reference, inside `unsafe {}`. That covers the buffers of `std::Vec` and the
+  other std containers. Pointers stored there are not tracked, and every
+  pointer read back from there counts as live.
+- Inside a function, distinct parameters (and globals) are assumed not to
+  point to the same allocation unless the function itself makes them do so.
+
+Two precision limits remain, and both report code that is actually fine.
+First, the analysis follows control flow but not the values that decide it,
+apart from the `&&`/`||`/`!` structure of a condition: a free guarded by
+`if (owned)` followed by a use guarded by `if (!owned)` is still reported.
+Second, entry memory more than three pointer hops from a parameter, and the
+elements behind an unknown index, are each summarized as one object. So a
+loop that walks a linked structure through safe references and frees each
+node as it goes cannot be shown not to revisit a freed node, and is reported.
+Write it recursively, or walk it through raw pointers in `unsafe {}` as the
+std containers do. `unsafe {}` remains the escape hatch: no reports are made
+inside it, though its frees and resets still count for the code that
+follows.
 :::
 
 ### 3. Aliasing Safety {#_3-aliasing-safety}
@@ -77,12 +115,7 @@ int x = 10;
 &stack const int b = &x;    // error: cannot borrow 'x' as immutable: already borrowed as mutable
 ```
 
-::: warning Write `const` after the region qualifier
-`const &stack int b` (const *before* the region) is accepted by the parser
-but silently misparses as a mutable borrow — a known parser bug (see
-[Safety](/reference/safety#aliasing-rules-borrow-checker)). Always write
-`const` *after* the region qualifier (`&stack const int`, as above).
-:::
+`const &stack int b` is the same type as `&stack const int b`: `const` may go on either side of the region qualifier.
 
 ### 4. Region Escape Safety {#_4-region-escape-safety}
 
@@ -118,7 +151,7 @@ No hidden runtime costs. SafeC does not insert garbage collection, reference cou
 | Property | C | C++ | Rust | Zig | SafeC |
 |---|---|---|---|---|---|
 | Spatial safety (buffer overflow) | None — `[]` has no check, OOB is UB | None for raw arrays/`[]`; opt-in via `.at()`/`std::span` (throws) | Compile-time for const indices, runtime panic otherwise — always on in safe code | Runtime check in Debug/ReleaseSafe; **compiled out** (UB) in ReleaseFast/ReleaseSmall | Compile-time for const indices, runtime check otherwise — always on outside `unsafe` |
-| Temporal safety (use-after-free) | None — manual `free()`, no tracking | None for raw pointers/refs; RAII (`unique_ptr`/`shared_ptr`) helps only if used consistently, not enforced | Compile-time — the borrow checker rejects any use after move/drop; sound | None from the compiler; `GeneralPurposeAllocator` catches some in Debug builds only, at runtime | Compile-time, region-based (stack/arena/heap) — flow-sensitive and sound but [not exhaustive](#_2-temporal-safety); `unsafe {}` opts out |
+| Temporal safety (use-after-free) | None — manual `free()`, no tracking | None for raw pointers/refs; RAII (`unique_ptr`/`shared_ptr`) helps only if used consistently, not enforced | Compile-time — the borrow checker rejects any use after move/drop; sound | None from the compiler; `GeneralPurposeAllocator` catches some in Debug builds only, at runtime | Compile-time, region-based (stack/arena/heap) — a dataflow analysis, sound up to [stated trust boundaries](#_2-temporal-safety); `unsafe {}` opts out |
 | Double-free | None — UB | Same as C for raw `delete`; smart pointers avoid it structurally unless defeated by raw aliasing | Compile-time — only one owner can ever call drop | Runtime-only, opt-in (`GeneralPurposeAllocator` in Debug) | Compile-time (same check as above), plus a runtime tagged-header guard in `std::alloc`/`std::dealloc` as defense in depth |
 | Uninitialized reads | None — UB | None — UB | Compile-time — definite-assignment analysis | `undefined` is explicit and typed; Debug builds poison it (`0xaa`) to make bugs *visible*, not prevent them | Compile-time — definite-initialization check |
 | Null-pointer dereference | None — raw pointers, untracked | None for raw pointers; references can't be null by construction but can be formed from a deref'd null pointer (UB), uncaught | Compile-time — no null in safe code, `Option<T>` must be matched/unwrapped | Compile-time — optionals (`?T`) must be explicitly unwrapped | Compile-time — `?&T` requires `match`/`.is_null()`/`.default()`/`unsafe` to read (see [Null Safety](#_6-null-safety)) |
@@ -126,7 +159,7 @@ No hidden runtime costs. SafeC does not insert garbage collection, reference cou
 | Enforcement point | N/A | Mostly none; a few opt-in runtime checks | Compile-time first (borrow checker), runtime for the genuinely dynamic parts (bounds, panics) | Runtime, and only in safety-checked build modes — the *same binary* can be compiled with checks off | Compile-time first, runtime only where the check is inherently dynamic (index bounds) — always on outside `unsafe` |
 | Escape hatch | N/A — the whole language is this way | N/A — the whole language is this way | `unsafe {}` blocks/functions | No lexical escape hatch — safety is a whole-build-mode setting, not a per-block opt-out | `unsafe {}` blocks — lexically scoped, non-propagating (see below) |
 
-The throughline: C and C++ don't check most of these at all (undefined behavior is the "checked" state most of the time). Zig checks several of them, but as a *build-mode* choice — the same source either has the checks or doesn't, decided once for the whole binary, not per-line. Rust and SafeC both check at compile time by default and require an explicit, lexically-scoped opt-out (`unsafe {}`) to turn a check off for a specific block of code — that's the property this page's own [`unsafe` escape hatch](#the-unsafe-escape-hatch) section is describing. Where Rust and SafeC differ is *how* they prove temporal safety (ownership/borrowing vs. region membership — see [Compared to Rust](/guide/comparison#compared-to-rust) for that trade-off in detail) and how complete the proof is: Rust's borrow checker is a sound, complete static proof for the patterns it accepts (it may reject valid programs, but never accepts an unsound one); SafeC's region/generation-counter checks are sound but intentionally incomplete in a few documented shapes (nested arena marks, heap aliasing beyond one hop — see the warnings throughout this page), trading some precision for a simpler, more C-compatible mental model.
+The throughline: C and C++ don't check most of these at all (undefined behavior is the "checked" state most of the time). Zig checks several of them, but as a *build-mode* choice — the same source either has the checks or doesn't, decided once for the whole binary, not per-line. Rust and SafeC both check at compile time by default and require an explicit, lexically-scoped opt-out (`unsafe {}`) to turn a check off for a specific block of code — that's the property this page's own [`unsafe` escape hatch](#the-unsafe-escape-hatch) section is describing. Where Rust and SafeC differ is *how* they prove temporal safety (ownership/borrowing vs. region membership — see [Compared to Rust](/guide/comparison#compared-to-rust) for that trade-off in detail) and how complete the proof is: Rust's borrow checker is a sound, complete static proof for the patterns it accepts (it may reject valid programs, but never accepts an unsound one); SafeC's region and lifetime checks are sound within stated trust boundaries (calls through function pointers and to bodiless `extern` functions, memory reached through raw pointers in `unsafe {}`) and may still reject a few valid shapes (a free and a use guarded by complementary conditions, a loop that frees a linked structure node by node — see [Temporal Safety](#_2-temporal-safety)), trading some precision for a simpler, more C-compatible mental model.
 
 ## Safety Analysis Phases {#safety-analysis-phases}
 
@@ -135,7 +168,8 @@ The compiler enforces these properties through a series of analysis passes durin
 | Phase | What it checks |
 |-------|---------------|
 | Definite initialization | Every variable is assigned before use |
-| Region escape analysis | Stack/static/cross-region escapes are rejected; arena-reset invalidation is checked flow-sensitively across if/else and loops, not exhaustively (see above) |
+| Region escape analysis | Stack/static/cross-region escapes are rejected |
+| Heap/arena lifetime analysis | Use after `std::dealloc()`, double free, and use after `arena_reset`/`arena_destroy`/`arena_free_to`, checked by a dataflow analysis over every function body once type checking is done, with per-function call summaries (see above) |
 | Alias/borrow checking (NLL) | Mutable exclusivity is maintained |
 | Nullability enforcement | Dereferencing a nullable reference outside `match`/`.is_null()`/`.default()`/`unsafe` is rejected |
 | Bounds checking | Array accesses are within bounds |
