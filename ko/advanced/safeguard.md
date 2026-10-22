@@ -167,6 +167,11 @@ path    = "../mylib"
 name    = "mylib"
 lib     = ["vendor/libmylib.a"]               # .a, .so, .dylib 또는 .lib
 include = ["vendor/include"]                  # 헤더 디렉터리(선택)
+
+[[dependencies]]                              # safeguard가 빌드하는 C/C++/ObjC 프로젝트
+name    = "mylib"
+path    = "../mylib"                          # 또는 version = "https://..."
+build   = "cmake"                             # 또는 "sources"
 ```
 
 디렉터리가 제공하는 것은 가져온 것이든 로컬이든 그 내용에 따라 정해집니다:
@@ -176,7 +181,80 @@ include = ["vendor/include"]                  # 헤더 디렉터리(선택)
 | `src/` | SafeC 패키지 | `src/`(`.sc`, `.c`, `.cpp`)를 `build/deps/lib<name>.a`로 빌드합니다. `include/`와 `src/`를 include 경로에 넣습니다 |
 | `src/` 없음 | 미리 빌드된 라이브러리 디렉터리 | `lib/`, `lib64/` 또는 디렉터리 자체에서 `lib<name>.a`, `lib<name>.so`, `lib<name>.dylib` 또는 `<name>.lib`를 정적 라이브러리 우선으로 링크합니다. 그 이름의 라이브러리가 없으면, 라이브러리가 있는 첫 디렉터리의 라이브러리를 모두 링크합니다(`openssl`이라는 의존성에 `libssl`과 `libcrypto`가 있는 설치 등). `include/`를 include 경로에 넣습니다 |
 
+항목에 `build`가 있는 디렉터리는 둘 다 아닙니다: safeguard가 직접 빌드하는 기존 C, C++ 또는 Objective-C 프로젝트입니다([소스에서 빌드하는 C/C++ 의존성](#c-c-dependencies-built-from-source) 참고).
+
 `lib`는 라이브러리 파일을 직접 지정하며, 디렉터리 내용보다 우선합니다. `lib`와 `include` 경로는 의존성에 `version`이나 `path`가 있으면 그 디렉터리를, 없으면 프로젝트 루트를 기준으로 합니다. 가져온 저장소도 이렇게 미리 빌드된 라이브러리를 제공할 수 있습니다: `version = "https://..."`와 `lib = ["lib/macos-arm64/libmylib.a"]`. 공유 라이브러리에는 그 디렉터리로 rpath를 걸어 프로그램이 실행 시점에 찾을 수 있게 합니다. 로컬 `path`는 프로젝트 루트를 기준으로 합니다. 라이브러리, 디렉터리 또는 `include` 디렉터리가 없거나, 디렉터리에 `src/`도 라이브러리도 없으면 `safeguard fetch`와 `build`는 의존성 이름과 함께 실패합니다. 의존성 라이브러리는 표준 라이브러리보다 앞에 링크되므로 SafeC 패키지가 `std`를 쓸 수 있습니다.
+
+### 소스에서 빌드하는 C/C++ 의존성 {#c-c-dependencies-built-from-source}
+
+safeguard 패키지가 아닌 C, C++ 또는 Objective-C 라이브러리 — CMake 프로젝트, 또는 소스 파일만 있는 디렉터리 — 도 safeguard가 직접 빌드하는 의존성이 될 수 있습니다. `build`가 빌드 방식을 지정하며, 결과는 `build/deps/<name>/`에 놓입니다:
+
+```toml
+[[dependencies]]                  # CMake 프로젝트
+name       = "cppstats"
+path       = "../cpplib"          # 또는 version = "https://..." (먼저 클론)
+build      = "cmake"
+cmake_args = ["-DCPPSTATS_TESTS=OFF"]
+
+[[dependencies]]                  # 소스 디렉터리
+name       = "nslen"
+path       = "../nslen"
+build      = "sources"
+sources    = ["src", "extra/*.c"] # 파일, 디렉터리, '*' 패턴
+defines    = ["NDEBUG", "LEVEL=2"]
+cflags     = ["-fobjc-arc"]
+include    = ["include"]          # 공개 헤더
+frameworks = ["Foundation"]       # 필요한 macOS 프레임워크
+```
+
+| `build` | safeguard의 동작 |
+|---|---|
+| `"sources"` | `sources`가 지정하는 `.c`/`.cpp`/`.cc`/`.cxx`/`.m`/`.mm` 파일(기본값: `src/`를 재귀적으로, 없으면 디렉터리 바로 아래의 파일)을 `defines`(`-D`), `cflags`, `include` 디렉터리와 함께 컴파일하여 `build/deps/<name>/lib<name>.a`로 만듭니다 |
+| `"cmake"` | 빌드에 쓰는 것과 같은 `clang`/`clang++`로 구성하고(`PATH`에 `ninja`가 있으면 `-G Ninja`, `--release`면 `Release`, 아니면 `Debug` — Windows에서는 디버그 CRT가 프로그램의 CRT와 섞이지 않으므로 `RelWithDebInfo`), `cmake_args`를 덧붙인 뒤, 빌드하고 `build/deps/<name>/install`에 설치합니다. 라이브러리는 `lib`가 있으면 그것(설치 prefix 기준)이고, 없으면 그 `lib/`의 `lib<name>` 또는 모든 라이브러리이며, `install()` 규칙이 없는 프로젝트라면 빌드 트리의 라이브러리입니다 |
+
+헤더는 `include`가 있으면 그 디렉터리(의존성 디렉터리 기준)에서, 없으면 `include/` — CMake는 설치된 것, `"sources"`는 의존성 자체의 것, 그것도 없으면 디렉터리 자체 — 에서 가져옵니다. 이 헤더는 SafeC와 C/C++ 소스 양쪽의 include 경로에 들어갑니다.
+
+빌드 결과는 캐시됩니다: 의존성 디렉터리 아래의 파일이나 `Package.toml`의 설정이 지난 빌드 이후 바뀌었을 때만 다시 빌드합니다. C++ 의존성이 있으면 `clang++`가 링크 드라이버가 되고(CMake 의존성은 항상 — 무엇을 컴파일하는지 바깥에서 알 수 없고, `clang++`는 C도 똑같이 링크합니다), Objective-C가 있으면 `-lobjc`가 추가되며, `frameworks`는 macOS에서 링크됩니다. `sources`, `defines`, `cflags`는 `build = "sources"`를, `cmake_args`는 `build = "cmake"`를 필요로 하며, 그 밖의 조합은 의존성 이름을 밝힌 오류입니다. CMake 의존성은 아직 `--target`으로 크로스 컴파일할 수 없습니다.
+
+SafeC는 이러한 라이브러리를 C 선언을 통해 호출하므로, C++ 라이브러리는 `extern "C"` 함수를 노출해야 합니다: C++ 클래스, 템플릿, 오버로드 등 맹글링된 심볼은 SafeC에서 호출할 수 없습니다. 작은 C API로 감싸십시오:
+
+```cpp
+// cpplib/include/cppstats.h — SafeC와 C++ 모두가 포함
+#ifdef __cplusplus
+extern "C" {
+#endif
+double cppstats_median(const double* values, int n);
+#ifdef __cplusplus
+}
+#endif
+```
+
+```cpp
+// cpplib/src/cppstats.cpp
+#include "cppstats.h"
+#include <algorithm>
+#include <vector>
+
+extern "C" double cppstats_median(const double* values, int n) {
+    std::vector<double> v(values, values + n);
+    std::sort(v.begin(), v.end());
+    return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2.0;
+}
+```
+
+```c
+// app/src/main.sc
+#include <cppstats.h>
+extern int printf(const char* fmt, ...);
+
+int main() {
+    double samples[5] = { 7.0, 1.0, 4.0, 9.0, 3.0 };
+    unsafe { printf("median %.1f\n", cppstats_median(&samples[0], 5)); }
+    return 0;
+}
+```
+
+SafeC 저장소의 `examples/cpp_dep/`가 `CMakeLists.txt`를 포함한 이 프로젝트이며, `examples/objc_dep/`는 Objective-C 예제(C API 뒤의 `NSString`, macOS)입니다.
 
 ## 기능 플래그 {#feature-flags}
 
@@ -412,7 +490,7 @@ path = "../mylib/build"    # libmylib.a를 링크하고 build/include를 include
 
 SafeC 표준 라이브러리(`std/`)는 자동으로 컴파일되어 `build/deps/libsafec_std.a`로 아카이브됩니다. 이 라이브러리는 별도의 수동 설정 없이 기본적으로 모든 프로젝트에 링크됩니다. 단, [SafeC가 없는 패키지](#c-c-and-objective-c-packages)는 예외입니다.
 
-소스에서 빌드하는 각 의존성도 비슷하게 `build/deps/lib<name>.a`로 컴파일되며, 미리 빌드된 의존성은 있는 위치에서 링크됩니다.
+소스에서 빌드하는 각 SafeC 의존성도 비슷하게 `build/deps/lib<name>.a`로, C/C++ 의존성은 `build/deps/<name>/`으로 컴파일되며, 미리 빌드된 의존성은 있는 위치에서 링크됩니다.
 
 ## 환경 설정 {#environment-setup}
 

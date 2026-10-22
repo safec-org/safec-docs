@@ -168,6 +168,11 @@ path    = "../mylib"
 name    = "mylib"
 lib     = ["vendor/libmylib.a"]               # .a, .so, .dylib or .lib
 include = ["vendor/include"]                  # optional header directories
+
+[[dependencies]]                              # a C/C++/ObjC project safeguard builds
+name    = "mylib"
+path    = "../mylib"                          # or version = "https://..."
+build   = "cmake"                             # or "sources"
 ```
 
 What a directory provides, whether it's fetched or local, depends on what it contains:
@@ -177,7 +182,80 @@ What a directory provides, whether it's fetched or local, depends on what it con
 | `src/` | a SafeC package | builds `src/` (`.sc`, `.c`, `.cpp`) into `build/deps/lib<name>.a`; `include/` and `src/` go on the include path |
 | no `src/` | a prebuilt library directory | links `lib<name>.a`, `lib<name>.so`, `lib<name>.dylib` or `<name>.lib` from `lib/`, `lib64/` or the directory itself, static first. Without one by that name, it links every library in the first of those that has any (an install with `libssl` and `libcrypto` for a dependency named `openssl`). `include/` goes on the include path |
 
+A directory whose entry has `build` is neither: it's an existing C, C++ or Objective-C project that safeguard builds itself (see [C/C++ dependencies built from source](#c-c-dependencies-built-from-source)).
+
 `lib` names the library files outright and takes precedence over what's in the directory. `lib` and `include` paths are relative to the dependency's directory when it has `version` or `path`, and to the project root otherwise. A fetched repository can ship prebuilt libraries this way too: `version = "https://..."` with `lib = ["lib/macos-arm64/libmylib.a"]`. Shared libraries get an rpath to their directory, so the program finds them at run time. A local `path` is resolved against the project root. `safeguard fetch` and `build` fail with the dependency's name when a library, a directory or an `include` directory doesn't exist, or when a directory has neither `src/` nor a library. Dependency libraries are linked before the standard library, so a SafeC package can use `std`.
+
+### C/C++ dependencies built from source {#c-c-dependencies-built-from-source}
+
+A C, C++ or Objective-C library that isn't a safeguard package — a CMake project, or just a directory of sources — can be a dependency built by safeguard itself. `build` says how; the result goes to `build/deps/<name>/`:
+
+```toml
+[[dependencies]]                  # a CMake project
+name       = "cppstats"
+path       = "../cpplib"          # or version = "https://..." (cloned first)
+build      = "cmake"
+cmake_args = ["-DCPPSTATS_TESTS=OFF"]
+
+[[dependencies]]                  # a directory of sources
+name       = "nslen"
+path       = "../nslen"
+build      = "sources"
+sources    = ["src", "extra/*.c"] # files, directories, '*' patterns
+defines    = ["NDEBUG", "LEVEL=2"]
+cflags     = ["-fobjc-arc"]
+include    = ["include"]          # its public headers
+frameworks = ["Foundation"]       # macOS frameworks it needs
+```
+
+| `build` | safeguard |
+|---|---|
+| `"sources"` | compiles the `.c`/`.cpp`/`.cc`/`.cxx`/`.m`/`.mm` files that `sources` names (default: its `src/`, recursively, else the files directly in the directory) with `defines` (`-D`), `cflags` and its `include` directories, into `build/deps/<name>/lib<name>.a` |
+| `"cmake"` | configures it with the same `clang`/`clang++` the build uses (`-G Ninja` when `ninja` is on `PATH`, `Release` for `--release`, `Debug` otherwise — `RelWithDebInfo` on Windows, whose debug CRT doesn't mix with the program's), plus `cmake_args`; builds it; installs it into `build/deps/<name>/install`. The libraries are `lib` (relative to that install prefix) if given, else `lib<name>` or every library in its `lib/`, else the ones in the build tree for a project without `install()` rules |
+
+Headers come from `include` (relative to the dependency's directory) when it's given; otherwise from `include/` — the install's for CMake, the dependency's own for `"sources"`, or the directory itself if it has none. They go on the include path of both SafeC and C/C++ sources.
+
+The build is cached: it reruns only when a file under the dependency's directory or its `Package.toml` settings changed since the last one. A C++ dependency makes `clang++` the link driver (for a CMake one, always — what it compiles can't be told from outside, and `clang++` links C just as well); Objective-C adds `-lobjc`; `frameworks` are linked on macOS. `sources`, `defines` and `cflags` need `build = "sources"`, `cmake_args` needs `build = "cmake"`; anything else is an error naming the dependency. CMake dependencies can't be cross-compiled with `--target` yet.
+
+SafeC calls these libraries through C declarations, so a C++ library must expose `extern "C"` functions: C++ classes, templates, overloads and other mangled symbols aren't callable from SafeC. Wrap them in a small C API:
+
+```cpp
+// cpplib/include/cppstats.h — included by SafeC and C++ alike
+#ifdef __cplusplus
+extern "C" {
+#endif
+double cppstats_median(const double* values, int n);
+#ifdef __cplusplus
+}
+#endif
+```
+
+```cpp
+// cpplib/src/cppstats.cpp
+#include "cppstats.h"
+#include <algorithm>
+#include <vector>
+
+extern "C" double cppstats_median(const double* values, int n) {
+    std::vector<double> v(values, values + n);
+    std::sort(v.begin(), v.end());
+    return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2.0;
+}
+```
+
+```c
+// app/src/main.sc
+#include <cppstats.h>
+extern int printf(const char* fmt, ...);
+
+int main() {
+    double samples[5] = { 7.0, 1.0, 4.0, 9.0, 3.0 };
+    unsafe { printf("median %.1f\n", cppstats_median(&samples[0], 5)); }
+    return 0;
+}
+```
+
+The SafeC repository's `examples/cpp_dep/` is this project with its `CMakeLists.txt`, and `examples/objc_dep/` an Objective-C one (`NSString` behind a C API, macOS).
 
 ## Feature Flags {#feature-flags}
 
@@ -411,7 +489,7 @@ directly produces a clear error rather than a confusing OS-level failure.
 
 The SafeC standard library (`std/`) is automatically compiled and archived into `build/deps/libsafec_std.a`. This library is linked into every project by default — no manual configuration needed — except a [package with no SafeC in it](#c-c-and-objective-c-packages).
 
-Each dependency built from source is similarly compiled to `build/deps/lib<name>.a`; prebuilt ones are linked from where they are.
+Each SafeC dependency built from source is similarly compiled to `build/deps/lib<name>.a`, a C/C++ one into `build/deps/<name>/`; prebuilt ones are linked from where they are.
 
 ## Environment Setup {#environment-setup}
 
