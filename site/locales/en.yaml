@@ -125,6 +125,8 @@ nav:
         link: /stdlib/sync
       - text: IPC
         link: /stdlib/ipc
+      - text: Async
+        link: /stdlib/async
       - text: Real-Time Scheduler
         link: /stdlib/sched
       - text: Networking
@@ -137,6 +139,8 @@ nav:
         link: /stdlib/ml
       - text: GUI
         link: /stdlib/gui
+      - text: Audio & MIDI
+        link: /stdlib/audio
       - text: Encoding
         link: /stdlib/encoding
       - text: Filesystems
@@ -290,6 +294,8 @@ sidebar:
             link: /stdlib/sync
           - text: IPC
             link: /stdlib/ipc
+          - text: Async
+            link: /stdlib/async
           - text: Real-Time Scheduler
             link: /stdlib/sched
           - text: Networking
@@ -302,6 +308,8 @@ sidebar:
             link: /stdlib/ml
           - text: GUI
             link: /stdlib/gui
+          - text: Audio & MIDI
+            link: /stdlib/audio
           - text: Encoding
             link: /stdlib/encoding
           - text: Filesystems

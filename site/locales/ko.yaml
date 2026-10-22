@@ -125,6 +125,8 @@ nav:
         link: /ko/stdlib/sync
       - text: IPC
         link: /ko/stdlib/ipc
+      - text: 비동기
+        link: /ko/stdlib/async
       - text: 실시간 스케줄러
         link: /ko/stdlib/sched
       - text: 네트워킹
@@ -137,6 +139,8 @@ nav:
         link: /ko/stdlib/ml
       - text: GUI
         link: /ko/stdlib/gui
+      - text: 오디오 & MIDI
+        link: /ko/stdlib/audio
       - text: 인코딩
         link: /ko/stdlib/encoding
       - text: 파일시스템
@@ -290,6 +294,8 @@ sidebar:
             link: /ko/stdlib/sync
           - text: IPC
             link: /ko/stdlib/ipc
+          - text: 비동기
+            link: /ko/stdlib/async
           - text: 실시간 스케줄러
             link: /ko/stdlib/sched
           - text: 네트워킹
@@ -302,6 +308,8 @@ sidebar:
             link: /ko/stdlib/ml
           - text: GUI
             link: /ko/stdlib/gui
+          - text: 오디오 & MIDI
+            link: /ko/stdlib/audio
           - text: 인코딩
             link: /ko/stdlib/encoding
           - text: 파일시스템

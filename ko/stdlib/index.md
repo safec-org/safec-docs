@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>
@@ -83,6 +83,21 @@ int main() {
 |--------|--------|-------------|
 | pipe | `ipc/pipe.h` | 익명 파이프 (호스티드) — 단방향 바이트 스트림, 보통 `fork()` 이후 부모/자식 간 |
 | uds | `ipc/uds.h` | 유닉스 도메인 소켓 (호스티드) — 무관한 프로세스 간의 이름 지정 IPC, 논블로킹/`Reactor`와 페어링 가능 |
+
+### [비동기](/ko/stdlib/async) {#async}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| future | `async/future.h` | `Poll<T>`, `Future` 트레이트, `Waker`, `Context`, `WakerSlot`/`WaitList`, `Ready`/`Pending`/`YieldNow` |
+| coro | `async/coro.h` | `ASYNC_BEGIN` / `AWAIT` / `ASYNC_RETURN`: `switch` + `goto` 상태 기계로 만든 스택리스 코루틴 |
+| executor | `async/executor.h` | `AsyncTask<F, T>`, `JoinHandle<T>`, 힙 없는 결정적 `LocalExecutor`, `Park`(`VirtualClock`, `FnPark`) |
+| timer | `async/timer.h` | `TimerQueue`(`dsp/timer_wheel` 기반), `Sleep`, `Interval` |
+| combinator | `async/combinator.h` | `join2`/`join3`/`join_all`, `select2`/`select_any`, `timeout`, `map_fut`, `and_then` |
+| channel | `async/channel.h` | `Oneshot<T>`, 유계 MPMC `AsyncChannel<T>` |
+| sync | `async/sync.h` | `AsyncMutex`, `AsyncSemaphore`, `AsyncNotify`, `CancelToken`, `with_cancel` |
+| host | `async/host.h` | `block_on(&fut)`, `HostPark`(호스트) |
+| pool | `async/pool.h` | `ThreadPool`: 멀티스레드 실행기(호스트) |
+| net | `async/net.h` | 리액터 위의 `IoDriver`, `Runtime`, `AsyncTcpListener` / `AsyncTcpStream`(호스트) |
 
 ### [실시간 스케줄러](/ko/stdlib/sched) {#real-time-scheduler}
 
