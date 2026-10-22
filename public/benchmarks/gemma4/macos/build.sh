@@ -10,7 +10,7 @@
 #      SAFEC, CLANG (Homebrew LLVM's clang by default -- Apple's clang is
 #      older than the IR safec emits), SAFEGUARD (default: on PATH),
 #      STD_ARCHIVE (a prebuilt release libsafec_std.a; otherwise built once
-#      under macos/build/_std with 'safeguard build --release').
+#      under macos/build/_std with 'safeguard build --release', [build] std = "all").
 # Accelerate is linked for std's CBLAS / vDSP paths (std::sgemm, FIR).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -31,7 +31,7 @@ mkdir -p "$B"
 STD="${STD_ARCHIVE:-$B/_std/build/deps/libsafec_std.a}"
 if [[ ! -f "$STD" ]]; then
     mkdir -p "$B/_std/src"
-    printf '[package]\nname = "gemma4_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\n' > "$B/_std/Package.toml"
+    printf '[package]\nname = "gemma4_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\nstd = "all"\n' > "$B/_std/Package.toml"
     echo 'int main() { return 0; }' > "$B/_std/src/main.sc"
     (cd "$B/_std" && "$SAFEGUARD" build --release >/dev/null)
 fi

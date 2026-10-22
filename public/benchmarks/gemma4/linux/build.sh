@@ -10,7 +10,7 @@
 #      SAFEC, CLANG, SAFEGUARD (default: on PATH), ROCM_PATH (/opt/rocm),
 #      BLAS_LIBS (default -lblas; the CPU path's sgemm), STD_ARCHIVE (a
 #      prebuilt release libsafec_std.a; otherwise built once under
-#      linux/build/_std with 'safeguard build --release').
+#      linux/build/_std with 'safeguard build --release', [build] std = "all").
 # std/ml/gpu_mps.sc references Metal/Objective-C symbols on every platform;
 # linux/metal_stubs.c provides null stand-ins so it links (no Metal device:
 # the MPS paths report unavailable).
@@ -28,7 +28,7 @@ mkdir -p "$B"
 STD="${STD_ARCHIVE:-$B/_std/build/deps/libsafec_std.a}"
 if [[ ! -f "$STD" ]]; then
     mkdir -p "$B/_std/src"
-    printf '[package]\nname = "gemma4_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\n' > "$B/_std/Package.toml"
+    printf '[package]\nname = "gemma4_std"\nversion = "0.1.0"\n\n[build]\nedition = "2026"\nstd = "all"\n' > "$B/_std/Package.toml"
     echo 'int main() { return 0; }' > "$B/_std/src/main.sc"
     (cd "$B/_std" && "$SAFEGUARD" build --release >/dev/null)
 fi
