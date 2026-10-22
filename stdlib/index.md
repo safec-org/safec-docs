@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, encoding, HTTP/RPC/wasm, the real-time scheduler, ML and SIMD are included by their own headers.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, audio/MIDI, encoding, HTTP/RPC/wasm, the real-time scheduler, ML and SIMD are included by their own headers.
 
 ```c
 #include <std/prelude.h>
@@ -138,6 +138,14 @@ int main() {
 | svg | `gui/gui_svg.h` | SVG subset renderer (shapes, paths with cubic curves) |
 | widget | `gui/gui_widget.h` | Retained-mode widget tree: stacks, button, label, checkbox, text input, slider, custom widgets |
 | fb | `gui/gui_fb.h` | Bare-metal framebuffer backend setup: `gui_fb_configure`, `gui_fb_inject_event` |
+
+### [Audio & MIDI](/stdlib/audio) {#audio-midi}
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| audio | `audio/audio.h` | Real-time audio I/O (RtAudio-style): APIs, device enumeration, output/input/duplex streams with a real-time callback; ALSA, JACK, Core Audio, WASAPI, Web Audio and dummy backends |
+| midi | `audio/midi.h` | Real-time MIDI I/O (RtMidi-style): ports, virtual ports, callback or lock-free queue input; message builders, running-status parser/encoder; ALSA sequencer, JACK, Core MIDI, WinMM, Web MIDI and dummy backends |
+| convert | `audio/audio_convert.h` | Sample-format (i8/i16/i24/i32/f32/f64, TPDF dither) and layout conversion; std/dsp `Fixed`/`AudioBuffer` interop |
 
 ### [Filesystems](/stdlib/fs) {#filesystems}
 

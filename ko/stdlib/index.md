@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 인코딩, HTTP/RPC/wasm, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>
@@ -138,6 +138,14 @@ int main() {
 | svg | `gui/gui_svg.h` | SVG 부분집합 렌더러 (도형, 3차 곡선 경로) |
 | widget | `gui/gui_widget.h` | 리테인드 모드 위젯 트리: 스택, 버튼, 레이블, 체크박스, 텍스트 입력, 슬라이더, 커스텀 위젯 |
 | fb | `gui/gui_fb.h` | 베어메탈 프레임버퍼 백엔드 설정: `gui_fb_configure`, `gui_fb_inject_event` |
+
+### [오디오 & MIDI](/ko/stdlib/audio) {#audio-midi}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| audio | `audio/audio.h` | 실시간 오디오 I/O(RtAudio 스타일): API, 장치 열거, 실시간 콜백을 쓰는 출력/입력/듀플렉스 스트림; ALSA, JACK, Core Audio, WASAPI, Web Audio, 더미 백엔드 |
+| midi | `audio/midi.h` | 실시간 MIDI I/O(RtMidi 스타일): 포트, 가상 포트, 콜백 또는 락 없는 큐 입력; 메시지 빌더, running status 파서/인코더; ALSA 시퀀서, JACK, Core MIDI, WinMM, Web MIDI, 더미 백엔드 |
+| convert | `audio/audio_convert.h` | 샘플 포맷(i8/i16/i24/i32/f32/f64, TPDF 디더) 및 레이아웃 변환; std/dsp `Fixed`/`AudioBuffer` 연동 |
 
 ### [파일시스템](/ko/stdlib/fs) {#filesystems}
 
