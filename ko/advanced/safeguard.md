@@ -13,6 +13,7 @@
 | `safeguard check` | 빠른 컴파일 전용 패스 — 오브젝트 어셈블이나 링킹 없이 오류만 보고 |
 | `safeguard test` | `tests/` 아래의 모든 파일을 독립적인 바이너리로 빌드하고 실행 |
 | `safeguard run` | 프로젝트 바이너리를 빌드하고 실행 |
+| `safeguard bundle [--sign <identity>]` | 바이너리를 빌드하여 애플리케이션으로 패키징: `.app`, 앱 폴더 또는 `.deb`([앱 번들](#app-bundles) 참고) |
 | `safeguard clean` | `build/` 디렉터리와 모든 산출물 제거 |
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 비교하여 검사 |
 | `safeguard lint [--verbose]` | 모든 `.sc` 소스 파일에 대해 정적 분석 린트 패스 실행 |
@@ -508,6 +509,73 @@ Windows에서도 다른 플랫폼과 똑같이 동작합니다.
 `safeguard run`은 `crate_type = "bin"`을 요구합니다 — 정적 또는 동적
 라이브러리는 실행할 진입점이 없으며, 이를 링커에 직접 대고 실행하려
 하면 혼란스러운 OS 수준 실패 대신 명확한 오류가 발생합니다.
+
+## 앱 번들 {#app-bundles}
+
+`safeguard bundle`은 `bin` 타깃을 빌드하여 각 플랫폼이 애플리케이션을
+설치하는 형태로 패키징합니다. `[bundle]` 테이블이 그 내용을 기술합니다:
+
+```toml
+[bundle]
+name               = "GuiHello"              # 기본값: 패키지 이름
+identifier         = "org.example.gui-hello" # 필수, 역DNS 형식
+version            = "1.0.0"                 # 기본값: 패키지 버전
+icon               = "assets/icon.png"       # .png는 모든 플랫폼, .icns(macOS), .ico(Windows)
+resources          = ["assets/greeting.txt", "assets/data"]  # 파일 또는 디렉터리
+category           = "Utility"               # freedesktop 카테고리 또는 "public.app-category.*"
+copyright          = "Copyright 2026 Example"
+subsystem          = "windows"               # Windows: "windows"(기본값) 또는 "console"
+min_system_version = "11.0"                  # macOS LSMinimumSystemVersion(기본값 11.0)
+codesign_identity  = "-"                     # macOS: "-" 애드혹(기본값), 서명 ID, "none"
+depends            = ["libx11-6"]            # Linux: .deb의 Depends
+```
+
+```bash
+safeguard bundle                              # build/GuiHello.app, build/GuiHello/ 또는 .deb
+safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
+```
+
+| 플랫폼 | 출력 |
+|---|---|
+| macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist`(`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/`(아이콘과 리소스), `Contents/Frameworks/`(의존성의 `.dylib`) |
+| Windows | `build/<name>/`: `<output>.exe`, 의존성의 DLL, 리소스 — 포터블 앱 폴더 |
+| Linux | `build/<pkg>_<version>_<arch>.deb`와 `build/<name>.AppDir` |
+
+**macOS.** `.png` 아이콘은 `.icns`로 변환됩니다(`sips`로 각 크기로
+조정하고 `iconutil`로 묶습니다). `Contents/Frameworks`로 복사된 각 의존성
+`.dylib`은 설치 이름이 `@rpath/<file>`로 바뀌고(라이브러리와 실행 파일
+양쪽에서, `install_name_tool`로), 실행 파일은
+`@executable_path/../Frameworks`로의 rpath와 함께 링크되므로 번들이 빌드
+트리에 의존하지 않습니다. 내부 라이브러리와 번들은 차례로 `codesign`으로
+서명됩니다: 기본은 애드혹이며, 실제 서명 ID는 `codesign_identity` 또는
+`--sign`으로 지정하고, `"none"`이면 서명을 건너뜁니다.
+
+**Windows.** 실행 파일은 GUI 서브시스템용으로 링크되며
+(`/SUBSYSTEM:WINDOWS`와 `/ENTRY:mainCRTStartup`. 따라서 평범한 `main`이
+그대로 동작하고 콘솔 창이 열리지 않습니다. `subsystem = "console"`이면
+콘솔을 유지합니다), `llvm-rc`(또는 Windows SDK의 `rc`)로 컴파일한
+리소스가 함께 링크됩니다: 아이콘(`.ico`, 또는 256×256 이하의 `.png`를
+감싼 `.ico`), 패키지에서 가져온 버전 정보(`FileVersion`, `ProductName`,
+author에서 가져온 `CompanyName` 등), 모니터별 DPI 인식과 Common Controls
+v6를 선언하는 애플리케이션 매니페스트입니다.
+
+**Linux.** `dpkg-deb`로 만든 `.deb`는 `/usr/bin/<output>`,
+`/usr/share/applications/<identifier>.desktop`,
+`/usr/share/icons/hicolor/<w>x<h>/apps/<identifier>.png`(`.png`
+아이콘), `/usr/share/<pkg>/` 아래의 리소스, `/usr/lib/<pkg>/` 아래의
+의존성 공유 라이브러리(실행 파일의 rpath에 있습니다)를 설치합니다.
+`DEBIAN/control`에는 `Package`(데비안 형식의 패키지 이름. `_`는 `-`가
+됩니다), `Version`, `Architecture`(`dpkg --print-architecture`),
+`Maintainer`(패키지의 `author`), `Description`, `Installed-Size`,
+`Depends`가 들어갑니다. 같은 트리에 `AppRun`, 데스크톱 항목, 아이콘을
+최상위에 더한 것이 `build/<name>.AppDir`이며, `appimagetool`에 바로 넘길
+수 있습니다. `dpkg`가 없으면 경고와 함께 AppDir만 만듭니다.
+
+GUI 프로그램은 [`std::gui`](/ko/stdlib/gui)를 사용하며, 그 백엔드는
+플랫폼마다의 라이브러리를 호출합니다 — 이는 [플랫폼별
+설정](#per-platform-settings)으로 지정하십시오. SafeC 저장소의
+`examples/gui_hello/`는 창을 열어 1초 동안 그린 뒤 다시 닫으며, 그
+매니페스트가 위의 `[bundle]`입니다.
 
 ## 표준 라이브러리 링킹 {#standard-library-linking}
 

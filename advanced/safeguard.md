@@ -13,6 +13,7 @@
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard run` | Build and execute the project binary |
+| `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
 | `safeguard clean` | Remove the `build/` directory and all artifacts |
 | `safeguard verify-lock` | Check `Package.lock` against current dependency state |
 | `safeguard lint [--verbose]` | Run static-analysis lint passes on all `.sc` source files |
@@ -507,6 +508,73 @@ works on Windows as it does elsewhere.
 `safeguard run` requires `crate_type = "bin"` — a static or dynamic library
 has no executable entry point to run, and running it against the linker
 directly produces a clear error rather than a confusing OS-level failure.
+
+## App Bundles {#app-bundles}
+
+`safeguard bundle` builds a `bin` target and packages it the way the
+platform installs applications. The `[bundle]` table describes it:
+
+```toml
+[bundle]
+name               = "GuiHello"              # default: the package name
+identifier         = "org.example.gui-hello" # required, reverse-DNS
+version            = "1.0.0"                 # default: the package version
+icon               = "assets/icon.png"       # .png anywhere; .icns (macOS), .ico (Windows)
+resources          = ["assets/greeting.txt", "assets/data"]  # files or directories
+category           = "Utility"               # freedesktop category, or "public.app-category.*"
+copyright          = "Copyright 2026 Example"
+subsystem          = "windows"               # Windows: "windows" (default) or "console"
+min_system_version = "11.0"                  # macOS LSMinimumSystemVersion (default 11.0)
+codesign_identity  = "-"                     # macOS: "-" ad-hoc (default), an identity, "none"
+depends            = ["libx11-6"]            # Linux: the .deb's Depends
+```
+
+```bash
+safeguard bundle                              # build/GuiHello.app, build/GuiHello/, or a .deb
+safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
+```
+
+| Platform | Output |
+|---|---|
+| macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist` (`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/` (the icon and the resources) and `Contents/Frameworks/` (the dependencies' `.dylib`s) |
+| Windows | `build/<name>/`: `<output>.exe`, the dependencies' DLLs and the resources — a portable app folder |
+| Linux | `build/<pkg>_<version>_<arch>.deb` and `build/<name>.AppDir` |
+
+**macOS.** A `.png` icon becomes an `.icns` (scaled to each size with
+`sips`, packed with `iconutil`). Each dependency `.dylib` copied into
+`Contents/Frameworks` gets the install name `@rpath/<file>` (in the
+library and in the executable, with `install_name_tool`), and the
+executable is linked with an rpath to `@executable_path/../Frameworks`,
+so the bundle doesn't depend on the build tree. The nested libraries and
+then the bundle are signed with `codesign`: ad-hoc by default,
+`codesign_identity` or `--sign` for a real identity, `"none"` to skip.
+
+**Windows.** The executable is linked for the GUI subsystem
+(`/SUBSYSTEM:WINDOWS` with `/ENTRY:mainCRTStartup`, so a plain `main` still
+works and no console window opens; `subsystem = "console"` keeps one) with
+a resource compiled by `llvm-rc` (or the Windows SDK's `rc`): the icon (an
+`.ico`, or a `.png` of up to 256×256 wrapped in one), version information
+from the package (`FileVersion`, `ProductName`, `CompanyName` from the
+author, ...) and an application manifest declaring per-monitor DPI
+awareness and Common Controls v6.
+
+**Linux.** The `.deb` (built with `dpkg-deb`) installs `/usr/bin/<output>`,
+`/usr/share/applications/<identifier>.desktop`, the `.png` icon as
+`/usr/share/icons/hicolor/<w>x<h>/apps/<identifier>.png`, the resources
+under `/usr/share/<pkg>/`, and the dependencies' shared libraries under
+`/usr/lib/<pkg>/` (on the executable's rpath). `DEBIAN/control` has
+`Package` (the package name in Debian's form, `_` becoming `-`),
+`Version`, `Architecture` (`dpkg --print-architecture`), `Maintainer`
+(the package's `author`), `Description`, `Installed-Size` and `Depends`.
+The same tree, with `AppRun`, the desktop entry and the icon at its top,
+is `build/<name>.AppDir`, ready for `appimagetool`. Without `dpkg` only the
+AppDir is made, with a warning.
+
+A GUI program uses [`std::gui`](/stdlib/gui), whose backend calls each
+platform's own libraries — name them with [per-platform
+settings](#per-platform-settings). The SafeC repository's
+`examples/gui_hello/` opens a window, draws for a second and closes it
+again; its manifest is the `[bundle]` above.
 
 ## Standard Library Linking {#standard-library-linking}
 
