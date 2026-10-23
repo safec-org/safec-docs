@@ -143,6 +143,8 @@ nav:
         link: /stdlib/gui-graphics
       - text: GUI Widgets
         link: /stdlib/gui-widgets
+      - text: GUI Platforms & GPU
+        link: /stdlib/gui-platforms
       - text: Audio & MIDI
         link: /stdlib/audio
       - text: Encoding
@@ -316,6 +318,8 @@ sidebar:
             link: /stdlib/gui-graphics
           - text: GUI Widgets
             link: /stdlib/gui-widgets
+          - text: GUI Platforms & GPU
+            link: /stdlib/gui-platforms
           - text: Audio & MIDI
             link: /stdlib/audio
           - text: Encoding

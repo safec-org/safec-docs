@@ -143,6 +143,8 @@ nav:
         link: /ko/stdlib/gui-graphics
       - text: GUI 위젯
         link: /ko/stdlib/gui-widgets
+      - text: GUI 플랫폼과 GPU
+        link: /ko/stdlib/gui-platforms
       - text: 오디오 & MIDI
         link: /ko/stdlib/audio
       - text: 인코딩
@@ -316,6 +318,8 @@ sidebar:
             link: /ko/stdlib/gui-graphics
           - text: GUI 위젯
             link: /ko/stdlib/gui-widgets
+          - text: GUI 플랫폼과 GPU
+            link: /ko/stdlib/gui-platforms
           - text: 오디오 & MIDI
             link: /ko/stdlib/audio
           - text: 인코딩
