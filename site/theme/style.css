@@ -508,7 +508,7 @@ ul.pg-pane { list-style: none; }
   .sb-mobile-nav { display: block; padding-top: 16px; border-top: 1px solid var(--c-divider); margin-top: 16px; }
   .sidebar.mobile-only .sb-mobile-nav { border-top: 0; margin-top: 0; padding-top: 0; }
   .sb-mobile-nav .nav-group-btn, .sb-mobile-nav .nav-link { height: auto; padding: 8px 0; background: none; }
-  .sb-mobile-nav .nav-link.cta { display: inline-flex; margin: 8px 0; padding: 6px 14px; }
+  .sb-mobile-nav .nav-link.cta { display: inline-flex; margin: 8px 0; padding: 6px 14px; background: var(--c-brand-3); color: #fff; }
   .sb-mobile-nav .nav-menu { position: static; visibility: visible; opacity: 1; transform: none; border: 0; box-shadow: none; background: none; padding: 0 0 8px 8px; }
   .layout { padding: calc(var(--header-h) + 24px) 24px 48px; }
   body.doc .site-footer { margin-left: 0; }
