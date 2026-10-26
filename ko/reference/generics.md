@@ -103,6 +103,8 @@ render(circle);   // OK: Circle이 일치하는 draw() const를 가짐
 만족시킵니다. 사용자 트레이트의 메서드는 갖고 있지 않으므로 사용자
 트레이트는 만족시키지 않습니다.
 
+세 가지는 소유권과 스레드를 나타냅니다: `Drop`(`void drop()` 메서드: 타입이 자원을 소유하며 drop해야 함 — [소유권과 Drop](/ko/reference/ownership) 참고), 그리고 `Send` / `Sync`(값을 다른 스레드로 옮기거나 공유할 수 있음; 타입의 구조로부터 유도됨 — [스레드 안전성](/ko/reference/threads) 참고).
+
 ### 바운드 결합하기 {#combining-bounds}
 
 타입 매개변수에는 `+`로 이은 여러 트레이트를 붙일 수 있습니다. 제약은

@@ -143,6 +143,8 @@ sidebar:
             link: /ko/reference/literals
           - text: 메모리와 리전
             link: /ko/reference/memory
+          - text: 소유권과 Drop
+            link: /ko/reference/ownership
           - text: 함수
             link: /ko/reference/functions
           - text: 제네릭
@@ -165,6 +167,8 @@ sidebar:
             link: /ko/reference/ffi
           - text: 동시성
             link: /ko/reference/concurrency
+          - text: 스레드 안전성
+            link: /ko/reference/threads
           - text: 베어메탈
             link: /ko/reference/baremetal
           - text: 전처리기

@@ -208,6 +208,23 @@ void g() {
 그 안에서 일어난 해제는 뒤따르는 코드에 그대로 반영됩니다.
 :::
 
+### 누수 검사: 소유 타입 {#leak-checking}
+
+위의 검사는 *참조*를 다룹니다: 해제 후의 사용이나 해제를 잡아냅니다. 메모리를 반드시 해제하라고 요구하지는 않으므로, 해제되지 않는 맨 `&heap T`는 보고되지 않습니다. 대신 **소유 타입**에 대해서는 누수를 잡아냅니다: `drop()` 메서드를 가진 구조체(`std::Vec`, `std::String`, 또는 `drop()`에서 버퍼를 해제하는 `Buf` 같은)는 모든 경로에서 drop 또는 move되어야 하므로, 그것이 소유한 할당을 잊을 수 없습니다.
+
+```c
+struct Buf { &heap char data; void drop(); };
+void Buf::drop() { std::dealloc(self.data); }
+
+void f(int c) {
+    struct Buf b = Buf::new(4096UL);
+    if (c) return;     // ERROR: value of Drop type 'Buf' leaks when the function returns
+    b.drop();
+}
+```
+
+스코프보다 오래 사는 할당은 그런 타입으로 감싸십시오. [소유권과 Drop](/ko/reference/ownership)을 참고하십시오.
+
 ## 아레나 리전 {#arena-regions}
 
 아레나는 일괄 할당과 일괄 해제를 제공합니다. 리전을 선언하고, `new<R>`으로 그 안에 할당하며, `arena_reset<R>()`으로 모든 할당을 한 번에 리셋합니다.

@@ -2,6 +2,8 @@
 
 SafeC provides low-level, C-compatible concurrency primitives. Threads are created with `spawn` and joined with `join`, mapping directly to POSIX pthreads. There are no closures or runtime schedulers -- concurrency is explicit and deterministic.
 
+What a thread may reach is checked at compile time: every type is Send and/or Sync (derived from its structure), and `spawn`, `spawn_scoped`, channels and the standard library's thread types accept only what is safe to share. [Thread Safety](/reference/threads) has the full rules.
+
 ## Spawn and Join {#spawn-and-join}
 
 ### Creating a Thread {#creating-a-thread}
@@ -21,7 +23,8 @@ static int g_value = 42;
 }
 
 int main() {
-    long long handle = spawn(worker, &g_value);   // &static int: allowed
+    // A detached-capable thread may only see static data; read-only here.
+    long long handle = spawn(worker, (const &static int)&g_value);
     join(handle);
     return 0;
 }
@@ -80,9 +83,9 @@ int main() {
 }
 ```
 
-### Mutable Non-Static References Rejected {#mutable-non-static-references-rejected}
+### What a Thread May Receive {#mutable-non-static-references-rejected}
 
-The compiler rejects passing mutable references to non-static data as spawn arguments, preventing data races:
+A `spawn`ed thread isn't joined by any scope, so its argument must be `null` or refer to static data — a `const &static T` with a Sync `T`, or a mutable `&static T` only when `T` synchronizes its own state (a `Mutex`, atomics). References to stack, arena or heap data are rejected, and raw pointers are accepted only in `unsafe`:
 
 ```c
 ?&int bad_worker(?&int arg) {
@@ -93,15 +96,16 @@ The compiler rejects passing mutable references to non-static data as spawn argu
     return null;
 }
 
+static int g_counter = 0;
+
 void example() {
     int local = 42;
-    // spawn(bad_worker, &local);  // ERROR: mutable non-static ref in spawn
+    // spawn(bad_worker, &local);      // ERROR: '&stack int' refers to data the thread may outlive
+    // spawn(bad_worker, &g_counter);  // ERROR: 'int' is plain data: concurrent writes race
 }
 ```
 
-A `&static` reference is accepted: static data outlives every thread, and coordinating access to it is up to you (atomics or the `thread` module's locks).
-
-To share mutable data between threads, use atomic operations or explicit synchronization with the standard library's thread module.
+To give a thread a local, use [`spawn_scoped`](#scoped-spawn); to share mutable data, put it in a `Mutex<T>` or use atomics. See [Thread Safety](/reference/threads).
 
 ## Linking {#linking}
 
@@ -150,24 +154,51 @@ The SafeC standard library provides higher-level concurrency primitives in the `
 - **Read-write locks**: `rwlock_create`, `rwlock_read_lock`, `rwlock_write_lock`, `rwlock_unlock`
 - **Thread utilities**: `thread_yield`, `thread_sleep_ms`, `thread_self`
 
-These are cross-platform wrappers over POSIX threads (or Win32 threads with `-D__WINDOWS__`).
+These are cross-platform wrappers over POSIX threads (or Win32 threads with `-D__WINDOWS__`). They pass untyped handles, so nothing checks what threads share through them. The module's typed layer is built on them and is checked:
+
+- **`thread_spawn(f, arg)`** moves `arg` (a Send value) into a new thread and returns a `SpawnedThread<T, R>`; `join()` it for `f`'s result.
+- **`Mutex<T>`** owns a `T` reachable only through the `MutexGuard<T>` that `lock()` returns; the guard unlocks when dropped, and a reference from `guard.get()` can't outlive it.
+- **`RwLock<T>`**: many `read()` guards or one `write()` guard.
+
+```c
+#include <std/thread.h>
+static struct Mutex<int> g_total;
+
+void add(int k) {
+    struct MutexGuard<int> g = g_total.lock();
+    *g.get() = *g.get() + k;
+    g.drop();                        // unlocks; forgetting it is a compile error
+}
+```
+
+See [Thread Safety](/reference/threads#mutex).
 
 ## Scoped Spawn {#scoped-spawn}
 
-`spawn_scoped(fn, arg)` is a compiler built-in, distinct from `spawn` — it
-has the same signature and the same mutable-non-static-reference rejection,
-but is intended for spawns whose join is guaranteed before the enclosing
-scope exits. It returns a thread handle exactly like `spawn`, still joined
-explicitly with `join`:
+`spawn_scoped(fn, arg)` is a compiler built-in with the same signature as
+`spawn`, for threads that are joined before the function that started them
+returns: the compiler emits a join on every exit path of that function
+(ordered like a `defer` written at the call), and an explicit `join(h)` may
+come earlier. Because of that, its argument may refer to a **local**:
+
+- a mutable reference hands the value to the thread (its type must be Send),
+  and the starting thread may not touch it until `join(h)`;
+- a const reference shares it for reading (its type must be Sync);
+- the local must still exist when the thread is joined.
 
 ```c
-?&int worker(?&int arg) {
+struct Counter { int n; };
+?&Counter work(?&Counter c) {
+    match (c) { case some(p): { p.n = p.n + 1; } case null: { } }
     return null;
 }
 
 void example() {
-    long long h = spawn_scoped(worker, null);
+    struct Counter c; c.n = 0;
+    long long h = spawn_scoped(work, &c);
+    // c.n = 5;        // ERROR: 'c' is lent to the thread started here by spawn_scoped
     join(h);
+    c.n = c.n + 1;     // OK: the thread is done
 }
 ```
 
@@ -180,7 +211,7 @@ threads without shared mutable references:
 | Built-in | Signature | Description |
 |----------|-----------|-------------|
 | `chan_create(capacity)` | `(int) -> ?&void` | Creates a channel with the given capacity, returns an opaque handle |
-| `chan_send(channel, value)` | `(?&void, &T) -> bool` | Sends a copy of `*value`; returns `true` on success |
+| `chan_send(channel, value)` | `(?&void, &T) -> bool` | Sends `*value` (its type must be Send; a [Drop](/reference/ownership) value moves to the receiver); returns `true` on success |
 | `chan_recv(channel, out)` | `(?&void, &T) -> bool` | Receives into `*out`; returns `false` if the channel is closed and empty |
 | `chan_close(channel)` | `(?&void) -> void` | Closes the channel; pending/future `chan_recv` calls drain remaining values then return `false` |
 
@@ -213,20 +244,15 @@ int main() {
 ## Example: Parallel Computation {#example-parallel-computation}
 
 ```c
-#include <std/collections/slice.h>
+#include <std/collections/vec.h>
 extern int printf(const char* fmt, ...);
 
 struct WorkItem {
-    struct Slice<int> data;
+    const &Vec<int> data;       // shared for reading by both workers
     unsigned long start;
     unsigned long end;
     long long result;
 };
-
-// Shared with the workers, so it lives in static storage: spawn only
-// accepts references that can't dangle while the thread runs.
-static struct WorkItem w1;
-static struct WorkItem w2;
 
 ?&WorkItem sum_range(?&WorkItem arg) {
     match (arg) {
@@ -244,19 +270,20 @@ static struct WorkItem w2;
 
 int main() {
     unsigned long n = 10000UL;
-    struct Slice<int> data = std::Slice::alloc(n);      // heap, runtime-sized
-    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.set(i, (int)i);
+    struct Vec<int> data = Vec::new();
+    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.push((int)i);
 
-    w1.data = data; w1.start = 0UL;    w1.end = n / 2UL; w1.result = 0LL;
-    w2.data = data; w2.start = n / 2UL; w2.end = n;      w2.result = 0LL;
+    struct WorkItem w1; w1.data = &data; w1.start = 0UL;     w1.end = n / 2UL; w1.result = 0LL;
+    struct WorkItem w2; w2.data = &data; w2.start = n / 2UL; w2.end = n;       w2.result = 0LL;
 
-    long long h1 = spawn(sum_range, &w1);
-    long long h2 = spawn(sum_range, &w2);
+    // Each worker gets its own WorkItem until it is joined; both read 'data'.
+    long long h1 = spawn_scoped(sum_range, &w1);
+    long long h2 = spawn_scoped(sum_range, &w2);
     join(h1);
     join(h2);
 
     printf("Total: %lld\n", w1.result + w2.result);
-    data.free();
+    data.drop();
     return 0;
 }
 ```

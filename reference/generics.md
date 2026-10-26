@@ -81,6 +81,8 @@ Two further traits are satisfied structurally by the type system itself rather t
 
 Primitive arithmetic types (`int`, `float`, …) satisfy the operator traits above and nothing else: they don't satisfy a user trait, since they have none of its methods.
 
+Three more describe ownership and threads: `Drop` (a `void drop()` method: the type owns a resource and must be dropped — see [Ownership & Drop](/reference/ownership)), and `Send` / `Sync` (a value may move to, or be shared with, another thread; derived from the type's structure — see [Thread Safety](/reference/threads)).
+
 ### Combining bounds {#combining-bounds}
 
 A type parameter can carry several traits joined with `+`. The constraint is their conjunction: the concrete type must satisfy every one, and each unmet one is reported.

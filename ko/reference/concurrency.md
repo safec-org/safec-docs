@@ -2,6 +2,8 @@
 
 SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니다. 스레드는 `spawn`으로 생성되고 `join`으로 join되며, POSIX pthread에 직접 매핑됩니다. 클로저나 런타임 스케줄러는 존재하지 않습니다 -- 동시성은 명시적이고 결정론적입니다.
 
+스레드가 무엇에 접근할 수 있는지는 컴파일 타임에 검사됩니다. 모든 타입은 (구조로부터 유도되는) Send 그리고/또는 Sync이며, `spawn`, `spawn_scoped`, 채널, 표준 라이브러리의 스레드 타입은 공유해도 안전한 것만 받습니다. 전체 규칙은 [스레드 안전성](/ko/reference/threads)을 참고하십시오.
+
 ## Spawn과 Join {#spawn-and-join}
 
 ### 스레드 생성 {#creating-a-thread}
@@ -21,7 +23,8 @@ static int g_value = 42;
 }
 
 int main() {
-    long long handle = spawn(worker, &g_value);   // &static int: allowed
+    // 분리될 수 있는 스레드는 정적 데이터만 볼 수 있음; 여기서는 읽기 전용.
+    long long handle = spawn(worker, (const &static int)&g_value);
     join(handle);
     return 0;
 }
@@ -80,9 +83,9 @@ int main() {
 }
 ```
 
-### 가변인 비정적 참조는 거부됩니다 {#mutable-non-static-references-rejected}
+### 스레드가 받을 수 있는 것 {#mutable-non-static-references-rejected}
 
-컴파일러는 데이터 레이스를 방지하기 위해 비정적 데이터에 대한 가변 참조를 spawn 인자로 전달하는 것을 거부합니다.
+`spawn`된 스레드는 어떤 스코프에서도 join되지 않으므로, 인자는 `null`이거나 정적 데이터를 가리켜야 합니다 — Sync인 `T`에 대한 `const &static T`, 또는 `T`가 자기 상태를 동기화할 때(`Mutex`, 원자 연산)에만 가변 `&static T`. 스택, 아레나, 힙 데이터에 대한 참조는 거부되며, raw 포인터는 `unsafe` 안에서만 허용됩니다.
 
 ```c
 ?&int bad_worker(?&int arg) {
@@ -93,15 +96,16 @@ int main() {
     return null;
 }
 
+static int g_counter = 0;
+
 void example() {
     int local = 42;
-    // spawn(bad_worker, &local);  // ERROR: mutable non-static ref in spawn
+    // spawn(bad_worker, &local);      // ERROR: '&stack int' refers to data the thread may outlive
+    // spawn(bad_worker, &g_counter);  // ERROR: 'int' is plain data: concurrent writes race
 }
 ```
 
-`&static` 참조는 허용됩니다: 정적 데이터는 모든 스레드보다 오래 살며, 접근 조율은 프로그래머의 몫입니다(원자적 연산이나 `thread` 모듈의 락).
-
-스레드 간에 가변 데이터를 공유하려면, 원자적 연산이나 표준 라이브러리 thread 모듈을 이용한 명시적 동기화를 사용하십시오.
+스레드에 지역 변수를 주려면 [`spawn_scoped`](#scoped-spawn)를, 가변 데이터를 공유하려면 `Mutex<T>`나 원자 연산을 사용하십시오. [스레드 안전성](/ko/reference/threads)을 참고하십시오.
 
 ## 링킹 {#linking}
 
@@ -150,23 +154,51 @@ SafeC 표준 라이브러리는 `thread` 모듈에서 더 고수준의 동시성
 - **읽기-쓰기 락**: `rwlock_create`, `rwlock_read_lock`, `rwlock_write_lock`, `rwlock_unlock`
 - **스레드 유틸리티**: `thread_yield`, `thread_sleep_ms`, `thread_self`
 
-이들은 POSIX 스레드(또는 `-D__WINDOWS__`를 사용하는 Win32 스레드) 위에 얹힌 크로스 플랫폼 래퍼입니다.
+이들은 POSIX 스레드(또는 `-D__WINDOWS__`를 사용하는 Win32 스레드) 위에 얹힌 크로스 플랫폼 래퍼입니다. 타입 없는 핸들을 주고받으므로, 이들을 통해 스레드가 무엇을 공유하는지는 아무것도 검사하지 않습니다. 모듈의 타입 있는 계층은 이들 위에 만들어졌으며 검사됩니다.
+
+- **`thread_spawn(f, arg)`**는 `arg`(Send 값)를 새 스레드로 move하고 `SpawnedThread<T, R>`를 반환합니다. `f`의 결과는 `join()`으로 얻습니다.
+- **`Mutex<T>`**는 `lock()`이 반환하는 `MutexGuard<T>`를 통해서만 접근할 수 있는 `T`를 소유합니다. 가드는 drop될 때 잠금을 풀며, `guard.get()`이 준 참조는 가드보다 오래 살 수 없습니다.
+- **`RwLock<T>`**: 여러 `read()` 가드 또는 하나의 `write()` 가드.
+
+```c
+#include <std/thread.h>
+static struct Mutex<int> g_total;
+
+void add(int k) {
+    struct MutexGuard<int> g = g_total.lock();
+    *g.get() = *g.get() + k;
+    g.drop();                        // 잠금 해제; 잊으면 컴파일 오류
+}
+```
+
+[스레드 안전성](/ko/reference/threads#mutex)을 참고하십시오.
 
 ## 스코프 기반 Spawn {#scoped-spawn}
 
-`spawn_scoped(fn, arg)`는 `spawn`과 구별되는 컴파일러 내장 함수로서 -- 동일한
-시그니처와 가변 비정적 참조 거부 규칙을 가지지만, join이 감싸는 스코프가
-종료되기 전에 반드시 이루어지는 spawn을 위한 것입니다. `spawn`과 정확히
-똑같이 스레드 핸들을 반환하며, 여전히 `join`으로 명시적으로 join됩니다.
+`spawn_scoped(fn, arg)`는 `spawn`과 같은 시그니처를 가진 컴파일러 내장 함수로,
+시작한 함수가 반환하기 전에 join되는 스레드를 위한 것입니다. 컴파일러는 그
+함수의 모든 출구 경로에 join을 생성하며(호출 위치에 작성한 `defer`와 같은 순서),
+명시적인 `join(h)`가 더 일찍 올 수도 있습니다. 그래서 인자가 **지역 변수**를
+가리킬 수 있습니다.
+
+- 가변 참조는 값을 스레드에 넘겨줍니다(타입은 Send여야 함). 시작한 스레드는
+  `join(h)`까지 그 값을 건드릴 수 없습니다;
+- const 참조는 읽기용으로 공유합니다(타입은 Sync여야 함);
+- 스레드가 join될 때 지역 변수가 아직 존재해야 합니다.
 
 ```c
-?&int worker(?&int arg) {
+struct Counter { int n; };
+?&Counter work(?&Counter c) {
+    match (c) { case some(p): { p.n = p.n + 1; } case null: { } }
     return null;
 }
 
 void example() {
-    long long h = spawn_scoped(worker, null);
+    struct Counter c; c.n = 0;
+    long long h = spawn_scoped(work, &c);
+    // c.n = 5;        // ERROR: 'c' is lent to the thread started here by spawn_scoped
     join(h);
+    c.n = c.n + 1;     // OK: 스레드가 끝남
 }
 ```
 
@@ -179,7 +211,7 @@ void example() {
 | 내장 함수 | 시그니처 | 설명 |
 |----------|-----------|-------------|
 | `chan_create(capacity)` | `(int) -> ?&void` | 주어진 용량으로 채널을 생성하고, 불투명한 핸들을 반환 |
-| `chan_send(channel, value)` | `(?&void, &T) -> bool` | `*value`의 복사본을 전송; 성공 시 `true` 반환 |
+| `chan_send(channel, value)` | `(?&void, &T) -> bool` | `*value`를 전송(타입은 Send여야 하며, [Drop](/ko/reference/ownership) 값은 수신자에게 move됨); 성공 시 `true` 반환 |
 | `chan_recv(channel, out)` | `(?&void, &T) -> bool` | `*out`으로 값을 수신; 채널이 닫혀 있고 비어 있으면 `false` 반환 |
 | `chan_close(channel)` | `(?&void) -> void` | 채널을 닫음; 대기 중이거나 이후의 `chan_recv` 호출은 남은 값을 모두 소진한 후 `false`를 반환 |
 
@@ -212,27 +244,22 @@ int main() {
 ## 예제: 병렬 계산 {#example-parallel-computation}
 
 ```c
-#include <std/collections/slice.h>
+#include <std/collections/vec.h>
 extern int printf(const char* fmt, ...);
 
 struct WorkItem {
-    struct Slice<int> data;
+    const &Vec<int> data;       // 두 워커가 읽기용으로 공유
     unsigned long start;
     unsigned long end;
     long long result;
 };
-
-// Shared with the workers, so it lives in static storage: spawn only
-// accepts references that can't dangle while the thread runs.
-static struct WorkItem w1;
-static struct WorkItem w2;
 
 ?&WorkItem sum_range(?&WorkItem arg) {
     match (arg) {
         case some(w): {
             long long sum = 0LL;
             for (unsigned long i = w.start; i < w.end; i = i + 1UL) {
-                sum = sum + (long long)*w.data.at(i);   // bounds-checked
+                sum = sum + (long long)*w.data.at(i);   // 경계 검사됨
             }
             w.result = sum;
         }
@@ -243,19 +270,20 @@ static struct WorkItem w2;
 
 int main() {
     unsigned long n = 10000UL;
-    struct Slice<int> data = std::Slice::alloc(n);      // heap, runtime-sized
-    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.set(i, (int)i);
+    struct Vec<int> data = Vec::new();
+    for (unsigned long i = 0UL; i < n; i = i + 1UL) data.push((int)i);
 
-    w1.data = data; w1.start = 0UL;    w1.end = n / 2UL; w1.result = 0LL;
-    w2.data = data; w2.start = n / 2UL; w2.end = n;      w2.result = 0LL;
+    struct WorkItem w1; w1.data = &data; w1.start = 0UL;     w1.end = n / 2UL; w1.result = 0LL;
+    struct WorkItem w2; w2.data = &data; w2.start = n / 2UL; w2.end = n;       w2.result = 0LL;
 
-    long long h1 = spawn(sum_range, &w1);
-    long long h2 = spawn(sum_range, &w2);
+    // 각 워커는 join될 때까지 자기 WorkItem을 받고, 둘 다 'data'를 읽음.
+    long long h1 = spawn_scoped(sum_range, &w1);
+    long long h2 = spawn_scoped(sum_range, &w2);
     join(h1);
     join(h2);
 
     printf("Total: %lld\n", w1.result + w2.result);
-    data.free();
+    data.drop();
     return 0;
 }
 ```
