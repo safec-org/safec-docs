@@ -1984,7 +1984,7 @@ struct MpsBuf {
     int  read([]unsigned char dst) const;                 // 이 버퍼에 쓰는 배치가 모두 끝난 뒤 유효
     int  write([]const unsigned char src);
     static struct MpsBuf alloc(unsigned long n, int dtype);                 // 원소 n개
-    static struct SpirvBuf upload([]const float host);        // fp32 값 n개
+    static struct MpsBuf upload([]const float host);          // fp32 값
     static struct MpsBuf upload_f16([]const float host);    // CPU에서 반올림; upload_bf16도 있음
     static struct MpsBuf upload_bits([]const unsigned short bits, int dtype);  // 원시 fp16 / bf16
     static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
