@@ -29,7 +29,7 @@ region Frame { capacity: 4096 }
 
 struct Particle { float x; float v; };
 
-// The region is part of the type: this reference can't outlive the arena.
+// The region is part of the type: p can't outlive the arena.
 void step(&arena<Frame> Particle p, float dt) {
     p.x = p.x + p.v * dt;
 }

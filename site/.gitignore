@@ -4,3 +4,7 @@ client/build/
 client/deps/
 theme/site.wasm
 theme/safec_dom.js
+playground/build/
+playground/deps/
+theme/playground.wasm
+theme/scc/

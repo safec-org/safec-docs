@@ -137,10 +137,7 @@ void playground_hash(const &char code, unsigned long len, &String out);
 void link_rewrite(const &Site site, const &char href, &String out);
 
 // ── highlight.sc ─────────────────────────────────────────────────────────────
-
-// Appends 'code' (len bytes) HTML-escaped, with <span class="tok-..."> runs
-// for 'lang'.
-void highlight_code(const &char lang, const &char code, unsigned long len, &String out);
+#include "highlight.h"
 
 // ── releases.sc ──────────────────────────────────────────────────────────────
 

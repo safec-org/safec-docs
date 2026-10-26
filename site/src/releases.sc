@@ -421,7 +421,7 @@ void releases_add_pages(&Site site, &Vec<struct Page> pages) {
     if (cl_path.len > 0UL && File::read_to_string(cl_path.as_ptr(), &text)) {
         parse_changelog(&text, &cl);
     } else {
-        eprintln("safec-site: no SafeC CHANGELOG.md (set SAFEC_HOME); the changelog page lists releases only");
+        eprintln("safec-site: no CHANGELOG.md in $SAFEC_HOME (or $SAFEC_CHANGELOG); the changelog page lists releases only");
     }
     text.free(); cl_path.free();
 

@@ -29,7 +29,7 @@ region Frame { capacity: 4096 }
 
 struct Particle { float x; float v; };
 
-// 리전은 타입의 일부입니다: 이 참조는 아레나보다 오래 살 수 없습니다.
+// 리전은 타입의 일부: p는 아레나보다 오래 살 수 없습니다.
 void step(&arena<Frame> Particle p, float dt) {
     p.x = p.x + p.v * dt;
 }
