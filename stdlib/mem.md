@@ -191,7 +191,7 @@ Every function here takes and returns references, so none of this needs `unsafe`
 #include <std/io.h>
 
 int main() {
-    ?&heap void p = std::alloc(64UL);
+    ?&heap unsigned char p = std::alloc(64UL);
     std::dealloc(p);
     std::println("first dealloc OK");
     // The compiler rejects a second dealloc of p; unsafe opts out of that
