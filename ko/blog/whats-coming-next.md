@@ -6,7 +6,7 @@ tags: [unreleased, std, compiler, safety, breaking, tools]
 summary: "다음 릴리스에 포함될, SafeC main 브랜치의 모든 변경 기록입니다. 웹 스택, 비동기, GUI 툴킷, 오디오와 MIDI, HTTPS, safeguard doc과 publish, 온라인 플레이그라운드를 움직이는 셀프 호스팅 컴파일러, 그리고 두 가지 호환성을 깨는 변경 — void*와 포인터 + 길이 쌍이 없는 std API, 컴파일러가 강제하는 Drop과 Send/Sync — 을 다루며, 마이그레이션 가이드를 포함합니다."
 ---
 
-SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 많이 나아갔습니다. 이 글은 다음 릴리스에 들어갈 내용의 기록입니다. 그 뒤로 병합된 풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)부터 [#79](https://github.com/safec-org/SafeC/pull/79)까지를 영역별로 묶었습니다. 그중 두 가지는 **호환성을 깨는 변경**이며, 컴파일러가 영향을 받는 호출 지점마다 오류를 보고합니다. 코드를 고치는 방법은 끝의 [마이그레이션 가이드](#migration)에 있습니다.
+SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 많이 나아갔습니다. 이 글은 다음 릴리스에 들어갈 내용의 기록입니다. 그 뒤로 병합된 풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)부터 [#81](https://github.com/safec-org/SafeC/pull/81)까지를 영역별로 묶었습니다. 그중 두 가지는 **호환성을 깨는 변경**이며, 컴파일러가 영향을 받는 호출 지점마다 오류를 보고합니다. 코드를 고치는 방법은 끝의 [마이그레이션 가이드](#migration)에 있습니다.
 
 이 사이트가 [변경 내역](/ko/changelog)으로 보여 주는 SafeC의 [`CHANGELOG.md`](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md)는 후반부의 변경 — `safeguard doc`과 `publish`, scc, 슬라이스 API, 소유권 검사 — 을 *Unreleased* 아래에 개별 시그니처 수준까지 기록합니다. 이번 주기의 앞부분 — 웹 스택, 비동기, GUI 툴킷, 오디오, HTTPS — 은 [이번 주기의 SafeC](/ko/blog/this-release-cycle)에 더 자세히 정리되어 있습니다.
 
@@ -21,7 +21,7 @@ SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이
 | [HTTPS](#https) | `std/tls`: OS의 TLS, 대체 경로로 SafeC TLS 1.3 | [#66](https://github.com/safec-org/SafeC/pull/66) |
 | [safeguard doc과 publish](#safeguard-doc) | rustdoc 스타일 API 레퍼런스; CI를 포함한 라이브러리 배포 | [#69](https://github.com/safec-org/SafeC/pull/69) |
 | [scc와 플레이그라운드](#scc) | SafeC로 작성되어 WebAssembly로 컴파일하는 SafeC 컴파일러 | [#70](https://github.com/safec-org/SafeC/pull/70) |
-| [`void*` 대신 슬라이스](#slices) — **호환성 깨짐** | std 공개 API가 슬라이스와 타입 있는 소거를 사용 | [#76](https://github.com/safec-org/SafeC/pull/76) |
+| [`void*` 대신 슬라이스](#slices) — **호환성 깨짐** | std 공개 API가 슬라이스와 타입 있는 소거를 사용; std 어디에도 `void*`가 남지 않음 | [#76](https://github.com/safec-org/SafeC/pull/76), [#80](https://github.com/safec-org/SafeC/pull/80), [#81](https://github.com/safec-org/SafeC/pull/81) |
 | [Drop, Send, Sync](#ownership) — **호환성 깨짐** | 컴파일러가 검사하는 소유권과 스레드 안전성 | [#77](https://github.com/safec-org/SafeC/pull/77) |
 | [수정 사항](#fixes) | 코드 생성, 안전성 검사의 빈틈, Windows·macOS CI | [#64](https://github.com/safec-org/SafeC/pull/64), [#68](https://github.com/safec-org/SafeC/pull/68), [#71](https://github.com/safec-org/SafeC/pull/71)–[#75](https://github.com/safec-org/SafeC/pull/75), [#78](https://github.com/safec-org/SafeC/pull/78), [#79](https://github.com/safec-org/SafeC/pull/79) |
 
@@ -68,7 +68,7 @@ scc는 이 사이트의 [플레이그라운드](/ko/playground)를 움직입니�
 - **언어도 그에 맞게 자랐습니다:** [읽기 전용 슬라이스](/ko/reference/types#read-only-slices) `[]const T`, [옵셔널 슬라이스](/ko/reference/types#optional-slices) `?[]T`와 널 가능 함수 참조 `?fn R(Args)`, 슬라이스를 반환하는 함수와 슬라이스 필드, 범위 검사되는 재슬라이싱(`unsafe` 밖에서 `i > j`나 `j > len`이면 `a[i..j]`가 트랩), `char`·`signed char`·`unsigned char` 사이에서 상호 변환되는 바이트 슬라이스. 슬라이스를 포인터로 캐스트하는 것은 이제 오류이며, `s.ptr`을 쓰세요.
 - std에 새로 추가: `Erased`, `S24`(패킹된 24비트 오디오 샘플로, 24비트 버퍼는 `[]S24`), `struct TimeFields`, `Vec::from_slice` / `as_slice`, `String::from_bytes` / `push_bytes` / `as_bytes`, 그리고 `StaticVec`, `StaticMap`, `RingBuffer`, `LFQueue`와 할당기의 `over([]T)` 생성자.
 
-SafeC 테스트 스위트의 린트는 이제 std 공개 선언에 원시 포인터가 다시 나타나면 빌드를 실패시킵니다.
+[#80](https://github.com/safec-org/SafeC/pull/80)과 [#81](https://github.com/safec-org/SafeC/pull/81)이 std 내부까지 마무리했습니다: 오디오, GUI, ML, TLS, OS 백엔드가 C, Objective-C, CUDA, HIP, Metal, Vulkan, WebGPU API를 타입 있는 핸들과 바이트 포인터로 바인딩하고, 오디오·MIDI 콜백 컨텍스트는 `Send + Sync`여야 하며, 할당자는 `?&heap unsigned char`를 내주고, `malloc_defer`는 선언에서 타입을 가져옵니다. 이제 std 어디에도 `void*`가 없으며, SafeC 테스트 스위트의 린트는 `void*`가 다시 나타나거나 std 공개 선언에 원시 포인터가 다시 나타나면 빌드를 실패시킵니다.
 
 ## 호환성 깨짐: 컴파일러가 강제하는 Drop, Send, Sync {#ownership}
 
