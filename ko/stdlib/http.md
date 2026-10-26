@@ -4,7 +4,7 @@
 
 | 헤더 | 제공하는 것 |
 |---|---|
-| `std/http/http.h` | `HttpRequest`/`HttpResponse`, `HttpServer`, 클라이언트(`http_fetch`, `http_request`), 청크 인코딩, `TcpStream` |
+| `std/http/http.h` | `HttpRequest`/`HttpResponse`, `HttpServer`, 클라이언트(`http_fetch`, `http_request`), 청크 인코딩, `TcpStream`, `http_open_stream` |
 | `std/http/headers.h` | `HttpHeaders`(구조화된 헤더 맵), 헤더 파라미터 |
 | `std/http/router.h` | `Router`, 미들웨어, `HttpCtx` |
 | `std/http/route.h` | 경로 패턴(`/users/:id`, `/files/*path`), 소켓 없이 사용 가능 |
@@ -18,7 +18,7 @@
 
 그 아래의 논블로킹 소켓 계층(`std/sched/io_nb.h`)은 플랫폼마다 하나의 백엔드(`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`)를 가지며, `safeguard`가 타깃에 맞는 것을 컴파일하므로 직접 포함하거나 선택할 것이 없습니다. HTML 템플릿은 [scx](/ko/advanced/scx)를 참고하십시오.
 
-범위: 평문 TCP 위의 HTTP/1.1과 1.0입니다. 본문은 `Content-Length`로 구분되거나, 청크 인코딩이거나(양쪽 모두 디코딩), 응답이라면 연결이 닫힐 때까지 이어질 수 있습니다. TLS가 없으므로 `https://`는 지원하지 않으며([HTTPS](#https) 참고), HTTP/2도 없습니다.
+범위: 평문 TCP 또는 TLS([HTTPS](#https): `https://`와 `wss://` URL, HTTPS 서버) 위의 HTTP/1.1과 1.0입니다. 본문은 `Content-Length`로 구분되거나, 청크 인코딩이거나(양쪽 모두 디코딩), 응답이라면 연결이 닫힐 때까지 이어질 수 있습니다. HTTP/2는 없습니다.
 
 ## 빠른 시작 {#quick-start}
 
@@ -67,8 +67,9 @@ struct HttpServerConfig {
     int           max_requests_per_conn;   // 0 = unlimited
     unsigned long max_header_bytes; // request line + headers; larger gets 431
     unsigned long max_body_bytes;   // Content-Length or chunked total; larger gets 413
+    ?&TlsServerConfig tls;          // HTTPS when set (see HTTPS below); null = plain HTTP
     // 8 threads, keep-alive (5 s idle), 30 s I/O timeout, 1000 requests per
-    // connection, 64 KiB of headers, 16 MiB of body.
+    // connection, 64 KiB of headers, 16 MiB of body, no TLS.
     static struct HttpServerConfig defaults(unsigned short port);
 };
 
@@ -525,8 +526,11 @@ struct SseParser {                     // incremental text/event-stream parser
     void free();
 };
 
-struct SseClient {                     // client side (http:// URLs)
+struct SseClient {                     // client side (http:// and https:// URLs)
     static struct SseClient connect(const &char url, const ?&char last_event_id, int timeout_ms, ?&int ok);
+    // with https:// settings (null: TlsConfig::new()'s defaults)
+    static struct SseClient connect_tls(const &char url, const ?&char last_event_id, const ?&TlsConfig cfg,
+                                        int timeout_ms, ?&int ok);
     int  next(&SseEvent out);          // blocks; 0 once the stream ended
     void close();
 };
@@ -563,6 +567,8 @@ struct HttpClientOptions {
     int           io_timeout_ms;       // per send/receive; default 30 s; 0 = none
     int           decompress;          // Accept-Encoding: gzip, deflate + decode (default 1)
     unsigned long max_body_bytes;      // default 64 MiB; 0 = no limit
+    ?&TlsConfig   tls;                 // https:// settings; null = TlsConfig::new()'s defaults
+    ?&TlsError    tls_error;           // if set, receives why a TLS connection failed
     static struct HttpClientOptions defaults();
 };
 
@@ -576,7 +582,7 @@ struct HttpResponse http_post_url(const &char url, const &char content_type,
 int http_decode_body(&HttpResponse resp, unsigned long max_out);   // undo Content-Encoding in place
 ```
 
-`http_fetch`는 리다이렉트를 따라가며 `Location`을 현재 URL 기준으로 해석합니다. 301, 302, 303은 `HEAD`를 제외한 모든 메서드를 본문 없는 `GET`으로 바꾸고, 307과 308은 요청을 그대로 다시 보냅니다. gzip 또는 deflate 본문은 디코딩하고 `Content-Encoding` 헤더를 제거합니다. `*ok`는 잘못되었거나 `http://`가 아닌 URL, 전송 실패, 잘못된 응답, `max_redirects`를 넘는 리다이렉트, 한도를 넘는 본문에서 0이 됩니다. 4xx나 5xx 상태로 끝난 교환도 `*ok = 1`이므로 `resp.status`를 확인하십시오.
+`http_fetch`는 리다이렉트를 따라가며 `Location`을 현재 URL 기준으로 해석합니다. 301, 302, 303은 `HEAD`를 제외한 모든 메서드를 본문 없는 `GET`으로 바꾸고, 307과 308은 요청을 그대로 다시 보냅니다. gzip 또는 deflate 본문은 디코딩하고 `Content-Encoding` 헤더를 제거합니다. `*ok`는 잘못되었거나 `http(s)://`가 아닌 URL, 전송 또는 TLS 실패(`opts.tls_error`가 무엇인지 알려 줌), 잘못된 응답, `max_redirects`를 넘는 리다이렉트, 한도를 넘는 본문에서 0이 됩니다. 4xx나 5xx 상태로 끝난 교환도 `*ok = 1`이므로 `resp.status`를 확인하십시오.
 
 클라이언트는 청크 본문과 서버가 닫을 때까지 이어지는 본문을 읽고, 중간 1xx 응답은 건너뜁니다. 요청마다 새 연결을 씁니다(`Connection: close`).
 
@@ -603,6 +609,11 @@ struct HttpResponse http_post(const &char host, unsigned short port, const &char
                               const &char content_type,
                               const ?&unsigned char body, unsigned long body_len, ?&int ok);
 int http_resolve_host(const &char host, &unsigned int addr_out);   // 1 on success
+// Connect (and, with tls, a TLS client handshake; cfg null = defaults with
+// ALPN "http/1.1"). fd -1 on failure, *err says why.
+struct TcpStream http_open_stream(const &char host, unsigned short port, int tls,
+                                  const ?&TlsConfig cfg, int connect_timeout_ms,
+                                  int io_timeout_ms, ?&TlsError err);
 ```
 
 이 함수들은 리다이렉트를 따라가거나 압축을 풀지 않습니다. `http_request`는 `HTTP_DEFAULT_CONNECT_TIMEOUT_MS`(30초) 후 연결을 포기하지만 응답 읽기에는 제한이 없으므로, 제한하려면 `http_request_timeout`을 쓰십시오. 둘 다 DNS 해석은 다루지 않으며, 그것은 시스템 리졸버 자체 설정만이 제한합니다. 청크 요청 본문을 보내려면 `extra_headers`에 `Transfer-Encoding: chunked`를 넣고 `http_chunked_encode`/`http_chunked_end`로 만든 본문을 넘기십시오.
@@ -621,24 +632,57 @@ void          http_civil_from_days(long long days, &long long year, &int month, 
 
 ## HTTPS {#https}
 
-HTTPS 클라이언트나 서버는 없습니다. [`std/crypto/tls.h`](/ko/stdlib/crypto)는 TLS 1.3 레코드 계층 — 트래픽 키가 주어졌을 때의 AES-256-GCM 레코드 보호 — 이며 핸드셰이크가 없습니다. 동작하는 클라이언트에는 다음도 필요합니다:
+`https://` URL은 URL을 받는 모든 곳에서 동작합니다. `http_fetch`, `http_get_url`, `http_post_url`, http와 https 사이의 리다이렉트, `SseClient`가 그렇고, `wss://`는 `WsConn::connect_url`로 씁니다. TLS는 [`std/tls`](/ko/stdlib/tls)가 제공합니다. 운영체제의 TLS 라이브러리(Linux/BSD에서는 실행 시간에 불러오는 OpenSSL, Windows는 SChannel, macOS는 SecureTransport)가 있으면 그것을, 없으면 SafeC 자체 TLS 1.3을 씁니다. 서버 인증서는 기본으로 시스템의 신뢰 루트와 이름에 대해 검증합니다.
 
-- 키 교환: X25519 또는 P-256 ECDHE(std에는 두 곡선 모두 없음);
-- TLS 1.3 키 스케줄: `TLS_AES_256_GCM_SHA384` 스위트를 위한 SHA-384 기반 HKDF;
-- 인증서 검증: RSA-PSS/PKCS#1과 ECDSA 서명 확인, 신뢰 앵커까지의 체인 구성, 이름과 유효기간 확인(`std/crypto/x509.h`는 인증서를 파싱하지만 서명은 검증하지 않음);
-- 루트 저장소: 플랫폼의 것(Keychain, Windows 저장소, `/etc/ssl`) 또는 번들된 것.
+```c
+int ok = 0;
+struct HttpResponse r = std::http_get_url("https://example.com/", &ok);
+```
 
-마지막 두 가지가 없으면 클라이언트는 암호화는 하지만 진짜 서버와 공격자를 구별할 수 없으므로, 이 모듈은 그런 것을 제공하는 대신 `https://` URL을 거부합니다. 지금 HTTPS가 필요하면 TLS를 종료하는 리버스 프록시(nginx, Caddy) 뒤에서 SafeC를 실행하거나, C 인터페이스로 TLS 라이브러리를 호출하십시오.
+그 밖의 설정(자체 CA, 클라이언트 인증서, 백엔드)은 `HttpClientOptions::tls`에 [`TlsConfig`](/ko/stdlib/tls#configuration)로 주고, TLS 쪽이 실패하면 `tls_error`가 이유를 받습니다.
+
+```c
+struct TlsConfig tc = std::TlsConfig::new();
+tc.set_ca_file("internal-ca.pem");             // trust a private CA as well
+struct TlsError te = std::TlsError::none();
+struct HttpClientOptions o = std::HttpClientOptions::defaults();
+o.tls = &tc;
+o.tls_error = &te;
+struct HttpResponse r = std::http_fetch("GET", "https://intranet.example/api", null, null, 0UL, &o, null, &ok);
+if (!ok && te.code != TLS_OK) { std::println(te.message); }   // e.g. "the certificate has expired"
+r.free();
+tc.free();
+```
+
+호스트/포트 함수(`http_request`, `http_get`, ...)는 평문 HTTP 그대로입니다. 자체 프로토콜에 TLS가 필요하면 `http_open_stream`이 연결(과 핸드셰이크)을 하고, TLS를 거쳐 읽고 쓰는 [`TcpStream`](#tcp-streams)을 돌려줍니다.
+
+**HTTPS 서버**는 설정에 `TlsServerConfig`를 지정한 `HttpServer`입니다. 모든 연결이 TLS 핸드셰이크로 시작하며, 라우터, 정적 파일, SSE, WebSocket 업그레이드(`wss://`)가 그 위에서 그대로 동작합니다.
+
+```c
+struct TlsServerConfig tc = std::TlsServerConfig::new();
+tc.load_files("cert.pem", "key.pem");          // chain + key, PEM
+struct HttpServerConfig cfg = std::HttpServerConfig::defaults(8443);
+cfg.tls = &tc;                                  // only needed during bind()
+int ok = 0;
+struct HttpServer srv = std::HttpServer::bind(&cfg, &ok);   // ok = 0 if the certificate or key won't load
+tc.free();
+srv.serve(handler);
+```
+
+`bind`는 설정으로 `TlsAcceptor`를 만듭니다. 실패하면 `std::TlsAcceptor::new(&tc)`가 이유를 알려 줍니다. `http_serve_reactor`(논블로킹 서버)에는 TLS가 없습니다.
 
 ## TCP 스트림 {#tcp-streams}
 
-평문 TCP 연결 위에서 자체 프로토콜을 쓰려면 연결된 소켓을 `TcpStream`으로 감쌉니다. `http_request`와 `WsConn`이 사용하는 스트림이며 [`Stream`](/ko/stdlib/io#io-traits)(`Reader + Writer`)이므로 `read_exact`, `write_all`, `copy_stream`, [`BufReader`와 `BufWriter`](/ko/stdlib/io#buffered-io)를 그대로 쓸 수 있습니다. 쓰기는 `SIGPIPE`를 일으키지 않으며, 상대가 사라졌으면 -1을 반환합니다.
+TCP 연결 위에서 자체 프로토콜을 쓰려면 연결된 소켓을 `TcpStream`으로 감쌉니다. `http_request`와 `WsConn`이 사용하는 스트림이며 [`Stream`](/ko/stdlib/io#io-traits)(`Reader + Writer`)이므로 `read_exact`, `write_all`, `copy_stream`, [`BufReader`와 `BufWriter`](/ko/stdlib/io#buffered-io)를 그대로 쓸 수 있습니다. 쓰기는 `SIGPIPE`를 일으키지 않으며, 상대가 사라졌으면 -1을 반환합니다. `tls`가 설정되어 있으면 그 [TLS 스트림](/ko/stdlib/tls)을 거쳐 읽고 씁니다.
 
 ```c
 struct TcpStream {
     int fd;
+    ?&heap TlsStream tls;                       // null: plain TCP
 
     static struct TcpStream from_fd(int fd);   // the stream owns fd from then on
+    static struct TcpStream over_tls(&heap TlsStream t);   // owns the TLS stream (and its socket)
+    int is_tls() const;
 
     long long read(&unsigned char buf, unsigned long n);         // count, 0 once the peer closed, -1 on error
     long long write(const &unsigned char buf, unsigned long n);  // count, -1 on error
@@ -786,7 +830,7 @@ struct OAuth2Token {
 #include <std/http/websocket.h>
 ```
 
-`http.h`와 같은 블로킹 소켓 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. `conn.recv()`는 프레임 하나씩(조각과 핑 포함) 돌려주고, `conn.recv_message()`는 조각난 메시지를 재조립하며 핑에는 스스로 퐁으로 답하고 퐁은 건너뜁니다. 서버는 자신의 소켓에서 받거나(`ws_listen` + `accept`), [`HttpServer`/`Router`](#router)에 도착한 요청을 업그레이드하므로(`accept_upgrade`) HTTP와 WebSocket이 한 포트를 함께 씁니다. 확장(permessage-deflate)과 `wss://`는 지원하지 않습니다.
+`http.h`와 같은 블로킹 소켓 위, TCP(`ws://`) 또는 TLS(`wss://`) 위의 RFC 6455 클라이언트와 서버입니다. RFC가 요구하는 대로 클라이언트 프레임은 마스킹하고 서버 프레임은 마스킹하지 않습니다. `conn.recv()`는 프레임 하나씩(조각과 핑 포함) 돌려주고, `conn.recv_message()`는 조각난 메시지를 재조립하며 핑에는 스스로 퐁으로 답하고 퐁은 건너뜁니다. 서버는 자신의 소켓에서 받거나(`ws_listen` + `accept`), [`HttpServer`/`Router`](#router)에 도착한 요청을 업그레이드하므로(`accept_upgrade`) HTTP와 WebSocket이 한 포트를 함께 씁니다. HTTPS 서버라면 그것이 `wss://`입니다. 확장(permessage-deflate)은 지원하지 않습니다.
 
 핸드셰이크는 연결의 [`TcpStream`](#tcp-streams) 위에 놓인 [`BufReader`](/ko/stdlib/io#buffered-io)로 읽고, 각 프레임은 `BufWriter`를 거쳐 씁니다: 헤더, 마스크 키, 버퍼에 들어가는 페이로드가 한 번의 쓰기로 나가며, 더 큰 페이로드는 그 뒤에 이어서 흘려 보냅니다.
 
@@ -807,6 +851,7 @@ struct WsMessage {
 
 struct WsConn {
     int fd;
+    ?&heap TlsStream tls;   // a wss:// connection's TLS session, else null
     int is_server;   // 1: accepted server-side (sends unmasked, expects masked)
 
     // Client: TCP connect + Upgrade handshake, verifying Sec-WebSocket-Accept.
@@ -816,8 +861,12 @@ struct WsConn {
     static struct WsConn connect(const &char host, unsigned short port, const &char path, ?&int ok);
     static struct WsConn connect_timeout(const &char host, unsigned short port, const &char path,
                                          int timeout_ms, ?&int ok);
-    // ws://host:port/path?query
+    // ... over TLS when tls is set (cfg null: TlsConfig::new()'s defaults)
+    static struct WsConn connect_tls(const &char host, unsigned short port, const &char path,
+                                     int tls, const ?&TlsConfig cfg, int timeout_ms, ?&int ok);
+    // ws://host:port/path?query or wss://... (port 443 by default)
     static struct WsConn connect_url(const &char url, int timeout_ms, ?&int ok);
+    static struct WsConn connect_url_tls(const &char url, const ?&TlsConfig cfg, int timeout_ms, ?&int ok);
     // Server side of a request an HttpServer/Router handler received: writes
     // the 101 response and detaches the connection. *ok = 0 if req isn't a
     // version-13 upgrade (answer it normally then, e.g. 426).

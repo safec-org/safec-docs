@@ -4,7 +4,7 @@ An HTTP/1.1 server and client for building web applications: a configurable keep
 
 | Header | What it gives you |
 |---|---|
-| `std/http/http.h` | `HttpRequest`/`HttpResponse`, `HttpServer`, the client (`http_fetch`, `http_request`), chunked coding, `TcpStream` |
+| `std/http/http.h` | `HttpRequest`/`HttpResponse`, `HttpServer`, the client (`http_fetch`, `http_request`), chunked coding, `TcpStream`, `http_open_stream` |
 | `std/http/headers.h` | `HttpHeaders` (structured header map), header parameters |
 | `std/http/router.h` | `Router`, middleware, `HttpCtx` |
 | `std/http/route.h` | path patterns (`/users/:id`, `/files/*path`), usable without sockets |
@@ -18,7 +18,7 @@ An HTTP/1.1 server and client for building web applications: a configurable keep
 
 The non-blocking socket layer underneath (`std/sched/io_nb.h`) has one backend per platform (`io_nb_linux.sc`, `io_nb_bsd.sc`, `io_nb_win32.sc`); `safeguard` compiles the one matching the target, so there is nothing to include or select by hand. For HTML templating see [scx](/advanced/scx).
 
-Scope: HTTP/1.1 and 1.0 over plain TCP. Bodies may be `Content-Length`-delimited, chunked (decoded on both sides) or, for responses, run until the connection closes. There is no TLS, so `https://` is not supported (see [HTTPS](#https)), and no HTTP/2.
+Scope: HTTP/1.1 and 1.0, over plain TCP or TLS ([HTTPS](#https): `https://` and `wss://` URLs, HTTPS servers). Bodies may be `Content-Length`-delimited, chunked (decoded on both sides) or, for responses, run until the connection closes. No HTTP/2.
 
 ## Quick start {#quick-start}
 
@@ -67,8 +67,9 @@ struct HttpServerConfig {
     int           max_requests_per_conn;   // 0 = unlimited
     unsigned long max_header_bytes; // request line + headers; larger gets 431
     unsigned long max_body_bytes;   // Content-Length or chunked total; larger gets 413
+    ?&TlsServerConfig tls;          // HTTPS when set (see HTTPS below); null = plain HTTP
     // 8 threads, keep-alive (5 s idle), 30 s I/O timeout, 1000 requests per
-    // connection, 64 KiB of headers, 16 MiB of body.
+    // connection, 64 KiB of headers, 16 MiB of body, no TLS.
     static struct HttpServerConfig defaults(unsigned short port);
 };
 
@@ -525,8 +526,11 @@ struct SseParser {                     // incremental text/event-stream parser
     void free();
 };
 
-struct SseClient {                     // client side (http:// URLs)
+struct SseClient {                     // client side (http:// and https:// URLs)
     static struct SseClient connect(const &char url, const ?&char last_event_id, int timeout_ms, ?&int ok);
+    // with https:// settings (null: TlsConfig::new()'s defaults)
+    static struct SseClient connect_tls(const &char url, const ?&char last_event_id, const ?&TlsConfig cfg,
+                                        int timeout_ms, ?&int ok);
     int  next(&SseEvent out);          // blocks; 0 once the stream ended
     void close();
 };
@@ -563,6 +567,8 @@ struct HttpClientOptions {
     int           io_timeout_ms;       // per send/receive; default 30 s; 0 = none
     int           decompress;          // Accept-Encoding: gzip, deflate + decode (default 1)
     unsigned long max_body_bytes;      // default 64 MiB; 0 = no limit
+    ?&TlsConfig   tls;                 // https:// settings; null = TlsConfig::new()'s defaults
+    ?&TlsError    tls_error;           // if set, receives why a TLS connection failed
     static struct HttpClientOptions defaults();
 };
 
@@ -576,7 +582,7 @@ struct HttpResponse http_post_url(const &char url, const &char content_type,
 int http_decode_body(&HttpResponse resp, unsigned long max_out);   // undo Content-Encoding in place
 ```
 
-`http_fetch` follows redirects, resolving `Location` against the current URL. 301, 302 and 303 turn any method except `HEAD` into a bodyless `GET`; 307 and 308 resend the request unchanged. A gzip or deflate body is decoded and its `Content-Encoding` header removed. `*ok` is 0 for a bad or non-`http://` URL, a transport failure, a malformed response, more than `max_redirects` redirects, or a body over the limit. A completed exchange with a 4xx or 5xx status still sets `*ok = 1`; check `resp.status`.
+`http_fetch` follows redirects, resolving `Location` against the current URL. 301, 302 and 303 turn any method except `HEAD` into a bodyless `GET`; 307 and 308 resend the request unchanged. A gzip or deflate body is decoded and its `Content-Encoding` header removed. `*ok` is 0 for a bad or non-`http(s)://` URL, a transport or TLS failure (`opts.tls_error` says which), a malformed response, more than `max_redirects` redirects, or a body over the limit. A completed exchange with a 4xx or 5xx status still sets `*ok = 1`; check `resp.status`.
 
 The client reads chunked bodies, bodies that run until the server closes, and skips interim 1xx responses. Each request uses a new connection (`Connection: close`).
 
@@ -603,6 +609,11 @@ struct HttpResponse http_post(const &char host, unsigned short port, const &char
                               const &char content_type,
                               const ?&unsigned char body, unsigned long body_len, ?&int ok);
 int http_resolve_host(const &char host, &unsigned int addr_out);   // 1 on success
+// Connect (and, with tls, a TLS client handshake; cfg null = defaults with
+// ALPN "http/1.1"). fd -1 on failure, *err says why.
+struct TcpStream http_open_stream(const &char host, unsigned short port, int tls,
+                                  const ?&TlsConfig cfg, int connect_timeout_ms,
+                                  int io_timeout_ms, ?&TlsError err);
 ```
 
 These don't follow redirects or decompress. `http_request` gives up on the connect after `HTTP_DEFAULT_CONNECT_TIMEOUT_MS` (30 s) but doesn't limit reading the response; use `http_request_timeout` for that. Neither covers DNS resolution, which only the system resolver's own settings bound. To send a chunked request body, pass `Transfer-Encoding: chunked` in `extra_headers` and a body built with `http_chunked_encode`/`http_chunked_end`.
@@ -621,24 +632,57 @@ void          http_civil_from_days(long long days, &long long year, &int month, 
 
 ## HTTPS {#https}
 
-There is no HTTPS client or server. [`std/crypto/tls.h`](/stdlib/crypto) is the TLS 1.3 record layer — AES-256-GCM record protection given traffic keys — with no handshake. A working client would also need:
+`https://` URLs work everywhere a URL does — `http_fetch`, `http_get_url`, `http_post_url`, redirects between http and https, `SseClient` — and `wss://` with `WsConn::connect_url`. The TLS comes from [`std/tls`](/stdlib/tls): the operating system's TLS library where there is one (OpenSSL loaded at run time on Linux/BSD, SChannel on Windows, SecureTransport on macOS), SafeC's own TLS 1.3 otherwise. The server's certificate is verified against the system's trusted roots and its name, by default:
 
-- key exchange: X25519 or P-256 ECDHE (std has neither curve);
-- the TLS 1.3 key schedule: HKDF over SHA-384 for the `TLS_AES_256_GCM_SHA384` suite;
-- certificate verification: RSA-PSS/PKCS#1 and ECDSA signature checks, chain building to a trust anchor, name and validity checks (`std/crypto/x509.h` parses certificates but verifies no signatures);
-- a root store: the platform's (Keychain, the Windows store, `/etc/ssl`) or a bundled one.
+```c
+int ok = 0;
+struct HttpResponse r = std::http_get_url("https://example.com/", &ok);
+```
 
-Without the last two, a client would encrypt but couldn't tell the real server from an attacker, so this module refuses `https://` URLs rather than offer that. For HTTPS today, run SafeC behind a TLS-terminating reverse proxy (nginx, Caddy), or call a TLS library through the C interface.
+`HttpClientOptions::tls` takes a [`TlsConfig`](/stdlib/tls#configuration) for anything else — your own CA, a client certificate, a backend — and `tls_error` receives the reason when the TLS side fails:
+
+```c
+struct TlsConfig tc = std::TlsConfig::new();
+tc.set_ca_file("internal-ca.pem");             // trust a private CA as well
+struct TlsError te = std::TlsError::none();
+struct HttpClientOptions o = std::HttpClientOptions::defaults();
+o.tls = &tc;
+o.tls_error = &te;
+struct HttpResponse r = std::http_fetch("GET", "https://intranet.example/api", null, null, 0UL, &o, null, &ok);
+if (!ok && te.code != TLS_OK) { std::println(te.message); }   // e.g. "the certificate has expired"
+r.free();
+tc.free();
+```
+
+The host/port functions (`http_request`, `http_get`, ...) stay plain HTTP. For TLS on your own protocol, `http_open_stream` connects (and handshakes) and returns a [`TcpStream`](#tcp-streams) that reads and writes through TLS.
+
+An **HTTPS server** is an `HttpServer` whose config names a `TlsServerConfig`: every connection starts with a TLS handshake, and routers, static files, SSE and WebSocket upgrades (`wss://`) work over it unchanged.
+
+```c
+struct TlsServerConfig tc = std::TlsServerConfig::new();
+tc.load_files("cert.pem", "key.pem");          // chain + key, PEM
+struct HttpServerConfig cfg = std::HttpServerConfig::defaults(8443);
+cfg.tls = &tc;                                  // only needed during bind()
+int ok = 0;
+struct HttpServer srv = std::HttpServer::bind(&cfg, &ok);   // ok = 0 if the certificate or key won't load
+tc.free();
+srv.serve(handler);
+```
+
+`bind` builds a `TlsAcceptor` from the config; when it fails, `std::TlsAcceptor::new(&tc)` gives the reason. `http_serve_reactor` (the non-blocking server) has no TLS.
 
 ## TCP Streams {#tcp-streams}
 
-For your own protocol on a plain TCP connection, wrap the connected socket in a `TcpStream`. It is the stream `http_request` and `WsConn` use, and it is a [`Stream`](/stdlib/io#io-traits) (`Reader + Writer`), so `read_exact`, `write_all`, `copy_stream`, [`BufReader` and `BufWriter`](/stdlib/io#buffered-io) work on it. Writes never raise `SIGPIPE`; a peer that has gone away gives -1.
+For your own protocol on a TCP connection, wrap the connected socket in a `TcpStream`. It is the stream `http_request` and `WsConn` use, and it is a [`Stream`](/stdlib/io#io-traits) (`Reader + Writer`), so `read_exact`, `write_all`, `copy_stream`, [`BufReader` and `BufWriter`](/stdlib/io#buffered-io) work on it. Writes never raise `SIGPIPE`; a peer that has gone away gives -1. With `tls` set, it reads and writes through that [TLS stream](/stdlib/tls) instead.
 
 ```c
 struct TcpStream {
     int fd;
+    ?&heap TlsStream tls;                       // null: plain TCP
 
     static struct TcpStream from_fd(int fd);   // the stream owns fd from then on
+    static struct TcpStream over_tls(&heap TlsStream t);   // owns the TLS stream (and its socket)
+    int is_tls() const;
 
     long long read(&unsigned char buf, unsigned long n);         // count, 0 once the peer closed, -1 on error
     long long write(const &unsigned char buf, unsigned long n);  // count, -1 on error
@@ -787,7 +831,7 @@ parameters and left to the caller.
 #include <std/http/websocket.h>
 ```
 
-RFC 6455 client and server on the same blocking sockets as `http.h`. Client frames are masked and server frames unmasked, as the RFC requires. `conn.recv()` returns single frames (fragments and pings included); `conn.recv_message()` reassembles fragmented messages, answers pings with a pong itself and skips pongs. A server either accepts on a socket of its own (`ws_listen` + `accept`) or upgrades a request that reached an [`HttpServer`/`Router`](#router) (`accept_upgrade`), so HTTP and WebSocket share one port. No extensions (permessage-deflate) and no `wss://`.
+RFC 6455 client and server on the same blocking sockets as `http.h`, over TCP (`ws://`) or TLS (`wss://`). Client frames are masked and server frames unmasked, as the RFC requires. `conn.recv()` returns single frames (fragments and pings included); `conn.recv_message()` reassembles fragmented messages, answers pings with a pong itself and skips pongs. A server either accepts on a socket of its own (`ws_listen` + `accept`) or upgrades a request that reached an [`HttpServer`/`Router`](#router) (`accept_upgrade`), so HTTP and WebSocket share one port — on an HTTPS server that is `wss://`. No extensions (permessage-deflate).
 
 The handshake is read through a [`BufReader`](/stdlib/io#buffered-io) over the connection's [`TcpStream`](#tcp-streams), and each frame is written through a `BufWriter`: the header, the mask key and a payload that fits the buffer leave in one write, and a larger payload streams through after them.
 
@@ -808,6 +852,7 @@ struct WsMessage {
 
 struct WsConn {
     int fd;
+    ?&heap TlsStream tls;   // a wss:// connection's TLS session, else null
     int is_server;   // 1: accepted server-side (sends unmasked, expects masked)
 
     // Client: TCP connect + Upgrade handshake, verifying Sec-WebSocket-Accept.
@@ -817,8 +862,12 @@ struct WsConn {
     static struct WsConn connect(const &char host, unsigned short port, const &char path, ?&int ok);
     static struct WsConn connect_timeout(const &char host, unsigned short port, const &char path,
                                          int timeout_ms, ?&int ok);
-    // ws://host:port/path?query
+    // ... over TLS when tls is set (cfg null: TlsConfig::new()'s defaults)
+    static struct WsConn connect_tls(const &char host, unsigned short port, const &char path,
+                                     int tls, const ?&TlsConfig cfg, int timeout_ms, ?&int ok);
+    // ws://host:port/path?query or wss://... (port 443 by default)
     static struct WsConn connect_url(const &char url, int timeout_ms, ?&int ok);
+    static struct WsConn connect_url_tls(const &char url, const ?&TlsConfig cfg, int timeout_ms, ?&int ok);
     // Server side of a request an HttpServer/Router handler received: writes
     // the 101 response and detaches the connection. *ok = 0 if req isn't a
     // version-13 upgrade (answer it normally then, e.g. 426).
