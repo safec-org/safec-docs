@@ -18,6 +18,17 @@ struct HashMap<int, long long> m = std::HashMap::new();  // K, V from the declar
 A `?&T` returned by `get()`/`front()`/`find()` points into the container's storage. It stays valid until the next call that can move or drop elements — growing a `Vec` (`push`, `insert`, `reserve`), any `HashMap::insert`/`remove`, removing that `List`/`BST` node, or `free()`.
 :::
 
+## Containers own their elements {#ownership}
+
+A container owns the values in it, and an element may own something itself (a `String`, a `Vec`, a struct with a `drop()`). Every container treats such elements the way `Vec` does:
+
+- `push`/`insert`/`set` take the value by value; one the container can't store (out of memory, a full `StaticVec`/`StaticMap`/`BTree`) is dropped;
+- **overwriting** a key (`HashMap`, `StrMap`, `BST`, `BTree`, `StaticMap`) drops the value it replaces;
+- `remove`/`pop` move the value out to you — it is yours to drop; `List::remove` drops the element it unlinks;
+- `clear()` drops every element still held, and so does `drop()` (= `free()`), before releasing the storage.
+
+So drop the container alone: freeing its values yourself first (`m.foreach(free_value); m.free();`) frees them twice. `BTree`, `StaticVec` and `StaticMap` live in place or over storage you provide and have no `drop()` of their own — `clear()` one whose elements own something before its memory goes away.
+
 ## Overview {#overview}
 
 | Header | Type | Storage | Notes |
@@ -219,7 +230,7 @@ struct Vec {
     ?T            pop();                               // null if empty
     int           insert(unsigned long idx, T value);  // idx <= len
     ?T            remove(unsigned long idx);           // null if out of range
-    void          clear();                             // len := 0, keeps the buffer
+    void          clear();                             // drops the elements; len := 0, keeps the buffer
     int extend([]const T items);
 
     void          reverse();
@@ -282,16 +293,16 @@ struct HashMap {
     static struct HashMap<K, V> new();                        // empty, no allocation
     static struct HashMap<K, V> with_cap(unsigned long cap);  // room for cap entries
 
-    int           insert(K key, V val);      // insert or overwrite; 0 on OOM
+    int           insert(K key, V val);      // insert or overwrite (drops the old value); 0 on OOM
     ?&V           get(K key) const;          // null if missing
     int           contains(K key) const;
     ?V            remove(K key);             // the removed value, or null
     unsigned long length() const;
     int           is_empty() const;
-    void          clear();
+    void          clear();                   // drops every entry, keeps the table
     void          foreach(fn void(const &K, &V) func);
     int           reserve(unsigned long n);  // room for n entries without resizing
-    void          free() consume;
+    void          free() consume;            // = drop(): drops every key and value
 };
 ```
 
@@ -303,15 +314,15 @@ Keys are hashed and compared **by their bytes**, so `K` must be fully described 
 generic<V>
 struct StrMap {
     static struct StrMap<V> new();
-    int           insert(const &char key, V val);   // copies the key
+    int           insert(const &char key, V val);   // copies the key; overwriting drops the old value
     ?&V           get(const &char key) const;
     int           contains(const &char key) const;
     ?V            remove(const &char key);
     unsigned long length() const;
     int           is_empty() const;
-    void          clear();
+    void          clear();                          // drops every entry
     void          foreach(fn void(const &char, &V) func);
-    void          free() consume;
+    void          free() consume;   // = drop(): drops every value
 };
 ```
 
@@ -360,11 +371,11 @@ struct List {
     int           is_empty() const;
     ?&T           find(const &T key, fn int(const &T, const &T) cmp) const;
     int           contains(const &T key, fn int(const &T, const &T) cmp) const;
-    int           remove(const &T key, fn int(const &T, const &T) cmp);  // first match
+    int           remove(const &T key, fn int(const &T, const &T) cmp);  // first match; drops it
     void          foreach(fn void(&T) func);
     void          reverse();
-    void          clear();
-    void          free() consume;
+    void          clear();               // drops every element
+    void          free() consume;        // = drop(): drops the elements, releases the nodes
 };
 ```
 
@@ -429,8 +440,8 @@ struct BST {
     ?&K           min_key() const;
     ?&K           max_key() const;
     void          foreach_inorder(fn void(const &K, &V) func);   // ascending
-    void          clear();
-    void          free() consume;
+    void          clear();                 // drops every entry
+    void          free() consume;          // = drop(): drops the entries, releases the nodes
 };
 ```
 
@@ -466,16 +477,18 @@ A B-tree (minimum degree `BTREE_ORDER` = 4, up to 7 keys per node) keyed by `uns
 generic<V>
 struct BTree {
     void          init();   // empty tree, in place (scalar fields only, no pool copy)
-    int           insert(unsigned long key, V val);   // insert or overwrite; 0 if the pool is full
+    int           insert(unsigned long key, V val);   // insert or overwrite (drops the old value); 0 if the pool is full
     ?&V           get(unsigned long key) const;
     int           contains(unsigned long key) const;
     ?V            remove(unsigned long key);
     unsigned long length() const;
     int           is_empty() const;
     void          foreach(fn void(unsigned long, &V) cb);   // ascending
-    void          clear();
+    void          clear();   // drops every value; no drop(): clear() before the memory goes
 };
 ```
+
+A `BTree` has no `drop()`: `clear()` drops every value still in it, so call it before the tree's memory goes away when its values own something (see [Containers own their elements](#ownership)).
 
 The pool makes a `BTree` large (tens of KB), so keep it in static storage or allocate it, rather than putting it on the stack:
 
@@ -550,16 +563,18 @@ generic<T>
 struct StaticVec {
     static struct StaticVec<T> over([]T storage);   // capacity = storage.len
     int push(T val);  ?T pop();  ?&T top() const;  ?&T get(unsigned long idx) const;
-    unsigned long length() const;  int is_empty() const;  int is_full() const;  void clear();
+    unsigned long length() const;  int is_empty() const;  int is_full() const;
+    void clear();   // drops every element (no drop(): the storage is yours)
 };
 
 generic<V> struct StaticMapSlot { unsigned long key; V val; int used; };
 generic<V>
 struct StaticMap {
     static struct StaticMap<V> over([]StaticMapSlot<V> storage);
-    int insert(unsigned long key, V val);   // 0 if full
+    int insert(unsigned long key, V val);   // 0 if full (val is dropped); overwriting drops the old value
     ?&V get(unsigned long key) const;  int contains(unsigned long key) const;
-    unsigned long length() const;  int is_empty() const;  void clear();
+    unsigned long length() const;  int is_empty() const;
+    void clear();   // drops every value (no drop(): the storage is yours)
 };
 ```
 
@@ -576,7 +591,7 @@ void demo() {
 }
 ```
 
-The container keeps a region-less reference to the storage, so the array must outlive it.
+The container keeps a region-less reference to the storage, so the array must outlive it. Neither container has a `drop()`: the storage is yours, so `clear()` one whose elements own something (it drops each of them) before the storage goes away.
 
 
 
