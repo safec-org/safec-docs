@@ -1,11 +1,12 @@
 # GUI (`std/gui/`)
 
-A GUI toolkit written in SafeC from the ground up: windows and input on X11, Win32, Cocoa and bare-metal framebuffers, an anti-aliased vector canvas with TrueType text, and a retained widget toolkit with layouts, themes and 30+ widgets. Everything is rendered on the CPU into one RGBA buffer per window, so a UI looks the same, byte for byte, on every platform.
+A GUI toolkit written in SafeC from the ground up: windows and input on X11, Wayland, Win32, Cocoa, web pages (WebAssembly `<canvas>`) and bare-metal framebuffers, an anti-aliased vector canvas with TrueType text, and a retained widget toolkit with layouts, themes and 30+ widgets. Everything is rendered on the CPU into one RGBA buffer per window, so a UI looks the same, byte for byte, on every platform; getting that buffer onto the screen can go through the GPU ([Platforms & GPU](/stdlib/gui-platforms)).
 
 This page covers windows, events and the application loop. The other two parts have their own pages:
 
 - [GUI Graphics](/stdlib/gui-graphics) — `GuiCanvas` (paths, gradients, strokes, clipping, blend modes, images) and TrueType text (`GuiTypeface`, `GuiTextLayout`).
 - [GUI Widgets](/stdlib/gui-widgets) — the widget tree, layout, themes, focus, menus, dialogs and every widget.
+- [GUI Platforms & GPU](/stdlib/gui-platforms) — Wayland, the web (`<canvas>`, WebGL, DOM interop, `safeguard bundle --target wasm32`) and GPU presentation (OpenGL ES/EGL, Metal, Direct3D 11).
 
 ```c
 #include <std/gui/gui.h>          // windows, events, colors, clipboard, clock
@@ -288,18 +289,23 @@ Everything platform-specific sits behind one table of function pointers, `struct
 | Backend | Target | Tested |
 |---------|--------|--------|
 | `gui_x11.sc` | Linux, BSD — Xlib, `XPutImage`, XIM text input, `CLIPBOARD`, EWMH | Against Xvfb (`tests/stdlib/x11/run.sh`): pixels read back with `XGetImage`; keys, text, mouse, scroll, resize, close; two windows under one `GuiApp`; UTF-8 titles; the clipboard both ways with a second X client |
+| `gui_wayland.sc` | Linux — Wayland: xdg-shell, `wl_shm`, xkbcommon, fractional scale (all `dlopen()`ed); chosen at run time when there is a compositor | Under sway and Weston, headless (`tests/stdlib/wayland/run.sh`): frames read back with grim, virtual pointer and keyboard input, the clipboard with wl-copy/wl-paste, scale 1 and 1.5 |
+| `gui_web_wasm.sc` | WebAssembly — `<canvas>` elements of a page, with `std/gui/gui_web.js` | Under Node with a fake DOM (`tests/stdlib/wasm_gui/run.sh`) and in headless Chromium (`browser.sh`): the gallery's frame matches the native one |
 | `gui_win32.sc` | Windows — wide-character Win32, `StretchDIBits`, per-monitor DPI | Under Wine (`tests/stdlib/win32/run.sh`): pixels read back with `GetPixel`; posted input; two windows; the clipboard |
 | `gui_cocoa.sc` | macOS — AppKit through the Objective-C runtime, a layer-backed `NSView` | Compiled for arm64 and x86_64 macOS |
 | `gui_fb.sc` | Bare metal — a linear framebuffer; input injected from your drivers | Compiled for every bare-metal target |
 | `gui_headless.sc` | Any target — in memory, with a virtual clock | `tests/stdlib/tests/test_gui_widgets.sc`, `test_gui_app.sc` |
 
-`safeguard` links the backend for the target by filename suffix (`_x11` on Linux/BSD, `_win32` on Windows, `_cocoa` on Apple, `_fb` on bare metal) and adds its system libraries to the link — nothing to list in `Package.toml`:
+`safeguard` links the backend for the target by filename suffix (`_x11` on Linux/BSD, `_win32` on Windows, `_cocoa` on Apple, `_wasm` on WebAssembly, `_fb` on bare metal) and adds its system libraries to the link — nothing to list in `Package.toml`. `SAFEC_GUI_BACKEND=headless` runs any GUI program on the [headless backend](#the-headless-backend); on Linux, `SAFEC_GUI_BACKEND=x11|wayland` picks between the two ([details](/stdlib/gui-platforms#choosing-x11-or-wayland)).
 
 | Backend | Libraries |
 |---------|-----------|
 | Cocoa | `-framework Cocoa -lobjc` |
 | Win32 | `-luser32 -lgdi32` |
 | X11 | `-lX11` (and `libx11-6` in a `.deb`'s Depends) |
+| Wayland, EGL | none: `dlopen()`ed (`-ldl`); `libwayland-client0`, `libxkbcommon0`, `libwayland-cursor0`, `libegl1`, `libgles2` in a `.deb`'s Recommends |
+| Metal, Direct3D 11 | none: loaded at run time |
+| WebAssembly | none: imports `std/gui/gui_web.js` provides |
 
 Building without `safeguard`, pass them to the link yourself.
 
@@ -336,11 +342,9 @@ unsigned long n = gui_headless_present_count(&win);
 | `wake()` | Make a blocked `pump()` return (any thread). |
 | `now_ns`, `clipboard_set/get`, `display_scale`, `native_handle` | Clock, clipboard, scale, handles for GPU presenters. |
 
-A new **platform default** is a new suffix rule in safeguard's `stdVariantMatches` plus a `gui_<suffix>.sc` defining `gui_platform_backend()`. An **alternative** next to an existing default — Wayland beside X11 — defines its own `gui_wayland_backend()` and a setup call that installs it with `gui_set_backend()`, optionally chosen at run time by the X11 file when `$WAYLAND_DISPLAY` is set.
+A new **platform default** is a suffix rule in safeguard's `stdVariantMatches` plus a `gui_<...>_<suffix>.sc` defining `gui_platform_backend()` (as `gui_web_wasm.sc` is for `_wasm`). An **alternative** next to an existing default defines its own table and setup call, as `gui_wayland.sc` does beside X11; a library it needs is best `dlopen()`ed and named with `// safeguard: deb-recommends`.
 
-A **WebAssembly `<canvas>`** backend's `pump()` never waits; the page drives `GuiApp::pump(0)` from `requestAnimationFrame`, `window_present` hands the buffer to an imported JS function that puts it into an `ImageData`, and DOM input reaches the program through exported functions that call `gui_backend_post()`.
-
-**GPU presentation.** Rendering stays on the CPU, but the finished buffer can reach the screen through the GPU instead of the backend's blit: a `GuiPresenter` (`attach`, `present`, `detach`), attached per window with `gui_window_set_presenter()`, uploads the damaged rectangle into a texture and draws one quad — OpenGL/EGL on X11 or Wayland, Metal on a `CAMetalLayer`, Direct3D 11 on a DXGI swap chain. `window.native_handle()` / `GuiBackend.native_handle()` give it the display, window, view and visual handles it needs. No presenter ships yet.
+**GPU presentation** is a `GuiPresenter` attached per window — see [Platforms & GPU](/stdlib/gui-platforms#gpu-presentation) for the ones that ship (OpenGL ES/EGL, Metal, Direct3D 11, WebGL) and how to write one.
 
 ---
 
