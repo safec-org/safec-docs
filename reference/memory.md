@@ -100,11 +100,13 @@ an `unsigned long` (`size_t`), and there's no implicit `int` →
 `<std/mem.h>`'s `malloc_defer(n)` sugars the alloc-then-`defer dealloc` pattern
 above into a single call. `malloc_defer` isn't a real function — it's
 parser-level sugar recognized only as a var-decl initializer, and it
-desugars into `std::alloc_raw_(n)` (the type-erased allocator behind the
-generic `std::alloc`) for the declaration plus a synthesized
-`defer std::dealloc_raw_(buf);` right after it. The result is a raw
-`void*`, so declare the variable as a nullable heap reference to get a
-typed, null-checked view:
+desugars into `std::alloc(n)` (the generic allocator, which takes `T` from
+the declared type) for the declaration plus a synthesized
+`defer std::dealloc(buf);` right after it. Declare the variable as a
+nullable heap reference to get a typed, null-checked view (with `auto` there
+is no type to take `T` from, so it is the type-erased
+`std::alloc_raw_(n)` / `std::dealloc_raw_` pair and the variable is a byte
+pointer, `unsigned char*`):
 
 ```c
 #include <std/mem.h>
@@ -115,7 +117,7 @@ void process2() {
         case some(p): { *p = 1; }   // ... use p ...
         case null:    { }           // out of memory
     }
-}   // std::dealloc_raw_(buf) runs here via the synthesized defer
+}   // std::dealloc(buf) runs here via the synthesized defer
 ```
 
 A deferred free runs when the scope exits, so it doesn't count as freeing

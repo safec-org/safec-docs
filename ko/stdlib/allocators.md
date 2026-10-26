@@ -25,10 +25,10 @@
 
 ```c
 trait Allocate {
-    ?&heap void alloc(unsigned long size, unsigned long align);   // null when it can't
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // null when it can't
 }
 trait Deallocate {
-    void dealloc(?&heap void ptr);                                // null is a no-op
+    void dealloc(?&heap unsigned char ptr);                                // null is a no-op
 }
 trait Resettable {
     void reset();                                                 // frees every block at once
@@ -157,8 +157,8 @@ struct CountingAllocator {
     unsigned long bytes;      // bytes requested by the successful allocs
 
     static struct CountingAllocator<A> over(&A inner);
-    ?&heap void   alloc(unsigned long size, unsigned long align);
-    void          dealloc(?&heap void ptr);
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);
+    void          dealloc(?&heap unsigned char ptr);
     unsigned long live() const;   // blocks handed out and not given back yet
 };
 ```
@@ -181,18 +181,18 @@ if (c.live() != 0UL) { /* blocks never given back */ }
 
 struct CountingHeap {
     unsigned long live;
-    ?&heap void alloc(unsigned long size, unsigned long align);
-    void        dealloc(?&heap void ptr);
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);
+    void        dealloc(?&heap unsigned char ptr);
 };
 
-?&heap void CountingHeap::alloc(unsigned long size, unsigned long align) {
+?&heap unsigned char CountingHeap::alloc(unsigned long size, unsigned long align) {
     if ((align & (align - 1UL)) != 0UL || align > 16UL) return null;   // std::alloc gives 16
-    ?&heap void p = std::alloc(size);
+    ?&heap unsigned char p = std::alloc(size);
     if (!p.is_null()) self.live = self.live + 1UL;
     return p;
 }
 
-void CountingHeap::dealloc(?&heap void ptr) {
+void CountingHeap::dealloc(?&heap unsigned char ptr) {
     if (ptr.is_null()) return;
     std::dealloc(ptr);
     self.live = self.live - 1UL;
@@ -223,8 +223,8 @@ struct BumpAllocator {
     static struct BumpAllocator over([]unsigned char buffer);  // over your buffer
     static struct BumpAllocator new(unsigned long cap);                          // allocates cap bytes
 
-    ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if full
-    void          dealloc(?&heap void ptr);   // no-op (one block can't be freed)
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // byte level; null if full
+    void          dealloc(?&heap unsigned char ptr);   // no-op (one block can't be freed)
     void          reset();                    // every earlier allocation becomes invalid
     unsigned long remaining() const;
     void          destroy();
@@ -270,8 +270,8 @@ struct SlabAllocator {
 
     // byte level: one object for size <= obj_size bytes; null if full, size > obj_size
     // or align > max_align()
-    ?&heap void   alloc(unsigned long size, unsigned long align);
-    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);
+    void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // frees every slot at once
     unsigned long available() const;         // free slots
     unsigned long max_align() const;         // largest power of two dividing obj_size, <= 8
@@ -315,8 +315,8 @@ struct PoolAllocator {
     static struct PoolAllocator over([]unsigned char buffer);  // over your buffer (8-aligned)
     static struct PoolAllocator new(unsigned long cap);
 
-    ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if no block fits or align > 8
-    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // byte level; null if no block fits or align > 8
+    void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
     unsigned long available() const;         // total free bytes
     void          destroy();
@@ -336,8 +336,8 @@ struct TlsfAllocator {
     static struct TlsfAllocator over([]unsigned char buffer);  // over your buffer
     static struct TlsfAllocator new(unsigned long cap);
 
-    ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if exhausted or align > 8
-    void          dealloc(?&heap void ptr);  // a block alloc() returned; null is a no-op
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // byte level; null if exhausted or align > 8
+    void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
     void          destroy();
 };

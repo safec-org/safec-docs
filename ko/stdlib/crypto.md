@@ -599,8 +599,8 @@ struct SecureAllocator {
 
     // align으로 정렬된 size바이트용 슬롯 하나; 모든 슬롯이 사용 중이거나,
     // size > obj_size이거나, align이 slab.max_align()(최대 8)보다 크면 null.
-    ?&heap void   alloc(unsigned long size, unsigned long align);
-    void          dealloc(?&heap void ptr);  // 슬롯을 0으로 지운 뒤 해제; null이면 아무것도 안 함
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);
+    void          dealloc(?&heap unsigned char ptr);  // 슬롯을 0으로 지운 뒤 해제; null이면 아무것도 안 함
     unsigned long available() const;
     void          destroy();             // 모든 슬롯을 0으로 지우고 백킹 버퍼를 해제
 };

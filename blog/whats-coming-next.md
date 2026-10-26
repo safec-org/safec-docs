@@ -105,6 +105,7 @@ Both breaking changes fail loudly: every affected call is a compile error (a wro
 | `String::from_n(p, n)` / `push_n` | `String::from_bytes(s)` / `push_bytes(s)` |
 | `sys_bsearch(...)` returning `?&T` | returns the index as `?unsigned long` |
 | `void*` callback context | a typed `?&T`, stored as `?&Erased` by std's generic methods |
+| a custom allocator's `?&heap void alloc(size, align)` / `dealloc(?&heap void)` | `?&heap unsigned char` in both (std's allocators and `heap_alloc` hand out bytes; `alloc_t` / `dealloc_t` are unchanged) |
 | `(T*)slice` | `slice.ptr` |
 | a value with `free()` / `close()` that is never released on some path | `defer v.drop();` right after creating it, or release it on every path |
 | `thread_create(&tid, work, ctx)` sharing a pointer | `thread_spawn(fn, value)` moving the data in, or `Mutex<T>` / `spawn_scoped` for shared data |

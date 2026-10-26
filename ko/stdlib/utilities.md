@@ -178,9 +178,9 @@ int main() {
 
 ```c
 void          heap_init();                                   // call once first (no-op when hosted)
-&heap void    heap_alloc(unsigned long size);                // null on failure
-void          heap_free(&heap void ptr);
-&heap void    heap_realloc(&heap void ptr, unsigned long new_size); // null on failure; ptr stays valid
+&heap unsigned char heap_alloc(unsigned long size);                // null on failure
+void          heap_free(&heap unsigned char ptr);
+&heap unsigned char heap_realloc(&heap unsigned char ptr, unsigned long new_size); // null on failure; ptr stays valid
 unsigned long heap_capacity();                               // bytes; 0 when hosted (unbounded)
 ```
 
