@@ -47,7 +47,7 @@ Return 1 if the strings are equal, 0 otherwise. Convenience wrapper around `str_
 ### str_copy {#str_copy}
 
 ```c
-void str_copy(&char dst, const &char src, unsigned long n);
+int str_copy([]char dst, const &char src);
 ```
 
 Copy `src` into `dst` -- at most `n` bytes including NUL. `dst` must hold at least `n` bytes.
@@ -55,7 +55,7 @@ Copy `src` into `dst` -- at most `n` bytes including NUL. `dst` must hold at lea
 ### str_cat {#str_cat}
 
 ```c
-void str_cat(&char dst, const &char src);
+int str_cat([]char dst, const &char src);
 ```
 
 Append `src` to the NUL-terminated string at `dst`. The destination buffer must have enough room.
@@ -63,7 +63,7 @@ Append `src` to the NUL-terminated string at `dst`. The destination buffer must 
 ### str_ncat {#str_ncat}
 
 ```c
-void str_ncat(&char dst, const &char src, unsigned long n);
+int str_ncat([]char dst, const &char src, unsigned long n);
 ```
 
 Append at most `n` bytes of `src` to `dst` and always NUL-terminate.
@@ -140,7 +140,7 @@ Reentrant tokeniser (wraps `strtok_r` / `strtok_s`).
 ### mem_chr {#mem_chr}
 
 ```c
-const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
+const ?&unsigned char mem_chr([]const unsigned char s, int c);
 ```
 
 Return a pointer to the first occurrence of byte `c` in the `n`-byte block at `s`, or NULL.

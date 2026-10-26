@@ -125,10 +125,7 @@ When the program links a CPU vendor BLAS, its kernels do the work: **AOCL-BLAS**
 
 // C = alpha * op(A) * op(B) + beta * C, row-major; op(A) is m x k, op(B) is k x n.
 // 'ld' = elements between the starts of two rows. beta == 0 never reads C.
-void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k,
-           float alpha, const &float a, unsigned long lda,
-           const &float b, unsigned long ldb,
-           float beta, &float c, unsigned long ldc);
+int sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k, float alpha, []const float a, unsigned long lda, []const float b, unsigned long ldb, float beta, []float c, unsigned long ldc);
 
 // Same, always on the calling thread (no pool; a vendor library, if linked,
 // runs single-threaded): for code that is already parallel.
@@ -155,9 +152,9 @@ Throughput on a Ryzen 7 7800X3D (Zen 4, 8 cores / 16 threads), N × N × N, from
 
 ```c
 #include <std/simd/vmath.h>
-void vm_exp_f32(const &float x, &float y, unsigned long n);
-void vm_tanh_f32(const &float x, &float y, unsigned long n);
-void vm_sigmoid_f32(const &float x, &float y, unsigned long n);
+unsigned long vm_exp_f32([]const float x, []float y);
+unsigned long vm_tanh_f32([]const float x, []float y);
+unsigned long vm_sigmoid_f32([]const float x, []float y);
 ```
 
 `y[i] = f(x[i])` as branch-free polynomial code (Cephes-style range reduction), vectorized at the CPU's [SIMD level](#cpu-levels) and split across the thread pool from 32,768 elements. Measured error is under 1 ulp for exp, 1.3 ulp for tanh and 2 ulp for sigmoid, subnormal results included. NaN propagates and overflow gives infinity. About 0.2 ns per element on the 7800X3D. `x` and `y` may be the same array. std's activations (sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU) and softmax use it.

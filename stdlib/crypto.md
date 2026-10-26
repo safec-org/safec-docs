@@ -38,29 +38,27 @@ struct AesCtx {
     unsigned char iv[16];             // CBC initialisation vector
 
     // Constructors (IV zeroed)
-    static struct AesCtx new_128(const &unsigned char key);   // key: 16 bytes
-    static struct AesCtx new_256(const &unsigned char key);   // key: 32 bytes
+    static struct AesCtx new_128([]const unsigned char key);   // key: 16 bytes
+    static struct AesCtx new_256([]const unsigned char key);   // key: 32 bytes
 
     // ECB — encrypt/decrypt one 16-byte block in-place
-    void encrypt_block(&unsigned char block);
-    void decrypt_block(&unsigned char block);
+    void encrypt_block([]unsigned char block);
+    void decrypt_block([]unsigned char block);
 
     // CBC — `len` must be a multiple of 16; updates self.iv in-place
-    void cbc_encrypt(&unsigned char data, unsigned long len);
-    void cbc_decrypt(&unsigned char data, unsigned long len);
+    void cbc_encrypt([]unsigned char data);
+    void cbc_decrypt([]unsigned char data);
 
     // Set the CBC IV
-    void set_iv(const &unsigned char iv);
+    void set_iv([]const unsigned char iv);
 
     // GCM (NIST SP 800-38D), 12-byte IV, 16-byte tag. Encrypts data in place
     // and writes the tag over aad[0..aad_len) and the ciphertext; aad may be
     // null when aad_len is 0. Never reuse an IV with the same key.
-    void gcm_encrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
-                     &unsigned char data, unsigned long len, &unsigned char tag);
+    void gcm_encrypt([]const unsigned char iv, []const unsigned char aad, []unsigned char data, []unsigned char tag);
     // Checks the tag in constant time; only if it matches, decrypts in place.
     // 1 if authentic, 0 if not (data is left as the ciphertext).
-    int  gcm_decrypt(const &unsigned char iv, const ?&unsigned char aad, unsigned long aad_len,
-                     &unsigned char data, unsigned long len, const &unsigned char tag);
+    int gcm_decrypt([]const unsigned char iv, []const unsigned char aad, []unsigned char data, []const unsigned char tag);
 
     // Wipe the key schedule and IV (volatile stores) when done.
     void destroy();
@@ -88,12 +86,12 @@ int main() {
         while (i < 32) { buf[i] = (unsigned char)text[i]; i = i + 1; }
     }
 
-    struct AesCtx ctx = std::AesCtx::new_128(&key[0]);
-    ctx.set_iv(&iv[0]);
-    ctx.cbc_encrypt(&buf[0], 32UL);   // buf is now ciphertext
+    struct AesCtx ctx = std::AesCtx::new_128(key[..]);
+    ctx.set_iv(iv[..]);
+    ctx.cbc_encrypt(buf[0..32UL]);   // buf is now ciphertext
 
-    ctx.set_iv(&iv[0]);               // reset the IV and decrypt back
-    ctx.cbc_decrypt(&buf[0], 32UL);   // buf holds the plaintext again
+    ctx.set_iv(iv[..]);               // reset the IV and decrypt back
+    ctx.cbc_decrypt(buf[0..32UL]);   // buf holds the plaintext again
     ctx.destroy();                    // wipe the key schedule
     unsafe { return buf[0] == (unsigned char)'H' ? 0 : 1; }
 }
@@ -120,18 +118,17 @@ struct Sha256Ctx {
     static struct Sha256Ctx new_224();   // SHA-224
 
     // Feed bytes into the hash (streaming)
-    void update(const &unsigned char data, unsigned long len);
+    void update([]const unsigned char data);
 
     // Finalise and write digest: 32 bytes for SHA-256, 28 for SHA-224
-    void finish(&unsigned char digest);
+    void finish([]unsigned char digest);
 
     unsigned long digest_size() const;   // 32 or 28
     unsigned long block_size() const;    // SHA256_BLOCK_SIZE
 }
 
 // One-shot convenience
-void sha256(const &unsigned char data, unsigned long len,
-            &unsigned char digest);
+void sha256([]const unsigned char data, []unsigned char digest);
 
 #define SHA256_DIGEST_SIZE  32   // bytes
 #define SHA224_DIGEST_SIZE  28
@@ -149,12 +146,12 @@ int main() {
     unsigned char msg[5];
     unsafe { msg[0] = 'h'; msg[1] = 'e'; msg[2] = 'l'; msg[3] = 'l'; msg[4] = 'o'; }
 
-    std::sha256(&msg[0], 5UL, &a[0]);              // one-shot
+    std::sha256(msg[0..5UL], a[..]);              // one-shot
 
     struct Sha256Ctx ctx = std::Sha256Ctx::new();  // streaming, two chunks
-    ctx.update(&msg[0], 3UL);
-    unsafe { ctx.update(&msg[3], 2UL); }
-    ctx.finish(&b[0]);                             // same digest as the one-shot
+    ctx.update(msg[0..3UL]);
+    unsafe { ctx.update(msg[3..5UL]); }
+    ctx.finish(b[..]);                             // same digest as the one-shot
 
     int same = 1;
     unsafe { int i = 0; while (i < 32) { if (a[i] != b[i]) same = 0; i = i + 1; } }
@@ -186,14 +183,14 @@ struct Sha512Ctx {
     static struct Sha512Ctx new();       // SHA-512
     static struct Sha512Ctx new_384();   // SHA-384
 
-    void update(const &unsigned char data, unsigned long len);
-    void finish(&unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
+    void update([]const unsigned char data);
+    void finish([]unsigned char digest);  // 64 bytes (SHA-512) or 48 (SHA-384)
     unsigned long digest_size() const;   // 64 or 48
     unsigned long block_size() const;    // SHA512_BLOCK_SIZE
 };
 
-void sha512(const &unsigned char data, unsigned long len, &unsigned char digest);
-void sha384(const &unsigned char data, unsigned long len, &unsigned char digest);
+void sha512([]const unsigned char data, []unsigned char digest);
+void sha384([]const unsigned char data, []unsigned char digest);
 ```
 
 ---
@@ -219,13 +216,13 @@ struct Sha1Ctx {
 
     static struct Sha1Ctx new();
 
-    void update(const &unsigned char data, unsigned long len);
-    void finish(&unsigned char digest);   // 20 bytes
+    void update([]const unsigned char data);
+    void finish([]unsigned char digest);   // 20 bytes
     unsigned long digest_size() const;    // SHA1_DIGEST_SIZE
     unsigned long block_size() const;     // SHA1_BLOCK_SIZE
 };
 
-void sha1(const &unsigned char data, unsigned long len, &unsigned char digest);
+void sha1([]const unsigned char data, []unsigned char digest);
 ```
 
 ---
@@ -240,12 +237,12 @@ Every hash context streams the same way: `update` feeds bytes, `finish` writes t
 
 | Trait | Requires | Satisfied by |
 |---|---|---|
-| `Hasher` | `update(data, len)`, `finish(digest)` (the context is spent after), `digest_size() const` | `Sha1Ctx`, `Sha256Ctx` (SHA-256 or SHA-224), `Sha512Ctx` (SHA-512 or SHA-384), `Hmac<H>` |
+| `Hasher` | `update(data)`, `finish(digest)` (byte slices; the context is spent after, and `finish` panics on a slice shorter than the digest), `digest_size() const` | `Sha1Ctx`, `Sha256Ctx` (SHA-256 or SHA-224), `Sha512Ctx` (SHA-512 or SHA-384), `Hmac<H>` |
 | `BlockHash` | `Hasher` + `block_size() const`: the compression-function block, which HMAC pads its key to | `Sha1Ctx`, `Sha256Ctx`, `Sha512Ctx` |
 
 | Generic code | Bound | Does |
 |---|---|---|
-| `hash_bytes(h, data, len, &digest)` | `Hasher` | the digest of `len` bytes with a fresh context `h`, taken by value: `hash_bytes(Sha512Ctx::new_384(), msg, n, &d[0])` |
+| `hash_bytes(h, data, digest)` | `Hasher` | the digest of `data` with a fresh context `h`, taken by value: `hash_bytes(Sha512Ctx::new_384(), msg, d[..])` |
 | [`Hmac<H>`](#hmac-sha256) | `BlockHash` | HMAC over that hash |
 
 A type of your own is a `Hasher` once it has the three methods; nothing else declares it. Below, one generic function prints the digest for two std hashes and for a non-cryptographic FNV-1a checksum. FNV-1a has no `block_size`, so it is a `Hasher` but not a `BlockHash`, and `Hmac<Fnv1a>` is rejected where it is named.
@@ -259,7 +256,7 @@ A type of your own is a `Hasher` once it has the three methods; nothing else dec
 generic<H: Hasher>
 void print_digest(H h, const &char msg) {
     unsigned char d[64];
-    unsafe { std::hash_bytes(h, (const &unsigned char)msg, std::str_len(msg), &d[0]); }
+    std::hash_bytes(h, std::str_bytes(msg), d[..]);
     const &char hex = "0123456789abcdef";
     unsigned long i = 0UL;
     while (i < h.digest_size()) {
@@ -274,23 +271,21 @@ void print_digest(H h, const &char msg) {
 struct Fnv1a {
     unsigned int h;
     static struct Fnv1a new();
-    void update(const &unsigned char data, unsigned long len);
-    void finish(&unsigned char digest);
+    void update([]const unsigned char data);
+    void finish([]unsigned char digest);
     unsigned long digest_size() const;
 };
 struct Fnv1a Fnv1a::new() { struct Fnv1a f; f.h = 2166136261U; return f; }
-void Fnv1a::update(const &unsigned char data, unsigned long len) {
+void Fnv1a::update([]const unsigned char data) {
     unsigned long i = 0UL;
-    while (i < len) {
-        unsafe { self.h = (self.h ^ (unsigned int)data[i]) * 16777619U; }
+    while (i < data.len) {
+        self.h = (self.h ^ (unsigned int)data[i]) * 16777619U;
         i = i + 1UL;
     }
 }
-void Fnv1a::finish(&unsigned char digest) {
-    unsafe {
-        digest[0] = (unsigned char)(self.h >> 24); digest[1] = (unsigned char)(self.h >> 16);
-        digest[2] = (unsigned char)(self.h >> 8);  digest[3] = (unsigned char)self.h;
-    }
+void Fnv1a::finish([]unsigned char digest) {   // bounds-checked: digest must hold 4 bytes
+    digest[0] = (unsigned char)(self.h >> 24); digest[1] = (unsigned char)(self.h >> 16);
+    digest[2] = (unsigned char)(self.h >> 8);  digest[3] = (unsigned char)self.h;
 }
 unsigned long Fnv1a::digest_size() const { return 4UL; }
 
@@ -329,16 +324,14 @@ struct Hmac {
     // Keyed by key[0..keyLen) over `fresh`, a new context of the hash to use
     // (Sha256Ctx::new(), Sha512Ctx::new_384(), ...). A key longer than the
     // hash's block is hashed first (RFC 2104).
-    static struct Hmac<H> new(H fresh, const &unsigned char key, unsigned long keyLen);
-    void          update(const &unsigned char data, unsigned long len);
-    void          finish(&unsigned char mac);   // digest_size() bytes; spent after
+    static struct Hmac<H> new(H fresh, []const unsigned char key);
+    void update([]const unsigned char data);
+    void finish([]unsigned char mac);   // digest_size() bytes; spent after
     unsigned long digest_size() const;          // the hash's digest size
 };
 
 // One-shot HMAC-SHA256: the 32-byte MAC of data[0..dataLen) under key[0..keyLen).
-void hmac_sha256(const &unsigned char key, unsigned long keyLen,
-                 const &unsigned char data, unsigned long dataLen,
-                 &unsigned char out);
+void hmac_sha256([]const unsigned char key, []const unsigned char data, []unsigned char out);
 ```
 
 `Hmac<H>` streams like a hash and is a `Hasher` itself, so `hash_bytes` and any `generic<H: Hasher>` code take it. The type argument is inferred from the target, as in `struct Hmac<Sha256Ctx> mac = Hmac::new(Sha256Ctx::new(), ...)`. The implementation is checked against the RFC 2202 and RFC 4231 test vectors for every std hash.
@@ -353,18 +346,18 @@ int main() {
     unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
 
     unsigned char a[HMAC_SHA256_SIZE];
-    std::hmac_sha256(&key[0], 3UL, &msg[0], 5UL, &a[0]);          // one-shot
+    std::hmac_sha256(key[0..3UL], msg[0..5UL], a[..]);          // one-shot
 
-    struct Hmac<Sha256Ctx> mac = std::Hmac::new(std::Sha256Ctx::new(), &key[0], 3UL);
-    mac.update(&msg[0], 2UL);                                       // streaming
-    unsafe { mac.update(&msg[2], 3UL); }
+    struct Hmac<Sha256Ctx> mac = std::Hmac::new(std::Sha256Ctx::new(), key[0..3UL]);
+    mac.update(msg[0..2UL]);                                       // streaming
+    unsafe { mac.update(msg[2..5UL]); }
     unsigned char b[HMAC_SHA256_SIZE];
-    mac.finish(&b[0]);                                              // same as a
+    mac.finish(b[..]);                                              // same as a
 
     unsigned char tag[SHA512_DIGEST_SIZE];                          // HMAC-SHA512
-    struct Hmac<Sha512Ctx> mac512 = std::Hmac::new(std::Sha512Ctx::new(), &key[0], 3UL);
-    mac512.update(&msg[0], 5UL);
-    mac512.finish(&tag[0]);
+    struct Hmac<Sha512Ctx> mac512 = std::Hmac::new(std::Sha512Ctx::new(), key[0..3UL]);
+    mac512.update(msg[0..5UL]);
+    mac512.finish(tag[..]);
 
     int same = 1;
     unsafe { int i = 0; while (i < 32) { if (a[i] != b[i]) same = 0; i = i + 1; } }
@@ -393,7 +386,7 @@ struct RngCtx {
     // Deterministic seed in place (tests, reproducible simulations).
     void          init_seed(const unsigned char seed[32]);
 
-    void          fill(&unsigned char out, unsigned long len);   // len random bytes
+    void fill([]unsigned char out);   // len random bytes
     unsigned int  rand32();
     unsigned long long rand64();
     unsigned long rand_range(unsigned long bound);   // uniform in [0, bound), no modulo bias
@@ -414,7 +407,7 @@ int main() {
     std::println_int((long long)rng.rand_range(6UL) + 1LL);
 
     unsigned char key[32];
-    rng.fill(&key[0], 32UL);   // a random 256-bit key
+    rng.fill(key[0..32UL]);   // a random 256-bit key
     return 0;
 }
 ```
@@ -431,12 +424,9 @@ HKDF (RFC 5869) over any [`BlockHash`](#hash-traits), through `Hmac<H>` — HKDF
 
 ```c
 generic<H: BlockHash>
-void hkdf_extract(H fresh, const ?&unsigned char salt, unsigned long salt_len,
-                  const &unsigned char ikm, unsigned long ikm_len, &unsigned char prk);   // digest_size() bytes
+generic<H: BlockHash> void hkdf_extract(H fresh, []const unsigned char salt, []const unsigned char ikm, []unsigned char prk);   // digest_size() bytes
 generic<H: BlockHash>
-int  hkdf_expand(H fresh, const &unsigned char prk, unsigned long prk_len,
-                 const ?&unsigned char info, unsigned long info_len,
-                 &unsigned char out, unsigned long out_len);    // 0 if out_len > 255 * digest_size()
+generic<H: BlockHash> int hkdf_expand(H fresh, []const unsigned char prk, []const unsigned char info, []unsigned char out);    // 0 if out_len > 255 * digest_size()
 ```
 
 A null or empty salt is `digest_size()` zero bytes, as the RFC specifies.
@@ -444,8 +434,8 @@ A null or empty salt is `digest_size()` zero bytes, as the RFC specifies.
 ```c
 unsigned char prk[SHA256_DIGEST_SIZE];
 unsigned char okm[42];
-std::hkdf_extract(std::Sha256Ctx::new(), &salt[0], 13UL, &ikm[0], 22UL, &prk[0]);
-std::hkdf_expand(std::Sha256Ctx::new(), &prk[0], 32UL, &info[0], 10UL, &okm[0], 42UL);
+std::hkdf_extract(std::Sha256Ctx::new(), salt[0..13UL], ikm[0..22UL], prk[..]);
+std::hkdf_expand(std::Sha256Ctx::new(), prk[0..32UL], info[0..10UL], okm[0..42UL]);
 ```
 
 ---
@@ -464,27 +454,21 @@ The ChaCha20 stream cipher, the Poly1305 authenticator and their AEAD compositio
 #define POLY1305_KEY_SIZE    32
 #define POLY1305_TAG_SIZE    16
 
-void chacha20_xor(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
-                  &unsigned char data, unsigned long len);          // encrypt = decrypt
-void chacha20_block(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
-                    &unsigned char out);                            // one 64-byte keystream block
+void chacha20_xor([]const unsigned char key, []const unsigned char nonce, unsigned int counter, []unsigned char data);          // encrypt = decrypt
+void chacha20_block([]const unsigned char key, []const unsigned char nonce, unsigned int counter, []unsigned char out);                            // one 64-byte keystream block
 
 struct Poly1305 {                                 // streaming, one-time key (r || s)
-    static struct Poly1305 new(const &unsigned char key);
-    void update(const &unsigned char data, unsigned long len);
+    static struct Poly1305 new([]const unsigned char key);
+    void update([]const unsigned char data);
     void pad16();                                 // zero-pad the input so far to 16 bytes
-    void finish(&unsigned char tag);              // 16 bytes; wipes the state
+    void finish([]unsigned char tag);              // 16 bytes; wipes the state
 };
-void poly1305(const &unsigned char key, const ?&unsigned char msg, unsigned long len, &unsigned char tag);
+void poly1305([]const unsigned char key, []const unsigned char msg, []unsigned char tag);
 
 // AEAD: encrypts data in place and writes the 16-byte tag.
-void chacha20_poly1305_seal(const &unsigned char key, const &unsigned char nonce,
-                            const ?&unsigned char aad, unsigned long aad_len,
-                            &unsigned char data, unsigned long len, &unsigned char tag);
+void chacha20_poly1305_seal([]const unsigned char key, []const unsigned char nonce, []const unsigned char aad, []unsigned char data, []unsigned char tag);
 // 1 and decrypted in place if authentic; 0 (data untouched) if not.
-int  chacha20_poly1305_open(const &unsigned char key, const &unsigned char nonce,
-                            const ?&unsigned char aad, unsigned long aad_len,
-                            &unsigned char data, unsigned long len, const &unsigned char tag);
+int chacha20_poly1305_open([]const unsigned char key, []const unsigned char nonce, []const unsigned char aad, []unsigned char data, []const unsigned char tag);
 ```
 
 Never reuse a nonce with the same key.
@@ -504,16 +488,16 @@ Curve25519 Diffie-Hellman (RFC 7748) on 32-byte little-endian keys: a fixed 255-
 
 // out = scalar * point (the scalar is clamped). 0 when the result is all
 // zeros — a low-order peer key, which must be rejected — else 1.
-int  x25519(&unsigned char out, const &unsigned char scalar, const &unsigned char point);
+int  x25519([]unsigned char out, []const unsigned char scalar, []const unsigned char point);   // 32-byte slices
 // out = scalar * 9: the public key.
-void x25519_public(&unsigned char out, const &unsigned char scalar);
+void x25519_public([]unsigned char out, []const unsigned char scalar);
 ```
 
 ```c
 unsigned char priv[32]; unsigned char pub[32]; unsigned char shared[32];
-rng.fill(&priv[0], 32UL);
-std::x25519_public(&pub[0], &priv[0]);
-if (!std::x25519(&shared[0], &priv[0], &peer[0])) { /* reject */ }
+rng.fill(priv[0..32UL]);
+std::x25519_public(pub[..], priv[..]);
+if (!std::x25519(shared[..], priv[..], peer[..])) { /* reject */ }
 ```
 
 ---
@@ -533,26 +517,20 @@ The NIST curves secp256r1 and secp384r1, named by their TLS group ids (`EC_P256`
 
 unsigned long ec_scalar_size(int curve);    // 32 / 48, 0 for another id
 unsigned long ec_point_size(int curve);     // 65 / 97
-int ec_keygen(int curve, &RngCtx rng, &unsigned char priv, &unsigned char pub);
-int ec_public_key(int curve, const &unsigned char priv, &unsigned char pub);   // 0: priv not in [1, n-1]
-int ec_point_valid(int curve, const &unsigned char pub, unsigned long len);
-int ecdh_shared(int curve, const &unsigned char priv, const &unsigned char peer, unsigned long peer_len,
-                &unsigned char out);        // the x coordinate; 0 for an invalid peer point
-int ecdsa_verify(int curve, const &unsigned char pub, unsigned long pub_len,
-                 const &unsigned char hash, unsigned long hash_len,
-                 const &unsigned char r, const &unsigned char s);
-int ecdsa_verify_der(int curve, const &unsigned char pub, unsigned long pub_len,
-                     const &unsigned char hash, unsigned long hash_len,
-                     const &unsigned char sig, unsigned long sig_len);
-int ecdsa_sign_der(int curve, const &unsigned char priv, const &unsigned char hash, unsigned long hash_len,
-                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+int ec_keygen(int curve, &RngCtx rng, []unsigned char priv, []unsigned char pub);
+int ec_public_key(int curve, []const unsigned char priv, []unsigned char pub);   // 0: priv not in [1, n-1]
+int ec_point_valid(int curve, []const unsigned char pub);
+int ecdh_shared(int curve, []const unsigned char priv, []const unsigned char peer, []unsigned char out);        // the x coordinate; 0 for an invalid peer point
+int ecdsa_verify(int curve, []const unsigned char pub, []const unsigned char hash, []const unsigned char r, []const unsigned char s);
+int ecdsa_verify_der(int curve, []const unsigned char pub, []const unsigned char hash, []const unsigned char sig);
+int ecdsa_sign_der(int curve, []const unsigned char priv, []const unsigned char hash, []unsigned char sig, &unsigned long sig_len);
 
 struct EcPrivateKey {          // from SEC1 "EC PRIVATE KEY" or PKCS#8 DER
     int           curve;
     unsigned char d[EC_MAX_SCALAR];
     unsigned char pub[EC_MAX_POINT];
     unsigned long pub_len;
-    int  init_der(const &unsigned char der, unsigned long len);
+    int init_der([]const unsigned char der);
     void destroy();
 };
 ```
@@ -572,23 +550,19 @@ RSA signatures (RFC 8017) for 1024–4096-bit moduli: verification with PKCS#1 v
 ```c
 struct RsaPublicKey {
     // From a DER RSAPublicKey (the BIT STRING of an rsaEncryption SubjectPublicKeyInfo).
-    int init_der(const &unsigned char der, unsigned long len);
+    int init_der([]const unsigned char der);
     // ...
 };
-int rsa_verify_pkcs1(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
-                     const &unsigned char sig, unsigned long sig_len);
-int rsa_verify_pss(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
-                   const &unsigned char sig, unsigned long sig_len, unsigned long salt_len);
+int rsa_verify_pkcs1(const &RsaPublicKey key, int alg, []const unsigned char hash, []const unsigned char sig);
+int rsa_verify_pss(const &RsaPublicKey key, int alg, []const unsigned char hash, []const unsigned char sig, unsigned long salt_len);
 
 struct RsaPrivateKey {
     struct RsaPublicKey pub;
-    int  init_der(const &unsigned char der, unsigned long len);   // PKCS#1 or PKCS#8
+    int init_der([]const unsigned char der);   // PKCS#1 or PKCS#8
     void destroy();
 };
-int rsa_sign_pss(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
-                 &RngCtx rng, &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
-int rsa_sign_pkcs1(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
-                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+int rsa_sign_pss(const &RsaPrivateKey key, int alg, []const unsigned char hash, &RngCtx rng, []unsigned char sig, &unsigned long sig_len);
+int rsa_sign_pkcs1(const &RsaPrivateKey key, int alg, []const unsigned char hash, []unsigned char sig, &unsigned long sig_len);
 ```
 
 The arithmetic underneath is `std/crypto/bignum.h`'s `BnMont`: fixed-width Montgomery multiplication with a branch-free final subtraction, `bn_mod_exp_public` (for public exponents) and `bn_mod_exp_secret` (fixed 4-bit windows, table entries read by masked scans).
@@ -602,7 +576,7 @@ The arithmetic underneath is `std/crypto/bignum.h`'s `BnMont`: fixed-width Montg
 #include <std/crypto/ct.h>
 ```
 
-Signature schemes name their hash in data, so the verifiers take a `DIGEST_*` id (`DIGEST_SHA1`, `_SHA224`, `_SHA256`, `_SHA384`, `_SHA512`): `digest(alg, data, len, out)` returns the digest length (0 for an unknown id), `DigestCtx::new(alg)` streams, `mgf1_xor` is RFC 8017's mask generation function. `ct.h` has the comparisons and selections std's crypto uses on secrets: `ct_eq`, `ct_is_zero`, `ct_copy_if`, `ct_eq_u32` — each looks at every byte, with no early exit.
+Signature schemes name their hash in data, so the verifiers take a `DIGEST_*` id (`DIGEST_SHA1`, `_SHA224`, `_SHA256`, `_SHA384`, `_SHA512`): `digest(alg, data, out)` returns the digest length (0 for an unknown id), `DigestCtx::new(alg)` streams, `mgf1_xor` is RFC 8017's mask generation function. `ct.h` has the comparisons and selections std's crypto uses on secrets: `ct_eq`, `ct_is_zero`, `ct_copy_if`, `ct_eq_u32` — each looks at every byte, with no early exit.
 
 ---
 
@@ -703,7 +677,7 @@ struct X509Cert {
 
     // Parse a DER-encoded certificate into this struct (zeroed first).
     // Returns 0 on success, negative on error.
-    int init(const &unsigned char der, unsigned long len);
+    int init([]const unsigned char der);
 
     // 1 if issuer_cert's subject matches this certificate's issuer name.
     // Structural check only: see x509_verify_signed_by for signatures.
@@ -713,7 +687,7 @@ struct X509Cert {
 
 ### Parsing and chain checks {#api-1}
 
-A certificate is parsed in place: declare a `struct X509Cert` and call `cert.init(der, len)`. `cert.verify_chain(&ca)` only compares names — `X509Cert` keeps no signature; verify signatures with the functions below.
+A certificate is parsed in place: declare a `struct X509Cert` and call `cert.init(der)`. `cert.verify_chain(&ca)` only compares names — `X509Cert` keeps no signature; verify signatures with the functions below.
 
 ### Full parsing and signature verification {#x509-verification}
 
@@ -737,12 +711,10 @@ struct X509Parsed {
     int  unknown_critical;   // a critical extension this parser doesn't process
 };
 
-int x509_parse(const &unsigned char der, unsigned long len, &X509Parsed out);          // 0 on success
-int x509_verify_signed_by(const &unsigned char der, const &X509Parsed c,
-                          const &unsigned char issuer_der, const &X509Parsed issuer);  // 1 if valid
-int x509_issued_by(const &unsigned char der, const &X509Parsed c,
-                   const &unsigned char issuer_der, const &X509Parsed issuer);         // issuer == subject
-int x509_match_host(const &unsigned char der, const &X509Parsed c, const &char host);
+int x509_parse([]const unsigned char der, &X509Parsed out);          // 0 on success
+int x509_verify_signed_by([]const unsigned char der, const &X509Parsed c, []const unsigned char issuer_der, const &X509Parsed issuer);  // 1 if valid
+int x509_issued_by([]const unsigned char der, const &X509Parsed c, []const unsigned char issuer_der, const &X509Parsed issuer);         // issuer == subject
+int x509_match_host([]const unsigned char der, const &X509Parsed c, const &char host);
 ```
 
 `x509_match_host` compares DNS names case-insensitively against `dNSName` SANs (a `*.` wildcard matches exactly one leftmost label, and needs at least two labels after it), IPv4/IPv6 literals against `iPAddress` SANs, and falls back to the subject CN only when the certificate has no DNS or IP SAN.
@@ -753,11 +725,10 @@ int x509_match_host(const &unsigned char der, const &X509Parsed c, const &char h
 #include <std/crypto/x509.h>
 #include <std/io.h>
 
-void check_cert(const &unsigned char der, unsigned long len,
-                unsigned long long now) {
+void check_cert([]const unsigned char der, unsigned long long now) {
     struct X509Cert cert;
 
-    if (cert.init(der, len) != 0) {
+    if (cert.init(der) != 0) {
         std::println("parse error");
         return;
     }
@@ -817,7 +788,7 @@ Record protection is the AES-256-GCM AEAD of RFC 8446 §5.2 (the `TLS_AES_256_GC
 struct TlsTranscript {
     struct Sha256Ctx hash;
 
-    void update(const &unsigned char data, unsigned long len);
+    void update([]const unsigned char data);
     void finish(unsigned char out[32]);   // snapshot — the transcript stays usable
 };
 
@@ -839,20 +810,15 @@ struct TlsSession {
     // with AES-256-GCM, outer type application_data, 16-byte tag. Returns
     // bytes written, 0 on error; a record that doesn't fit out_cap doesn't
     // consume a sequence number.
-    unsigned long encode_record(unsigned char content_type,
-                                const &unsigned char payload, unsigned long payload_len,
-                                &unsigned char out, unsigned long out_cap);
+    unsigned long encode_record(unsigned char content_type, []const unsigned char payload, []unsigned char out);
 
     // Decode one record from data[0..data_len); writes the plaintext to out
     // and the inner content type to *content_type_out. Protected records are
     // authenticated first: a forged or corrupted record returns 0 (as does
     // incomplete input) and doesn't advance read_seq.
-    unsigned long decode_record(const &unsigned char data, unsigned long data_len,
-                                &unsigned char content_type_out,
-                                &unsigned char out, unsigned long out_cap);
+    unsigned long decode_record([]const unsigned char data, &unsigned char content_type_out, []unsigned char out);
 
-    unsigned long build_alert(unsigned char level, unsigned char desc,
-                              &unsigned char out, unsigned long out_cap);
+    unsigned long build_alert(unsigned char level, unsigned char desc, []unsigned char out);
 
     // Installs traffic keys, resets both sequence numbers and switches to
     // protected records (is_established() becomes 1).
@@ -890,13 +856,12 @@ int main() {
     const &char msg = "GET / HTTP/1.1\r\n";
     unsigned char record[256];
     unsigned long n = 0UL;
-    unsafe { n = session.encode_record(TLS_APPLICATION_DATA, (const &unsigned char)msg, 16UL,
-                                       &record[0], 256UL); }
+    unsafe { n = session.encode_record(TLS_APPLICATION_DATA, ((const unsigned char*)msg)[0..16UL], record[0..256UL]); }
     // transmit record[0..n) over TCP ...
 
     unsigned char type = 0;
     unsigned char plain[256];
-    unsigned long got = session.decode_record(&record[0], n, &type, &plain[0], 256UL);
+    unsigned long got = session.decode_record(record[0..n], &type, plain[0..256UL]);
     return (got == 16UL && type == (unsigned char)TLS_APPLICATION_DATA) ? 0 : 1;
 }
 ```

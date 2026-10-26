@@ -70,7 +70,7 @@ struct GuiWindowOptions {
 };
 
 struct GuiWindow {
-    ?&void platform;          // null if creation failed
+    ?&struct GuiWindowState platform; // backend state (gui_backend.h); null if creation failed
     &heap unsigned char pixels; // width*height*4 bytes: premultiplied RGBA8888, R first
     int width, height;        // the buffer, in pixels
     int shouldClose;          // set by GUI_EVENT_CLOSE
@@ -401,7 +401,7 @@ struct GuiImage {
 
     static struct GuiImage new(int width, int height);           // transparent
     static struct GuiImage from_window(const &GuiWindow win);    // a copy of the buffer
-    int  load_png(const &unsigned char data, unsigned long size);
+    int load_png([]const unsigned char data);
     int  load_png_file(const &char path);
     int  save_png(const &char path) const;                       // RGBA, stored deflate blocks
     void premultiply(); void unpremultiply();

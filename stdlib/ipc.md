@@ -27,10 +27,10 @@ struct Pipe {
     int  init();                     // creates the pipe in place; 0 on success, -1 on failure
 
     // Returns bytes read (0 = write end closed and pipe drained: EOF), -1 on error.
-    long long read(&unsigned char buf, unsigned long count);
+    long long read([]unsigned char buf);
 
     // Returns bytes written, or -1 on error.
-    long long write(const &unsigned char buf, unsigned long count);
+    long long write([]const unsigned char buf);
 
     // Non-blocking mode (pairs with std::Reactor — await_fd(fd, SCHED_READ/WRITE)).
     int  set_read_nonblocking();
@@ -58,10 +58,10 @@ int main() {
     if (p.init() != 0) { std::println("pipe init failed"); return 1; }
 
     unsigned char msg[5] = { 'h', 'e', 'l', 'l', 'o' };
-    p.write(&msg[0], 5UL);
+    p.write(msg[0..5UL]);
 
     unsigned char buf[5];
-    long long n = p.read(&buf[0], 5UL);
+    long long n = p.read(buf[0..5UL]);
     std::print("read "); std::print_int(n); std::println(" bytes");   // read 5 bytes
 
     p.close_read();

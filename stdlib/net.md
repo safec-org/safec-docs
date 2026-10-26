@@ -51,7 +51,7 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    // An interface whose tx() calls drv.transmit(frame, len); drv must outlive it.
+    // An interface whose tx() calls drv.transmit(frame); drv must outlive it.
     generic<T: NetDriver>
     static struct NetIf new(&T drv);
 
@@ -65,7 +65,7 @@ struct NetIf {
 
 | Trait | Requires | Used by |
 |---|---|---|
-| `NetDriver` | `int transmit(const &unsigned char frame, unsigned long len)`: send one frame, 0 on success | `NetIf::new` |
+| `NetDriver` | `int transmit([]const unsigned char frame)`: send one frame, 0 on success | `NetIf::new` |
 
 std ships no driver; a type conforms by having the method, with no declaration. `NetIf::new<T>` builds the interface's transmit entry from `T::transmit` at compile time and stores it with the driver type-erased, so one stack can run interfaces over different drivers, and passing a type without `transmit` is an error at the `NetIf::new` call. (Block devices follow the same pattern with [`BlockDriver`](/stdlib/fs#block-driver).)
 
@@ -74,11 +74,11 @@ struct Enc28j60 {
     int           cs_pin;
     unsigned long sent;
 
-    int transmit(const &unsigned char frame, unsigned long len);
+    int transmit([]const unsigned char frame);
 };
 
-int Enc28j60::transmit(const &unsigned char frame, unsigned long len) {
-    // ... push `len` bytes of `frame` to the chip over SPI ...
+int Enc28j60::transmit([]const unsigned char frame) {
+    // ... push frame.len bytes of `frame` to the chip over SPI ...
     self.sent = self.sent + 1UL;
     return 0;
 }
@@ -211,7 +211,7 @@ struct Ipv4Hdr {
     unsigned int   dst;        // network byte order
 };
 
-unsigned short ip_checksum(const &unsigned char data, unsigned long len);
+unsigned short ip_checksum([]const unsigned char data);
 
 // Parse IPv4 header from pkt at byte offset 'offset'.
 int  ipv4_parse(&PacketBuf pkt, unsigned long offset, &Ipv4Hdr hdr_out);
@@ -358,7 +358,7 @@ struct TcpConn {
     int  recv(&PacketBuf pkt, unsigned long tcp_offset);
 
     // Enqueue payload data to send. Returns bytes accepted (0 if full).
-    unsigned long send(const &unsigned char data, unsigned long len);
+    unsigned long send([]const unsigned char data);
 
     // Build next outgoing segment into pkt; returns 1 if a segment was produced.
     int  build_segment(&PacketBuf pkt,
@@ -368,7 +368,7 @@ struct TcpConn {
     int  rx_ready() const;   // is there received data waiting?
 
     // Consume up to 'len' bytes from rx_buf into 'out'; returns bytes copied.
-    unsigned long read(&unsigned char out, unsigned long len);
+    unsigned long read([]unsigned char out);
 
     // Initiate active open (send SYN).
     void connect(unsigned int remote_ip, unsigned short remote_port,
@@ -382,8 +382,7 @@ struct TcpConn {
 // 0 on success; -1 if truncated or the data offset is below 5 words or past the packet.
 int tcp_parse(&PacketBuf pkt, unsigned long offset, &TcpHdr hdr_out);
 
-unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
-                            const &unsigned char tcp_seg, unsigned long seg_len);   // pseudo-header + segment
+unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip, []const unsigned char tcp_seg);   // pseudo-header + segment
 ```
 
 ---
@@ -500,12 +499,12 @@ extern int printf(const char* fmt, ...);
 struct LoopbackNic {
     unsigned long frames;
 
-    int transmit(const &unsigned char frame, unsigned long len);   // NetDriver
+    int transmit([]const unsigned char frame);   // NetDriver
 };
 
-int LoopbackNic::transmit(const &unsigned char frame, unsigned long len) {
+int LoopbackNic::transmit([]const unsigned char frame) {
     self.frames = self.frames + 1UL;
-    unsafe { printf("driver: sending %lu bytes\n", len); }
+    unsafe { printf("driver: sending %lu bytes\n", frame.len); }
     return 0;
 }
 

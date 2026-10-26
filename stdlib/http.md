@@ -173,8 +173,7 @@ struct HttpResponse {
     static struct HttpResponse text(int status, const &char body);       // text/plain; charset=utf-8
     static struct HttpResponse html(int status, const &char body);       // text/html; charset=utf-8
     static struct HttpResponse json(int status, const &char body);       // application/json
-    static struct HttpResponse bytes(int status, const &char content_type,
-                                     const ?&unsigned char data, unsigned long len);
+    static struct HttpResponse bytes(int status, const &char content_type, []const unsigned char data);
     static struct HttpResponse redirect(int status, const &char location);  // 301/302/303/307/308
     static struct HttpResponse error(int status);                        // "404 Not Found" as text
 
@@ -185,7 +184,7 @@ struct HttpResponse {
     int           has_header(const &char name) const;
     struct HttpHeaders header_map() const;
     void          set_body(const &char body);
-    void          set_body_bytes(const &unsigned char data, unsigned long len);
+    void set_body_bytes([]const unsigned char data);
     void free();
 };
 
@@ -197,8 +196,7 @@ int http_status_is_client_error(int status);   // 4xx
 int http_status_is_server_error(int status);   // 5xx
 
 // A complete "HTTP/1.1 <status> <reason>\r\n...\r\n\r\n<body>" response text.
-struct String http_build_response(int status, const &char content_type,
-                                  const ?&unsigned char body, unsigned long body_len);
+struct String http_build_response(int status, const &char content_type, []const unsigned char body);
 ```
 
 The fields are public, so a response can still be filled in by hand (`resp.status = 200; resp.headers = ...`); the constructors just save the boilerplate.
@@ -459,8 +457,7 @@ struct MultipartForm {
 struct MultipartBuilder {              // for client requests
     static struct MultipartBuilder new();
     void add_field(const &char name, const &char value);
-    void add_file(const &char name, const &char filename, const &char content_type,
-                  const &unsigned char data, unsigned long len);
+    void add_file(const &char name, const &char filename, const &char content_type, []const unsigned char data);
     struct String content_type() const;   // "multipart/form-data; boundary=..."
     void finish();                        // then send .body
     void free();
@@ -491,13 +488,13 @@ The whole body is in memory first (bounded by the server's `max_body_bytes`).
 ### Chunked {#chunked}
 
 ```c
-void http_chunked_encode(&String out, const ?&unsigned char data, unsigned long len);   // one chunk
+void http_chunked_encode(&String out, []const unsigned char data);   // one chunk
 void http_chunked_end(&String out);                                                     // "0\r\n\r\n"
-int  http_chunked_decode(const &unsigned char data, unsigned long len, &String out, ?&unsigned long consumed);
+int http_chunked_decode([]const unsigned char data, &String out, ?&unsigned long consumed);
 
 struct HttpChunkedWriter {             // a response of unknown length, over a detached connection
     static struct HttpChunkedWriter begin(&HttpConn conn, int status, const ?&char headers);
-    int write(const &unsigned char data, unsigned long len);
+    int write([]const unsigned char data);   // one chunk; 0 once the connection failed
     int write_str(const &char text);
     int finish();                      // last chunk, then closes the socket
 };
@@ -521,7 +518,7 @@ struct SseEvent { struct String event, data, id; int retry; void free(); };
 
 struct SseParser {                     // incremental text/event-stream parser
     static struct SseParser new();
-    void feed(const &unsigned char bytes, unsigned long len);
+    void feed([]const unsigned char bytes);
     int  next(&SseEvent out);          // 1 with an event, 0 when more input is needed
     void free();
 };
@@ -572,13 +569,9 @@ struct HttpClientOptions {
     static struct HttpClientOptions defaults();
 };
 
-struct HttpResponse http_fetch(const &char method, const &char url,
-                               const ?&char extra_headers,
-                               const ?&unsigned char body, unsigned long body_len,
-                               const ?&HttpClientOptions opts, ?&String final_url, ?&int ok);
+struct HttpResponse http_fetch(const &char method, const &char url, const ?&char extra_headers, []const unsigned char body, const ?&HttpClientOptions opts, ?&String final_url, ?&int ok);
 struct HttpResponse http_get_url(const &char url, ?&int ok);
-struct HttpResponse http_post_url(const &char url, const &char content_type,
-                                  const ?&unsigned char body, unsigned long body_len, ?&int ok);
+struct HttpResponse http_post_url(const &char url, const &char content_type, []const unsigned char body, ?&int ok);
 int http_decode_body(&HttpResponse resp, unsigned long max_out);   // undo Content-Encoding in place
 ```
 
@@ -592,22 +585,11 @@ The client reads chunked bodies, bodies that run until the server closes, and sk
 // Blocking HTTP/1.1 request. host is a hostname or numeric IPv4 address.
 // extra_headers: null, or "Key: value\r\n" lines (Host, Content-Length and
 // Connection: close are added for you, unless you set them).
-struct HttpResponse http_request(const &char host, unsigned short port,
-                                 const &char method, const &char path,
-                                 const ?&char extra_headers,
-                                 const ?&unsigned char body, unsigned long body_len,
-                                 ?&int ok);
+struct HttpResponse http_request(const &char host, unsigned short port, const &char method, const &char path, const ?&char extra_headers, []const unsigned char body, ?&int ok);
 // connect_timeout_ms bounds the connect, io_timeout_ms each send/receive.
-struct HttpResponse http_request_timeout(const &char host, unsigned short port,
-                                         const &char method, const &char path,
-                                         const ?&char extra_headers,
-                                         const ?&unsigned char body, unsigned long body_len,
-                                         int connect_timeout_ms, int io_timeout_ms,
-                                         ?&int ok);
+struct HttpResponse http_request_timeout(const &char host, unsigned short port, const &char method, const &char path, const ?&char extra_headers, []const unsigned char body, int connect_timeout_ms, int io_timeout_ms, ?&int ok);
 struct HttpResponse http_get(const &char host, unsigned short port, const &char path, ?&int ok);
-struct HttpResponse http_post(const &char host, unsigned short port, const &char path,
-                              const &char content_type,
-                              const ?&unsigned char body, unsigned long body_len, ?&int ok);
+struct HttpResponse http_post(const &char host, unsigned short port, const &char path, const &char content_type, []const unsigned char body, ?&int ok);
 int http_resolve_host(const &char host, &unsigned int addr_out);   // 1 on success
 // Connect (and, with tls, a TLS client handshake; cfg null = defaults with
 // ALPN "http/1.1"). fd -1 on failure, *err says why.
@@ -648,7 +630,7 @@ struct TlsError te = std::TlsError::none();
 struct HttpClientOptions o = std::HttpClientOptions::defaults();
 o.tls = &tc;
 o.tls_error = &te;
-struct HttpResponse r = std::http_fetch("GET", "https://intranet.example/api", null, null, 0UL, &o, null, &ok);
+struct HttpResponse r = std::http_fetch("GET", "https://intranet.example/api", null, str_bytes(""), &o, null, &ok);
 if (!ok && te.code != TLS_OK) { std::println(te.message); }   // e.g. "the certificate has expired"
 r.free();
 tc.free();
@@ -684,8 +666,8 @@ struct TcpStream {
     static struct TcpStream over_tls(&heap TlsStream t);   // owns the TLS stream (and its socket)
     int is_tls() const;
 
-    long long read(&unsigned char buf, unsigned long n);         // count, 0 once the peer closed, -1 on error
-    long long write(const &unsigned char buf, unsigned long n);  // count, -1 on error
+    long long read([]unsigned char buf);         // count, 0 once the peer closed, -1 on error
+    long long write([]const unsigned char buf);  // count, -1 on error
     int       close();                                            // 0 on success
 };
 ```
@@ -706,7 +688,7 @@ int main() {
 
     struct BufWriter<TcpStream> out = std::BufWriter::over(&s);
     unsigned char ping[5] = { 'P', 'I', 'N', 'G', '\n' };
-    int ok = std::write_all(&out, &ping[0], 5UL) && out.flush() == 0;
+    int ok = std::write_all(&out, ping[0..5]) && out.flush() == 0;
 
     struct BufReader<TcpStream> in = std::BufReader::over(&s);
     struct String line = std::String::new();
@@ -878,7 +860,7 @@ struct WsConn {
     int  accept(int listenFd);
 
     int  send_text(const &char text);
-    int  send_binary(const &unsigned char data, unsigned long len);
+    int send_binary([]const unsigned char data);
     int  send_ping();
     int  send_pong();
     int  send_close();                  // close frame only; the socket stays open
@@ -951,11 +933,10 @@ struct RpcResult {
     void free();
 };
 
-typedef fn struct RpcResult(const &unsigned char data, unsigned long len) RpcMethodHandler;
+typedef fn struct RpcResult([]const unsigned char data) RpcMethodHandler;
 
 // Client. Transport failures and handler-reported failures both come back with ok = 0.
-struct RpcResult rpc_call(const &char host, unsigned short port, const &char path,
-                          const &unsigned char request_data, unsigned long request_len);
+struct RpcResult rpc_call(const &char host, unsigned short port, const &char path, []const unsigned char request_data);
 
 // Server: register every method, then serve. Unknown paths get HTTP 404.
 void rpc_register(const &char path, RpcMethodHandler handler);

@@ -53,12 +53,12 @@ void eprint_float(double v);
 모두 (NUL을 제외하고) 기록된 문자 수를 반환하거나, 오류 시 -1을 반환합니다.
 
 ```c
-int io_fmt_int(&char buf, int n, long long v);
-int io_fmt_uint(&char buf, int n, unsigned long long v);
-int io_fmt_float(&char buf, int n, double v);
-int io_fmt_float_prec(&char buf, int n, double v, int prec);
-int io_fmt_hex(&char buf, int n, unsigned long long v);
-int io_fmt_str(&char buf, int n, const &char s);
+int io_fmt_int([]char buf, long long v);
+int io_fmt_uint([]char buf, unsigned long long v);
+int io_fmt_float([]char buf, double v);
+int io_fmt_float_prec([]char buf, double v, int prec);
+int io_fmt_hex([]char buf, unsigned long long v);
+int io_fmt_str([]char buf, const &char s);
 ```
 
 ### 입력 (stdin) {#input-stdin}
@@ -66,8 +66,8 @@ int io_fmt_str(&char buf, int n, const &char s);
 ```c
 int  io_getchar();                        // 문자 하나를 읽음; 끝에 도달하면 SC_EOF 반환
 int  io_ungetc(int c);                    // 문자를 stdin으로 되돌려 놓음
-int  io_read_line(&char buf, int n);      // 한 줄을 읽음 (최대 n-1자 + NUL)
-int  io_read_token(&char buf, int n);     // 공백으로 구분된 토큰을 읽음
+int io_read_line([]char buf);      // 한 줄을 읽음 (최대 n-1자 + NUL)
+int io_read_token([]char buf);     // 공백으로 구분된 토큰을 읽음
 int  io_scan_int(&long long out);           // stdin에서 10진 정수를 파싱
 int  io_scan_uint(&unsigned long long out); // stdin에서 부호 없는 정수를 파싱
 int  io_scan_float(&double out);            // stdin에서 부동소수점을 파싱
@@ -105,7 +105,7 @@ void flush_stderr();
 노출되지 않습니다. [정적 메서드](/ko/reference/functions#static-methods)
 `File::open`은 `?&File`(실패 시 null)을 반환하므로 사용 전에 좁혀야
 하며(`match`, `std::expect_ref`), 그 뒤의 모든 연산은 non-null `&File`의
-메서드입니다(`f.read(buf, n)`, `f.close()`, ...). `namespace std`
+메서드입니다(`f.read(buf)`, `f.close()`, ...). `namespace std`
 바깥에서는 `std::File::open(...)`으로 호출합니다. 바이트 버퍼는
 `&unsigned char` / `const &unsigned char`입니다.
 
@@ -117,11 +117,11 @@ struct File {
     static ?&File open(const &char path, const &char mode);  // "r", "w", "a", "rb", "wb", etc.
     int       close();                                       // 0 on success
 
-    long long read(&unsigned char buf, unsigned long n);       // bytes read, 0 at EOF, -1 on error
+    long long read([]unsigned char buf);       // bytes read, 0 at EOF, -1 on error
     int       getc();                                          // char, or -1 at EOF/error
-    ?&char    gets(&char buf, int n);                          // buf, or null at EOF/error
+    ?&char gets([]char buf);                          // buf, or null at EOF/error
 
-    long long write(const &unsigned char buf, unsigned long n); // bytes written, -1 on error
+    long long write([]const unsigned char buf); // bytes written, -1 on error
     int       putc(int c);                                      // c, or -1 on error
     int       puts(const &char s);                              // non-negative on success (no newline)
 
@@ -137,7 +137,7 @@ struct File {
 
     // 파일 전체 (정적 메서드).
     static int read_to_string(const &char path, &String out);           // 내용을 덧붙임, 성공 시 1
-    static int write_bytes(const &char path, const &char data, unsigned long n); // 생성/잘라내기 후 쓰기, 성공 시 1
+    static int write_bytes(const &char path, []const unsigned char data); // 생성/잘라내기 후 쓰기, 성공 시 1
 };
 ```
 
@@ -149,15 +149,15 @@ struct File {
 
 ### 읽기 {#read}
 
-`f.read(buf, n)`은 최대 `n`바이트를 읽고 그 수를 반환합니다: 끝에 가까우면
+`f.read(buf)`는 최대 `buf.len`바이트를 읽고 그 수를 반환합니다: 끝에 가까우면
 `n`보다 적고, 파일 끝에서는 0, 한 바이트도 읽기 전에 오류가 나면 -1입니다.
 정확히 `n`바이트를 읽으려면 [`read_exact`](#io-traits)를 사용합니다.
-`f.getc()`는 문자 하나 또는 -1을 반환하고, `f.gets(buf, n)`은 최대
-`n - 1`개의 문자를 읽어 NUL로 끝맺습니다.
+`f.getc()`는 문자 하나 또는 -1을 반환하고, `f.gets(buf)`는 최대
+`buf.len - 1`개의 문자를 읽어 NUL로 끝맺습니다.
 
 ### 쓰기 {#write}
 
-`f.write(buf, n)`은 쓴 바이트 수(도중에 오류가 나면 `n`보다 적음)를,
+`f.write(((const unsigned char*)buf)[0..n])`은 쓴 바이트 수(도중에 오류가 나면 `n`보다 적음)를,
 한 바이트도 쓰기 전에 오류가 나면 -1을 반환합니다.
 [`write_all`](#io-traits)은 전부 쓸 때까지 반복합니다. `f.putc(c)`와
 `f.puts(s)`는 문자 하나와 문자열을 씁니다.
@@ -187,7 +187,7 @@ struct File {
 struct String text = String::new();
 if (std::File::read_to_string("notes.md", &text)) {
     text.push("\n- one more line\n");
-    std::File::write_bytes("notes.md", text.as_ptr(), text.len);
+    std::File::write_bytes("notes.md", text.as_bytes());
 }
 text.free();
 ```
@@ -207,10 +207,10 @@ std의 블로킹 바이트 스트림은 모두 같은 `read` / `write` 형태를
 
 ```c
 trait Reader {
-    long long read(&unsigned char buf, unsigned long n);         // count, 0 at end, -1 on error
+    long long read([]unsigned char buf);         // count, 0 at end, -1 on error
 }
 trait Writer {
-    long long write(const &unsigned char buf, unsigned long n);  // count (may be short), -1 on error
+    long long write([]const unsigned char buf);  // count (may be short), -1 on error
 }
 trait Seekable {
     int       seek(long long offset, int whence);                // 0 = start, 1 = current, 2 = end; 0 on success
@@ -225,8 +225,8 @@ trait SeekableStream : Stream + Seekable {}
 
 | 트레이트 | 구성 | 만족하는 타입 |
 |---|---|---|
-| `Reader` | `read(buf, n)` | `File`, `Pipe`, `TcpStream`, `BufReader<R>` |
-| `Writer` | `write(buf, n)` | `File`, `Pipe`, `TcpStream`, `BufWriter<W>` |
+| `Reader` | `read(buf)` (`[]unsigned char`) | `File`, `Pipe`, `TcpStream`, `TlsStream`, `BufReader<R>` |
+| `Writer` | `write(buf)` (`[]const unsigned char`) | `File`, `Pipe`, `TcpStream`, `TlsStream`, `BufWriter<W>` |
 | `Seekable` | `seek(offset, whence)`, `tell()` | `File` |
 | `Flusher` | `flush()` | `File`, `BufWriter<W>` |
 | `Stream` | `Reader + Writer` | `File`, [`Pipe`](/ko/stdlib/ipc#pipe-anonymous-pipes)(읽기 쪽 끝에서 읽고 쓰기 쪽 끝에 씀), [`TcpStream`](/ko/stdlib/http#tcp-streams)(`std/http/http.h`, 연결된 블로킹 TCP 소켓) |
@@ -234,16 +234,16 @@ trait SeekableStream : Stream + Seekable {}
 
 | 함수 / 구조체 | 바운드 | 하는 일 |
 |---|---|---|
-| `read_exact(&r, buf, n)` | `Reader` | 짧은 읽기를 반복해 정확히 `n`바이트를 읽음: 모두 도착하면 1, 스트림이 먼저 끝나거나 실패하면 0(`buf`에는 도착한 만큼 들어 있음) |
-| `write_all(&w, buf, n)` | `Writer` | 짧은 쓰기를 반복해 `n`바이트를 모두 씀: 성공하면 1, 스트림이 먼저 실패하면(또는 아무것도 받지 않으면) 0 |
+| `read_exact(&r, ((unsigned char*)buf)[0..n])` | `Reader` | 짧은 읽기를 반복해 정확히 `n`바이트를 읽음: 모두 도착하면 1, 스트림이 먼저 끝나거나 실패하면 0(`buf`에는 도착한 만큼 들어 있음) |
+| `write_all(&w, ((const unsigned char*)buf)[0..n])` | `Writer` | 짧은 쓰기를 반복해 `n`바이트를 모두 씀: 성공하면 1, 스트림이 먼저 실패하면(또는 아무것도 받지 않으면) 0 |
 | `copy_stream(&r, &w)` | `Reader`, `Writer` | `r`이 끝날 때까지 `w`로 복사: 복사한 바이트 수, 읽기나 쓰기가 실패하면 -1 |
 | `stream_size(&s)` | `Seekable` | 위치는 그대로 둔 채 스트림의 길이(끝 오프셋)를 반환, 오류 시 -1 |
 | [`BufReader<R>`](#buffered-io) | `Reader` | 리더 앞에 두는 버퍼, `read_until` 제공. 그 자신도 `Reader` |
 | [`BufWriter<W>`](#buffered-io) | `Writer` | 라이터 앞에 두는 버퍼. 그 자신도 `Writer`이자 `Flusher` |
 
 ```c
-generic<R: Reader>             int       read_exact(&R r, &unsigned char buf, unsigned long n);
-generic<W: Writer>             int       write_all(&W w, const &unsigned char buf, unsigned long n);
+generic<R: Reader> int read_exact(&R r, []unsigned char buf);
+generic<W: Writer> int write_all(&W w, []const unsigned char buf);
 generic<R: Reader, W: Writer>  long long copy_stream(&R r, &W w);
 generic<S: Seekable>           long long stream_size(&S s);
 ```
@@ -262,7 +262,7 @@ long long byte_sum(&R r) {
     unsigned char chunk[256];
     long long sum = 0LL;
     while (1) {
-        long long k = r.read(&chunk[0], 256UL);
+        long long k = r.read(chunk[0..256UL]);
         if (k == 0LL) { return sum; }
         if (k < 0LL) { return -1LL; }
         for (long long i = 0LL; i < k; i = i + 1LL) { sum = sum + (long long)chunk[i]; }
@@ -276,7 +276,7 @@ int main() {
     // Through a pipe: write all, close the write end, read to the end.
     struct Pipe p;
     if (p.init() != 0) { return 1; }
-    if (!std::write_all(&p, &msg[0], 3UL)) { return 1; }
+    if (!std::write_all(&p, msg[0..3])) { return 1; }
     p.close_write();
     long long a = byte_sum(&p);                 // R = Pipe
     p.close_read();
@@ -285,7 +285,7 @@ int main() {
     match (std::File::open("/tmp/sum.bin", "w+b")) {
         case null: { return 1; }
         case some(f): {
-            std::write_all(f, &msg[0], 3UL);
+            std::write_all(f, msg[0..3]);
             f.seek(0LL, 0);
             long long b = byte_sum(f);          // R = File
             long long n = std::stream_size(f);  // Seekable
@@ -353,7 +353,7 @@ struct BufReader {
     &R inner;                                              // the stream read from (borrowed)
 
     static struct BufReader<R> over(&R inner);
-    long long     read(&unsigned char out, unsigned long n); // from the buffer first; 0 at end, -1 on error
+    long long read([]unsigned char out);     // from the buffer first; 0 at end, -1 on error
     int           read_until(&String out, const &char term);
     unsigned long buffered() const;                          // bytes a read can return without touching the stream
 };
@@ -363,7 +363,7 @@ struct BufWriter {
     &W inner;                                              // the stream written to (borrowed)
 
     static struct BufWriter<W> over(&W inner);
-    long long write(const &unsigned char data, unsigned long n); // takes all n bytes: n, or -1 if the stream failed
+    long long write([]const unsigned char data); // takes all of data: data.len, or -1 if the stream failed
     int       flush();                                           // writes out the buffer: 0, or -1 (buffer dropped either way)
 };
 ```
@@ -439,7 +439,7 @@ int main() {
     match (std::File::open("output.txt", "r")) {
         case some(g): {
             char buf[256];
-            unsafe { g.gets(buf, 256); }
+            g.gets(buf[..]);
             std::print("Read: ");
             unsafe { std::println(buf); }
             g.close();

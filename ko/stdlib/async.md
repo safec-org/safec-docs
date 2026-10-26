@@ -170,9 +170,9 @@ struct WaitList {                      // several waiting futures, no heap
 struct Context {
     struct Waker  waker;     // the task being polled
     ?&TimerQueue  timers;    // the executor's timers: what Sleep/Interval/Timeout use
-    void*         io_;       // the executor's IoDriver (std/async/net.h), via io_driver(cx)
-    void*         exec_;     // the executor, and its type-erased spawn (async_spawn)
-    void*         spawn_;
+    ?&struct IoDriver io_;   // the executor's IoDriver (std/async/net.h), via io_driver(cx)
+    ?&Erased      exec_;     // the executor, and its type-erased spawn (async_spawn; see std/erased.h)
+    ?fn int(?&Erased, ?&struct TaskHeader) spawn_;
 
     static struct Context from_waker(struct Waker w);   // no timers, no I/O, no spawning
     static struct Context noop();                        // Waker::noop(): poll by hand
@@ -697,7 +697,7 @@ struct AsyncTcpStream {
     static struct AsyncTcpStream from_fd(int fd);
     static struct ConnectFut connect(unsigned int addr_network_order, unsigned short port);
     struct ReadFut     read([]unsigned char buf);        // -> long long: bytes, 0 at EOF, -1 on error
-    struct WriteFut    write([]unsigned char buf);       // -> long long: bytes written, -1 on error
+    struct WriteFut    write([]const unsigned char buf);       // -> long long: bytes written, -1 on error
     struct WriteAllFut write_all([]unsigned char buf);   // -> int: 1 all written, 0 on error
     int close();
 };

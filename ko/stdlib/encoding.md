@@ -22,7 +22,7 @@ ASCII 검사와 대소문자 변환, UTF-8 인코드/디코드, URL(퍼센트 �
 
 ```c
 int ascii_is_valid(const &char s);                     // 1 if every byte of the NUL-terminated string is 0..127
-int ascii_is_valid_n(const &char s, unsigned long len); // same, for a raw byte range (no NUL needed)
+int ascii_is_valid_bytes([]const char s);           // same, for raw bytes (no NUL needed)
 
 int ascii_is_alpha(char c);
 int ascii_is_digit(char c);
@@ -116,7 +116,7 @@ struct String form_decode(const &char s);
 struct QueryParams {
     static struct QueryParams new();
     static struct QueryParams parse(const &char qs);                    // a leading '?' is skipped
-    static struct QueryParams parse_n(const &char qs, unsigned long n);  // n raw bytes (a request body)
+    static struct QueryParams parse_bytes([]const char qs);  // raw bytes (a request body)
 
     unsigned long length() const;
     const ?&char  get(const &char key) const;            // first value, or null
@@ -208,7 +208,7 @@ int main() {
 
 ```c
 // No line wrapping in the output.
-struct String base64_encode(const &unsigned char data, unsigned long len);
+struct String base64_encode([]const unsigned char data);
 
 // Whitespace between groups is skipped. Any other invalid byte, or '=' that
 // isn't trailing padding, sets *ok = 0 and returns an empty Vec.
@@ -249,27 +249,24 @@ HTTP의 `Content-Encoding: gzip` / `deflate`([HTTP 클라이언트](/ko/stdlib/h
 #define DEFLATE_BEST    9
 
 // Raw DEFLATE (RFC 1951). Levels 0..9; out-of-range values are clamped.
-struct Vec<unsigned char> deflate_raw(const &unsigned char data, unsigned long len, int level);
+struct Vec<unsigned char> deflate_raw([]const unsigned char data, int level);
 // max_out: fail instead of growing past it (0 = no limit). consumed may be null.
-struct Vec<unsigned char> inflate_raw(const &unsigned char data, unsigned long len,
-                                      unsigned long max_out, ?&unsigned long consumed, ?&int ok);
+struct Vec<unsigned char> inflate_raw([]const unsigned char data, unsigned long max_out, ?&unsigned long consumed, ?&int ok);
 
 // zlib (RFC 1950): header + DEFLATE + Adler-32.
-struct Vec<unsigned char> zlib_compress(const &unsigned char data, unsigned long len, int level);
-struct Vec<unsigned char> zlib_decompress(const &unsigned char data, unsigned long len,
-                                          unsigned long max_out, ?&int ok);
+struct Vec<unsigned char> zlib_compress([]const unsigned char data, int level);
+struct Vec<unsigned char> zlib_decompress([]const unsigned char data, unsigned long max_out, ?&int ok);
 
 // gzip (RFC 1952): one member on output; every concatenated member on input,
 // each CRC-32 and length checked.
-struct Vec<unsigned char> gzip_compress(const &unsigned char data, unsigned long len, int level);
-struct Vec<unsigned char> gzip_decompress(const &unsigned char data, unsigned long len,
-                                          unsigned long max_out, ?&int ok);
-int gzip_is_gzip(const &unsigned char data, unsigned long len);   // starts with 1f 8b
+struct Vec<unsigned char> gzip_compress([]const unsigned char data, int level);
+struct Vec<unsigned char> gzip_decompress([]const unsigned char data, unsigned long max_out, ?&int ok);
+int gzip_is_gzip([]const unsigned char data);   // starts with 1f 8b
 
-unsigned int crc32(const &unsigned char data, unsigned long len);   // "123456789" -> 0xCBF43926
-unsigned int crc32_update(unsigned int crc, const &unsigned char data, unsigned long len);
-unsigned int adler32(const &unsigned char data, unsigned long len);
-unsigned int adler32_update(unsigned int adler, const &unsigned char data, unsigned long len);
+unsigned int crc32([]const unsigned char data);   // "123456789" -> 0xCBF43926
+unsigned int crc32_update(unsigned int crc, []const unsigned char data);
+unsigned int adler32([]const unsigned char data);
+unsigned int adler32_update(unsigned int adler, []const unsigned char data);
 ```
 
 압축기는 32 KiB 윈도 위에서 LZ77(해시 체인, 레벨 4부터 지연 매칭)을 돌리고, 각 블록을 stored, 고정 허프만, 동적 허프만 중 가장 작은 형태로 씁니다. 출력은 어떤 디코더든 읽는 평범한 DEFLATE이며, 크기는 같은 레벨의 zlib과 1% 미만 차이로 비슷하지만 바이트 단위로 같지는 않습니다. 해제기는 규격에 맞는 모든 스트림을 받아들입니다.
