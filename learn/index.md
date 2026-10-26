@@ -32,7 +32,7 @@ Edit SafeC in the browser and load every runnable example from the Book. Every p
 
 ## Reference {#reference}
 
-::::: cards 3
+::::: cards 2
 ::: card list
 ### [Language Reference](/reference/types)
 
@@ -42,6 +42,11 @@ Types, operators, literals, [memory and regions](/reference/memory), functions, 
 ### [Standard Library](/stdlib/)
 
 Every std module with its API: core, collections, serialization, [async](/stdlib/async), [networking](/stdlib/net), [HTTP](/stdlib/http) and [TLS](/stdlib/tls), [GUI](/stdlib/gui), [audio](/stdlib/audio), [WebAssembly](/stdlib/wasm), ML, crypto, embedded.
+:::
+::: card code
+### [API Reference](/api/)
+
+Every std declaration, generated from the sources by `safeguard doc --std`: per-item pages with signatures, doc comments and source links, a module tree and search. Your own libraries get the same with [`safeguard doc`](/advanced/safeguard#safeguard-doc).
 :::
 ::: card chip
 ### [Advanced](/advanced/compiler)

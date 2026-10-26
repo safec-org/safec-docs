@@ -31,8 +31,10 @@ concurrency:
 env:
   LLVM_VERSION: "21"
   # SafeC commit with the std the generator and client build against
-  # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime).
-  SAFEC_REF: ${{ inputs.safec_ref || '4c14bc32963451b10387cd3a171215c217a317ad' }}
+  # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime,
+  # and 'safeguard doc' for the std API reference under /api/: safeguard-doc branch;
+  # move to the merge commit on main once it lands).
+  SAFEC_REF: ${{ inputs.safec_ref || 'f923746c3f3edb93361418c0d0f49808facebc68' }}
 
 jobs:
   build:

@@ -32,7 +32,7 @@ SafeC가 무엇이고 무엇이 아닌지: [소개](/ko/guide/introduction), [�
 
 ## 레퍼런스 {#reference}
 
-::::: cards 3
+::::: cards 2
 ::: card list
 ### [언어 레퍼런스](/ko/reference/types)
 
@@ -42,6 +42,11 @@ SafeC가 무엇이고 무엇이 아닌지: [소개](/ko/guide/introduction), [�
 ### [표준 라이브러리](/ko/stdlib/)
 
 모든 std 모듈과 API: 코어, 컬렉션, 직렬화, [비동기](/ko/stdlib/async), [네트워킹](/ko/stdlib/net), [HTTP](/ko/stdlib/http), [TLS](/ko/stdlib/tls), [GUI](/ko/stdlib/gui), [오디오](/ko/stdlib/audio), [WebAssembly](/ko/stdlib/wasm), ML, 암호화, 임베디드.
+:::
+::: card code
+### [API 레퍼런스](/api/)
+
+`safeguard doc --std`가 소스에서 생성한 모든 std 선언(영어): 시그니처·문서 주석·소스 링크가 있는 항목별 페이지, 모듈 트리, 검색. 여러분의 라이브러리도 [`safeguard doc`](/ko/advanced/safeguard#safeguard-doc)으로 똑같이 만들 수 있습니다.
 :::
 ::: card chip
 ### [고급](/ko/advanced/compiler)
