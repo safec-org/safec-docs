@@ -6,7 +6,7 @@ tags: [release, std, async, audio, web, gui]
 summary: Since 1.0.0-beta-6, SafeC's standard library gained Rust-style async, real-time audio and MIDI, a full web stack with HTTPS, an anti-aliased GUI toolkit that also runs on Wayland and in the browser, and prebuilt sections; the docs are now built with SafeC and Windows CI is green again.
 ---
 
-The weeks since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6) went into the standard library: a program that serves HTTP, opens a window, plays audio and awaits futures can now be written with nothing but `std`. Everything below is merged on `main` (pull requests [#56](https://github.com/safec-org/SafeC/pull/56)–[#67](https://github.com/safec-org/SafeC/pull/67)) and will ship in the next release; the [changelog](/changelog) tracks it under *Unreleased*.
+The weeks since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6) went into the standard library: a program that serves HTTP, opens a window, plays audio and awaits futures can now be written with nothing but `std`. Everything below is merged on `main` (pull requests [#56](https://github.com/safec-org/SafeC/pull/56)–[#67](https://github.com/safec-org/SafeC/pull/67)) and will ship in the next release (the [changelog](/changelog) starts with #69; [What's coming next](/blog/whats-coming-next) covers everything since beta-6).
 
 ## std/async: futures without language coroutines {#async}
 

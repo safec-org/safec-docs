@@ -164,7 +164,7 @@ Slicing takes a half-open range: `a[i..j]`, `a[i..]` (to the end of an array or 
 ```c
 long sum([]const int xs) {
     long s = 0L;
-    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + xs[i]; }
+    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + (long)xs[i]; }
     // xs[0] = 1;   // ERROR: cannot assign through a read-only slice '[]const int'
     return s;
 }
