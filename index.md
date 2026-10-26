@@ -225,7 +225,7 @@ int main() {
     return 0;
 }
 ```
-An anti-aliased vector canvas with TrueType text and 30+ themed widgets on X11, Win32 and Cocoa — [GUI](/stdlib/gui).
+An anti-aliased vector canvas with TrueType text and 30+ themed widgets on X11, Wayland, Win32, Cocoa and the web (WebAssembly) — [GUI](/stdlib/gui).
 :::
 ::: tab Async
 ```c norun

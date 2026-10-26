@@ -225,7 +225,7 @@ int main() {
     return 0;
 }
 ```
-X11, Win32, Cocoa에서 TrueType 텍스트를 지원하는 안티에일리어싱 벡터 캔버스와 30개 이상의 테마 위젯 — [GUI](/ko/stdlib/gui).
+X11, Wayland, Win32, Cocoa와 웹(WebAssembly)에서 TrueType 텍스트를 지원하는 안티에일리어싱 벡터 캔버스와 30개 이상의 테마 위젯 — [GUI](/ko/stdlib/gui).
 :::
 ::: tab 비동기
 ```c norun

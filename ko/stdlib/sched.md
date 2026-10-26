@@ -43,12 +43,12 @@
 
 ::: tip 검증 상태
 `reactor_kqueue.sc`는 macOS에서 종단 간(컴파일, 링크, 실행)으로
-검증되었습니다. `reactor_epoll.sc`와 `reactor_win32.sc`는 컴파일되고
-크로스 타겟 검증(`--target`을 통한 실제 오브젝트 코드 생성, 그리고
-플랫폼 ABI에 민감한 부분에 대한 `static_assert` 검사 — `EpollEvent`의
-패킹된 12바이트 레이아웃, `WSAPollFd`의 16바이트 레이아웃)까지는
-되었지만, 이 환경에서 실제 Linux나 Windows 호스트 위에서 런타임
-테스트된 적은 아직 없습니다.
+검증되었고, `reactor_epoll.sc`는 Linux에서 std 테스트 스위트가 루프백
+비동기 TCP와 그 위의 HTTP 서버를 돌려 검증합니다. `reactor_win32.sc`는
+컴파일되고 크로스 타겟 검증(`--target`을 통한 실제 오브젝트 코드 생성,
+그리고 플랫폼 ABI에 민감한 부분에 대한 `static_assert` 검사 —
+`EpollEvent`의 패킹된 12바이트 레이아웃, `WSAPollFd`의 16바이트
+레이아웃)까지 되었습니다.
 :::
 
 ## 사용 형태 {#usage-shape}
@@ -230,11 +230,10 @@ Windows 파일 핸들에 `await_fd()`를 호출하지 말 것 — 소켓은 세 
 
 ::: tip 검증 상태
 리액터 백엔드와 동일한 상태입니다: `io_nb_bsd.sc`는 macOS에서(실제
-`tcp_listen_nb`/bind/listen 호출 포함) 종단 간으로 검증되었습니다.
-`io_nb_linux.sc`와 `io_nb_win32.sc`는 컴파일되고 크로스 타겟
-검증(`--target`을 통한 실제 오브젝트 코드 생성, `static_assert`로 검사한
-`SockAddrIn` 레이아웃)까지는 되었지만, 실제 Linux나 Windows 호스트 위에서
-런타임 테스트된 적은 아직 없습니다.
+`tcp_listen_nb`/bind/listen 호출 포함), `io_nb_linux.sc`는 Linux에서 std
+테스트 스위트로 종단 간 검증되었습니다. `io_nb_win32.sc`는 컴파일되고
+크로스 타겟 검증(`--target`을 통한 실제 오브젝트 코드 생성,
+`static_assert`로 검사한 `SockAddrIn` 레이아웃)까지 되었습니다.
 :::
 
 ## 스케줄링 모델 {#scheduling-model}

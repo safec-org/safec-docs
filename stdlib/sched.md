@@ -22,7 +22,7 @@ This is a **hosted-only** module operating on real OS file descriptors through r
 All three implement the exact same surface, so calling code never needs to know which one is compiled in — `SCHED_READ`/`SCHED_WRITE`/`SCHED_SIGNAL` and `TaskScheduler::await_fd`/`unblock_fd` are already backend-agnostic. `reactor_run` itself (see below) is shared across all three (`reactor.sc`), not reimplemented per backend.
 
 ::: tip Verification status
-`reactor_kqueue.sc` is exercised end-to-end (compiled, linked, and run) on macOS. `reactor_epoll.sc` and `reactor_win32.sc` are compiled and cross-target-verified (real object-code generation via `--target`, plus `static_assert`-checked struct layouts for the platform-ABI-sensitive parts — `EpollEvent`'s packed 12-byte layout, `WSAPollFd`'s 16-byte layout) but not yet runtime-tested on an actual Linux or Windows host in this environment.
+`reactor_kqueue.sc` is exercised end-to-end (compiled, linked, and run) on macOS, and `reactor_epoll.sc` on Linux, where std's test suite runs async TCP over loopback and the HTTP server on it. `reactor_win32.sc` is compiled and cross-target-verified (real object-code generation via `--target`, plus `static_assert`-checked struct layouts for the platform-ABI-sensitive parts — `EpollEvent`'s packed 12-byte layout, `WSAPollFd`'s 16-byte layout).
 :::
 
 ## Usage Shape {#usage-shape}
@@ -174,7 +174,7 @@ Each backend also declares its own `struct SockAddrIn` matching that platform's 
 :::
 
 ::: tip Verification status
-Same status as the reactor backends: `io_nb_bsd.sc` is exercised end-to-end on macOS (including a real `tcp_listen_nb`/bind/listen call). `io_nb_linux.sc` and `io_nb_win32.sc` are compiled and cross-target-verified (real object-code generation via `--target`, `static_assert`-checked `SockAddrIn` layout) but not yet runtime-tested on an actual Linux or Windows host.
+Same status as the reactor backends: `io_nb_bsd.sc` is exercised end-to-end on macOS (including a real `tcp_listen_nb`/bind/listen call) and `io_nb_linux.sc` on Linux by std's test suite. `io_nb_win32.sc` is compiled and cross-target-verified (real object-code generation via `--target`, `static_assert`-checked `SockAddrIn` layout).
 :::
 
 ## Scheduling Model {#scheduling-model}
