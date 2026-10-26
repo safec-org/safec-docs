@@ -105,6 +105,7 @@ std 전체에 검사를 켜자 실제 버그가 발견되어 고쳐졌습니다:
 | `String::from_n(p, n)` / `push_n` | `String::from_bytes(s)` / `push_bytes(s)` |
 | `?&T`를 반환하던 `sys_bsearch(...)` | 인덱스를 `?unsigned long`으로 반환 |
 | `void*` 콜백 컨텍스트 | 타입 있는 `?&T` — std의 제네릭 메서드가 `?&Erased`로 저장 |
+| 사용자 할당자의 `?&heap void alloc(size, align)` / `dealloc(?&heap void)` | 둘 다 `?&heap unsigned char` (std의 할당자와 `heap_alloc`은 바이트를 내줍니다. `alloc_t` / `dealloc_t`는 그대로) |
 | `(T*)slice` | `slice.ptr` |
 | 어떤 경로에서 해제되지 않는, `free()` / `close()`가 있는 값 | 만든 직후 `defer v.drop();`, 또는 모든 경로에서 해제 |
 | 포인터를 공유하는 `thread_create(&tid, work, ctx)` | 데이터를 move해 넣는 `thread_spawn(fn, value)`, 공유 데이터에는 `Mutex<T>` / `spawn_scoped` |
