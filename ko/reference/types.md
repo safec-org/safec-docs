@@ -159,7 +159,7 @@ int *raw = s.ptr;      // 내부 포인터
 ```c
 long sum([]const int xs) {
     long s = 0L;
-    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + xs[i]; }
+    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + (long)xs[i]; }
     // xs[0] = 1;   // 오류: cannot assign through a read-only slice '[]const int'
     return s;
 }
