@@ -127,7 +127,7 @@ uint32_t safe_distance(uint32_t a, uint32_t b) {
 ## 검사된 산술 연산 {#checked-arithmetic}
 
 오버플로를 래핑이나 클램핑 대신 감지해야 하는 경우를 위해,
-`<stdckdint.h>`(C23의 `<stdckdint.h>`에 대응하는 SafeC 버전)는 연산을
+`<std/stdckdint.h>`(C23의 `<stdckdint.h>`에 대응하는 SafeC 버전)는 연산을
 수행하고, 래핑된 결과를 저장하며, 오버플로 여부를 보고하는 함수를
 제공합니다. C23의 타입 제네릭 매크로 `ckd_add`/`ckd_sub`/`ckd_mul`과
 달리, SafeC는 폭/부호별로 명시적으로 타입이 지정된 함수를 노출합니다 —
@@ -136,7 +136,7 @@ uint32_t safe_distance(uint32_t a, uint32_t b) {
 대한 `..._u64`:
 
 ```c
-#include <stdckdint.h>
+#include <std/stdckdint.h>
 
 int result;
 int overflowed = std::ckd_add_i32(&result, 2147483647, 1);
@@ -150,13 +150,13 @@ if (overflowed) {
 
 ### 검사된 할당 크기 계산 {#checked-allocation-sizing}
 
-`std::checked_mul_size`(`<mem.h>`)는 흔히 쓰이는 `count * element_size`
+`std::checked_mul_size`(`<std/mem.h>`)는 흔히 쓰이는 `count * element_size`
 형태의 할당 크기 곱셈을 위한 더 좁은 목적의 헬퍼입니다 — 오버플로 플래그를
 반환하는 대신 중단(abort)합니다. 조용히 래핑된 할당 크기는 복구 가능한
 값이 아니라 메모리 안전성 버그이기 때문입니다:
 
 ```c
-#include <mem.h>
+#include <std/mem.h>
 
 unsigned long n = std::checked_mul_size(count, sizeof(int));
 ?&heap int buf = std::alloc(n);

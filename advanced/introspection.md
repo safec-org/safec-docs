@@ -157,7 +157,7 @@ static_assert(fieldcount(Packet) == 3, "Packet field count changed");
 Compile-time conditional branching. The condition must be a constant expression. Only the taken branch is compiled — the other branch is eliminated before codegen.
 
 ```c
-#include <io.h>
+#include <std/io.h>
 
 const int DEBUG = 1;
 
@@ -172,7 +172,7 @@ void log_message(const &char msg) {
 This is more powerful than preprocessor `#ifdef` because it participates in type checking — both branches must be syntactically valid, but only the taken branch must be semantically valid.
 
 ```c
-#include <io.h>
+#include <std/io.h>
 
 generic<T>
 void print_value(T val) {

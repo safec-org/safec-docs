@@ -110,7 +110,7 @@ int saturated = max +% 1;     // 포화 덧셈: 2147483647 (클램프, 래핑 �
 "표현 가능한 가장 가까운 값"이 나은 곳에 유용합니다). 전체 연산자
 표는 [오버플로 연산자](/ko/reference/overflow)를, 특정 방식으로 오버플로를
 해소하는 대신 오버플로를 감지하는 방법은 `std::checked_mul_size`/
-`<stdckdint.h>`를 참고하십시오.
+`<std/stdckdint.h>`를 참고하십시오.
 
 ## 제어 흐름 {#control-flow}
 

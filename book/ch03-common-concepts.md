@@ -110,7 +110,7 @@ hashing, checksums, ring-buffer indices); `+%`/`-%`/`*%` always saturate
 (clamp to the type's min/max, useful for audio/signal processing and
 anywhere "closest representable value" beats "wrap around"). See
 [Overflow Operators](/reference/overflow) for the complete operator table
-and `std::checked_mul_size`/`<stdckdint.h>` for detecting overflow instead
+and `std::checked_mul_size`/`<std/stdckdint.h>` for detecting overflow instead
 of resolving it a particular way.
 
 ## Control flow
