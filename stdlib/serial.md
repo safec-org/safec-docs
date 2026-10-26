@@ -546,7 +546,7 @@ void pb_write_bool_field(&String out, int field_num, int v);
 void pb_write_double_field(&String out, int field_num, double v);
 void pb_write_float_field(&String out, int field_num, float v);
 void pb_write_string_field(&String out, int field_num, const &char s);
-void pb_write_bytes_field(&String out, int field_num, const &unsigned char data, unsigned long len); // also nested messages
+void pb_write_bytes_field(&String out, int field_num, []const unsigned char data); // also nested messages
 
 // Reader: a zero-copy cursor over an existing buffer.
 struct PbReader {
@@ -554,7 +554,7 @@ struct PbReader {
     unsigned long        len;
     unsigned long        pos;
 
-    static struct PbReader new(const &unsigned char data, unsigned long len);   // at data[0]
+    static struct PbReader new([]const unsigned char data);   // at data[0]
 
     int has_more() const;
 
@@ -591,8 +591,7 @@ int main() {
     struct Point p;
     p.x = 0; p.y = 0;
     struct PbReader r;
-    // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::PbReader::new((const &unsigned char)buf.as_ptr(), buf.length()); }
+    r = std::PbReader::new(buf.as_bytes());   // []const char is a byte slice
     while (r.has_more()) {
         int field = 0; int wire = 0;
         if (!r.read_tag(&field, &wire)) break;

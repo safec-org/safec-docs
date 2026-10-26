@@ -149,7 +149,7 @@ unsigned long checked_add_size(unsigned long a, unsigned long b);
 ### safe_memcpy {#safe_memcpy}
 
 ```c
-generic<T> void safe_memcpy(&T dst, const &T src, unsigned long n);
+generic<T> unsigned long safe_memcpy([]T dst, []const T src);
 ```
 
 `src`에서 `dst`로 `n`바이트를 복사합니다. 원본과 대상 영역은 **겹치면
@@ -158,7 +158,7 @@ generic<T> void safe_memcpy(&T dst, const &T src, unsigned long n);
 ### safe_memmove {#safe_memmove}
 
 ```c
-generic<T> void safe_memmove(&T dst, const &T src, unsigned long n);
+generic<T> unsigned long safe_memmove([]T dst, []const T src);
 ```
 
 `src`에서 `dst`로 `n`바이트를 복사합니다. 겹치는 영역에도 안전합니다.
@@ -166,7 +166,8 @@ generic<T> void safe_memmove(&T dst, const &T src, unsigned long n);
 ### safe_memset {#safe_memset}
 
 ```c
-generic<T> void safe_memset(&T ptr, int val, unsigned long n);
+generic<T> void safe_memset([]T s, int val);        // every byte of s's elements
+generic<T> void safe_memset_obj(&T v, int val);     // one object
 ```
 
 `ptr`부터 `n`바이트를 값 `val`(`unsigned char`로 해석됨)로 설정합니다.
@@ -174,7 +175,7 @@ generic<T> void safe_memset(&T ptr, int val, unsigned long n);
 ### safe_memcmp {#safe_memcmp}
 
 ```c
-generic<T> int safe_memcmp(const &T a, const &T b, unsigned long n);
+generic<T> int safe_memcmp([]const T a, []const T b);
 ```
 
 `a`와 `b`의 `n`바이트 메모리를 비교합니다. 반환값:
@@ -196,7 +197,8 @@ int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if 
 // locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
 generic<T> void mem_prefetch(const &T addr, int write, int locality);
 generic<T> void mem_clflush(const &T addr);              // write back + invalidate addr's line (x86 CLFLUSH, AArch64 DC CIVAC; else no-op)
-generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero with volatile stores the optimizer can't remove
+generic<T> void mem_zero_secure([]T s);    // zero with volatile stores the optimizer can't remove
+generic<T> void mem_zero_secure_obj(&T v); // the same for one object
 ```
 
 주소 산술 헬퍼는 일반 `unsigned long` 주소를 받고, 나머지는 위의 `safe_mem*` 함수들처럼 영역의 첫 바이트에 대한 참조를 받습니다.
@@ -214,8 +216,8 @@ int main() {
     match (maybe) {
         case null:     { return 1; }               // out of memory
         case some(buf): {
-            std::safe_memset(buf, 0, 10UL * sizeof(int));
-            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view
+            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view of the 10 ints
+            std::safe_memset(s.as_slice(), 0);
             s.set(0UL, 42);
             s.set(1UL, 99);
 
@@ -223,7 +225,7 @@ int main() {
             ?&heap int copy = std::alloc(10UL * sizeof(int));
             match (copy) {
                 case some(c): {
-                    std::safe_memcpy(c, buf, 10UL * sizeof(int));
+                    std::safe_memcpy(std::Slice::of(c, 10UL).as_slice(), s.as_slice());   // 10 elements
                     std::println_int(*std::Slice::of(c, 10UL).at(0UL));   // 42
                 }
                 case null: { }

@@ -150,6 +150,32 @@ long len = s.len;      // 길이 필드
 int *raw = s.ptr;      // 내부 포인터
 ```
 
+슬라이싱은 반열린 범위를 받습니다: `a[i..j]`, `a[i..]`(배열이나 슬라이스의 끝까지), `a[..j]`, `a[..]`(전부). 기반을 벗어나거나 `i > j`인 범위는 범위 밖 인덱스처럼 실행 시간에 트랩합니다. `unsafe { }` 안에서는 검사를 생략합니다. 원시 포인터는 `unsafe { }` 안에서만 슬라이스할 수 있고(`p[0..n]`은 원소 `n`개가 있다고 단언합니다), 슬라이스는 포인터로 *캐스트*할 수 없습니다 — `.ptr` 필드를 쓰세요.
+
+### 읽기 전용 슬라이스 {#read-only-slices}
+
+`[]const T`는 원소를 쓸 수 없는 뷰입니다. `[]T`는 `[]const T`로 암시적으로 변환되므로(반대는 불가) 읽기만 하는 함수는 `[]const T`를 받아 둘 다 받아들입니다:
+
+```c
+long sum([]const int xs) {
+    long s = 0L;
+    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + xs[i]; }
+    // xs[0] = 1;   // 오류: cannot assign through a read-only slice '[]const int'
+    return s;
+}
+
+int a[4] = {1, 2, 3, 4};
+long total = sum(a[..]);
+```
+
+바이트 슬라이스는 `char`, `signed char`, `unsigned char` 사이에서 (`const`를 유지한 채) 서로 변환되므로 텍스트도 바이트 버퍼입니다: `std::str_bytes("text")`(`std/str.h`)는 문자열의 바이트를 `[]const char`로 주며, `[]const unsigned char`를 기대하는 곳 어디서나 받아들여집니다.
+
+### 옵셔널 슬라이스와 널 가능 함수 {#optional-slices}
+
+`?[]T`는 옵셔널 슬라이스입니다(`match (s) { case some(v): ... case none: ... }`로 좁힙니다). `?fn R(Args)`는 널 가능 함수 참조입니다: `null`이나 함수를 담으며, `match`나 (`unsafe` 안의) `!`로 함수를 꺼내고, 그대로 호출하면 컴파일 오류입니다.
+
+표준 라이브러리는 C라면 포인터와 길이를 받을 자리에서 슬라이스를 받습니다 — `f.read(buf[..])`, `sha256(data, digest[..])`, `fft(xs[0..n])` — [표준 라이브러리 개요](/ko/stdlib/#generic-pattern)를 보세요.
+
 ## 옵셔널 타입 {#optional-types}
 
 옵셔널 타입은 존재할 수도, 존재하지 않을 수도 있는 값을 나타냅니다. `{T, i1}` 쌍으로 lowering됩니다.

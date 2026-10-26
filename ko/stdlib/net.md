@@ -51,7 +51,7 @@ struct NetIf {
     unsigned int  gateway;
     unsigned int  netmask;
 
-    // An interface whose tx() calls drv.transmit(frame, len); drv must outlive it.
+    // An interface whose tx() calls drv.transmit(frame); drv must outlive it.
     generic<T: NetDriver>
     static struct NetIf new(&T drv);
 
@@ -65,7 +65,7 @@ struct NetIf {
 
 | 트레이트 | 요구 사항 | 사용처 |
 |---|---|---|
-| `NetDriver` | `int transmit(const &unsigned char frame, unsigned long len)`: 프레임 하나를 보내며 성공 시 0 | `NetIf::new` |
+| `NetDriver` | `int transmit([]const unsigned char frame)`: 프레임 하나를 보내며 성공 시 0 | `NetIf::new` |
 
 std에는 드라이버가 포함되어 있지 않습니다. 타입은 별도 선언 없이 이 메서드를 가지기만 하면 준수합니다. `NetIf::new<T>`는 컴파일 타임에 `T::transmit`로 인터페이스의 송신 항목을 만들고 드라이버를 타입 소거된 형태로 저장하므로, 하나의 스택이 서로 다른 드라이버 위의 인터페이스를 운용할 수 있습니다. `transmit`이 없는 타입을 넘기면 `NetIf::new` 호출 지점에서 오류가 납니다. (블록 장치도 [`BlockDriver`](/ko/stdlib/fs#block-driver)로 같은 방식을 따릅니다.)
 
@@ -74,11 +74,11 @@ struct Enc28j60 {
     int           cs_pin;
     unsigned long sent;
 
-    int transmit(const &unsigned char frame, unsigned long len);
+    int transmit([]const unsigned char frame);
 };
 
-int Enc28j60::transmit(const &unsigned char frame, unsigned long len) {
-    // ... push `len` bytes of `frame` to the chip over SPI ...
+int Enc28j60::transmit([]const unsigned char frame) {
+    // ... push frame.len bytes of `frame` to the chip over SPI ...
     self.sent = self.sent + 1UL;
     return 0;
 }
@@ -211,7 +211,7 @@ struct Ipv4Hdr {
     unsigned int   dst;        // 네트워크 바이트 순서
 };
 
-unsigned short ip_checksum(const &unsigned char data, unsigned long len);
+unsigned short ip_checksum([]const unsigned char data);
 
 // pkt의 바이트 오프셋 'offset'에서 IPv4 헤더를 파싱한다.
 int  ipv4_parse(&PacketBuf pkt, unsigned long offset, &Ipv4Hdr hdr_out);
@@ -358,7 +358,7 @@ struct TcpConn {
     int  recv(&PacketBuf pkt, unsigned long tcp_offset);
 
     // 보낼 페이로드 데이터를 큐에 넣는다. 받아들여진 바이트 수를 반환한다 (가득 찼으면 0).
-    unsigned long send(const &unsigned char data, unsigned long len);
+    unsigned long send([]const unsigned char data);
 
     // 다음 송신 세그먼트를 pkt에 만든다; 세그먼트가 만들어졌으면 1을 반환한다.
     int  build_segment(&PacketBuf pkt,
@@ -368,7 +368,7 @@ struct TcpConn {
     int  rx_ready() const;   // 수신 대기 중인 데이터가 있는가?
 
     // rx_buf에서 최대 'len' 바이트를 'out'으로 소비한다; 복사된 바이트 수를 반환한다.
-    unsigned long read(&unsigned char out, unsigned long len);
+    unsigned long read([]unsigned char out);
 
     // 능동 오픈을 시작한다 (SYN 전송).
     void connect(unsigned int remote_ip, unsigned short remote_port,
@@ -382,8 +382,7 @@ struct TcpConn {
 // 데이터 오프셋이 5워드 미만이거나 패킷을 넘으면 -1.
 int tcp_parse(&PacketBuf pkt, unsigned long offset, &TcpHdr hdr_out);
 
-unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip,
-                            const &unsigned char tcp_seg, unsigned long seg_len);   // pseudo-header + segment
+unsigned short tcp_checksum(unsigned int src_ip, unsigned int dst_ip, []const unsigned char tcp_seg);   // pseudo-header + segment
 ```
 
 ---
@@ -499,12 +498,12 @@ extern int printf(const char* fmt, ...);
 struct LoopbackNic {
     unsigned long frames;
 
-    int transmit(const &unsigned char frame, unsigned long len);   // NetDriver
+    int transmit([]const unsigned char frame);   // NetDriver
 };
 
-int LoopbackNic::transmit(const &unsigned char frame, unsigned long len) {
+int LoopbackNic::transmit([]const unsigned char frame) {
     self.frames = self.frames + 1UL;
-    unsafe { printf("driver: sending %lu bytes\n", len); }
+    unsafe { printf("driver: sending %lu bytes\n", frame.len); }
     return 0;
 }
 

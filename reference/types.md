@@ -155,6 +155,32 @@ long len = s.len;      // length field
 int *raw = s.ptr;      // underlying pointer
 ```
 
+Slicing takes a half-open range: `a[i..j]`, `a[i..]` (to the end of an array or slice), `a[..j]`, `a[..]` (all of it). A range outside the base, or with `i > j`, traps at run time like an out-of-bounds index; inside `unsafe { }` the check is left out. A raw pointer can be sliced only inside `unsafe { }` (`p[0..n]` asserts that `n` elements are there), and a slice can't be *cast* to a pointer — use its `.ptr` field.
+
+### Read-only slices {#read-only-slices}
+
+`[]const T` views elements it may not write. `[]T` converts to `[]const T` implicitly (never the other way), so a function that only reads takes `[]const T` and accepts both:
+
+```c
+long sum([]const int xs) {
+    long s = 0L;
+    for (unsigned long i = 0UL; i < xs.len; i = i + 1UL) { s = s + xs[i]; }
+    // xs[0] = 1;   // ERROR: cannot assign through a read-only slice '[]const int'
+    return s;
+}
+
+int a[4] = {1, 2, 3, 4};
+long total = sum(a[..]);
+```
+
+Byte slices interconvert across `char`, `signed char` and `unsigned char` (keeping `const`), so text is a byte buffer: `std::str_bytes("text")` (`std/str.h`) is a string's bytes as a `[]const char`, accepted wherever `[]const unsigned char` is expected.
+
+### Optional slices and nullable functions {#optional-slices}
+
+`?[]T` is an optional slice (narrow it with `match (s) { case some(v): ... case none: ... }`). `?fn R(Args)` is a nullable function reference: it holds `null` or a function, `match` or `!` (in `unsafe`) gets the function out, and calling it directly is a compile error.
+
+The standard library takes slices wherever C would take a pointer and a length — `f.read(buf[..])`, `sha256(data, digest[..])`, `fft(xs[0..n])` — see [the standard library overview](/stdlib/#generic-pattern).
+
 ## Optional Types {#optional-types}
 
 Optional types represent values that may or may not be present. They lower to a `{T, i1}` pair.

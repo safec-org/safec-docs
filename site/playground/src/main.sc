@@ -126,7 +126,7 @@ static int code_from_hash(&String out) {
 static void share(&Pg p) {
     struct String code = dom_get_value(p.src);
     struct String enc;
-    unsafe { enc = base64_encode((const &unsigned char)(const unsigned char*)code.as_ptr(), code.len); }
+    enc = base64_encode(code.as_bytes());
     struct String hash = String::from("#code=");
     for (unsigned long i = 0UL; i < enc.len; i = i + 1UL) {
         char c = (char)enc.char_at(i);

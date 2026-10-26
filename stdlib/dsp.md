@@ -6,7 +6,7 @@
 #include <std/dsp/dsp_all.h>  // master header: pulls in every module below
 ```
 
-Types are built with [static methods](/reference/functions#static-methods) (`Biquad::lowpass(...)`, `FirFilter::new(...)`, `Complex::new(...)`; write `std::Biquad::lowpass(...)` outside `namespace std`), and the operations on them are methods (`f.process_block(in, out, n)`).
+Types are built with [static methods](/reference/functions#static-methods) (`Biquad::lowpass(...)`, `FirFilter::new(...)`, `Complex::new(...)`; write `std::Biquad::lowpass(...)` outside `namespace std`), and the operations on them are methods (`f.process_block(in[0..n], out[0..n])`).
 
 Every transform/filter that has a meaningful fixed-point form ships **two** implementations — a `double`-precision path and a parallel Q8.24 (`Fixed`) path (function/type names prefixed with `f`, e.g. `fft`/`ffft`, `struct Biquad`/`struct FBiquad`) — following one consistent design: coefficients that only need to be computed once (FFT twiddle factors, filter coefficients) are always derived in `double` precision using the real transcendental functions in `std/math.h`, then quantized to `Fixed` a single time; the actual per-sample signal-processing loop runs entirely in Q8.24 arithmetic. Standard practice — even hardware FFT accelerators precompute twiddle tables offline in floating point. A few of the newer, more specialized transforms (STFT, CQT, CWT, minimum-phase, imaging) are `double`-only: there's no natural fixed-point form for a Gaussian-windowed wavelet kernel or a homomorphic cepstrum, the same way there's no fixed-point `sin()`.
 
@@ -34,49 +34,44 @@ struct Complex32 {
 };
 
 // fft.h
-int fft_f32(&Complex32 data, unsigned long n);
-int ifft_f32(&Complex32 data, unsigned long n);
-int fft_serial_f32(&Complex32 data, unsigned long n);
-int ifft_serial_f32(&Complex32 data, unsigned long n);
+int fft_f32([]Complex32 data);
+int ifft_f32([]Complex32 data);
+int fft_serial_f32([]Complex32 data);
+int ifft_serial_f32([]Complex32 data);
 int fft_prepare_f32(unsigned long n);
-int fft_real_f32(const &float in, &Complex32 out, unsigned long n);
-int fft_batch_f32(&Complex32 data, unsigned long n, unsigned long batch, int inverse);
-int fft_real_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);
-int fft_real_half_batch_f32(const &float in, &Complex32 out, unsigned long n, unsigned long batch);   // and fft_real_half_f32
+int fft_real_f32([]const float in, []Complex32 out);
+int fft_batch_f32((&Complex32 data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_real_batch_f32([]const float in, []Complex32 out, unsigned long n);
+int fft_real_half_batch_f32([]const float in, []Complex32 out, unsigned long n);   // and fft_real_half_f32
 
 // dsp.h
-float dsp_dot_f32(const &float a, const &float b, unsigned long n);   // f32x8 FMA accumulators
+float dsp_dot_f32([]const float a, []const float b);   // f32x8 FMA accumulators
 
 // filter.h, biquad.h, comb.h: each filter has process(x), reset() and
-// process_block(in, out, n) on float samples, as its double counterpart
-static struct FirFilter32 FirFilter32::new(const &float coeffs, unsigned long numTaps, &float history);
-static struct IirFilter32 IirFilter32::new(const &float b, unsigned long numB, const &float a, unsigned long numA,
-                                           &float xHistory, &float yHistory);
+// process_block(in, out) on float samples, as its double counterpart
+static struct FirFilter32 FirFilter32::new([]const float coeffs, []float history);
+static struct IirFilter32 IirFilter32::new([]const float b, []const float a, []float xHistory, []float yHistory);
 static struct Biquad32 Biquad32::new(float b0, float b1, float b2, float a1, float a2);
 static struct Biquad32 Biquad32::from(struct Biquad bq);   // a double design, rounded once
-static struct CombFF32 CombFF32::new(&float history, unsigned long delay, float gain);
-static struct CombFB32 CombFB32::new(&float history, unsigned long delay, float gain);
-static struct KarplusStrong32 KarplusStrong32::new(&float buffer, unsigned long length, float damping);   // next(), pluck()
+static struct CombFF32 CombFF32::new([]float history, float gain);   // delay = history.len
+static struct CombFB32 CombFB32::new([]float history, float gain);
+static struct KarplusStrong32 KarplusStrong32::new([]float buffer, float damping);   // next(), pluck()
 
 // convolution.h, window.h, stft.h, resample.h
-void conv_direct_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
-void conv_fft_f32(const &float x, unsigned long len_x, const &float h, unsigned long len_h, &float out);
-void window_hann_f32(&float w, unsigned long n);       // also _rectangular_, _hamming_, _blackman_f32
-void window_apply_f32(&float x, const &float w, unsigned long n);
-void stft_forward_f32(const &float signal, unsigned long signalLen, unsigned long frameSize,
-                      unsigned long hopSize, int windowType, &Complex32 out);
-void stft_inverse_f32(const &Complex32 frames, unsigned long numFrames, unsigned long frameSize,
-                      unsigned long hopSize, int windowType, &float outSignal);
-void resample_sinc_f32(const &float in, unsigned long inLen, &float out, unsigned long outLen,
-                       unsigned long kernelHalfWidth);   // also resample_nearest_f32, resample_linear_f32
+int conv_direct_f32([]const float x, []const float h, []float out);
+int conv_fft_f32([]const float x, []const float h, []float out);
+void window_hann_f32([]float w);       // also _rectangular_, _hamming_, _blackman_f32
+void window_apply_f32([]float x, []const float w);
+int stft_forward_f32([]const float signal, unsigned long frameSize, unsigned long hopSize, int windowType, []Complex32 out);
+int stft_inverse_f32([]const Complex32 frames, unsigned long frameSize, unsigned long hopSize, int windowType, []float outSignal);
+void resample_sinc_f32([]const float in, []float out, unsigned long kernelHalfWidth);   // also resample_nearest_f32, resample_linear_f32
 
 // dct.h, dft.h, imaging.h
-void dct2_f32(const &float in, &float out, unsigned long n);
-void idct3_f32(const &float in, &float out, unsigned long n);
-void dft_f32(const &Complex32 in, &Complex32 out, unsigned long n);   // also dft_real_f32, idft_f32
-void conv2d_f32(const &float img, unsigned long h, unsigned long w,
-                const &float kernel, unsigned long kh, unsigned long kw, &float out);
-void fft2d_f32(&Complex32 img, unsigned long h, unsigned long w);    // and ifft2d_f32
+int dct2_f32([]const float in, []float out);
+int idct3_f32([]const float in, []float out);
+int dft_f32([]const Complex32 in, []Complex32 out);   // also dft_real_f32, idft_f32
+int conv2d_f32(([]const float img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const float kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]float out)[0..(unsigned long h) * (unsigned long w)]);
+int fft2d_f32(([]Complex32 img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);    // and ifft2d_f32
 ```
 
 The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `double`.
@@ -155,12 +150,12 @@ int main() {
 Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed` arrays (passed as `&Fixed` to the first element) with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
 
 ```c
-Fixed dsp_dot(const &Fixed a, const &Fixed b, unsigned long n);           // sum of a[i]*b[i]
-void  dsp_scale(&Fixed a, Fixed scale, unsigned long n);            // a[i] *= scale
-void  dsp_add(const &Fixed a, const &Fixed b, &Fixed out, unsigned long n); // out[i] = a[i]+b[i]
-void  dsp_clip(&Fixed a, Fixed lo, Fixed hi, unsigned long n);      // clamp to [lo, hi]
-Fixed dsp_peak(const &Fixed a, unsigned long n);                          // max |a[i]|
-Fixed dsp_rms(&Fixed a, unsigned long n);                           // sqrt(mean(a[i]^2))
+Fixed dsp_dot([]const Fixed a, []const Fixed b);           // sum of a[i]*b[i]
+void dsp_scale([]Fixed a, Fixed scale);            // a[i] *= scale
+unsigned long dsp_add([]const Fixed a, []const Fixed b, []Fixed out); // out[i] = a[i]+b[i]
+void dsp_clip([]Fixed a, Fixed lo, Fixed hi);      // clamp to [lo, hi]
+Fixed dsp_peak([]const Fixed a);                          // max |a[i]|
+Fixed dsp_rms([]const Fixed a);                           // sqrt(mean(a[i]^2))
 
 // SIMD FMA-accelerated dot product of two *double* arrays (see simd.h) —
 // 4 elements/iteration via simd_fma_f64x4, scalar remainder for n % 4.
@@ -168,13 +163,13 @@ Fixed dsp_rms(&Fixed a, unsigned long n);                           // sqrt(mean
 // element that std::simd's integer FMA doesn't provide. Used internally
 // by convolution.h's conv_direct once the kernel is reversed into a
 // contiguous access pattern; also usable directly.
-double dsp_dot_f64(const &double a, const &double b, unsigned long n);
+double dsp_dot_f64([]const double a, []const double b);
 
 // out[q] = dot(a, x[q .. q+n)) for q < nOut: an FIR / correlation over many
 // outputs. 32 outputs per pass (64 in float), each tap broadcast into four
 // accumulator vectors: no horizontal sums, one load per multiply-add.
-void dsp_sliding_dot_f64(const &double a, const &double x, &double out, unsigned long nOut, unsigned long n);
-void dsp_sliding_dot_f32(const &float a, const &float x, &float out, unsigned long nOut, unsigned long n);
+int dsp_sliding_dot_f64([]const double a, []const double x, []double out);
+int dsp_sliding_dot_f32([]const float a, []const float x, []float out);
 ```
 
 ::: tip
@@ -235,11 +230,11 @@ struct FComplex {   // Q8.24 counterpart — Fixed re/im, same shape minus opera
 Direct-summation DFT: `X[k] = sum x[n] * e^(-i*2*pi*k*n/N)`. Works for **any** N, not just powers of two — use this for arbitrary-length transforms, and as the independent reference `fft.h`'s own correctness checks are verified against. The twiddles come from a table of the n exact roots of unity, indexed by k·n mod N, not a `cos`/`sin` call per term. From 256 points the output bins are split across the thread pool.
 
 ```c
-void dft(const &Complex in, &Complex out, unsigned long n);       // forward, complex -> complex
-void dft_real(const &double in, &Complex out, unsigned long n);          // forward, real -> complex
-void idft(const &Complex in, &Complex out, unsigned long n);      // inverse (includes 1/N)
-void fdft(const &FComplex in, &FComplex out, unsigned long n);    // Q8.24 forward
-void fidft(const &FComplex in, &FComplex out, unsigned long n);   // Q8.24 inverse
+int dft([]const Complex in, []Complex out);       // forward, complex -> complex
+int dft_real([]const double in, []Complex out);          // forward, real -> complex
+int idft([]const Complex in, []Complex out);      // inverse (includes 1/N)
+int fdft([]const FComplex in, []FComplex out);    // Q8.24 forward
+int fidft([]const FComplex in, []FComplex out);   // Q8.24 inverse
 ```
 
 ---
@@ -272,22 +267,22 @@ On NVIDIA GPUs, [`fft_cuda.h`](/stdlib/ml#cuda-cudnn-cufft) runs the same transf
 
 ```c
 int dsp_is_pow2(unsigned long n);                                    // n >= 1 and a power of two
-int fft(&Complex data, unsigned long n);                      // in-place forward, 1=ok/0=not-pow2
-int ifft(&Complex data, unsigned long n);                     // in-place inverse (includes 1/N)
-int fft_serial(&Complex data, unsigned long n);              // fft on the calling thread only
-int ifft_serial(&Complex data, unsigned long n);
+int fft([]Complex data);                      // in-place forward, 1=ok/0=not-pow2
+int ifft([]Complex data);                     // in-place inverse (includes 1/N)
+int fft_serial([]Complex data);              // fft on the calling thread only
+int ifft_serial([]Complex data);
 int fft_prepare(unsigned long n);                             // build twiddles for lengths <= n
-int fft_real(const &double in, &Complex out, unsigned long n); // real -> full n-point spectrum
+int fft_real([]const double in, []Complex out); // real -> full n-point spectrum
 // 'batch' transforms stored back to back (row r at data[r*n]), threaded
-int fft_batch(&Complex data, unsigned long n, unsigned long batch, int inverse);
-int fft_real_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
+int fft_batch((&Complex data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_real_batch([]const double in, []Complex out, unsigned long n);   // batch = in.len / n
 // the same in place: row r holds its n reals in its first n/2 slots
-int fft_real_batch_inplace(&Complex data, unsigned long n, unsigned long batch);
+int fft_real_batch_inplace([]Complex data, unsigned long n);
 // only bins 0 .. n/2 (n/2 + 1 values; row r at out[r*(n/2+1)])
-int fft_real_half(const &double in, &Complex out, unsigned long n);
-int fft_real_half_batch(const &double in, &Complex out, unsigned long n, unsigned long batch);
-int ffft(&FComplex data, unsigned long n);                    // Q8.24 forward
-int fifft(&FComplex data, unsigned long n);                   // Q8.24 inverse
+int fft_real_half([]const double in, []Complex out);
+int fft_real_half_batch([]const double in, []Complex out, unsigned long n);
+int ffft([]FComplex data);                    // Q8.24 forward
+int fifft([]FComplex data);                   // Q8.24 inverse
 ```
 
 ### Example {#example-1}
@@ -300,8 +295,8 @@ int main() {
     struct Complex data[8];
     for (int i = 0; i < 8; i++) data[i] = Complex::new((double)i, 0.0);
 
-    fft(data, 8);     // in-place forward transform
-    ifft(data, 8);    // in-place inverse — round-trips back to the original signal
+    fft(data[0..8]);     // in-place forward transform
+    ifft(data[0..8]);    // in-place inverse — round-trips back to the original signal
 
     print("data[1].re after round-trip (expect ~1.0): ");
     println_float(data[1].re);
@@ -322,18 +317,15 @@ int main() {
 ```c
 // O(len_x * len_h) — best for short kernels. Each output is one SIMD dot
 // product; long ones are split across the thread pool.
-void conv_direct(const &double x, unsigned long len_x,
-                  const &double h, unsigned long len_h, &double out);
-void fconv_direct(const &Fixed x, unsigned long len_x,
-                   const &Fixed h, unsigned long len_h, &Fixed out);
+int conv_direct([]const double x, []const double h, []double out);
+int fconv_direct([]const Fixed x, []const Fixed h, []Fixed out);
 
 // O(n log n) via fft.h — best for long inputs/kernels where direct
 // convolution's O(len_x*len_h) cost dominates. double-precision only.
 // A kernel at most 1/16 of the signal uses overlap-add (blocks of about
 // 8x the kernel through fft_batch); otherwise x and h share one packed
 // complex FFT.
-void conv_fft(const &double x, unsigned long len_x,
-              const &double h, unsigned long len_h, &double out);
+int conv_fft([]const double x, []const double h, []double out);
 ```
 
 `out` must have room for `len_x + len_h - 1` samples in all three. `conv_direct` reverses the kernel once, so the outputs whose window lies wholly inside `x` become one `dsp_sliding_dot_f64`. That call computes 32 outputs at a time (64 in float), broadcasting each tap into four accumulator vectors, with no horizontal sums. The edge outputs use `dsp_dot_f64`.
@@ -349,11 +341,11 @@ void conv_fft(const &double x, unsigned long len_x,
 Symmetric N-point analysis windows, for tapering a frame before an FFT (reduces spectral leakage) or FIR design (window method). All four fill a caller-provided array; none allocate.
 
 ```c
-void window_rectangular(&double w, unsigned long n);  // w[i] = 1 (no tapering — leakage baseline)
-void window_hann(&double w, unsigned long n);         // 0.5*(1 - cos(2*pi*i/(n-1)))
-void window_hamming(&double w, unsigned long n);       // 0.54 - 0.46*cos(2*pi*i/(n-1))
-void window_blackman(&double w, unsigned long n);      // 0.42 - 0.5*cos(2*pi*i/(n-1)) + 0.08*cos(4*pi*i/(n-1))
-void window_apply(&double x, const &double w, unsigned long n);  // x[i] *= w[i], in place
+void window_rectangular([]double w);  // w[i] = 1 (no tapering — leakage baseline)
+void window_hann([]double w);         // 0.5*(1 - cos(2*pi*i/(n-1)))
+void window_hamming([]double w);       // 0.54 - 0.46*cos(2*pi*i/(n-1))
+void window_blackman([]double w);      // 0.42 - 0.5*cos(2*pi*i/(n-1)) + 0.08*cos(4*pi*i/(n-1))
+void window_apply([]double x, []const double w);  // x[i] *= w[i], in place
 ```
 
 ---
@@ -380,7 +372,7 @@ struct FirFilter {
 
     double process(double x);
     void   reset();          // zeros the history
-    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+    void   process_block([]const double in, []double out);   // out may alias in
 
     static struct FirFilter new(const &double coeffs, unsigned long numTaps, &double history);
 };
@@ -393,7 +385,7 @@ struct IirFilter {           // general-order, direct form I
 
     double process(double x);
     void   reset();
-    void   process_block(const &double in, &double out, unsigned long n);
+    void   process_block([]const double in, []double out);
 
     static struct IirFilter new(const &double b, unsigned long numB,
                                 const &double a, unsigned long numA,
@@ -412,11 +404,11 @@ struct IirFilter {           // general-order, direct form I
 int main() {
     double coeffs[3] = { 0.333333, 0.333333, 0.333333 };
     double history[3] = { 0.0, 0.0, 0.0 };
-    struct FirFilter mavg = FirFilter::new(&coeffs[0], 3UL, &history[0]);
+    struct FirFilter mavg = FirFilter::new(coeffs[0..3UL], history[0..3UL]);
 
     double step[6] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
     double out[6];
-    mavg.process_block(&step[0], &out[0], 6UL);
+    mavg.process_block(step[0..6UL], out[0..6UL]);
     // out ~= [0.333, 0.667, 1, 1, 1, 1]
     println_float(out[2]);
     return 0;
@@ -452,7 +444,7 @@ struct Biquad {
     // so the even and odd outputs are two independent chains, computed together
     // in one 2-lane vector. The added poles mirror the filter's own (same
     // radius), so it stays stable. Matches process() to rounding.
-    void   process_block(const &double in, &double out, unsigned long n);
+    void   process_block([]const double in, []double out);
 
     // Z-domain frequency response at freqHz: magnitude (linear) and phase (radians).
     double response_mag(double fs, double freqHz) const;
@@ -481,7 +473,7 @@ struct FBiquad {   // Q8.24 counterpart
     Fixed b0, b1, b2, a1, a2, z1, z2;
     Fixed process(Fixed x);
     void  reset();
-    void  process_block(const &Fixed in, &Fixed out, unsigned long n);
+    void  process_block([]const Fixed in, []Fixed out);
 
     static struct FBiquad from(struct Biquad bq);   // quantize a designed-in-double biquad once
 };
@@ -524,10 +516,10 @@ int main() {
 `dct2` is "the DCT" in the JPEG/MPEG sense — real-valued in, real-valued out, energy-compacting. `idct3` is its exact inverse. Direct O(n²) summation, like `dft.h`: cosines come from a 4n-entry table, and from 512 points the outputs are split across the thread pool.
 
 ```c
-void dct2(const &double in, &double out, unsigned long n);    // X[k] = sum x[n]*cos(pi/N*(n+0.5)*k)
-void idct3(const &double in, &double out, unsigned long n);   // exact inverse of dct2
-void fdct2(const &Fixed in, &Fixed out, unsigned long n);      // Q8.24 forward
-void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 inverse
+int dct2([]const double in, []double out);    // X[k] = sum x[n]*cos(pi/N*(n+0.5)*k)
+int idct3([]const double in, []double out);   // exact inverse of dct2
+int fdct2([]const Fixed in, []Fixed out);      // Q8.24 forward
+int fidct3([]const Fixed in, []Fixed out);     // Q8.24 inverse
 ```
 
 ---
@@ -549,22 +541,17 @@ void fidct3(const &Fixed in, &Fixed out, unsigned long n);     // Q8.24 inverse
 unsigned long stft_num_frames(unsigned long signalLen, unsigned long frameSize, unsigned long hopSize);
 
 // out: room for stft_num_frames(...) * frameSize Complex values.
-void stft_forward(const &double signal, unsigned long signalLen,
-                   unsigned long frameSize, unsigned long hopSize,
-                   int windowType, &Complex out);
+int stft_forward([]const double signal, unsigned long frameSize, unsigned long hopSize, int windowType, []Complex out);
 
 // outSignal: room for (numFrames-1)*hopSize + frameSize samples, caller-zeroed
 // (stft_inverse accumulates into it).
-void stft_inverse(const &Complex frames, unsigned long numFrames,
-                   unsigned long frameSize, unsigned long hopSize,
-                   int windowType, &double outSignal);
+int stft_inverse([]const Complex frames, unsigned long frameSize, unsigned long hopSize, int windowType, []double outSignal);
 ```
 
 `mr_stft_loss` computes the "multi-resolution STFT loss" from the neural-vocoder literature (Yamamoto et al., Parallel WaveGAN): for each of `numResolutions` frame sizes (each a power of two, hop = frameSize/4, Hann window), the spectral-convergence plus mean L1 log-magnitude error between two same-length signals, averaged across resolutions:
 
 ```c
-double mr_stft_loss(const &double x, const &double y, unsigned long len,
-                     const &unsigned long frameSizes, unsigned long numResolutions);
+double mr_stft_loss([]const double x, []const double y, []const unsigned long frameSizes);
 ```
 
 Lower is more similar; `0` for identical signals.
@@ -580,8 +567,8 @@ Lower is more similar; `0` for identical signals.
 Maps an `inLen`-sample buffer onto a caller-sized `outLen`-sample buffer — `outLen > inLen` upsamples, `outLen < inLen` downsamples, same function either direction.
 
 ```c
-void resample_nearest(const &double in, unsigned long inLen, &double out, unsigned long outLen);
-void resample_linear(const &double in, unsigned long inLen, &double out, unsigned long outLen);
+void resample_nearest([]const double in, []double out);
+void resample_linear([]const double in, []double out);
 
 // Windowed-sinc (band-limited): the highest-quality option. When
 // downsampling, the kernel's cutoff auto-scales to the new (lower)
@@ -591,14 +578,13 @@ void resample_linear(const &double in, unsigned long inLen, &double out, unsigne
 // call. That makes the taps independent, so they run four to a vector, and
 // the four per-output angles are carried from output to output by rotation
 // (recomputed exactly every 64). Outputs run on the thread pool.
-void resample_sinc(const &double in, unsigned long inLen, &double out, unsigned long outLen,
-                    unsigned long kernelHalfWidth);
+void resample_sinc([]const double in, []double out, unsigned long kernelHalfWidth);
 
 // Q8.24 nearest/linear. No sinc counterpart — a windowed-sinc kernel needs
 // per-tap sin/cos evaluated against a runtime fractional position, which
 // doesn't fit the usual design-time-float/runtime-fixed split.
-void fresample_nearest(const &Fixed in, unsigned long inLen, &Fixed out, unsigned long outLen);
-void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned long outLen);
+void fresample_nearest([]const Fixed in, []Fixed out);
+void fresample_linear([]const Fixed in, []Fixed out);
 ```
 
 ---
@@ -615,13 +601,10 @@ void fresample_linear(const &Fixed in, unsigned long inLen, &Fixed out, unsigned
 // B, A: order+1 analog (s-domain) coefficients, ascending powers of s.
 // bOut, aOut: order+1 digital coefficients in the negative-power-of-z
 // convention (aOut[0] = 1) — feed straight into filter.h's IirFilter::new.
-void bilinear_nth_order(const &double B, const &double A, unsigned long order,
-                         double fs, &double bOut, &double aOut);
+void bilinear_nth_order((const &double B)[0..(unsigned long order) + 1UL], (const &double A)[0..(unsigned long order) + 1UL], double fs, (&double bOut)[0../*LEN*/], (&double aOut)[0../*LEN*/]);
 
-double ztransform_response_mag(const &double b, const &double a, unsigned long order,
-                                double fs, double freqHz);
-double ztransform_response_phase(const &double b, const &double a, unsigned long order,
-                                  double fs, double freqHz);
+double ztransform_response_mag((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
+double ztransform_response_phase((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
 ```
 
 ---
@@ -639,7 +622,7 @@ struct CombFF {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
-    void   process_block(const &double in, &double out, unsigned long n);   // out may alias in
+    void   process_block([]const double in, []double out);   // out may alias in
 
     // 'history' is the caller's ring buffer of 'delay' samples, zeroed.
     static struct CombFF new(&double history, unsigned long delay, double gain);
@@ -648,7 +631,7 @@ struct CombFB {
     &double history; unsigned long delay; unsigned long pos; double gain;
     double process(double x);
     void   reset();
-    void   process_block(const &double in, &double out, unsigned long n);
+    void   process_block([]const double in, []double out);
 
     static struct CombFB new(&double history, unsigned long delay, double gain);
 };
@@ -665,7 +648,7 @@ struct KarplusStrong {
     double next();          // the next output sample: no input, self-sustaining
     // Refill the delay line with a new excitation (n samples copied in; size
     // it to 'length' for a fresh pluck, the rest keeps its old contents).
-    void   pluck(const &double excitation, unsigned long n);
+    void   pluck([]const double excitation);
 
     // 'buffer' is the caller's delay line of 'length' samples; seed it (or
     // call pluck) before next().
@@ -684,8 +667,8 @@ struct KarplusStrong {
 int main() {
     double excitation[8] = { 0.5, -0.3, 0.8, -0.6, 0.2, -0.9, 0.4, -0.1 };  // noise burst
     double buf[8];
-    struct KarplusStrong ks = KarplusStrong::new(&buf[0], 8UL, 0.995);
-    ks.pluck(&excitation[0], 8UL);
+    struct KarplusStrong ks = KarplusStrong::new(buf[0..8UL], 0.995);
+    ks.pluck(excitation[0..8UL]);
 
     for (int i = 0; i < 16; i++) {
         double sample = ks.next();
@@ -693,7 +676,7 @@ int main() {
     }
 
     double block[32];
-    generate_block(&ks, &block[0], 32UL);   // the next 32 samples: works for any SampleGenerator
+    generate_block(&ks, block[0..32UL]);   // the next 32 samples: works for any SampleGenerator
     return 0;
 }
 ```
@@ -711,7 +694,7 @@ The streaming filters above share one shape: `process()` one sample, `process_bl
 | Trait | Composed of | Satisfied by |
 |---|---|---|
 | `SampleProcessor` | `process(x)`: one sample in, one out | every filter below |
-| `BlockProcessor` | `process_block(in, out, n)` | every filter below |
+| `BlockProcessor` | `process_block(in, out)` (slices) | every filter below |
 | `Resettable` | `reset()`: back to silence | every filter below |
 | `SampleFilter` | `SampleProcessor + BlockProcessor + Resettable` | `double`: `FirFilter`, `IirFilter`, `Biquad`, `CombFF`, `CombFB`; `float`: `FirFilter32`, `IirFilter32`, `Biquad32`, `CombFF32`, `CombFB32`; Q8.24: `FFirFilter`, `FIirFilter`, `FBiquad`, `FCombFF`, `FCombFB`; and [`FilterChain<S, A, B>`](#filter-chain) |
 | `SampleGenerator` | `next()`: one sample out, no input | `KarplusStrong`, `KarplusStrong32`, `FKarplusStrong` |
@@ -720,10 +703,10 @@ One set of traits covers all three sample types. A trait is satisfied by method 
 
 | Function | Bound | Does |
 |---|---|---|
-| `filter_process_each(&f, in, out, n)` | `SampleProcessor` | `out[i] = f.process(in[i])`: the `process_block` of a filter with no faster block form |
-| `filter_impulse_response(&f, out, n)` | `SampleProcessor + Resettable` | the first `n` samples of the response to 1, 0, 0, ... from a reset state; `f` is left reset. A FIR's impulse response is its taps |
-| `filter_step_response(&f, out, n)` | `SampleProcessor + Resettable` | the same for 1, 1, 1, ... |
-| `generate_block(&g, out, n)` | `SampleGenerator` | `out[i] = g.next()` |
+| `filter_process_each(&f, in, out)` | `SampleProcessor` | `out[i] = f.process(in[i])`: the `process_block` of a filter with no faster block form |
+| `filter_impulse_response(&f, out[0..n])` | `SampleProcessor + Resettable` | the first `n` samples of the response to 1, 0, 0, ... from a reset state; `f` is left reset. A FIR's impulse response is its taps |
+| `filter_step_response(&f, out[0..n])` | `SampleProcessor + Resettable` | the same for 1, 1, 1, ... |
+| `generate_block(&g, out[0..n])` | `SampleGenerator` | `out[i] = g.next()` |
 | `sample_one()` | | `1.0` as a sample of type `S` (`FIXED_ONE` for `Fixed`) |
 
 A filter of your own conforms by having the three methods; it then works with the helpers above, with `FilterChain` and with any `generic<F: SampleFilter>` code:
@@ -736,7 +719,7 @@ A filter of your own conforms by having the three methods; it then works with th
 struct DcBlocker {
     double r; double x1; double y1;
     double process(double x);
-    void   process_block(const &double in, &double out, unsigned long n);
+    void   process_block([]const double in, []double out);
     void   reset();
 };
 double DcBlocker::process(double x) {
@@ -745,8 +728,8 @@ double DcBlocker::process(double x) {
     self.y1 = y;
     return y;
 }
-void DcBlocker::process_block(const &double in, &double out, unsigned long n) {
-    filter_process_each(self, in, out, n);
+void DcBlocker::process_block([]const double in, []double out) {
+    filter_process_each(self, in, out);
 }
 void DcBlocker::reset() { self.x1 = 0.0; self.y1 = 0.0; }
 
@@ -754,7 +737,7 @@ void DcBlocker::reset() { self.x1 = 0.0; self.y1 = 0.0; }
 generic<F: SampleFilter>
 double settled(&F f) {
     double s[256];
-    filter_step_response(f, &s[0], 256UL);
+    filter_step_response(f, s[0..256UL]);
     return s[255];
 }
 
@@ -765,7 +748,7 @@ int main() {
 
     double taps[3] = { 0.25, 0.5, 0.25 };
     double hist[3] = { 0.0, 0.0, 0.0 };
-    struct FirFilter fir = FirFilter::new(&taps[0], 3UL, &hist[0]);
+    struct FirFilter fir = FirFilter::new(taps[0..3UL], hist[0..3UL]);
 
     println_float(settled(&dc));    // ~0.28 and falling: a DC blocker removes DC
     println_float(settled(&fir));   // 1.0: the sum of the taps
@@ -785,7 +768,7 @@ struct FilterChain {
     void reset();          // both stages
     // Each stage over the whole block with its own process_block (so each keeps
     // its fast path), with 'out' as the intermediate buffer: no scratch, out may alias in.
-    void process_block(const &S in, &S out, unsigned long n);
+    void process_block([]const S in, []S out);
 
     static struct FilterChain<S, A, B> of(A first, B second);
 };
@@ -807,13 +790,13 @@ int main() {
     // A chain is a SampleFilter, so it can be a stage of another chain.
     double taps[3] = { 0.25, 0.5, 0.25 };
     double hist[3] = { 0.0, 0.0, 0.0 };
-    struct FirFilter smooth = FirFilter::new(&taps[0], 3UL, &hist[0]);
+    struct FirFilter smooth = FirFilter::new(taps[0..3UL], hist[0..3UL]);
     struct FilterChain<double, struct FilterChain<double, struct Biquad, struct Biquad>, struct FirFilter> eq =
         FilterChain::of(band, smooth);
 
     double buf[256];
     for (int i = 0; i < 256; i++) buf[i] = (i % 32 < 16) ? 1.0 : -1.0;   // square wave
-    eq.process_block(&buf[0], &buf[0], 256UL);                              // in place
+    eq.process_block(buf[0..256UL], buf[0..256UL]);                              // in place
     println_float(buf[255]);
     return 0;
 }
@@ -835,7 +818,7 @@ Given an impulse response (e.g. a linear-phase FIR designed from a target magnit
 // cepstral liftering. outMinPhase: room for fftLen samples — energy
 // concentrates near the start; callers typically keep only the first
 // n-ish samples.
-void minimum_phase(const &double x, unsigned long n, unsigned long fftLen, &double outMinPhase);
+int minimum_phase([]const double x, unsigned long fftLen, []double outMinPhase);
 ```
 
 ---
@@ -853,9 +836,7 @@ Unlike the DFT/FFT's uniform frequency spacing, the CQT uses logarithmically-spa
 // bin — roughly Q*fs/fmin, Q = 1/(2^(1/binsPerOctave)-1) — or that bin's
 // kernel silently clips to signalLen (degraded resolution for that bin,
 // not an error). out: room for numBins Complex values.
-void cqt_forward(const &double signal, unsigned long signalLen, double fs,
-                  double fmin, unsigned long numBins, unsigned long binsPerOctave,
-                  &Complex out);
+void cqt_forward([]const double signal, double fs, double fmin, unsigned long binsPerOctave, []Complex out);
 ```
 
 ---
@@ -872,9 +853,7 @@ Where the CQT picks log-spaced frequency *bins*, the CWT picks a set of *scales*
 // scales: numScales entries (each > 0). w0: Morlet center-frequency
 // parameter (5-6 is standard). out: room for numScales*signalLen Complex
 // values, row-major by scale.
-void cwt_morlet(const &double signal, unsigned long signalLen,
-                 const &double scales, unsigned long numScales,
-                 double w0, &Complex out);
+int cwt_morlet([]const double signal, []const double scales, double w0, []Complex out);
 ```
 
 ---
@@ -890,15 +869,14 @@ The 2D analogues of the 1D building blocks above: `conv2d` is zero-padded ("same
 ```c
 // img: h*w row-major; kernel: kh*kw row-major (kh/kw should be odd);
 // out: room for h*w doubles. Out-of-bounds kernel taps read as zero.
-void conv2d(const &double img, unsigned long h, unsigned long w,
-            const &double kernel, unsigned long kh, unsigned long kw, &double out);
+int conv2d(([]const double img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const double kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]double out)[0..(unsigned long h) * (unsigned long w)]);
 
-void fft2d(&Complex img, unsigned long h, unsigned long w);   // in-place, h and w must be powers of two
-void ifft2d(&Complex img, unsigned long h, unsigned long w);
+int fft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);   // in-place, h and w must be powers of two
+int ifft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);
 
-void gaussian_kernel(&double kernel, unsigned long size, double sigma);  // normalized (sums to 1)
-void sobel_x_kernel(&double kernel);   // fixed 3x3, room for 9 doubles
-void sobel_y_kernel(&double kernel);
+int gaussian_kernel(([]double kernel)[0..(unsigned long size) * (unsigned long size)], unsigned long size, double sigma);  // normalized (sums to 1)
+int sobel_x_kernel(([]double kernel)[0..9UL]);   // fixed 3x3, room for 9 doubles
+int sobel_y_kernel(([]double kernel)[0..9UL]);
 ```
 
 ---
@@ -923,10 +901,10 @@ struct AudioBuffer {
 
     unsigned long readable_frames() const;
     unsigned long writable_frames() const;
-    unsigned long write_frames(&Fixed src, unsigned long n);   // returns frames written
-    unsigned long read_frames(&Fixed dst, unsigned long n);    // returns frames read
-    unsigned long peek_frames(&Fixed dst, unsigned long n) const;
-    void          mix_frames(&Fixed src, unsigned long n);
+    unsigned long write_frames([]const Fixed src);   // returns frames written
+    unsigned long read_frames([]Fixed dst);    // returns frames read
+    unsigned long peek_frames([]Fixed dst) const;
+    unsigned long mix_frames([]const Fixed src);
     void          clear();
     int           is_empty() const;
     int           is_full() const;
@@ -952,12 +930,12 @@ int main() {
         frame[0] = std::fixed_from_float(0.5f);
         frame[1] = std::fixed_from_float(-0.25f);
     }
-    g_ab.write_frames(&frame[0], 1UL);        // producer
+    g_ab.write_frames(frame[0..1]);           // producer
     std::print("readable: ");
     std::println_int((long long)g_ab.readable_frames());   // 1
 
     Fixed out[2];
-    g_ab.read_frames(&out[0], 1UL);           // consumer
+    g_ab.read_frames(out[0..1]);              // consumer
     unsafe {
         std::print("L = "); std::println_float((double)std::fixed_to_float(out[0]));   //  0.5
         std::print("R = "); std::println_float((double)std::fixed_to_float(out[1]));   // -0.25

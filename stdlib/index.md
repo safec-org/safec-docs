@@ -360,7 +360,9 @@ int main() {
 }
 ```
 
-Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic method that takes a matching `fn(?&T)` and `?&T` — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — so every call is still checked at compile time. The remaining `void*` declarations in `std/` are C ABI boundaries: libc/OS externs, `mem.h`'s raw byte allocator, MMIO base addresses, and GPU/WASM foreign interfaces.
+Where a container must hold callbacks with *different* context types at once (a timer wheel, a widget tree, a VFS mounting several drivers), the slot stores the pair type-erased, but the only way to fill it is a generic method that takes a matching `fn(?&T)` and `?&T` — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — so every call is still checked at compile time. The erased slot is a `?&Erased` (`std/erased.h`), never a `void*`. The remaining `void*` declarations in `std/` are C ABI boundaries — libc/OS externs, the private `*_raw_` halves of generic wrappers, and std-internal headers — and `tests/std_modules/api_lint.py` (run by the smoke test) fails the build if a raw pointer appears in a public declaration.
+
+Buffers are **slices**. Wherever a C API would take a pointer and a length (or return an array through a pointer), std takes a built-in slice: `[]T` when it writes the elements, `[]const T` when it only reads them — `f.read(buf[..])`, `sha256(data, digest[..])`, `fft(xs[0..n])`, `String::from_bytes(str_bytes("text"))`. A slice carries its length, indexing it is bounds-checked, and an output that must have a fixed size (a key, a digest) is checked on entry. See [Slices](/reference/types#slice-types).
 
 ## Including the Standard Library {#including-the-standard-library}
 

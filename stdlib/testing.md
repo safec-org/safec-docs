@@ -82,10 +82,9 @@ Benchmark names are truncated to `BENCH_NAME_MAX` (64) characters.
 ## Fuzzing (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
 `FuzzTarget` (via `FuzzTarget::new(func, iters)`, `func`:
-`fn void(const &unsigned char data, unsigned long size)`) — a
-lightweight, structure-*un*aware, in-process mutator: `run(corpus,
-corpus_size)` starts from a seed corpus and applies `iters` random
-mutations, feeding each to the target. Not coverage-guided — this is for
+`fn void([]const unsigned char data)`) — a
+lightweight, structure-*un*aware, in-process mutator: `run(corpus)` starts from a seed corpus and applies `iters` random
+mutations, feeding each to the target. The corpus and each input are byte slices. Not coverage-guided — this is for
 quick, ad hoc fuzzing during development, not a replacement for
 libFuzzer/AFL in CI. Crashes/panics in the target function aren't caught;
 they surface as ordinary process crashes.

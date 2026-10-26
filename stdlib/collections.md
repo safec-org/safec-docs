@@ -1,6 +1,6 @@
 # Collections
 
-`std/collections/` holds SafeC's container types. Every element container is a **generic struct** (see [Generics](/reference/generics#generic-structs-and-methods)): `Vec<T>`, `HashMap<K, V>`, `StrMap<V>`, `List<T>`, `Stack<T>`, `Queue<T>`, `BST<K, V, C>`, `BTree<V>`, `Slice<T>`, `StaticVec<T>` and `StaticMap<V>`. Elements are stored **by value** and the API never hands out `void*` or raw `T*`:
+`std/collections/` holds SafeC's container types. Every element container is a **generic struct** (see [Generics](/reference/generics#generic-structs-and-methods)): `Vec<T>`, `HashMap<K, V>`, `StrMap<V>`, `List<T>`, `Stack<T>`, `Queue<T>`, `BST<K, V, C>`, `BTree<V>`, `Slice<T>`, `StaticVec<T>` and `StaticMap<V>`. Elements are stored **by value** and the API never hands out `void*` or raw `T*` (bulk operations take and return built-in slices, `[]T`):
 
 - element access returns `?&T`, a nullable reference that you must narrow before use — with `match`, `.default(x)`, `.is_null()`, or `std::expect_ref` (see [Nullable references](/reference/types#reading-a-nullable-value));
 - removal returns `?T` (an optional value: `null` when there was nothing to remove);
@@ -126,8 +126,8 @@ The helpers ask only for the capability they use:
 
 | Function | Bound | Does |
 |---|---|---|
-| `push_all(&s, items, n)` | `S: Push` | pushes `items[0..n)` in order, stopping at the first one refused; returns how many went in |
-| `enqueue_all(&q, items, n)` | `Q: Enqueue` | the same with `enqueue` (stops when full, or once a `Chan` is closed) |
+| `push_all(&s, items)` | `S: Push` | pushes the slice `items` in order, stopping at the first one refused; returns how many went in |
+| `enqueue_all(&q, items)` | `Q: Enqueue` | the same with `enqueue` (stops when full, or once a `Chan` is closed) |
 | `drain_into(&q, &out)` | `Q: Dequeue`, `S: Push` | dequeues until `q` is empty (a `Chan`: closed and drained) and pushes each element onto `out`, in order; returns how many moved. Meant for a growable `out` such as a `Vec` |
 
 ```c
@@ -141,8 +141,8 @@ The helpers ask only for the capability they use:
 
 // Any FIFO with a length: Queue, MpscQueue, LFQueue, RingBuffer.
 generic<Q: CountedFifo>
-unsigned long backlog_after(&Q q, const &int items, unsigned long n) {
-    std::enqueue_all(q, items, n);
+unsigned long backlog_after(&Q q, []const int items) {
+    std::enqueue_all(q, items);
     q.dequeue();                       // one consumed
     return q.length();
 }
@@ -161,14 +161,14 @@ int main() {
 
     struct Queue<int> q = std::Queue::new();
     struct LFQueue<int> lf = std::LFQueue::new(8UL);
-    unsigned long b1 = backlog_after(&q, &xs[0], 4UL);    // 3
-    unsigned long b2 = backlog_after(&lf, &xs[0], 4UL);   // 3
+    unsigned long b1 = backlog_after(&q, xs[..]);        // 3
+    unsigned long b2 = backlog_after(&lf, xs[..]);       // 3
 
     struct Vec<int> got = std::Vec::new();
     unsigned long moved = std::drain_into(&q, &got);       // 3: q -> got, in order
 
     struct Stack<int> st = std::Stack::new();
-    std::push_all(&st, &xs[0], 4UL);                       // a Lifo: pop() gives 4 first
+    std::push_all(&st, xs[..]);                            // a Lifo: pop() gives 4 first
 
     struct HashMap<int, int> hm = std::HashMap::new();
     struct BST<int, int, Less<int>> t = std::BST::new();
@@ -201,7 +201,7 @@ struct Vec {
 
     static struct Vec<T> new();                                        // empty, no allocation
     static struct Vec<T> with_cap(unsigned long cap);
-    static struct Vec<T> from_arr(const &T items, unsigned long len);  // copies len elements
+    static struct Vec<T> from_slice([]const T items);                  // copies the elements
 
     int           reserve(unsigned long new_cap);    // 0 on OOM
     void          shrink();                           // cap := len
@@ -220,7 +220,7 @@ struct Vec {
     int           insert(unsigned long idx, T value);  // idx <= len
     ?T            remove(unsigned long idx);           // null if out of range
     void          clear();                             // len := 0, keeps the buffer
-    int           extend(const &T items, unsigned long count);
+    int extend([]const T items);
 
     void          reverse();
     void          sort(fn int(const &T, const &T) cmp);
@@ -503,7 +503,8 @@ struct Slice {
     ?&T           ptr;   // first element; null for an empty slice
     unsigned long len;
 
-    static struct Slice<T> of(&T first, unsigned long len);   // a view
+    static struct Slice<T> from([]T s);                       // a view of a built-in slice
+    static struct Slice<T> of(&T first, unsigned long len);   // a view of a 'new T[len]' array
     static struct Slice<T> alloc(unsigned long len);          // zeroed heap slice
 
     int             in_bounds(unsigned long idx) const;
@@ -513,22 +514,23 @@ struct Slice {
     struct Slice<T> sub(unsigned long start, unsigned long end) const;  // [start, end)
     unsigned long   length() const;
     int             is_empty() const;
+    []T             as_slice() const;                      // the same elements as a built-in slice
     void            free();                                // only for Slice::alloc()
 };
 
-// The same checks on a bare (first element, length) pair:
-generic<T> ?&T  arr_at(&T first, unsigned long len, unsigned long idx);
-generic<T> int  arr_set(&T first, unsigned long len, unsigned long idx, T val);
-generic<T> void arr_fill(&T first, unsigned long len, T val);
-generic<T> void arr_copy(&T dst, const &T src, unsigned long len);
-generic<T> ?T   arr_min(const &T first, unsigned long len);   // null if empty
-generic<T> ?T   arr_max(const &T first, unsigned long len);
-generic<T> void arr_reverse(&T first, unsigned long len);
+// The same checks on a built-in slice:
+generic<T> ?&T  arr_at([]T s, unsigned long idx);
+generic<T> int  arr_set([]T s, unsigned long idx, T val);
+generic<T> void arr_fill([]T s, T val);
+generic<T> unsigned long arr_copy([]T dst, []const T src);
+generic<T> ?T   arr_min([]const T s);   // null if empty
+generic<T> ?T   arr_max([]const T s);
+generic<T> void arr_reverse([]T s);
 ```
 
 ```c
 int arr[8];
-struct Slice<int> s = std::Slice::of(&arr[0], 8UL);
+struct Slice<int> s = std::Slice::from(arr[..]);
 struct Slice<int> mid = s.sub(2UL, 5UL);   // elements 2, 3, 4
 int x = mid.get(0UL).default(0);
 ```
@@ -546,7 +548,7 @@ Fixed-capacity containers over storage you provide (a static or stack array), so
 ```c
 generic<T>
 struct StaticVec {
-    static struct StaticVec<T> over(&T storage, unsigned long cap);
+    static struct StaticVec<T> over([]T storage);   // capacity = storage.len
     int push(T val);  ?T pop();  ?&T top() const;  ?&T get(unsigned long idx) const;
     unsigned long length() const;  int is_empty() const;  int is_full() const;  void clear();
 };
@@ -554,7 +556,7 @@ struct StaticVec {
 generic<V> struct StaticMapSlot { unsigned long key; V val; int used; };
 generic<V>
 struct StaticMap {
-    static struct StaticMap<V> over(&StaticMapSlot<V> storage, unsigned long cap);
+    static struct StaticMap<V> over([]StaticMapSlot<V> storage);
     int insert(unsigned long key, V val);   // 0 if full
     ?&V get(unsigned long key) const;  int contains(unsigned long key) const;
     unsigned long length() const;  int is_empty() const;  void clear();
@@ -566,9 +568,9 @@ static int g_buf[32];
 static struct StaticMapSlot<int> g_slots[64];
 
 void demo() {
-    struct StaticVec<int> v = std::StaticVec::over(&g_buf[0], 32UL);
+    struct StaticVec<int> v = std::StaticVec::over(g_buf[..]);
     v.push(42);
-    struct StaticMap<int> m = std::StaticMap::over(&g_slots[0], 64UL);
+    struct StaticMap<int> m = std::StaticMap::over(g_slots[..]);
     m.insert(5UL, 100);
     int hundred = m.get(5UL).default(0);
 }
@@ -630,7 +632,7 @@ struct String {
     // Append
     int            push_char(char c);
     int            push(const &char cstr);
-    int            push_n(const &char data, unsigned long n);  // n raw bytes, need not be NUL-terminated
+    int            push_bytes([]const char bytes);  // raw bytes, need not be NUL-terminated
     int            push_str(&String other);
     int            push_int(long long v);
     int            push_uint(unsigned long long v);
@@ -707,11 +709,11 @@ struct String {
 // static methods of String: String::new(), std::String::from("x") from outside namespace std
 static struct String String::new();
 static struct String String::from(const &char s);
-static struct String String::from_n(const &char s, unsigned long n);
+static struct String String::from_bytes([]const char bytes);
 static struct String String::with_cap(unsigned long cap);
 static struct String String::repeat_str(const &char s, unsigned long n);   // s repeated n times
 // parts[0..count) concatenated with sep between each (null sep: none)
-static struct String String::join(const &char sep, &String parts, unsigned long count);
+static struct String String::join(const ?&char sep, []String parts);
 ```
 
 ### Example {#example}
@@ -767,16 +769,16 @@ struct RingBuffer {
 
     // Initialise over an existing static-lifetime backing store;
     // `cap` is rounded down to a power of two.
-    static struct RingBuffer over(&static unsigned char buf, unsigned long cap);
+    static struct RingBuffer over([]unsigned char buf);
 
     unsigned long length() const;            // bytes available to read
     unsigned long writable() const;          // bytes that can be written
     int           is_empty() const;
     int           is_full() const;
 
-    unsigned long write(const &unsigned char data, unsigned long len);
-    unsigned long read(&unsigned char out, unsigned long len);
-    unsigned long peek(&unsigned char out, unsigned long len) const;
+    unsigned long write([]const unsigned char data);
+    unsigned long read([]unsigned char out);
+    unsigned long peek([]unsigned char out) const;
 
     // One byte at a time (the Fifo protocol, see #traits)
     int            enqueue(unsigned char b);   // 1, or 0 if full
@@ -796,14 +798,14 @@ extern int printf(const char* fmt, ...);
 static unsigned char g_storage[128];        // static backing store, no heap
 
 int main() {
-    struct RingBuffer rb = std::RingBuffer::over(&g_storage[0], 128UL);
+    struct RingBuffer rb = std::RingBuffer::over(g_storage[..]);
     unsigned char tx[5];
     unsafe { tx[0] = 'H'; tx[1] = 'e'; tx[2] = 'l'; tx[3] = 'l'; tx[4] = 'o'; }
-    rb.write(&tx[0], 5UL);
+    rb.write(tx[0..5UL]);
     unsafe { printf("readable: %lu\n", rb.length()); }     // 5
 
     unsigned char rx[5];
-    rb.read(&rx[0], 5UL);
+    rb.read(rx[0..5UL]);
     unsafe { printf("%c%c\n", rx[0], rx[4]); }             // Ho
     return 0;
 }

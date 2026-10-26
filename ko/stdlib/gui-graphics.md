@@ -117,7 +117,7 @@ void set_line_width(float w);
 void set_line_cap(int cap);        // GUI_CAP_BUTT, _ROUND, _SQUARE
 void set_line_join(int join);      // GUI_JOIN_MITER, _ROUND, _BEVEL
 void set_miter_limit(float limit); // default 10
-void set_dash(const &float lengths, int n, float offset);   // n = 0: solid
+void set_dash([]const float lengths, float offset);   // n = 0: solid
 void stroke_to_path(const &GuiPath p, &GuiPath out);        // the stroke's outline, to fill or clip
 ```
 
@@ -192,7 +192,7 @@ void set_font_size(float sizePx);
 void set_text_align(int align);        // GUI_TEXT_LEFT, _CENTER, _RIGHT
 void set_text_baseline(int baseline);  // GUI_BASELINE_ALPHABETIC, _TOP, _MIDDLE, _BOTTOM
 float fill_text(const &char text, float x, float y);    // returns the advance width
-float fill_text_n(const &char text, unsigned long len, float x, float y);
+float fill_text_n([]const char text, float x, float y);
 float measure_text(const &char text) const;
 void  fill_text_layout(const &GuiTextLayout layout, float x, float y);
 ```
@@ -206,7 +206,7 @@ void  fill_text_layout(const &GuiTextLayout layout, float x, float y);
 ```c
 struct GuiTypeface face;
 if (!face.load_file("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")) { ... }
-// or face.load_memory(bytes, size, GUI_FONT_COPY), load_file_index(path, i) for a .ttc
+// or face.load_memory(((const unsigned char*)bytes)[0..size], GUI_FONT_COPY), load_file_index(path, i) for a .ttc
 
 &GuiTypeface any = GuiTypeface::fallback();             // always there, compiled in
 ?&GuiTypeface sans = GuiTypeface::system("sans");        // a system font by family
@@ -230,7 +230,7 @@ face.free();
 
 ```c
 struct GuiTextLayout l = GuiTextLayout::new();
-l.build(face, 14.0f, text, (unsigned long)-1, 300.0f, GUI_TEXT_LEFT);  // wrap at 300 px
+l.build(face, 14.0f, ((const unsigned char*)text)[0..(unsigned long)-1], 300.0f, GUI_TEXT_LEFT);  // wrap at 300 px
 c.fill_text_layout(&l, 10.0f, 10.0f);
 unsigned long at = l.hit_test(mx, my);     // the byte offset nearest a point
 float cx; float top; float h;

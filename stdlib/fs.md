@@ -53,8 +53,8 @@ struct BlockDevice {
     generic<T: BlockDriver>
     static struct BlockDevice new(&T drv, unsigned long sector_count, unsigned long sector_size);
 
-    int  read(unsigned long lba, &unsigned char buf, unsigned long count);         // 0 on success
-    int  write(unsigned long lba, const &unsigned char buf, unsigned long count);
+    int read(unsigned long lba, []unsigned char buf);         // 0 on success
+    int write(unsigned long lba, []const unsigned char buf);
     int  valid() const;
 }
 ```
@@ -65,7 +65,7 @@ struct BlockDevice {
 
 | Trait | Requires | Satisfied by |
 |---|---|---|
-| `BlockDriver` | `read(lba, buf, count)` and `write(lba, buf, count)`: sectors of the device's `sector_size`, 0 on success | `BlockDevice` itself, and your driver |
+| `BlockDriver` | `read(lba, buf)` and `write(lba, buf)` (`[]unsigned char` / `[]const unsigned char`, a whole number of the device's `sector_size` sectors): 0 on success | `BlockDevice` itself, and your driver |
 
 `BlockDevice::new` is a [method with its own type parameter](/reference/generics#methods-with-their-own-type-parameters)
 bounded by `BlockDriver`; `FatCtx::init`, `Ext2Ctx::init` and
@@ -80,19 +80,21 @@ having the two methods — there is nothing to declare. A RAM disk:
 struct RamDisk {
     unsigned char bytes[64 * 512];
 
-    int read(unsigned long lba, &unsigned char buf, unsigned long count);
-    int write(unsigned long lba, const &unsigned char buf, unsigned long count);
+    int read(unsigned long lba, []unsigned char buf);
+    int write(unsigned long lba, []const unsigned char buf);
 };
 
-int RamDisk::read(unsigned long lba, &unsigned char buf, unsigned long count) {
-    if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    std::safe_memcpy(buf, &self.bytes[lba * 512UL], count * 512UL);
+int RamDisk::read(unsigned long lba, []unsigned char buf) {
+    unsigned long off = lba * 512UL;
+    if (off + buf.len > 64UL * 512UL) return -1;
+    std::safe_memcpy(buf, self.bytes[off..off + buf.len]);
     return 0;
 }
 
-int RamDisk::write(unsigned long lba, const &unsigned char buf, unsigned long count) {
-    if ((lba + count) * 512UL > 64UL * 512UL) return -1;
-    std::safe_memcpy(&self.bytes[lba * 512UL], buf, count * 512UL);
+int RamDisk::write(unsigned long lba, []const unsigned char buf) {
+    unsigned long off = lba * 512UL;
+    if (off + buf.len > 64UL * 512UL) return -1;
+    std::safe_memcpy(self.bytes[off..off + buf.len], buf);
     return 0;
 }
 
@@ -102,9 +104,9 @@ int main() {
     struct BlockDevice dev = std::BlockDevice::new(&g_disk, 64UL, 512UL);
     unsigned char sector[512];
     unsafe { sector[0] = 0x55; }
-    dev.write(3UL, &sector[0], 1UL);
+    dev.write(3UL, sector[..]);
     unsafe { sector[0] = 0; }
-    dev.read(3UL, &sector[0], 1UL);
+    dev.read(3UL, sector[..]);
     unsafe { return sector[0] == 0x55 ? 0 : 1; }
 }
 ```
@@ -176,8 +178,8 @@ composes them into the role a writable mount needs:
 
 | Trait | Requires | Satisfied by |
 |---|---|---|
-| `FsRead` | `open(path, flags, &node_out)`: look up `path` (with `VFS_O_CREATE`, create a missing file) and fill the node's name, type, size and inode, 0 on success; `read(inode, offset, buf, len)`: bytes read; `readdir(inode, cb, user)`: `cb(entry, user)` per child, the entry count or −1 | `FatCtx`, `Ext2Ctx`, `TmpfsCtx` |
-| `FsWrite` | `write(inode, offset, buf, len)`: bytes written; `unlink(path)`, `mkdir(path)`: 0 on success | `TmpfsCtx` |
+| `FsRead` | `open(path, flags, &node_out)`: look up `path` (with `VFS_O_CREATE`, create a missing file) and fill the node's name, type, size and inode, 0 on success; `read(inode, offset, buf)`: bytes read; `readdir(inode, cb, user)`: `cb(entry, user)` per child, the entry count or −1 | `FatCtx`, `Ext2Ctx`, `TmpfsCtx` |
+| `FsWrite` | `write(inode, offset, buf)`: bytes written; `unlink(path)`, `mkdir(path)`: 0 on success | `TmpfsCtx` |
 | `FileSystem` | `FsRead + FsWrite` | `TmpfsCtx` |
 
 They bound the two mount methods on `Vfs` ([methods with their own type
@@ -212,8 +214,8 @@ struct VersionFs {
     int unused_;
 
     int           open(const &char path, int flags, &VfsNode node_out);
-    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
+    unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
 };
 
 static void fill_file_(&VfsNode n) {
@@ -236,20 +238,20 @@ int VersionFs::open(const &char path, int flags, &VfsNode node_out) {
     return -1;
 }
 
-unsigned long VersionFs::read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len) {
+unsigned long VersionFs::read(unsigned long inode, unsigned long offset, []unsigned char buf) {
     if (inode != 1UL || offset >= 6UL) return 0UL;
     unsigned long n = 6UL - offset;
-    if (n > len) n = len;
-    const &char text = "1.4.2\n";
+    if (n > buf.len) n = buf.len;
+    []const char text = std::str_bytes("1.4.2\n");
     unsigned long i = 0UL;
     while (i < n) {
-        unsafe { buf[i] = (unsigned char)text[offset + i]; }
+        buf[i] = (unsigned char)text[offset + i];
         i = i + 1UL;
     }
     return n;
 }
 
-int VersionFs::readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user) {
+int VersionFs::readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user) {
     if (inode != 0UL) return -1;
     struct VfsNode e;
     fill_file_(&e);
@@ -282,7 +284,7 @@ int main() {
     struct VfsNode f;
     if (std::vfs_root.open("/etc/version", VFS_O_READ, &f) != 0) return 3;
     unsigned char buf[8];
-    if (f.read(0UL, buf, 8UL) != 6UL) return 4;
+    if (f.read(0UL, buf[..]) != 6UL) return 4;
     if (std::vfs_root.mkdir("/etc/x") == 0) return 5;   // read-only mount refuses
 
     struct VfsNode dir;
@@ -305,15 +307,13 @@ The type-erased table a mount calls through. `Vfs::mount` / `mount_ro` build it 
 
 ```c
 struct VfsOps {
-    fn int(?&void ctx, const &char path, int flags, &VfsNode node_out) open;
-    fn int(?&void ctx, const &char path) unlink;
-    fn int(?&void ctx, const &char path) mkdir;
-    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
-                      &unsigned char buf, unsigned long len) read;
-    fn unsigned long(?&void ctx, unsigned long inode, unsigned long off,
-                      const &unsigned char buf, unsigned long len) write;
-    fn int(?&void ctx, unsigned long inode,
-           fn void(&VfsNode, ?&void) cb, ?&void user) readdir;
+    ?fn int(&Erased ctx, const &char path, int flags, &VfsNode node_out) open;
+    ?fn int(&Erased ctx, const &char path) unlink;
+    ?fn int(&Erased ctx, const &char path) mkdir;
+    ?fn unsigned long(&Erased ctx, unsigned long inode, unsigned long off, []unsigned char buf) read;
+    ?fn unsigned long(&Erased ctx, unsigned long inode, unsigned long off, []const unsigned char buf) write;
+    ?fn int(&Erased ctx, unsigned long inode,
+            fn void(&VfsNode, ?&Erased) cb, ?&Erased user) readdir;
 }
 ```
 
@@ -325,10 +325,10 @@ struct VfsNode {
     int           type;      // VFS_TYPE_FILE / VFS_TYPE_DIR
     unsigned long size;
     unsigned long inode;
-    ?&void        fs_ctx;    // driver-internal: the owning VfsMount
+    ?&struct VfsMount fs_ctx; // driver-internal: the owning VfsMount
 
-    unsigned long read(unsigned long offset, &unsigned char buf, unsigned long len);
-    unsigned long write(unsigned long offset, const &unsigned char buf, unsigned long len);
+    unsigned long read(unsigned long offset, []unsigned char buf);
+    unsigned long write(unsigned long offset, []const unsigned char buf);
 
     // Calls cb(entry, user) for each child of this directory; returns the
     // count, -1 on error. T is the type of your user data.
@@ -391,15 +391,15 @@ struct FatCtx {
     int init(&BlockDevice dev, unsigned long lba);
 
     // Read a cluster into `buf` (must be >= bytes_per_cluster bytes).
-    int read_cluster(unsigned long cluster, &unsigned char buf);
+    int read_cluster(unsigned long cluster, []unsigned char buf);
 
     // Follow the FAT chain to the cluster at position `idx` from `start_cluster`.
     unsigned long follow_fat(unsigned long start_cluster, unsigned long idx);
 
     // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
-    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
+    unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
 }
 ```
 
@@ -457,19 +457,18 @@ struct Ext2Ctx {
     int  init(&BlockDevice dev);
 
     // Read block `block_no` into `buf` (must be >= block_size bytes).
-    int  read_block(unsigned long block_no, &unsigned char buf);
+    int read_block(unsigned long block_no, []unsigned char buf);
 
     // Read inode `ino` into `inode_out`.
     int  read_inode(unsigned long ino, &Ext2Inode inode_out);
 
     // Read file data for inode `ino` at byte `offset` into `buf` for `len` bytes.
-    unsigned long read_file(unsigned long ino, unsigned long offset,
-                             &unsigned char buf, unsigned long len);
+    unsigned long read_file(unsigned long ino, unsigned long offset, []unsigned char buf);
 
     // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
-    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
+    unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
 }
 ```
 
@@ -508,9 +507,9 @@ struct TmpfsCtx {
 
     // FileSystem: mount with vfs_root.mount(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
-    unsigned long read(unsigned long inode, unsigned long offset, &unsigned char buf, unsigned long len);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&void) cb, ?&void user);
-    unsigned long write(unsigned long inode, unsigned long offset, const &unsigned char buf, unsigned long len);
+    unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
+    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
+    unsigned long write(unsigned long inode, unsigned long offset, []const unsigned char buf);
     int           unlink(const &char path);
     int           mkdir(const &char path);
 }
@@ -542,13 +541,13 @@ int main() {
     unsigned char msg[8];
     msg[0]='b'; msg[1]='o'; msg[2]='o'; msg[3]='t';
     msg[4]=' '; msg[5]='o'; msg[6]='k'; msg[7]='\n';
-    node.write(0, msg, 8UL);
+    node.write(0, msg[..]);
 
     // Read back
     struct VfsNode node2;
     std::vfs_root.open("/tmp/log.txt", VFS_O_READ, &node2);
     unsigned char buf[8];
-    unsigned long n = node2.read(0, buf, 8UL);
+    unsigned long n = node2.read(0, buf[..]);
     // buf[0..n] == "boot ok\n"
 
     return n == 8UL ? 0 : 1;
@@ -563,8 +562,8 @@ Mounting a real block device follows the same shape — wrap the driver in a `Bl
 // The board HAL's SD driver: a BlockDriver (read and write sectors).
 struct SdCard {
     int spi_bus;
-    int read(unsigned long lba, &unsigned char buf, unsigned long count);
-    int write(unsigned long lba, const &unsigned char buf, unsigned long count);
+    int read(unsigned long lba, []unsigned char buf);
+    int write(unsigned long lba, []const unsigned char buf);
 };
 
 static struct SdCard g_card;
@@ -588,7 +587,7 @@ int mount_sd() {
     struct VfsNode node;
     if (std::vfs_root.open("/sd/config.txt", VFS_O_READ, &node) == 0) {
         unsigned char buf[256];
-        unsigned long n = node.read(0UL, &buf[0], 256UL);
+        unsigned long n = node.read(0UL, buf[0..256]);
         // process buf[0..n]
     }
     return 0;

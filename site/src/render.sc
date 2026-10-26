@@ -76,7 +76,7 @@ void link_rewrite(const &Site site, const &char href, &String out) {
 
 void playground_hash(const &char code, unsigned long len, &String out) {
     struct String b;
-    unsafe { b = base64_encode((const &unsigned char)(const unsigned char*)code, len); }
+    unsafe { b = base64_encode(((const unsigned char*)code)[0..len]); }
     out.push("code=");
     for (unsigned long i = 0UL; i < b.len; i = i + 1UL) {
         char c = (char)b.char_at(i);

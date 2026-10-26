@@ -22,7 +22,7 @@ Functions that can fail on bad input take an `int* ok` out-parameter, the same c
 
 ```c
 int ascii_is_valid(const &char s);                     // 1 if every byte of the NUL-terminated string is 0..127
-int ascii_is_valid_n(const &char s, unsigned long len); // same, for a raw byte range (no NUL needed)
+int ascii_is_valid_bytes([]const char s);           // same, for raw bytes (no NUL needed)
 
 int ascii_is_alpha(char c);
 int ascii_is_digit(char c);
@@ -116,7 +116,7 @@ An ordered multi-map of decoded pairs — a parsed query string or form body, li
 struct QueryParams {
     static struct QueryParams new();
     static struct QueryParams parse(const &char qs);                    // a leading '?' is skipped
-    static struct QueryParams parse_n(const &char qs, unsigned long n);  // n raw bytes (a request body)
+    static struct QueryParams parse_bytes([]const char qs);  // raw bytes (a request body)
 
     unsigned long length() const;
     const ?&char  get(const &char key) const;            // first value, or null
@@ -208,7 +208,7 @@ Standard alphabet with `=` padding (RFC 4648).
 
 ```c
 // No line wrapping in the output.
-struct String base64_encode(const &unsigned char data, unsigned long len);
+struct String base64_encode([]const unsigned char data);
 
 // Whitespace between groups is skipped. Any other invalid byte, or '=' that
 // isn't trailing padding, sets *ok = 0 and returns an empty Vec.
@@ -224,7 +224,7 @@ Free the results with `.free()` like any other `String` or `Vec`.
 
 int main() {
     unsigned char msg[5] = { 'S', 'a', 'f', 'e', 'C' };
-    struct String enc = std::base64_encode(msg, 5UL);  // "U2FmZUM="
+    struct String enc = std::base64_encode(msg[..]);  // "U2FmZUM="
 
     int ok = 0;
     struct Vec<unsigned char> dec = std::base64_decode(enc.as_ptr(), &ok);
@@ -249,27 +249,24 @@ The compression behind HTTP's `Content-Encoding: gzip` / `deflate` (the [HTTP cl
 #define DEFLATE_BEST    9
 
 // Raw DEFLATE (RFC 1951). Levels 0..9; out-of-range values are clamped.
-struct Vec<unsigned char> deflate_raw(const &unsigned char data, unsigned long len, int level);
+struct Vec<unsigned char> deflate_raw([]const unsigned char data, int level);
 // max_out: fail instead of growing past it (0 = no limit). consumed may be null.
-struct Vec<unsigned char> inflate_raw(const &unsigned char data, unsigned long len,
-                                      unsigned long max_out, ?&unsigned long consumed, ?&int ok);
+struct Vec<unsigned char> inflate_raw([]const unsigned char data, unsigned long max_out, ?&unsigned long consumed, ?&int ok);
 
 // zlib (RFC 1950): header + DEFLATE + Adler-32.
-struct Vec<unsigned char> zlib_compress(const &unsigned char data, unsigned long len, int level);
-struct Vec<unsigned char> zlib_decompress(const &unsigned char data, unsigned long len,
-                                          unsigned long max_out, ?&int ok);
+struct Vec<unsigned char> zlib_compress([]const unsigned char data, int level);
+struct Vec<unsigned char> zlib_decompress([]const unsigned char data, unsigned long max_out, ?&int ok);
 
 // gzip (RFC 1952): one member on output; every concatenated member on input,
 // each CRC-32 and length checked.
-struct Vec<unsigned char> gzip_compress(const &unsigned char data, unsigned long len, int level);
-struct Vec<unsigned char> gzip_decompress(const &unsigned char data, unsigned long len,
-                                          unsigned long max_out, ?&int ok);
-int gzip_is_gzip(const &unsigned char data, unsigned long len);   // starts with 1f 8b
+struct Vec<unsigned char> gzip_compress([]const unsigned char data, int level);
+struct Vec<unsigned char> gzip_decompress([]const unsigned char data, unsigned long max_out, ?&int ok);
+int gzip_is_gzip([]const unsigned char data);   // starts with 1f 8b
 
-unsigned int crc32(const &unsigned char data, unsigned long len);   // "123456789" -> 0xCBF43926
-unsigned int crc32_update(unsigned int crc, const &unsigned char data, unsigned long len);
-unsigned int adler32(const &unsigned char data, unsigned long len);
-unsigned int adler32_update(unsigned int adler, const &unsigned char data, unsigned long len);
+unsigned int crc32([]const unsigned char data);   // "123456789" -> 0xCBF43926
+unsigned int crc32_update(unsigned int crc, []const unsigned char data);
+unsigned int adler32([]const unsigned char data);
+unsigned int adler32_update(unsigned int adler, []const unsigned char data);
 ```
 
 The compressor runs LZ77 over a 32 KiB window (hash chains, lazy matching from level 4) and writes each block in whichever form is smallest: stored, fixed Huffman or dynamic Huffman. The output is ordinary DEFLATE that any decoder reads, and its size is within a fraction of a percent of zlib's at the same level, though not byte-identical. The decompressor accepts every conforming stream.
@@ -282,15 +279,10 @@ Set `max_out` whenever the input is untrusted: a few kilobytes of crafted DEFLAT
 
 int main() {
     struct String text = std::String::repeat_str("compress me ", 1000UL);
-    struct Vec<unsigned char> gz;
-    unsafe { gz = std::gzip_compress((const &unsigned char)text.as_ptr(), text.length(), DEFLATE_DEFAULT); }
+    struct Vec<unsigned char> gz = std::gzip_compress(text.as_bytes(), DEFLATE_DEFAULT);
 
     int ok = 0;
-    struct Vec<unsigned char> back = std::Vec::new();
-    match (gz.data) {
-        case some(d): { back = std::gzip_decompress(d, gz.len, 1000000UL, &ok); }
-        case null: { }
-    }
+    struct Vec<unsigned char> back = std::gzip_decompress(gz.as_slice(), 1000000UL, &ok);
     int same = ok && back.len == text.length();
 
     back.free();

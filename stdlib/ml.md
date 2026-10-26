@@ -72,7 +72,7 @@ this library (activations, losses, layers) take a `FloatTensor`. See
 helpers and mixed-precision training.
 
 ```c
-&FloatTensor x = FloatTensor::from_1d(values, 3UL, /*requiresGrad=*/1);
+&FloatTensor x = FloatTensor::from_1d(((const float*)values)[0..3UL], /*requiresGrad=*/1);
 &FloatTensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
 y.backward();                               // x.grad now holds 2x
 ```
@@ -135,8 +135,8 @@ trait Tensor {
 // Shown for FloatTensor; HalfTensor:: and BF16Tensor:: are the same.
 static &FloatTensor FloatTensor::new_1d(unsigned long n, int requiresGrad);
 static &FloatTensor FloatTensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
-static &FloatTensor FloatTensor::from_1d(const &float values, unsigned long n, int requiresGrad);
-static &FloatTensor FloatTensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+static &FloatTensor FloatTensor::from_1d([]const float values, int requiresGrad);
+static &FloatTensor FloatTensor::from_2d([]const float values, unsigned long rows, unsigned long cols, int requiresGrad);   // values.len >= rows * cols
 &FloatTensor FloatTensor::zeros_like() const;
 void    FloatTensor::fill(float v);   // in place
 
@@ -1872,7 +1872,6 @@ into graphs.
 | Decoding (one token at a time) | `cuda_half_gemv(w, x, y, n, k)`: `y = w x` with fp16/bf16 weights `[n][k]` and fp32 vectors, one to four warps per output row, 16-byte streaming loads (`ld.global.nc.L1::no_allocate`, four in flight) when `k` is a multiple of 8. On the H200 it is 1.3–2.2× faster than a one-row `cuda_half_gemm_f32` (cuBLAS) on Gemma 4 E2B's attention and down projections, 1.05× on the 262k-row LM head (4.47 TB/s), and 0.89× on the fused 12288 × 1536 gate/up. `cuda_rmsnorm(x, w, y, rows, n, eps)` per row, optional weight, in place allowed. Same API as [ROCm's](#rocm-hip-amd), taken from the [Gemma 4 CUDA engine](/benchmarks#ml-llm)'s kernels |
 | Graphs | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `CudaGraph::free` |
 | Host arrays | `cuda_add_f32` … `cuda_matmul_f32_blas` — upload, compute, read back in one call |
-| Persistent buffers (`&void` handles) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, and the fp16/bf16 `cuda_*_f16_*`/`cuda_*_bf16_*` (2-byte storage, fp32 arithmetic) |
 
 The MLP step above, fused:
 
@@ -1929,7 +1928,7 @@ transforms are unnormalized and inverse ones include 1/N, as in `fft.h`.
 
 | Group | Functions |
 |---|---|
-| Host arrays, `double` | `cuda_fft`, `cuda_ifft`, `cuda_fft_batch(data, n, batch, inverse)`, `cuda_fft2d`, `cuda_ifft2d` (`imaging.h`'s `fft2d`) |
+| Host arrays, `double` | `cuda_fft`, `cuda_ifft`, `cuda_fft_batch(data[0..n * batch], n, inverse)`, `cuda_fft2d`, `cuda_ifft2d` (`imaging.h`'s `fft2d`) |
 | Queued, fp32 `CudaBuf` | `cuda_fft_c2c(in, out, n, batch, inverse)` (interleaved re/im), `cuda_fft_r2c` (n reals → n/2+1 complex), `cuda_fft_c2r` (overwrites its input, as cuFFT does) |
 
 `tests/stdlib/cuda` checks both libraries against the CPU code: `Conv2D::forward`
@@ -2004,7 +2003,7 @@ any length. Forward transforms are unnormalized and inverse ones include 1/N.
 
 | Group | Functions |
 |---|---|
-| Host arrays, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data, n, batch, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
+| Host arrays, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data[0..n * batch], n, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
 | Queued, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r` (may overwrite its input) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc` runs the same checks as the CUDA
@@ -2025,44 +2024,33 @@ Each backend exposes the same family of functions over plain `float` arrays, pre
 // <p> = mps | cuda | spirv | webgpu
 int <p>_available();
 
-int <p>_add_f32(const &float a, const &float b, &float out, unsigned long n);   // also sub, mul, div, pow
-int <p>_relu_f32(const &float a, &float out, unsigned long n);                  // also log, exp, sqrt
-int <p>_scale_f32(const &float a, float k, &float out, unsigned long n);
-int <p>_sum_f32(const &float a, &float out, unsigned long n);                   // out[0] = sum
-int <p>_matmul_f32(const &float a, const &float b, &float out,
+int <p>_add_f32([]const float a, []const float b, []float out);   // also sub, mul, div, pow; n = out.len
+int <p>_relu_f32([]const float a, []float out);                    // also log, exp, sqrt
+int <p>_scale_f32([]const float a, float k, []float out);
+int <p>_sum_f32([]const float a, []float out);                     // out[0] = sum of a
+int <p>_matmul_f32([]const float a, []const float b, []float out,
                    unsigned long M, unsigned long K, unsigned long N);          // [M,K] x [K,N]
-int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
+int cuda_matmul_f32_blas([]const float a, []const float b, []float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-Host arrays are passed as references to their first element. Device buffers below are opaque `&void` handles on CUDA, SPIR-V and WebGPU, since their memory belongs to the GPU driver; Metal's are `MpsBuf`s (below), as ROCm's are `RocmBuf`s.
+Host arrays are passed as slices (`[]const float` in, `[]float` out); `n` is `out.len`, and an op returns 0 when an input is shorter. Device-resident data lives in typed buffer objects instead: `CudaBuf` (CUDA), `RocmBuf` (ROCm), `SpirvBuf` (SPIR-V), `WebGpuBuf` (WebGPU) and `MpsBuf` (Metal, below), each made with `alloc(n, dtype)` or `upload(host)` and read back with `read(bytes)` / `read_f32(floats)` (`cuda_read` / `rocm_read` for CUDA and ROCm).
 
-**Persistent buffers** keep weights on the device across calls, so a training loop doesn't re-upload them:
-
-```c
-// <p> = cuda | spirv | webgpu
-?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void   <p>_release_persistent(&void buf);
-int    <p>_persistent_available();
-int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
-                                unsigned long M, unsigned long K, unsigned long N); // cuda, webgpu
-int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
-int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
-```
+**Persistent buffers** keep weights on the device across calls, so a training loop doesn't re-upload them: upload once, then run the buffer ops (`cuda_gemm`, `webgpu_matmul`, `webgpu_sgd_update`, `mps_matmul_f32_persistent`, …) on the buffers.
 
 On Metal a device buffer is a `struct MpsBuf`: the `MTLBuffer` handle, its size in bytes and its element type (`0` = fp32, `MPS_FP16`, `MPS_BF16`). Its memory is shared with the CPU, so `read` and `write` are copies without a transfer. A zero-initialized `MpsBuf` is invalid, every op returns 0 for an invalid one, and `free()` on it does nothing.
 
 ```c
 struct MpsBuf {
-    void* handle; unsigned long bytes; int dtype;
+    ?&MtlObject handle; unsigned long bytes; int dtype;
     int  valid() const;
     void free();                                          // back to the buffer pool
-    int  read(&void dst, unsigned long bytes) const;      // valid once the batches writing it have ended
-    int  write(const &void src, unsigned long bytes);
+    int  read([]unsigned char dst) const;                 // valid once the batches writing it have ended
+    int  write([]const unsigned char src);
     static struct MpsBuf alloc(unsigned long n, int dtype);                 // n elements
-    static struct MpsBuf upload(const &float host, unsigned long n);        // n fp32 values
-    static struct MpsBuf upload_f16(const &float host, unsigned long n);    // rounded on the CPU; also upload_bf16
-    static struct MpsBuf upload_bits(const &unsigned short bits, unsigned long n, int dtype);  // raw fp16 / bf16
+    static struct MpsBuf upload([]const float host);          // fp32 values
+    static struct MpsBuf upload_f16([]const float host);    // rounded on the CPU; also upload_bf16
+    static struct MpsBuf upload_bits([]const unsigned short bits, int dtype);  // raw fp16 / bf16
     static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
     static struct MpsBuf batch_last_output();             // owned by the open batch: don't free()
 };
@@ -2074,13 +2062,13 @@ int mps_sgd_update_f32_chained(struct MpsBuf bufW, struct MpsBuf bufGrad, float 
 **Half precision** (MPS, CUDA, WebGPU): upload as fp16/bf16, compute natively, read back raw 16-bit values (convert with `float16.h` below). ROCm keeps 16-bit data in `RocmHalfBuf`s instead; see its table above.
 
 ```c
-?&void cuda_upload_f16_persistent(const &float data, unsigned long n);   // also _bf16; webgpu_ (f16); Metal: MpsBuf::upload_f16
+static struct CudaHalfBuf CudaHalfBuf::upload([]const float host, int dtype);   // also RocmHalfBuf; Metal: MpsBuf::upload_f16 / _bf16; WebGPU: WebGpuBuf::upload_f16
 int    mps_matmul_f16_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out,
-                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_ (&void)
-int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16
+int    cuda_half_sgd(struct CudaHalfBuf w, struct CudaHalfBuf g, float lr);   // also rocm_half_sgd
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
-int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
+int mps_relu_f16([]const float a, []float out);           // also mps_relu_bf16
 ```
 
 **MPS batching.** Between `mps_batch_begin()` and `mps_batch_end()`, MPS ops encode onto one shared command buffer instead of each committing and waiting, so a fused forward + loss + backward step runs as one GPU submission. `*_chained` variants take the previous op's output buffer (`MpsBuf::batch_last_output()`) as input without a round trip through host memory. `mps_batch_submit()` sends what the open batch holds so far to the GPU without waiting, so long batches overlap encoding with execution.
@@ -2095,7 +2083,7 @@ generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
 int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
-int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, unsigned long n);
+int mps_relu_backward_f32(((const float*)([]const float a))[0..[]float out], ((float*)([]const float selfGrad))[0..[]float out]);
 
 // Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
 //   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
@@ -2132,7 +2120,7 @@ Metal buffers (`MpsBuf::upload`, `MpsBuf::upload_f16` / `upload_bf16`,
 | Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
 | Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
 | Host arrays | `mps_flash_attention_f32`, `mps_linear_attention_f32` (upload, compute, read back) |
-| Buffers | `MpsBuf::alloc(n, dtype)`, `buf.read(dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+| Buffers | `MpsBuf::alloc(n, dtype)`, `buf.read(((unsigned char*)dst)[0..bytes])`, `mps_attention_head_dim_ok(headDim)` |
 
 On an M1 Pro, fp32 flash attention is 1.01–1.42× faster than MLX's fused attention and 1.13–1.70× faster than PyTorch's `mps` device, bf16 at head dim 128 is level with MLX, fp16 and bf16 at 64 reach 0.80–1.02× of them (2.6–3.4 TFLOPS), and linear attention is 2.0–4.4× faster than vectorized PyTorch and MLX. See the [benchmarks](/benchmarks#ml-attention).
 
@@ -2253,12 +2241,12 @@ float          fp16_to_f32(unsigned short h);
 unsigned short f32_to_bf16(float v);
 float          bf16_to_f32(unsigned short b);
 
-void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
-void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
-void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
-void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
-void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
-void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void f32_to_fp16_bulk([]const float src, []unsigned short dst);
+void fp16_to_f32_bulk([]const unsigned short src, []float dst);
+void f32_to_bf16_bulk([]const float src, []unsigned short dst);
+void bf16_to_f32_bulk([]const unsigned short src, []float dst);
+void fp16_to_bf16_bulk([]const unsigned short src, []unsigned short dst);
+void bf16_to_fp16_bulk([]const unsigned short src, []unsigned short dst);
 
 int         half_cpu_features();        // HALF_CPU_* bits, detected once
 const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
@@ -2338,10 +2326,10 @@ generic<E>    void tensors_free(&Vec<&DenseTensor<E>> ts);
 generic<E>    int  half_grads_accumulate(const &Vec<&DenseTensor<E>> grads, &Vec<&FloatTensor> params,
                                          float invScale);  // 1 = all finite
 
-int HalfTensor::gemv(const &float x, &float y) const;     // y = w x, float32 x / y
-int HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // m vectors: x [m][k], y [m][n]
-int BF16Tensor::gemv(const &float x, &float y) const;
-int BF16Tensor::gemv_batch(const &float x, unsigned long m, &float y) const;
+int HalfTensor::gemv([]const float x, []float y) const;     // y = w x, float32 x (k) / y (n)
+int HalfTensor::gemv_batch([]const float x, unsigned long m, []float y) const; // m vectors: x [m][k], y [m][n]
+int BF16Tensor::gemv([]const float x, []float y) const;
+int BF16Tensor::gemv_batch([]const float x, unsigned long m, []float y) const;
 
 &FloatTensor FloatTensor::cast(int dtype) const;                            // straight-through gradient
 &FloatTensor tensor_matmul_lowp(const &FloatTensor a, const &FloatTensor b, int dtype);    // cast(cast(a) @ cast(b))
@@ -2382,7 +2370,7 @@ int main() {
     std::println_float((double)y.at1(1UL));   // 7
 
     y.sum().backward();                       // w.grad: float32
-    struct Slice<float> g = std::slice_of(w.grad, w.size);
+    struct Slice<float> g = std::Slice::of(w.grad, w.size);
     std::println_float((double)*g.at(1UL));   // 4 (= x[1])
     x.free(); w.free();
     return 0;
@@ -2419,9 +2407,9 @@ int main() {
     float wv[2] = { 0.1f, 0.2f };
     float xv[2] = { 1.0f, 2.0f };
     float tv[1] = { 1.0f };
-    &FloatTensor w = FloatTensor::from_2d(&wv[0], 2UL, 1UL, 1);
-    &FloatTensor x = FloatTensor::from_2d(&xv[0], 1UL, 2UL, 0);
-    &FloatTensor t = FloatTensor::from_2d(&tv[0], 1UL, 1UL, 0);
+    &FloatTensor w = FloatTensor::from_2d(wv[0..2UL * 1UL], 2UL, 1UL, 1);
+    &FloatTensor x = FloatTensor::from_2d(xv[0..1UL * 2UL], 1UL, 2UL, 0);
+    &FloatTensor t = FloatTensor::from_2d(tv[0..1UL * 1UL], 1UL, 1UL, 0);
     struct LossScaler scaler = LossScaler::new();
     int ok = 1;
     for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);
