@@ -329,10 +329,14 @@ int fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
 #include <std/ml/trainer.h>
 extern int printf(const char* fmt, ...);
 
-static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
-    return tensor_cross_entropy_loss(m.forward(x), y);    // autograd builds the graph
+// The forward pass builds the autograd graph as it goes.
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x,
+                             const &FloatTensor y) {
+    return tensor_cross_entropy_loss(m.forward(x), y);
 }
-static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) {
+    return m.forward(x);
+}
 
 int main() {
     struct Rng rng = Rng::new(1UL);
@@ -349,7 +353,7 @@ int main() {
 
     struct TrainConfig cfg = TrainConfig::default();
     cfg.epochs = 60UL;
-    cfg.device = device_auto();   // CUDA, ROCm, Metal, Vulkan or WebGPU if built in, else the CPU
+    cfg.device = device_auto();   // a GPU if built in, else the CPU
     trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
     float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);
     printf("accuracy %.2f on %s\n", acc, device_name(cfg.device));
