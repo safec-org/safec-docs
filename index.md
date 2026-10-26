@@ -398,7 +398,7 @@ The Book, the guide, the language reference and the standard library, in one pla
 ::: card play
 ### [Playground](/playground)
 
-Edit SafeC in your browser, load the Book's examples and share a program as a link.
+Edit and run SafeC in your browser, load the Book's examples and share a program as a link.
 :::
 ::: card terminal
 ### [Tools](/tools)

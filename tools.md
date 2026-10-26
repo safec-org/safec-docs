@@ -7,7 +7,7 @@ summary: The SafeC toolchain — the safec compiler, the safeguard package manag
 # Tools
 
 ::: lead
-Every release ships three programs: `safec`, the compiler; `safeguard`, the package manager and build tool most projects drive everything with; and `sc-lsp`, the language server for your editor. [Install](/install) puts all three on your `PATH`.
+Every release ships three programs: `safec`, the compiler; `safeguard`, the package manager and build tool most projects drive everything with; and `sc-lsp`, the language server for your editor. [Install](/install) puts all three on your `PATH` (with `safec-doc`, the API reference generator behind `safeguard doc`).
 :::
 
 ::::: cards 3
@@ -42,7 +42,10 @@ The compiler itself: SafeC to LLVM IR, objects or binaries, for any LLVM target.
 | `safeguard fetch` | Clone and build the `[dependencies]` |
 | `safeguard format` | Reindent and normalize whitespace in `.sc` / `.h` files |
 | `safeguard lint` | Static-analysis lint passes |
-| `safeguard bundle` | Package a GUI app as a macOS `.app`, a Windows app folder or a Linux `.deb` |
+| `safeguard bundle` | Package a GUI app as a macOS `.app`, a Windows app folder, a Linux `.deb` and AppDir, or (`--target wasm32`) a web page |
+| `safeguard doc` | Generate the [API reference](/advanced/safeguard#safeguard-doc) of a package (`--serve` to browse it, `--std` for std's) |
+| `safeguard publish` | Prepare a library for [publishing](/advanced/safeguard#safeguard-publish): CI, release archives and Pages docs |
+| `safeguard clean` | Remove `build/` and `deps/` |
 | `safeguard verify-lock` | Check `Package.lock` against the current dependency state |
 | `safeguard std-modules` | Which std sources a build compiles and which system libraries it links |
 
@@ -119,4 +122,4 @@ safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 
 ## Playground {#playground}
 
-The [Playground](/playground) edits SafeC in the browser with highlighting, loads the Book's examples and shares programs as links. Running code needs the in-browser compiler (a self-hosted SafeC compiler built to WebAssembly), which is on its way.
+The [Playground](/playground) edits SafeC in the browser with highlighting, loads the Book's examples and shares programs as links. *Run* compiles and runs the program in the browser with scc, SafeC's self-hosted compiler built to WebAssembly; it accepts a subset of the language and the std headers bundled with it ([details](/playground#about)).

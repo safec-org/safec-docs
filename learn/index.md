@@ -26,7 +26,7 @@ What SafeC is and isn't: the [introduction](/guide/introduction), [getting start
 ::: card play
 ### [Playground](/playground)
 
-Edit SafeC in the browser and load every runnable example from the Book. Every program on this site has a *Run in Playground* link.
+Edit and run SafeC in the browser and load every runnable example from the Book. Programs on this site that the playground can build have a *Run in Playground* link.
 :::
 :::::
 

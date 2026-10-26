@@ -15,10 +15,10 @@
 | `safeguard std-prebuilt <prefix>` | 이 머신용 std를 섹션마다 아카이브 하나씩 `<prefix>/lib/<triple>/std/<section>.a`로 컴파일. 릴리스가 함께 배포하는 [미리 빌드된 std](#prebuilt-std) |
 | `safeguard test` | `tests/` 아래의 모든 파일을 독립적인 바이너리로 빌드하고 실행 |
 | `safeguard doc [--serve] [--std]` | [API 레퍼런스](#safeguard-doc)를 `build/doc/`에 생성(`--std`면 std의 레퍼런스) |
-| `safeguard publish [--ci=…] [--write] [--tag] [--push]` | 저장소를 [배포](#safeguard-publish)할 수 있게 준비: `.gitignore`, CI, 릴리스 아카이브, Pages |
+| `safeguard publish [--ci=…] [--bump=…] [--write] [--tag] [--push]` | 저장소를 [배포](#safeguard-publish)할 수 있게 준비: `.gitignore`, CI, 릴리스 아카이브, Pages |
 | `safeguard run` | 프로젝트 바이너리를 빌드하고 실행 |
 | `safeguard bundle [--sign <identity>]` | 바이너리를 빌드하여 애플리케이션으로 패키징: `.app`, 앱 폴더 또는 `.deb`([앱 번들](#app-bundles) 참고) |
-| `safeguard clean` | `build/` 디렉터리와 모든 산출물 제거 |
+| `safeguard clean` | `build/`와 `deps/` 디렉터리 제거 |
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 비교하여 검사 |
 | `safeguard lint [--verbose]` | 모든 `.sc` 소스 파일에 대해 정적 분석 린트 패스 실행 |
 | `safeguard format [--check]` | 모든 `.sc`/`.h` 소스 파일의 들여쓰기와 공백을 재정렬 |
