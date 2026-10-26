@@ -28,7 +28,7 @@ summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비�
 
 [#63](https://github.com/safec-org/SafeC/pull/63)은 [`std/gui`](/ko/stdlib/gui)를 툴킷으로 만들었습니다: TrueType 폰트 로딩·커닝·텍스트 레이아웃을 갖춘 안티에일리어싱 벡터 캔버스([GUI 그래픽](/ko/stdlib/gui-graphics)), 레이아웃과 테마를 지원하는 리테인드 [위젯 툴킷](/ko/stdlib/gui-widgets), 여러 창 애플리케이션을 위한 `GuiApp` — 모두 이식 가능한 창 계층 아래의 `GuiBackend` 인터페이스 위에 있습니다. 캔버스 테스트는 골든 이미지와 비교하고, 위젯 테스트는 헤드리스 백엔드에서, 두 창 `GuiApp` 테스트는 X11(Xvfb)과 Win32(Wine)에서 돌아갑니다. `examples/gui_hello`와 모든 위젯을 보여 주는 `examples/gui_gallery`를 실행해 보세요.
 
-이어서 [#65](https://github.com/safec-org/SafeC/pull/65)가 툴킷을 더 많은 플랫폼으로 넓혔습니다: Linux에서 실행 시점에 선택되는 Wayland 백엔드, 페이지 안의 창·IME 텍스트 입력·DOM 상호 운용과 함께 `<canvas>`나 WebGL로 그리는 WebAssembly 백엔드, 그리고 OpenGL ES(EGL), Metal, Direct3D 11 GPU 프레젠터. `safeguard bundle --target wasm32`는 GUI 앱을 실행 가능한 웹 페이지로 패키징합니다.
+이어서 [#65](https://github.com/safec-org/SafeC/pull/65)가 툴킷을 [더 많은 플랫폼](/ko/stdlib/gui-platforms)으로 넓혔습니다: Linux에서 실행 시점에 선택되는 Wayland 백엔드, 페이지 안의 창·IME 텍스트 입력·DOM 상호 운용과 함께 `<canvas>`나 WebGL로 그리는 WebAssembly 백엔드, 그리고 OpenGL ES(EGL), Metal, Direct3D 11 GPU 프레젠터. `safeguard bundle --target wasm32`는 GUI 앱을 실행 가능한 웹 페이지로 패키징합니다.
 
 ## 섹션 단위로 미리 빌드된 std {#sections}
 
@@ -44,7 +44,7 @@ summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비�
 
 ## HTTPS {#https}
 
-이 글을 쓰는 동안 마지막 조각이 병합되었습니다: [#66](https://github.com/safec-org/SafeC/pull/66)은 `std/tls`를 추가합니다. 운영체제의 TLS가 있으면 그것을 — OpenSSL(실행 시점에 로드), SChannel, SecureTransport — 쓰고, 없으면 SafeC로 작성한 TLS 1.3 엔진(클라이언트와 서버)을 쓰며, X.509 파싱, 인증서 경로 검증, 시스템 신뢰 루트를 갖췄습니다. `std/crypto`에는 이를 위한 X25519, P-256 / P-384 ECDH·ECDSA, RSA PKCS#1 v1.5·PSS, HKDF, ChaCha20이 추가되었습니다. 이로써 `std/http`는 `http_fetch` 계열과 SSE 클라이언트에서 `https://`를, `WsConn`은 `wss://`를 지원하고, `HttpServer`는 `TlsServerConfig`로 HTTPS를 서비스합니다.
+이 글을 쓰는 동안 마지막 조각이 병합되었습니다: [#66](https://github.com/safec-org/SafeC/pull/66)은 [`std/tls`](/ko/stdlib/tls)를 추가합니다. 운영체제의 TLS가 있으면 그것을 — OpenSSL(실행 시점에 로드), SChannel, SecureTransport — 쓰고, 없으면 SafeC로 작성한 TLS 1.3 엔진(클라이언트와 서버)을 쓰며, X.509 파싱, 인증서 경로 검증, 시스템 신뢰 루트를 갖췄습니다. `std/crypto`에는 이를 위한 X25519, P-256 / P-384 ECDH·ECDSA, RSA PKCS#1 v1.5·PSS, HKDF, ChaCha20이 추가되었습니다. 이로써 `std/http`는 `http_fetch` 계열과 SSE 클라이언트에서 `https://`를, `WsConn`은 `wss://`를 지원하고, `HttpServer`는 `TlsServerConfig`로 HTTPS를 서비스합니다.
 
 ## 써 보기 {#try}
 

@@ -41,7 +41,7 @@ SafeC가 무엇이고 무엇이 아닌지: [소개](/ko/guide/introduction), [�
 ::: card layers
 ### [표준 라이브러리](/ko/stdlib/)
 
-모든 std 모듈과 API: 코어, 컬렉션, 직렬화, [비동기](/ko/stdlib/async), [네트워킹](/ko/stdlib/net)과 [HTTP](/ko/stdlib/http), [GUI](/ko/stdlib/gui), [오디오](/ko/stdlib/audio), [WebAssembly](/ko/stdlib/wasm), ML, 암호화, 임베디드.
+모든 std 모듈과 API: 코어, 컬렉션, 직렬화, [비동기](/ko/stdlib/async), [네트워킹](/ko/stdlib/net), [HTTP](/ko/stdlib/http), [TLS](/ko/stdlib/tls), [GUI](/ko/stdlib/gui), [오디오](/ko/stdlib/audio), [WebAssembly](/ko/stdlib/wasm), ML, 암호화, 임베디드.
 :::
 ::: card chip
 ### [고급](/ko/advanced/compiler)

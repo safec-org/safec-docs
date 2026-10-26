@@ -217,6 +217,8 @@ sidebar:
             link: /stdlib/sched
           - text: Networking
             link: /stdlib/net
+          - text: TLS
+            link: /stdlib/tls
           - text: HTTP & Web
             link: /stdlib/http
           - text: WebAssembly & DOM
@@ -229,6 +231,8 @@ sidebar:
             link: /stdlib/gui-graphics
           - text: GUI Widgets
             link: /stdlib/gui-widgets
+          - text: GUI Platforms & GPU
+            link: /stdlib/gui-platforms
           - text: Audio & MIDI
             link: /stdlib/audio
           - text: Encoding

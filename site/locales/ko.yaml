@@ -215,6 +215,8 @@ sidebar:
             link: /ko/stdlib/sched
           - text: 네트워킹
             link: /ko/stdlib/net
+          - text: TLS
+            link: /ko/stdlib/tls
           - text: HTTP와 웹
             link: /ko/stdlib/http
           - text: WebAssembly와 DOM
@@ -227,6 +229,8 @@ sidebar:
             link: /ko/stdlib/gui-graphics
           - text: GUI 위젯
             link: /ko/stdlib/gui-widgets
+          - text: GUI 플랫폼과 GPU
+            link: /ko/stdlib/gui-platforms
           - text: 오디오 & MIDI
             link: /ko/stdlib/audio
           - text: 인코딩

@@ -1,6 +1,6 @@
 # 보안 & 암호학
 
-SafeC는 대칭 암호화, 해싱, HMAC, 난수 생성, 인증서 파싱, TLS 레코드 레이어 프레이밍을 제공하는 보안 라이브러리를 `std/crypto/`에 제공합니다.
+SafeC는 대칭 암호화(AES-GCM, ChaCha20-Poly1305), 해싱, HMAC, HKDF, 난수 생성, 키 교환(X25519, P-256/P-384 ECDH), 서명(RSA PKCS#1/PSS, ECDSA), 서명 검증을 포함한 X.509 파싱, TLS 레코드 레이어 프레이밍을 제공하는 보안 라이브러리를 `std/crypto/`에 제공합니다. 완전한 TLS 연결은 [`std/tls`](/ko/stdlib/tls)를 보세요.
 
 각 알고리즘의 상태는 구조체입니다. `AesCtx::new_128`이나 `Sha256Ctx::new` 같은 [정적 생성자](/ko/reference/functions#static-methods)로 만들고 메서드를 호출합니다. 해시 컨텍스트는 [`Hasher` / `BlockHash` 트레이트](#hash-traits)를 공유하므로, HMAC과 원샷 해싱은 모든 해시에 대해 한 번만 작성되어 있습니다.
 
@@ -9,7 +9,7 @@ SafeC는 대칭 암호화, 해싱, HMAC, 난수 생성, 인증서 파싱, TLS �
 ```
 
 ::: warning
-SafeC의 암호 모듈은 올바른 알고리즘 구현을 제공합니다. 하지만 현재는 부채널 대응(상수 시간 비교, 키 사용 후 캐시 플러시 등)을 구현하고 있지 않습니다. 보안이 중요한 프로덕션 환경에서는 이 점을 유의하여 사용합니다.
+SafeC의 암호 모듈은 공개된 테스트 벡터로 검사했지만 독립적인 감사는 받지 않았습니다. 공개 키 코드(X25519, P-256/P-384, RSA 개인 키 연산), ChaCha20-Poly1305, 모든 태그 비교는 상수 시간으로 동작합니다. AES는 테이블 기반이라 CPU 캐시를 통해 시간이 키에 따라 달라질 수 있으므로, 그것이 중요하다면 ChaCha20-Poly1305를 쓰세요. 보안이 중요한 프로덕션 환경에서는 이 점을 유의하여 사용합니다.
 :::
 
 ---
@@ -421,6 +421,191 @@ int main() {
 
 ---
 
+## HKDF {#hkdf}
+
+```c
+#include <std/crypto/hkdf.h>
+```
+
+모든 [`BlockHash`](#hash-traits) 위에서 `Hmac<H>`로 만든 HKDF(RFC 5869)입니다. HKDF-SHA256과 HKDF-SHA384는 TLS 1.3의 키 스케줄입니다. 두 함수 모두 해시를 지정하기 위해 새 해시 컨텍스트를 값으로 받습니다.
+
+```c
+generic<H: BlockHash>
+void hkdf_extract(H fresh, const ?&unsigned char salt, unsigned long salt_len,
+                  const &unsigned char ikm, unsigned long ikm_len, &unsigned char prk);   // digest_size() bytes
+generic<H: BlockHash>
+int  hkdf_expand(H fresh, const &unsigned char prk, unsigned long prk_len,
+                 const ?&unsigned char info, unsigned long info_len,
+                 &unsigned char out, unsigned long out_len);    // 0 if out_len > 255 * digest_size()
+```
+
+null이거나 빈 salt는 RFC에 따라 `digest_size()`바이트의 0으로 취급합니다.
+
+```c
+unsigned char prk[SHA256_DIGEST_SIZE];
+unsigned char okm[42];
+std::hkdf_extract(std::Sha256Ctx::new(), &salt[0], 13UL, &ikm[0], 22UL, &prk[0]);
+std::hkdf_expand(std::Sha256Ctx::new(), &prk[0], 32UL, &info[0], 10UL, &okm[0], 42UL);
+```
+
+---
+
+## ChaCha20-Poly1305 {#chacha20-poly1305}
+
+```c
+#include <std/crypto/chacha20.h>
+```
+
+ChaCha20 스트림 암호, Poly1305 인증자, 그리고 둘을 합친 AEAD(RFC 8439)입니다. `TLS_CHACHA20_POLY1305_SHA256`의 레코드 보호입니다. 셋 모두 상수 시간으로 동작합니다. 테이블 조회도, 키·논스·메시지·태그 바이트에 따른 분기도 없으며, `chacha20_poly1305_open`은 태그의 모든 바이트를 비교합니다.
+
+```c
+#define CHACHA20_KEY_SIZE    32
+#define CHACHA20_NONCE_SIZE  12
+#define POLY1305_KEY_SIZE    32
+#define POLY1305_TAG_SIZE    16
+
+void chacha20_xor(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
+                  &unsigned char data, unsigned long len);          // encrypt = decrypt
+void chacha20_block(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
+                    &unsigned char out);                            // one 64-byte keystream block
+
+struct Poly1305 {                                 // streaming, one-time key (r || s)
+    static struct Poly1305 new(const &unsigned char key);
+    void update(const &unsigned char data, unsigned long len);
+    void pad16();                                 // zero-pad the input so far to 16 bytes
+    void finish(&unsigned char tag);              // 16 bytes; wipes the state
+};
+void poly1305(const &unsigned char key, const ?&unsigned char msg, unsigned long len, &unsigned char tag);
+
+// AEAD: encrypts data in place and writes the 16-byte tag.
+void chacha20_poly1305_seal(const &unsigned char key, const &unsigned char nonce,
+                            const ?&unsigned char aad, unsigned long aad_len,
+                            &unsigned char data, unsigned long len, &unsigned char tag);
+// 1 and decrypted in place if authentic; 0 (data untouched) if not.
+int  chacha20_poly1305_open(const &unsigned char key, const &unsigned char nonce,
+                            const ?&unsigned char aad, unsigned long aad_len,
+                            &unsigned char data, unsigned long len, const &unsigned char tag);
+```
+
+같은 키로 논스를 재사용하지 마세요.
+
+---
+
+## X25519 {#x25519}
+
+```c
+#include <std/crypto/x25519.h>
+```
+
+32바이트 리틀 엔디언 키에 대한 Curve25519 Diffie-Hellman(RFC 7748)입니다. 상수 시간 체 산술 위에서 분기 없는 교환을 하는 고정 255단계 몽고메리 래더입니다.
+
+```c
+#define X25519_KEY_SIZE 32
+
+// out = scalar * point (the scalar is clamped). 0 when the result is all
+// zeros — a low-order peer key, which must be rejected — else 1.
+int  x25519(&unsigned char out, const &unsigned char scalar, const &unsigned char point);
+// out = scalar * 9: the public key.
+void x25519_public(&unsigned char out, const &unsigned char scalar);
+```
+
+```c
+unsigned char priv[32]; unsigned char pub[32]; unsigned char shared[32];
+rng.fill(&priv[0], 32UL);
+std::x25519_public(&pub[0], &priv[0]);
+if (!std::x25519(&shared[0], &priv[0], &peer[0])) { /* reject */ }
+```
+
+---
+
+## P-256과 P-384: ECDH와 ECDSA {#ec}
+
+```c
+#include <std/crypto/ec.h>
+```
+
+NIST 곡선 secp256r1과 secp384r1로, TLS 그룹 id(`EC_P256` = 23, `EC_P384` = 24)로 이름을 붙입니다. 점은 Renes–Costello–Batina의 완전 덧셈 공식을 쓰는 사영 좌표로 다루므로, 어떤 입력(무한원점, 두 배 연산, 악의적인 점)도 다른 코드 경로를 타지 않습니다. 스칼라 곱셈은 상수 시간 몽고메리 산술 위에서 분기 없이 선택하는 고정 길이 double-and-add-always 래더이므로 키 생성, ECDH, 서명이 상수 시간입니다. 상대 키가 곡선 위에 있는지 검사합니다. 서명의 논스는 결정적으로 유도합니다(RFC 6979). 키와 좌표는 빅 엔디언이고, 공개 키는 압축하지 않은 SEC1 점(`0x04 || X || Y`, 65 또는 97바이트)입니다.
+
+```c
+#define EC_MAX_SCALAR 48     // P-384 scalar / coordinate
+#define EC_MAX_POINT  97     // an uncompressed P-384 point
+#define EC_MAX_SIG    104    // a DER P-384 signature
+
+unsigned long ec_scalar_size(int curve);    // 32 / 48, 0 for another id
+unsigned long ec_point_size(int curve);     // 65 / 97
+int ec_keygen(int curve, &RngCtx rng, &unsigned char priv, &unsigned char pub);
+int ec_public_key(int curve, const &unsigned char priv, &unsigned char pub);   // 0: priv not in [1, n-1]
+int ec_point_valid(int curve, const &unsigned char pub, unsigned long len);
+int ecdh_shared(int curve, const &unsigned char priv, const &unsigned char peer, unsigned long peer_len,
+                &unsigned char out);        // the x coordinate; 0 for an invalid peer point
+int ecdsa_verify(int curve, const &unsigned char pub, unsigned long pub_len,
+                 const &unsigned char hash, unsigned long hash_len,
+                 const &unsigned char r, const &unsigned char s);
+int ecdsa_verify_der(int curve, const &unsigned char pub, unsigned long pub_len,
+                     const &unsigned char hash, unsigned long hash_len,
+                     const &unsigned char sig, unsigned long sig_len);
+int ecdsa_sign_der(int curve, const &unsigned char priv, const &unsigned char hash, unsigned long hash_len,
+                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+
+struct EcPrivateKey {          // from SEC1 "EC PRIVATE KEY" or PKCS#8 DER
+    int           curve;
+    unsigned char d[EC_MAX_SCALAR];
+    unsigned char pub[EC_MAX_POINT];
+    unsigned long pub_len;
+    int  init_der(const &unsigned char der, unsigned long len);
+    void destroy();
+};
+```
+
+해시는 FIPS 186-4에 따라 곡선 크기로 잘라 씁니다.
+
+---
+
+## RSA {#rsa}
+
+```c
+#include <std/crypto/rsa.h>
+```
+
+1024–4096비트 모듈러스의 RSA 서명(RFC 8017)입니다. 인증서 체인과 TLS가 쓰는 PKCS#1 v1.5와 PSS 검증, 그리고 TLS 서버를 위한 서명을 제공합니다. 서명은 상수 시간으로 거듭제곱하고(CRT 없음) 돌려주기 전에 공개 키로 결과를 확인합니다. 해시 id는 [`DIGEST_*`](#digests)입니다.
+
+```c
+struct RsaPublicKey {
+    // From a DER RSAPublicKey (the BIT STRING of an rsaEncryption SubjectPublicKeyInfo).
+    int init_der(const &unsigned char der, unsigned long len);
+    // ...
+};
+int rsa_verify_pkcs1(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                     const &unsigned char sig, unsigned long sig_len);
+int rsa_verify_pss(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                   const &unsigned char sig, unsigned long sig_len, unsigned long salt_len);
+
+struct RsaPrivateKey {
+    struct RsaPublicKey pub;
+    int  init_der(const &unsigned char der, unsigned long len);   // PKCS#1 or PKCS#8
+    void destroy();
+};
+int rsa_sign_pss(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                 &RngCtx rng, &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+int rsa_sign_pkcs1(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+```
+
+그 아래의 산술은 `std/crypto/bignum.h`의 `BnMont`입니다. 마지막 뺄셈이 분기 없는 고정 폭 몽고메리 곱셈, `bn_mod_exp_public`(공개 지수용), `bn_mod_exp_secret`(고정 4비트 윈도, 마스크 스캔으로 테이블 항목을 읽음)을 제공합니다.
+
+---
+
+## id로 고르는 다이제스트와 상수 시간 헬퍼 {#digests}
+
+```c
+#include <std/crypto/digest.h>
+#include <std/crypto/ct.h>
+```
+
+서명 방식은 해시를 데이터로 지정하므로 검증 함수는 `DIGEST_*` id(`DIGEST_SHA1`, `_SHA224`, `_SHA256`, `_SHA384`, `_SHA512`)를 받습니다. `digest(alg, data, len, out)`은 다이제스트 길이(알 수 없는 id면 0)를 돌려주고, `DigestCtx::new(alg)`는 스트리밍하며, `mgf1_xor`는 RFC 8017의 마스크 생성 함수입니다. `ct.h`에는 std 암호 코드가 비밀 값에 쓰는 비교와 선택 함수가 있습니다: `ct_eq`, `ct_is_zero`, `ct_copy_if`, `ct_eq_u32`. 모두 조기 종료 없이 모든 바이트를 봅니다.
+
+---
+
 ## SecureAllocator {#secureallocator}
 
 ```c
@@ -521,14 +706,46 @@ struct X509Cert {
     int init(const &unsigned char der, unsigned long len);
 
     // issuer_cert의 주체가 이 인증서의 발급자 이름과 일치하면 1.
-    // 구조적 검사일 뿐, 서명은 검증하지 않음.
+    // 구조적 검사일 뿐: 서명은 x509_verify_signed_by로 검증합니다.
     int verify_chain(const &X509Cert issuer_cert) const;
 }
 ```
 
 ### 파싱과 체인 검사 {#api-1}
 
-인증서는 제자리에서 파싱합니다. `struct X509Cert`를 선언하고 `cert.init(der, len)`을 호출합니다. `cert.verify_chain(&ca)`는 이름만 비교합니다. 암호학적 서명 검증에는 RSA/ECDSA가 필요한데, std에는 아직 없습니다.
+인증서는 제자리에서 파싱합니다. `struct X509Cert`를 선언하고 `cert.init(der, len)`을 호출합니다. `cert.verify_chain(&ca)`는 이름만 비교합니다. `X509Cert`는 서명을 보관하지 않으므로 서명은 아래 함수로 검증합니다.
+
+### 전체 파싱과 서명 검증 {#x509-verification}
+
+`X509Parsed`는 호출자가 보관하는 DER 인증서 안에서 경로 검증에 필요한 모든 필드의 위치를 찾습니다(span은 그 바이트 범위입니다). 이름이나 SAN 항목 수에 고정 제한이 없습니다. `x509_verify_signed_by`는 발급자의 키로 서명을 검사하고(RSA PKCS#1 v1.5와 PSS, ECDSA P-256/P-384; SHA-1 서명은 거부), `x509_match_host`는 RFC 6125 호스트 매칭입니다. [`std/tls`](/ko/stdlib/tls#verification)는 이것들로 체인 전체를 만들고 검증합니다.
+
+```c
+struct X509Span { unsigned long off; unsigned long len; };
+
+struct X509Parsed {
+    struct X509Span tbs, serial, issuer, subject, spki, key, sig, san, subject_cn;
+    int  version;
+    int  key_type;       // X509_KEY_RSA, X509_KEY_EC_P256, X509_KEY_EC_P384, X509_KEY_ED25519
+    int  sig_type;       // X509_SIG_RSA_PKCS1, X509_SIG_RSA_PSS, X509_SIG_ECDSA, X509_SIG_ED25519
+    int  sig_hash;       // DIGEST_*
+    int  pss_salt;
+    unsigned long long not_before, not_after;
+    int  has_basic_constraints, is_ca, path_len;   // path_len -1: none
+    int  has_key_usage, key_usage;                 // X509_KU_* bits
+    int  has_eku, eku_server, eku_client, eku_any;
+    int  has_name_constraints;
+    int  unknown_critical;   // a critical extension this parser doesn't process
+};
+
+int x509_parse(const &unsigned char der, unsigned long len, &X509Parsed out);          // 0 on success
+int x509_verify_signed_by(const &unsigned char der, const &X509Parsed c,
+                          const &unsigned char issuer_der, const &X509Parsed issuer);  // 1 if valid
+int x509_issued_by(const &unsigned char der, const &X509Parsed c,
+                   const &unsigned char issuer_der, const &X509Parsed issuer);         // issuer == subject
+int x509_match_host(const &unsigned char der, const &X509Parsed c, const &char host);
+```
+
+`x509_match_host`는 DNS 이름을 `dNSName` SAN과 대소문자 구분 없이 비교하고(`*.` 와일드카드는 맨 왼쪽 레이블 정확히 하나에 일치하며 그 뒤에 레이블이 둘 이상 있어야 합니다), IPv4/IPv6 리터럴은 `iPAddress` SAN과 비교하며, DNS나 IP SAN이 하나도 없을 때만 주체 CN을 봅니다.
 
 ### 예제 {#example-3}
 
@@ -569,7 +786,7 @@ void check_cert(const &unsigned char der, unsigned long len,
 #include <std/crypto/tls.h>
 ```
 
-TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드의 프레이밍, 암호화, 복호화를 처리합니다. 키 스케줄링과 핸드셰이크 프로토콜은 **포함되어 있지 않습니다** — 외부에서 핸드셰이크를 완료한 후 키를 공급해야 합니다.
+TLS 1.3 **레코드 레이어**(RFC 8446 §5)를 구현합니다. TLS 레코드의 프레이밍, 암호화, 복호화를 처리합니다. 키 스케줄링과 핸드셰이크 프로토콜은 **포함되어 있지 않습니다** — 외부에서 핸드셰이크를 완료한 후 키를 공급해야 합니다. 핸드셰이크, 인증서, 모든 TLS 1.3 암호 스위트, (있으면) OS의 TLS 라이브러리까지 갖춘 완전한 TLS 연결은 [`std/tls`](/ko/stdlib/tls)를 쓰세요.
 
 레코드 보호는 RFC 8446 §5.2의 AES-256-GCM AEAD(`TLS_AES_256_GCM_SHA384` 암호 스위트의 레코드 레이어)입니다. 같은 트래픽 키가 주어지면 보호된 레코드는 다른 TLS 1.3 구현이 만드는 것과 바이트 단위로 같습니다. 테스트 스위트는 독립적인 AES-GCM 구현으로 만든 레코드와 비교합니다.
 

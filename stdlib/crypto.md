@@ -1,6 +1,6 @@
 # Security & Cryptography
 
-SafeC provides a security library in `std/crypto/` with symmetric encryption, hashing, HMAC, random number generation, certificate parsing, and TLS record-layer framing.
+SafeC provides a security library in `std/crypto/` with symmetric encryption (AES-GCM, ChaCha20-Poly1305), hashing, HMAC, HKDF, random number generation, key exchange (X25519, P-256/P-384 ECDH), signatures (RSA PKCS#1/PSS, ECDSA), X.509 parsing with signature verification, and TLS record-layer framing. Complete TLS connections are [`std/tls`](/stdlib/tls).
 
 Each algorithm's state is a struct: you get one from a [static constructor](/reference/functions#static-methods) such as `AesCtx::new_128` or `Sha256Ctx::new` and call its methods. The hash contexts share the [`Hasher` / `BlockHash` traits](#hash-traits), so HMAC and one-shot hashing are written once over every hash.
 
@@ -9,7 +9,7 @@ Each algorithm's state is a struct: you get one from a [static constructor](/ref
 ```
 
 ::: warning
-SafeC's crypto modules provide correct algorithm implementations. They do not currently implement side-channel countermeasures (constant-time comparison, cache-flush after key use, etc.). Use with that caveat in security-critical production contexts.
+SafeC's crypto modules are checked against published test vectors, but have had no independent audit. The public-key code (X25519, P-256/P-384, RSA private-key operations), ChaCha20-Poly1305 and every tag comparison run in constant time; AES is table-based, so its timing can depend on the key through the CPU cache — prefer ChaCha20-Poly1305 where that matters. Use with that caveat in security-critical production contexts.
 :::
 
 ---
@@ -421,6 +421,191 @@ int main() {
 
 ---
 
+## HKDF {#hkdf}
+
+```c
+#include <std/crypto/hkdf.h>
+```
+
+HKDF (RFC 5869) over any [`BlockHash`](#hash-traits), through `Hmac<H>` — HKDF-SHA256 and HKDF-SHA384 are TLS 1.3's key schedule. Both functions take a fresh hash context by value to name the hash.
+
+```c
+generic<H: BlockHash>
+void hkdf_extract(H fresh, const ?&unsigned char salt, unsigned long salt_len,
+                  const &unsigned char ikm, unsigned long ikm_len, &unsigned char prk);   // digest_size() bytes
+generic<H: BlockHash>
+int  hkdf_expand(H fresh, const &unsigned char prk, unsigned long prk_len,
+                 const ?&unsigned char info, unsigned long info_len,
+                 &unsigned char out, unsigned long out_len);    // 0 if out_len > 255 * digest_size()
+```
+
+A null or empty salt is `digest_size()` zero bytes, as the RFC specifies.
+
+```c
+unsigned char prk[SHA256_DIGEST_SIZE];
+unsigned char okm[42];
+std::hkdf_extract(std::Sha256Ctx::new(), &salt[0], 13UL, &ikm[0], 22UL, &prk[0]);
+std::hkdf_expand(std::Sha256Ctx::new(), &prk[0], 32UL, &info[0], 10UL, &okm[0], 42UL);
+```
+
+---
+
+## ChaCha20-Poly1305 {#chacha20-poly1305}
+
+```c
+#include <std/crypto/chacha20.h>
+```
+
+The ChaCha20 stream cipher, the Poly1305 authenticator and their AEAD composition (RFC 8439) — `TLS_CHACHA20_POLY1305_SHA256`'s record protection. All three run in constant time: no table lookups and no branches on key, nonce, message or tag bytes; `chacha20_poly1305_open` compares every tag byte.
+
+```c
+#define CHACHA20_KEY_SIZE    32
+#define CHACHA20_NONCE_SIZE  12
+#define POLY1305_KEY_SIZE    32
+#define POLY1305_TAG_SIZE    16
+
+void chacha20_xor(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
+                  &unsigned char data, unsigned long len);          // encrypt = decrypt
+void chacha20_block(const &unsigned char key, const &unsigned char nonce, unsigned int counter,
+                    &unsigned char out);                            // one 64-byte keystream block
+
+struct Poly1305 {                                 // streaming, one-time key (r || s)
+    static struct Poly1305 new(const &unsigned char key);
+    void update(const &unsigned char data, unsigned long len);
+    void pad16();                                 // zero-pad the input so far to 16 bytes
+    void finish(&unsigned char tag);              // 16 bytes; wipes the state
+};
+void poly1305(const &unsigned char key, const ?&unsigned char msg, unsigned long len, &unsigned char tag);
+
+// AEAD: encrypts data in place and writes the 16-byte tag.
+void chacha20_poly1305_seal(const &unsigned char key, const &unsigned char nonce,
+                            const ?&unsigned char aad, unsigned long aad_len,
+                            &unsigned char data, unsigned long len, &unsigned char tag);
+// 1 and decrypted in place if authentic; 0 (data untouched) if not.
+int  chacha20_poly1305_open(const &unsigned char key, const &unsigned char nonce,
+                            const ?&unsigned char aad, unsigned long aad_len,
+                            &unsigned char data, unsigned long len, const &unsigned char tag);
+```
+
+Never reuse a nonce with the same key.
+
+---
+
+## X25519 {#x25519}
+
+```c
+#include <std/crypto/x25519.h>
+```
+
+Curve25519 Diffie-Hellman (RFC 7748) on 32-byte little-endian keys: a fixed 255-step Montgomery ladder with branch-free swaps over constant-time field arithmetic.
+
+```c
+#define X25519_KEY_SIZE 32
+
+// out = scalar * point (the scalar is clamped). 0 when the result is all
+// zeros — a low-order peer key, which must be rejected — else 1.
+int  x25519(&unsigned char out, const &unsigned char scalar, const &unsigned char point);
+// out = scalar * 9: the public key.
+void x25519_public(&unsigned char out, const &unsigned char scalar);
+```
+
+```c
+unsigned char priv[32]; unsigned char pub[32]; unsigned char shared[32];
+rng.fill(&priv[0], 32UL);
+std::x25519_public(&pub[0], &priv[0]);
+if (!std::x25519(&shared[0], &priv[0], &peer[0])) { /* reject */ }
+```
+
+---
+
+## P-256 and P-384: ECDH and ECDSA {#ec}
+
+```c
+#include <std/crypto/ec.h>
+```
+
+The NIST curves secp256r1 and secp384r1, named by their TLS group ids (`EC_P256` = 23, `EC_P384` = 24). Points use projective coordinates with the complete addition formulas of Renes–Costello–Batina, so no input — the point at infinity, doubling, a hostile point — takes another code path; scalar multiplication is a fixed-length double-and-add-always ladder with branch-free selection over constant-time Montgomery arithmetic, which makes key generation, ECDH and signing constant time. Peer keys are checked to be on the curve. Signing derives its nonce deterministically (RFC 6979). Keys and coordinates are big-endian; public keys are uncompressed SEC1 points (`0x04 || X || Y`, 65 or 97 bytes).
+
+```c
+#define EC_MAX_SCALAR 48     // P-384 scalar / coordinate
+#define EC_MAX_POINT  97     // an uncompressed P-384 point
+#define EC_MAX_SIG    104    // a DER P-384 signature
+
+unsigned long ec_scalar_size(int curve);    // 32 / 48, 0 for another id
+unsigned long ec_point_size(int curve);     // 65 / 97
+int ec_keygen(int curve, &RngCtx rng, &unsigned char priv, &unsigned char pub);
+int ec_public_key(int curve, const &unsigned char priv, &unsigned char pub);   // 0: priv not in [1, n-1]
+int ec_point_valid(int curve, const &unsigned char pub, unsigned long len);
+int ecdh_shared(int curve, const &unsigned char priv, const &unsigned char peer, unsigned long peer_len,
+                &unsigned char out);        // the x coordinate; 0 for an invalid peer point
+int ecdsa_verify(int curve, const &unsigned char pub, unsigned long pub_len,
+                 const &unsigned char hash, unsigned long hash_len,
+                 const &unsigned char r, const &unsigned char s);
+int ecdsa_verify_der(int curve, const &unsigned char pub, unsigned long pub_len,
+                     const &unsigned char hash, unsigned long hash_len,
+                     const &unsigned char sig, unsigned long sig_len);
+int ecdsa_sign_der(int curve, const &unsigned char priv, const &unsigned char hash, unsigned long hash_len,
+                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+
+struct EcPrivateKey {          // from SEC1 "EC PRIVATE KEY" or PKCS#8 DER
+    int           curve;
+    unsigned char d[EC_MAX_SCALAR];
+    unsigned char pub[EC_MAX_POINT];
+    unsigned long pub_len;
+    int  init_der(const &unsigned char der, unsigned long len);
+    void destroy();
+};
+```
+
+The hash is truncated to the curve's size as FIPS 186-4 specifies.
+
+---
+
+## RSA {#rsa}
+
+```c
+#include <std/crypto/rsa.h>
+```
+
+RSA signatures (RFC 8017) for 1024–4096-bit moduli: verification with PKCS#1 v1.5 and PSS — what certificate chains and TLS use — and signing for TLS servers. Signing exponentiates in constant time (no CRT) and checks the result with the public key before returning it. Hash ids are [`DIGEST_*`](#digests).
+
+```c
+struct RsaPublicKey {
+    // From a DER RSAPublicKey (the BIT STRING of an rsaEncryption SubjectPublicKeyInfo).
+    int init_der(const &unsigned char der, unsigned long len);
+    // ...
+};
+int rsa_verify_pkcs1(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                     const &unsigned char sig, unsigned long sig_len);
+int rsa_verify_pss(const &RsaPublicKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                   const &unsigned char sig, unsigned long sig_len, unsigned long salt_len);
+
+struct RsaPrivateKey {
+    struct RsaPublicKey pub;
+    int  init_der(const &unsigned char der, unsigned long len);   // PKCS#1 or PKCS#8
+    void destroy();
+};
+int rsa_sign_pss(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                 &RngCtx rng, &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+int rsa_sign_pkcs1(const &RsaPrivateKey key, int alg, const &unsigned char hash, unsigned long hash_len,
+                   &unsigned char sig, unsigned long sig_cap, &unsigned long sig_len);
+```
+
+The arithmetic underneath is `std/crypto/bignum.h`'s `BnMont`: fixed-width Montgomery multiplication with a branch-free final subtraction, `bn_mod_exp_public` (for public exponents) and `bn_mod_exp_secret` (fixed 4-bit windows, table entries read by masked scans).
+
+---
+
+## Digests by id and constant-time helpers {#digests}
+
+```c
+#include <std/crypto/digest.h>
+#include <std/crypto/ct.h>
+```
+
+Signature schemes name their hash in data, so the verifiers take a `DIGEST_*` id (`DIGEST_SHA1`, `_SHA224`, `_SHA256`, `_SHA384`, `_SHA512`): `digest(alg, data, len, out)` returns the digest length (0 for an unknown id), `DigestCtx::new(alg)` streams, `mgf1_xor` is RFC 8017's mask generation function. `ct.h` has the comparisons and selections std's crypto uses on secrets: `ct_eq`, `ct_is_zero`, `ct_copy_if`, `ct_eq_u32` — each looks at every byte, with no early exit.
+
+---
+
 ## SecureAllocator {#secureallocator}
 
 ```c
@@ -521,14 +706,46 @@ struct X509Cert {
     int init(const &unsigned char der, unsigned long len);
 
     // 1 if issuer_cert's subject matches this certificate's issuer name.
-    // Structural check only: does NOT verify the signature.
+    // Structural check only: see x509_verify_signed_by for signatures.
     int verify_chain(const &X509Cert issuer_cert) const;
 }
 ```
 
 ### Parsing and chain checks {#api-1}
 
-A certificate is parsed in place: declare a `struct X509Cert` and call `cert.init(der, len)`. `cert.verify_chain(&ca)` only compares names; cryptographic signature verification needs RSA/ECDSA, which std doesn't have yet.
+A certificate is parsed in place: declare a `struct X509Cert` and call `cert.init(der, len)`. `cert.verify_chain(&ca)` only compares names — `X509Cert` keeps no signature; verify signatures with the functions below.
+
+### Full parsing and signature verification {#x509-verification}
+
+`X509Parsed` locates every field path validation needs inside a DER certificate you keep — spans are byte ranges of it — with no fixed limits on names or SAN entries; `x509_verify_signed_by` checks a signature with the issuer's key (RSA PKCS#1 v1.5 and PSS, ECDSA P-256/P-384; SHA-1 signatures are refused); `x509_match_host` is RFC 6125 host matching. [`std/tls`](/stdlib/tls#verification) builds and validates whole chains with them.
+
+```c
+struct X509Span { unsigned long off; unsigned long len; };
+
+struct X509Parsed {
+    struct X509Span tbs, serial, issuer, subject, spki, key, sig, san, subject_cn;
+    int  version;
+    int  key_type;       // X509_KEY_RSA, X509_KEY_EC_P256, X509_KEY_EC_P384, X509_KEY_ED25519
+    int  sig_type;       // X509_SIG_RSA_PKCS1, X509_SIG_RSA_PSS, X509_SIG_ECDSA, X509_SIG_ED25519
+    int  sig_hash;       // DIGEST_*
+    int  pss_salt;
+    unsigned long long not_before, not_after;
+    int  has_basic_constraints, is_ca, path_len;   // path_len -1: none
+    int  has_key_usage, key_usage;                 // X509_KU_* bits
+    int  has_eku, eku_server, eku_client, eku_any;
+    int  has_name_constraints;
+    int  unknown_critical;   // a critical extension this parser doesn't process
+};
+
+int x509_parse(const &unsigned char der, unsigned long len, &X509Parsed out);          // 0 on success
+int x509_verify_signed_by(const &unsigned char der, const &X509Parsed c,
+                          const &unsigned char issuer_der, const &X509Parsed issuer);  // 1 if valid
+int x509_issued_by(const &unsigned char der, const &X509Parsed c,
+                   const &unsigned char issuer_der, const &X509Parsed issuer);         // issuer == subject
+int x509_match_host(const &unsigned char der, const &X509Parsed c, const &char host);
+```
+
+`x509_match_host` compares DNS names case-insensitively against `dNSName` SANs (a `*.` wildcard matches exactly one leftmost label, and needs at least two labels after it), IPv4/IPv6 literals against `iPAddress` SANs, and falls back to the subject CN only when the certificate has no DNS or IP SAN.
 
 ### Example {#example-3}
 
@@ -569,7 +786,7 @@ void check_cert(const &unsigned char der, unsigned long len,
 #include <std/crypto/tls.h>
 ```
 
-Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encryption, and decryption of TLS records. Key scheduling and the handshake protocol are **not** included — supply keys after completing the handshake externally.
+Implements the TLS 1.3 **record layer** (RFC 8446 §5). Handles framing, encryption, and decryption of TLS records. Key scheduling and the handshake protocol are **not** included — supply keys after completing the handshake externally. For complete TLS connections — handshake, certificates, every TLS 1.3 cipher suite, the OS's TLS library where there is one — use [`std/tls`](/stdlib/tls).
 
 Record protection is the AES-256-GCM AEAD of RFC 8446 §5.2 (the `TLS_AES_256_GCM_SHA384` cipher suite's record layer): given the same traffic keys, protected records are byte-for-byte what other TLS 1.3 stacks produce. The test suite checks a record against an independent AES-GCM implementation.
 

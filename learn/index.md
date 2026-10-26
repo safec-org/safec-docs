@@ -41,7 +41,7 @@ Types, operators, literals, [memory and regions](/reference/memory), functions, 
 ::: card layers
 ### [Standard Library](/stdlib/)
 
-Every std module with its API: core, collections, serialization, [async](/stdlib/async), [networking](/stdlib/net) and [HTTP](/stdlib/http), [GUI](/stdlib/gui), [audio](/stdlib/audio), [WebAssembly](/stdlib/wasm), ML, crypto, embedded.
+Every std module with its API: core, collections, serialization, [async](/stdlib/async), [networking](/stdlib/net), [HTTP](/stdlib/http) and [TLS](/stdlib/tls), [GUI](/stdlib/gui), [audio](/stdlib/audio), [WebAssembly](/stdlib/wasm), ML, crypto, embedded.
 :::
 ::: card chip
 ### [Advanced](/advanced/compiler)

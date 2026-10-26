@@ -1,11 +1,12 @@
 # GUI (`std/gui/`)
 
-SafeC로 처음부터 작성한 GUI 툴킷입니다: X11, Win32, Cocoa, 베어메탈 프레임버퍼의 창과 입력, TrueType 텍스트를 갖춘 안티에일리어싱 벡터 캔버스, 그리고 레이아웃·테마·30개 이상의 위젯을 갖춘 리테인드 위젯 툴킷으로 구성됩니다. 모든 것은 CPU에서 창마다 RGBA 버퍼 하나에 렌더링되므로, UI는 어느 플랫폼에서나 바이트 단위까지 똑같이 보입니다.
+SafeC로 처음부터 작성한 GUI 툴킷입니다: X11, Wayland, Win32, Cocoa, 웹 페이지(WebAssembly `<canvas>`), 베어메탈 프레임버퍼의 창과 입력, TrueType 텍스트를 갖춘 안티에일리어싱 벡터 캔버스, 그리고 레이아웃·테마·30개 이상의 위젯을 갖춘 리테인드 위젯 툴킷으로 구성됩니다. 모든 것은 CPU에서 창마다 RGBA 버퍼 하나에 렌더링되므로, UI는 어느 플랫폼에서나 바이트 단위까지 똑같이 보입니다. 그 버퍼를 화면에 올리는 일은 GPU를 거칠 수 있습니다([플랫폼과 GPU](/ko/stdlib/gui-platforms)).
 
 이 페이지는 창, 이벤트, 애플리케이션 루프를 다룹니다. 나머지 두 부분은 각각의 페이지가 있습니다:
 
 - [GUI 그래픽](/ko/stdlib/gui-graphics) — `GuiCanvas`(경로, 그라디언트, 스트로크, 클리핑, 블렌드 모드, 이미지)와 TrueType 텍스트(`GuiTypeface`, `GuiTextLayout`).
 - [GUI 위젯](/ko/stdlib/gui-widgets) — 위젯 트리, 레이아웃, 테마, 포커스, 메뉴, 대화상자, 그리고 모든 위젯.
+- [GUI 플랫폼과 GPU](/ko/stdlib/gui-platforms) — Wayland, 웹(`<canvas>`, WebGL, DOM 연동, `safeguard bundle --target wasm32`), GPU 프레젠테이션(OpenGL ES/EGL, Metal, Direct3D 11).
 
 ```c
 #include <std/gui/gui.h>          // windows, events, colors, clipboard, clock
@@ -288,18 +289,23 @@ int main() {
 | 백엔드 | 대상 | 테스트 |
 |---------|--------|--------|
 | `gui_x11.sc` | Linux, BSD — Xlib, `XPutImage`, XIM 텍스트 입력, `CLIPBOARD`, EWMH | Xvfb에서(`tests/stdlib/x11/run.sh`): `XGetImage`로 읽은 픽셀; 키·텍스트·마우스·스크롤·크기 변경·닫기; 하나의 `GuiApp` 아래 두 개의 창; UTF-8 제목; 두 번째 X 클라이언트와 양방향 클립보드 |
+| `gui_wayland.sc` | Linux — Wayland: xdg-shell, `wl_shm`, xkbcommon, 분수 배율(모두 `dlopen()`); 컴포지터가 있으면 실행 시점에 선택됨 | sway와 Weston 헤드리스에서(`tests/stdlib/wayland/run.sh`): grim으로 읽은 프레임, 가상 포인터·키보드 입력, wl-copy/wl-paste와의 클립보드, 배율 1과 1.5 |
+| `gui_web_wasm.sc` | WebAssembly — 페이지의 `<canvas>` 요소, `std/gui/gui_web.js`와 함께 | 가짜 DOM의 Node에서(`tests/stdlib/wasm_gui/run.sh`)와 헤드리스 Chromium에서(`browser.sh`): 갤러리의 프레임이 네이티브 프레임과 일치 |
 | `gui_win32.sc` | Windows — 와이드 문자 Win32, `StretchDIBits`, 모니터별 DPI | Wine에서(`tests/stdlib/win32/run.sh`): `GetPixel`로 읽은 픽셀; 게시된 입력; 두 개의 창; 클립보드 |
 | `gui_cocoa.sc` | macOS — Objective-C 런타임을 통한 AppKit, 레이어 기반 `NSView` | arm64와 x86_64 macOS용으로 컴파일됨 |
 | `gui_fb.sc` | 베어메탈 — 선형 프레임버퍼; 입력은 직접 작성한 드라이버가 주입 | 모든 베어메탈 타깃용으로 컴파일됨 |
 | `gui_headless.sc` | 모든 타깃 — 메모리 안에서, 가상 시계와 함께 | `tests/stdlib/tests/test_gui_widgets.sc`, `test_gui_app.sc` |
 
-`safeguard`는 파일 이름 접미사로 타깃용 백엔드를 링크하고(Linux/BSD는 `_x11`, Windows는 `_win32`, Apple은 `_cocoa`, 베어메탈은 `_fb`) 그 시스템 라이브러리를 링크에 추가합니다 — `Package.toml`에 지정할 것은 없습니다:
+`safeguard`는 파일 이름 접미사로 타깃용 백엔드를 링크하고(Linux/BSD는 `_x11`, Windows는 `_win32`, Apple은 `_cocoa`, WebAssembly는 `_wasm`, 베어메탈은 `_fb`) 그 시스템 라이브러리를 링크에 추가합니다 — `Package.toml`에 지정할 것은 없습니다. `SAFEC_GUI_BACKEND=headless`는 어떤 GUI 프로그램이든 [헤드리스 백엔드](#the-headless-backend)에서 실행하고, Linux에서 `SAFEC_GUI_BACKEND=x11|wayland`는 둘 중 하나를 고릅니다([자세히](/ko/stdlib/gui-platforms#choosing-x11-or-wayland)).
 
 | 백엔드 | 라이브러리 |
 |---------|-----------|
 | Cocoa | `-framework Cocoa -lobjc` |
 | Win32 | `-luser32 -lgdi32` |
 | X11 | `-lX11`(`.deb`의 Depends에는 `libx11-6`) |
+| Wayland, EGL | 없음: `dlopen()`(`-ldl`); `.deb`의 Recommends에 `libwayland-client0`, `libxkbcommon0`, `libwayland-cursor0`, `libegl1`, `libgles2` |
+| Metal, Direct3D 11 | 없음: 실행 시점에 로드 |
+| WebAssembly | 없음: `std/gui/gui_web.js`가 제공하는 임포트 |
 
 `safeguard` 없이 빌드할 때는 링크에 직접 전달하십시오.
 
@@ -336,11 +342,9 @@ unsigned long n = gui_headless_present_count(&win);
 | `wake()` | 블록된 `pump()`가 반환하게 함(어느 스레드에서나). |
 | `now_ns`, `clipboard_set/get`, `display_scale`, `native_handle` | 시계, 클립보드, 배율, GPU 프레젠터용 핸들. |
 
-새 **플랫폼 기본값**은 safeguard의 `stdVariantMatches`에 접미사 규칙을 추가하고 `gui_platform_backend()`를 정의하는 `gui_<suffix>.sc`를 두는 것입니다. 기존 기본값 옆의 **대안** — X11 옆의 Wayland — 은 자신의 `gui_wayland_backend()`와, 그것을 `gui_set_backend()`로 설치하는 설정 함수를 정의합니다. 원한다면 `$WAYLAND_DISPLAY`가 설정되어 있을 때 X11 파일이 실행 시점에 이를 고르게 할 수 있습니다.
+새 **플랫폼 기본값**은 safeguard의 `stdVariantMatches`에 접미사 규칙을 추가하고 `gui_platform_backend()`를 정의하는 `gui_<...>_<suffix>.sc`를 두는 것입니다(`_wasm`의 `gui_web_wasm.sc`처럼). 기존 기본값 옆의 **대안**은 X11 옆의 `gui_wayland.sc`처럼 자신의 테이블과 설정 함수를 정의합니다. 필요한 라이브러리는 `dlopen()`하고 `// safeguard: deb-recommends`로 이름을 적는 것이 좋습니다.
 
-**WebAssembly `<canvas>`** 백엔드의 `pump()`는 기다리지 않습니다. 페이지가 `requestAnimationFrame`에서 `GuiApp::pump(0)`을 호출하고, `window_present`는 버퍼를 `ImageData`에 넣는 임포트된 JS 함수에 넘기며, DOM 입력은 `gui_backend_post()`를 호출하는 익스포트 함수를 통해 프로그램에 전달됩니다.
-
-**GPU 프레젠테이션.** 렌더링은 CPU에 남지만, 완성된 버퍼는 백엔드의 블릿 대신 GPU를 거쳐 화면에 갈 수 있습니다: 창마다 `gui_window_set_presenter()`로 붙이는 `GuiPresenter`(`attach`, `present`, `detach`)가 손상된 사각형을 텍스처에 업로드하고 사각형 하나를 그립니다 — X11이나 Wayland에서는 OpenGL/EGL, `CAMetalLayer`에서는 Metal, DXGI 스왑 체인에서는 Direct3D 11. `window.native_handle()` / `GuiBackend.native_handle()`이 필요한 디스플레이, 창, 뷰, 비주얼 핸들을 제공합니다. 아직 포함된 프레젠터는 없습니다.
+**GPU 프레젠테이션**은 창마다 붙이는 `GuiPresenter`입니다 — 포함된 프레젠터(OpenGL ES/EGL, Metal, Direct3D 11, WebGL)와 직접 작성하는 법은 [플랫폼과 GPU](/ko/stdlib/gui-platforms#gpu-presentation)를 보십시오.
 
 ---
 
