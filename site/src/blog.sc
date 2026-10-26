@@ -136,7 +136,7 @@ static void href_to(const &Site site, const &char route, &String out) {
     h.free();
 }
 
-void blog_post_meta(const &Site site, const &Page page, &String out) {
+static void meta_line(const &Site site, const &Page page, &String out) {
     &Locale loc = site.locales.at(page.locale);
     const &char date = util_vstr(&page.front, "date", "");
     out.push("<p class=\"post-meta\"><time datetime=\"");
@@ -152,6 +152,10 @@ void blog_post_meta(const &Site site, const &Page page, &String out) {
     if (a.len > 0UL) { out.push(" · <span class=\"author\">"); util_push_esc(out, author); out.push("</span>"); }
     a.free();
     out.push("</p>");
+}
+
+static void tags_line(const &Site site, const &Page page, &String out) {
+    &Locale loc = site.locales.at(page.locale);
     ?&Value tags = page.front.object_get("tags");
     match (tags) {
         case some(ts): {
@@ -175,11 +179,16 @@ void blog_post_meta(const &Site site, const &Page page, &String out) {
     }
 }
 
+void blog_post_meta(const &Site site, const &Page page, &String out) {
+    meta_line(site, page, out);
+    tags_line(site, page, out);
+}
+
 // ── listings ─────────────────────────────────────────────────────────────────
 
 struct PostRef {
     unsigned long idx;     // into the page list
-    struct String date;
+    struct String date;    // "YYYY-MM-DD", or a full timestamp (front '_ts', release notes)
     struct String route;
 };
 
@@ -198,17 +207,16 @@ static void push_one_line(&String out, const &char s) {
 
 static void post_card(const &Site site, const &Page p, &String out) {
     out.push("<article class=\"post-card\">");
-    struct String meta = String::new();
-    blog_post_meta(site, p, &meta);
-    out.push_str(&meta);
-    meta.free();
+    meta_line(site, p, out);
     out.push("<h2 class=\"post-card-title\"><a href=\"");
     href_to(site, p.route.as_ptr(), out);
     out.push("\">");
     push_one_line(out, util_vstr(&p.front, "title", p.route.as_ptr()));
     out.push("</a></h2><p class=\"post-card-summary\">");
     push_one_line(out, util_vstr(&p.front, "summary", ""));
-    out.push("</p></article>");
+    out.push("</p>");
+    tags_line(site, p, out);
+    out.push("</article>");
 }
 
 static void listing_header(const &Site site, const &Locale loc, const &char title, const &char sub, &String out) {
@@ -285,7 +293,7 @@ void blog_add_pages(&Site site, &Vec<struct Page> pages) {
             if (p.front.object_get("layout").is_null()) { p.front.object_set("layout", Value::from_str("post")); }
             struct PostRef r;
             r.idx = i;
-            r.date = String::from(util_vstr(&p.front, "date", ""));
+            r.date = String::from(util_vstr(&p.front, "_ts", util_vstr(&p.front, "date", "")));
             r.route = p.route.clone();
             posts.push(r);
         }
@@ -442,7 +450,7 @@ int blog_write_feeds(const &Site site, const &Vec<struct Page> pages) {
             if (p.locale != li || !blog_is_post(site, p)) { continue; }
             struct PostRef r;
             r.idx = i;
-            r.date = String::from(util_vstr(&p.front, "date", ""));
+            r.date = String::from(util_vstr(&p.front, "_ts", util_vstr(&p.front, "date", "")));
             r.route = p.route.clone();
             posts.push(r);
         }

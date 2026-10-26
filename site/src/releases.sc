@@ -282,6 +282,7 @@ static void add_release_post(&Site site, &Vec<struct Page> pages, unsigned long 
     p.front.object_set("summary", Value::from_str(summary.as_ptr()));
     p.front.object_set("layout", Value::from_str("post"));
     p.front.object_set("release", Value::from_str(tag));
+    p.front.object_set("_ts", Value::from_str(util_vstr(rel, "published_at", "")));
 
     struct String md = String::new();
     struct String intro = fill(blog_str(loc, "releaseIntro", "SafeC **{v}** was released on {date}."), version.as_ptr(), date.as_ptr());

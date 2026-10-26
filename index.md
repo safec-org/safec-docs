@@ -196,7 +196,7 @@ int main() {
     return app.listen(&cfg);    // keep-alive HTTP/1.1 on the I/O reactor
 }
 ```
-Router, middleware, static files, cookies, multipart, SSE, WebSocket and a redirect-following client with gzip — [HTTP & Web](/stdlib/http).
+Router, middleware, HTTPS, static files, cookies, multipart, SSE, WebSocket and a redirect-following client with gzip — [HTTP & Web](/stdlib/http).
 :::
 ::: tab GUI
 ```c norun

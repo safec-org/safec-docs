@@ -1,12 +1,12 @@
 ---
-title: "이번 주기의 SafeC: 비동기, 오디오, 웹 스택, GUI 툴킷"
+title: "이번 주기의 SafeC: 비동기, 오디오, 웹 스택, GUI 툴킷, HTTPS"
 date: 2026-10-25
 author: SafeC 팀
 tags: [release, std, async, audio, web, gui]
-summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비동기, 실시간 오디오와 MIDI, 완전한 웹 스택, 안티에일리어싱 GUI 툴킷, 섹션 단위로 미리 빌드된 std가 추가되었습니다. 문서는 이제 SafeC로 빌드되고, Windows CI가 다시 통과하며, HTTPS가 진행 중입니다.
+summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비동기, 실시간 오디오와 MIDI, HTTPS를 포함한 완전한 웹 스택, Wayland와 브라우저에서도 도는 안티에일리어싱 GUI 툴킷, 섹션 단위로 미리 빌드된 std가 추가되었습니다. 문서는 이제 SafeC로 빌드되고, Windows CI가 다시 통과합니다.
 ---
 
-[1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 몇 주는 표준 라이브러리에 쓰였습니다. 이제 HTTP를 서비스하고, 창을 열고, 오디오를 재생하고, future를 await하는 프로그램을 `std`만으로 작성할 수 있습니다. 아래 내용은 모두 `main`에 병합되었고(풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)–[#64](https://github.com/safec-org/SafeC/pull/64)) 다음 릴리스에 포함됩니다. [변경 내역](/ko/changelog)의 *Unreleased*에서 확인할 수 있습니다.
+[1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 몇 주는 표준 라이브러리에 쓰였습니다. 이제 HTTP를 서비스하고, 창을 열고, 오디오를 재생하고, future를 await하는 프로그램을 `std`만으로 작성할 수 있습니다. 아래 내용은 모두 `main`에 병합되었고(풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)–[#67](https://github.com/safec-org/SafeC/pull/67)) 다음 릴리스에 포함됩니다. [변경 내역](/ko/changelog)의 *Unreleased*에서 확인할 수 있습니다.
 
 ## std/async: 언어 코루틴 없는 future {#async}
 
@@ -28,6 +28,8 @@ summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비�
 
 [#63](https://github.com/safec-org/SafeC/pull/63)은 [`std/gui`](/ko/stdlib/gui)를 툴킷으로 만들었습니다: TrueType 폰트 로딩·커닝·텍스트 레이아웃을 갖춘 안티에일리어싱 벡터 캔버스([GUI 그래픽](/ko/stdlib/gui-graphics)), 레이아웃과 테마를 지원하는 리테인드 [위젯 툴킷](/ko/stdlib/gui-widgets), 여러 창 애플리케이션을 위한 `GuiApp` — 모두 이식 가능한 창 계층 아래의 `GuiBackend` 인터페이스 위에 있습니다. 캔버스 테스트는 골든 이미지와 비교하고, 위젯 테스트는 헤드리스 백엔드에서, 두 창 `GuiApp` 테스트는 X11(Xvfb)과 Win32(Wine)에서 돌아갑니다. `examples/gui_hello`와 모든 위젯을 보여 주는 `examples/gui_gallery`를 실행해 보세요.
 
+이어서 [#65](https://github.com/safec-org/SafeC/pull/65)가 툴킷을 더 많은 플랫폼으로 넓혔습니다: Linux에서 실행 시점에 선택되는 Wayland 백엔드, 페이지 안의 창·IME 텍스트 입력·DOM 상호 운용과 함께 `<canvas>`나 WebGL로 그리는 WebAssembly 백엔드, 그리고 OpenGL ES(EGL), Metal, Direct3D 11 GPU 프레젠터. `safeguard bundle --target wasm32`는 GUI 앱을 실행 가능한 웹 페이지로 패키징합니다.
+
 ## 섹션 단위로 미리 빌드된 std {#sections}
 
 이제 릴리스는 플랫폼마다 표준 라이브러리를 *섹션* — `core`, `collections`, `gui`, `ml` 같은 std의 최상위 디렉터리 — 당 아카이브 하나로 미리 빌드해 제공합니다([#56](https://github.com/safec-org/SafeC/pull/56)). `safeguard`는 프로젝트가 쓰는 섹션을 컴파일하는 대신 링크하고, `install.sh --std=...` / `install.ps1 -Std ...`로 설치할 섹션을 고릅니다. std는 이제 디버그 빌드에서도 항상 최적화되어 컴파일되며, 릴리스 바이너리는 macOS 11과 glibc 2.25(Debian 10, Ubuntu 18.04, RHEL 8 이후)를 대상으로 합니다.
@@ -40,9 +42,9 @@ summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비�
 
 [#64](https://github.com/safec-org/SafeC/pull/64)로 Windows CI가 다시 통과합니다: 컴파일러는 ABI 패스가 제네릭 함수를 다시 만들 때도 그 COMDAT을 유지하고, `std/sched`는 `WSAStartup`에 실제 408바이트 `WSADATA`를 넘기며, WSAPoll 리액터는 디스패치 후 감시 목록을 인덱싱하지 않습니다. [#63](https://github.com/safec-org/SafeC/pull/63)의 작은 컴파일러 수정도 있습니다: `f` 접미사가 붙은 부동소수점 리터럴은 `float`입니다.
 
-## 진행 중: HTTPS {#https}
+## HTTPS {#https}
 
-아직 병합되지 않았지만 브랜치에서 진행 중입니다: SafeC로 작성한 TLS 1.3 엔진(클라이언트와 서버)인 `std/tls` — X.509 파싱, 인증서 경로 검증, 시스템 신뢰 루트 — 와 `std/crypto`의 P-256 / P-384 ECDH·ECDSA, 그리고 선택적인 OpenSSL 백엔드. 이를 통해 `std/http`의 클라이언트와 서버가 `https://`를, WebSocket이 `wss://`를 지원합니다. Windows 네이티브(SChannel) 백엔드는 아직 미완성입니다. 병합되면 글로 알리겠습니다.
+이 글을 쓰는 동안 마지막 조각이 병합되었습니다: [#66](https://github.com/safec-org/SafeC/pull/66)은 `std/tls`를 추가합니다. 운영체제의 TLS가 있으면 그것을 — OpenSSL(실행 시점에 로드), SChannel, SecureTransport — 쓰고, 없으면 SafeC로 작성한 TLS 1.3 엔진(클라이언트와 서버)을 쓰며, X.509 파싱, 인증서 경로 검증, 시스템 신뢰 루트를 갖췄습니다. `std/crypto`에는 이를 위한 X25519, P-256 / P-384 ECDH·ECDSA, RSA PKCS#1 v1.5·PSS, HKDF, ChaCha20이 추가되었습니다. 이로써 `std/http`는 `http_fetch` 계열과 SSE 클라이언트에서 `https://`를, `WsConn`은 `wss://`를 지원하고, `HttpServer`는 `TlsServerConfig`로 HTTPS를 서비스합니다.
 
 ## 써 보기 {#try}
 

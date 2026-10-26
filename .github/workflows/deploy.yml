@@ -32,7 +32,7 @@ env:
   LLVM_VERSION: "21"
   # SafeC commit with the std the generator and client build against
   # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime).
-  SAFEC_REF: ${{ inputs.safec_ref || 'b279a6f59f98892be2f95b864ef8333c49240e1a' }}
+  SAFEC_REF: ${{ inputs.safec_ref || '4c14bc32963451b10387cd3a171215c217a317ad' }}
 
 jobs:
   build:
@@ -83,7 +83,15 @@ jobs:
           echo "$GITHUB_WORKSPACE/SafeC/safeguard/build" >> "$GITHUB_PATH"
           echo "SAFEC_HOME=$GITHUB_WORKSPACE/SafeC" >> "$GITHUB_ENV"
 
-      - name: Build the site (client, generator, pages; fails on dead links)
+      # Release notes come from the pinned SafeC's CHANGELOG.md and its
+      # release history: refreshed from GitHub's API here (falling back to
+      # the checked-in site/data/releases.json when that fails). The
+      # playground's compiler is built from the pinned SafeC when it has
+      # selfhost/build-web.sh (see site/build.sh).
+      - name: Build the site (wasm modules, generator, pages; fails on dead links)
+        env:
+          SITE_FETCH_RELEASES: "1"
+          GITHUB_TOKEN: ${{ github.token }}
         run: site/build.sh check
 
       - uses: actions/upload-pages-artifact@v3

@@ -196,7 +196,7 @@ int main() {
     return app.listen(&cfg);    // I/O 리액터 위의 keep-alive HTTP/1.1
 }
 ```
-라우터, 미들웨어, 정적 파일, 쿠키, multipart, SSE, WebSocket, 그리고 리다이렉트를 따라가는 gzip 클라이언트 — [HTTP와 웹](/ko/stdlib/http).
+라우터, 미들웨어, HTTPS, 정적 파일, 쿠키, multipart, SSE, WebSocket, 그리고 리다이렉트를 따라가는 gzip 클라이언트 — [HTTP와 웹](/ko/stdlib/http).
 :::
 ::: tab GUI
 ```c norun
