@@ -89,7 +89,7 @@ the values yourself first (a `foreach` over them) would free them twice.
 
 ## Putting it together
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 
 int main() {

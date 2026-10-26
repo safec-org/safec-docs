@@ -91,7 +91,7 @@ void Store::drop() {
 
 ## 조립하기 {#putting-it-together}
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 
 int main() {

@@ -23,7 +23,7 @@ SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이
 | [scc와 플레이그라운드](#scc) | SafeC로 작성되어 WebAssembly로 컴파일하는 SafeC 컴파일러 | [#70](https://github.com/safec-org/SafeC/pull/70) |
 | [`void*` 대신 슬라이스](#slices) — **호환성 깨짐** | std 공개 API가 슬라이스와 타입 있는 소거를 사용; std 어디에도 `void*`가 남지 않음 | [#76](https://github.com/safec-org/SafeC/pull/76), [#80](https://github.com/safec-org/SafeC/pull/80), [#81](https://github.com/safec-org/SafeC/pull/81) |
 | [Drop, Send, Sync](#ownership) — **호환성 깨짐** | 컴파일러가 검사하는 소유권과 스레드 안전성 | [#77](https://github.com/safec-org/SafeC/pull/77) |
-| [수정 사항](#fixes) | 코드 생성, 안전성 검사의 빈틈, Windows·macOS CI | [#64](https://github.com/safec-org/SafeC/pull/64), [#68](https://github.com/safec-org/SafeC/pull/68), [#71](https://github.com/safec-org/SafeC/pull/71)–[#75](https://github.com/safec-org/SafeC/pull/75), [#78](https://github.com/safec-org/SafeC/pull/78), [#79](https://github.com/safec-org/SafeC/pull/79) |
+| [수정 사항](#fixes) | 코드 생성, 안전성 검사의 빈틈, Windows·macOS CI | [#64](https://github.com/safec-org/SafeC/pull/64), [#68](https://github.com/safec-org/SafeC/pull/68), [#71](https://github.com/safec-org/SafeC/pull/71)–[#75](https://github.com/safec-org/SafeC/pull/75), [#78](https://github.com/safec-org/SafeC/pull/78), [#79](https://github.com/safec-org/SafeC/pull/79), [#82](https://github.com/safec-org/SafeC/pull/82), [#83](https://github.com/safec-org/SafeC/pull/83) |
 
 또한 릴리스는 이제 std를 플랫폼마다 섹션(`core`, `collections`, `gui` 등)당 아카이브 하나로 미리 빌드해 제공하며, `install.sh --std=...` / `install.ps1 -Std ...`로 고릅니다([#56](https://github.com/safec-org/SafeC/pull/56)). 이 웹사이트도 이제 [SafeC 프로그램으로 빌드](/ko/blog/new-website)됩니다([#58](https://github.com/safec-org/SafeC/pull/58)).
 
@@ -89,6 +89,8 @@ std 전체에 검사를 켜자 실제 버그가 발견되어 고쳐졌습니다:
 - **메서드 호출**: 참조로 반환된 호출 결과의 필드에 대한 메서드 호출은 참조 대상에 작용하고, 재귀 함수에서 `StrMap`을 쓸 때의 오탐이 사라졌습니다([#73](https://github.com/safec-org/SafeC/pull/73)). `atomic_cas` 인자는 가리키는 타입에 대해 검사됩니다([#74](https://github.com/safec-org/SafeC/pull/74)).
 - **C 헤더 가져오기**는 128비트 float와 `_Complex` 선언을 건너뛰어 최신 glibc 헤더도 가져올 수 있고, `safeguard test`는 Windows에서 테스트의 `.exe`를 실행합니다([#75](https://github.com/safec-org/SafeC/pull/75)). 라이브러리 패키지에서 `safeguard test`는 라이브러리를 각 테스트에 링크합니다.
 - **Windows와 macOS:** 제네릭 함수는 ABI 낮추기를 거쳐도 COMDAT을 유지하고, `std/sched`는 `WSAStartup`에 올바른 크기의 `WSADATA`를 넘기며, WSAPoll 리액터는 디스패치 후 감시 목록을 읽지 않습니다([#64](https://github.com/safec-org/SafeC/pull/64)). ABI 낮추기된 함수는 모듈 안의 제자리를 지키고([#79](https://github.com/safec-org/SafeC/pull/79)), std 모듈 검사는 Mach-O와 COFF에서 섹션 간에 반복되는 제네릭 인스턴스를 허용합니다([#68](https://github.com/safec-org/SafeC/pull/68)).
+- **파서:** typedef 이름과 두 개 이상의 `*`로 선언한 지역 변수(`Foo_t** x = pp;`)는 선언으로 읽히고, 전위 연산자가 중첩됩니다(`**pp`, `-*p`, `- -x`). safec와 scc 모두 해당합니다([#82](https://github.com/safec-org/SafeC/pull/82)).
+- **웹사이트 점검에서 발견한 버그**([#83](https://github.com/safec-org/SafeC/pull/83)): 모든 컨테이너는 이제 `Vec`처럼 `clear()` / `drop()` 때와 키를 덮어쓸 때 원소를 drop합니다(`drop()`이 없는 `BTree`, `StaticVec`, `StaticMap`은 `clear()`합니다) — [컬렉션](/ko/stdlib/collections#ownership) 참고. `Reactor`에 `drop()`이 생겼고 `close_()`는 테이블을 해제하며 멱등입니다. `WsConn::closed()`는 `accept()`로 채울 시작 값이며, 닫힌 연결은 fd 0을 건드리지 않습니다. safeguard는 std를 `<std/...>`로만 찾으므로 맨 이름의 `#include <math.h>`는 C 라이브러리의 헤더입니다(`#include <io.h>`에는 **호환성을 깨는 변경**: `<std/io.h>`로 씁니다). 그리고 `std/time`이 [플레이그라운드](/ko/playground)에서 동작합니다.
 
 ## 마이그레이션 {#migration}
 
