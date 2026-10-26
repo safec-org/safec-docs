@@ -9,11 +9,13 @@
 | `safeguard new <name> [--lang L] [--std]` | Scaffold a new project directory with `Package.toml` and `src/main.sc` (or, with `--lang c`/`cpp`/`objc`/`objcpp`, a [C, C++ or Objective-C package](#c-c-and-objective-c-packages)) |
 | `safeguard init [--lang L] [--std]` | Initialize a `Package.toml` in the current directory |
 | `safeguard fetch` | Clone the git dependencies listed in `Package.toml` and build the ones from source |
-| `safeguard build [--release]` | Compile the project and all dependencies |
+| `safeguard build [--release] [--crate-type T]` | Compile the project and all dependencies (`--crate-type staticlib\|cdylib\|bin` overrides `[build] crate_type`) |
 | `safeguard check` | Fast compile-only pass — reports errors without assembling objects or linking |
 | `safeguard std-modules [std/x.h\|file...]` | List the std sources a build compiles and the system libraries it links for them (see [Standard Library Modules](#standard-library-linking)) |
 | `safeguard std-prebuilt <prefix>` | Compile std for this machine into `<prefix>/lib/<triple>/std/<section>.a`, one archive per section: the [prebuilt std](#prebuilt-std) a release ships |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
+| `safeguard doc [--serve] [--std]` | Generate the [API reference](#safeguard-doc) into `build/doc/` (or std's, with `--std`) |
+| `safeguard publish [--ci=…] [--write] [--tag] [--push]` | Prepare the repository for [publishing](#safeguard-publish): `.gitignore`, CI, release archives, Pages |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
 | `safeguard clean` | Remove the `build/` directory and all artifacts |
@@ -45,7 +47,10 @@ main project) and run; a test passes if its binary exits `0`. This
 composes naturally with [`std::test`](/stdlib/testing)'s `TestSuite` —
 `test_run_and_exit()` is designed to be the last line of a test file's
 `main()`, translating a suite of assertions into the single pass/fail
-exit code `safeguard test` checks:
+exit code `safeguard test` checks. In a library package (`crate_type =
+"staticlib"` or `"cdylib"`), the library itself is built as a static
+archive and linked into every test, with `src/` on the include path, so
+the tests exercise its API:
 
 ```c
 // tests/math_test.sc
@@ -121,6 +126,71 @@ safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
 
 Returns exit code 0 if no errors (warnings are non-fatal), 1 if any error-level diagnostics are found.
 
+## `doc` — API reference {#safeguard-doc}
+
+`safeguard doc` generates a library's API reference the way `rustdoc` does — from the declarations themselves and the doc comments on them — into `build/doc/`:
+
+```bash
+safeguard doc                 # build/doc/index.html
+safeguard doc --serve         # and serve it at http://localhost:8000/ (--port N)
+safeguard doc --std           # SafeC's own std (what the site's /api/ is)
+```
+
+What you get:
+
+- a page per item — struct and union (fields, methods), enum (variants), trait (required methods), function, macro, constant, type alias — with its declaration highlighted, its doc comment rendered, and a link to its line in the source (and to the definition, when a method or function is defined elsewhere);
+- a page per module: each header is a module, nested by directory (`include/geo/shapes.h` is `geo::shapes`), with its own doc and its items by kind; the crate page shows the `README.md` and the module tree; `all.html` lists everything;
+- highlighted source pages with line anchors (`src/include/geo/shapes.h.html#L42`), and, when `Package.toml` names a `repository`, a link to the file at the release tag;
+- [intra-doc links](/advanced/doc-comments#intra-doc-links) (`[Point::norm2]`), and every name in a signature linked to its item — std's types link into the [std API reference](/api/);
+- search: a SafeC program compiled to WebAssembly (on `std/wasm/dom`) searches the reference's index in the browser — `/` or <kbd>Ctrl</kbd>+<kbd>K</kbd>, arrows and <kbd>Enter</kbd>;
+- light and dark themes (the SafeC site's), following the OS until toggled.
+
+Every link in the output is relative, so `build/doc/` works from any URL prefix or straight from disk, and `safeguard doc` fails if any link or `#anchor` in it is broken. The comment conventions it reads are on the [Doc Comments](/advanced/doc-comments) page.
+
+| Option | Effect |
+|--------|--------|
+| `--serve`, `--port N` | Serve the result over HTTP after building it (default port 8000) |
+| `--std` | Document SafeC's std (`$SAFEC_HOME/std`) instead of the project; no `Package.toml` needed |
+| `--out DIR` | Write somewhere other than `build/doc/` |
+| `--private` | Include hidden items: `@hidden`, names starting or ending with `_`, `static` functions |
+| `--std-url URL` | Where links to std items point (default: this site's `/api/`; also `SAFEC_STD_DOCS_URL`) |
+| `--home URL[=text]` | A header link back to the site hosting the reference |
+| `--no-check` | Skip the link check |
+
+**How it works.** The declarations come from the compiler's own front end, not from pattern matching: `safec --emit-doc-json` preprocesses and parses every header and source of the package (no semantic analysis or code generation) and writes each declaration — kind, name, namespace, generic parameters and bounds, parameters, fields, methods, enumerators, macros, its source text as the signature, and its location — with the doc comment read from the file around it, as JSON. The page generator, **safec-doc**, is itself a SafeC program (`safeguard/doctool` in the SafeC repository) built on std's web libraries: `std/serial/json` reads that file, `std/serial/markdown` renders the comments through a render hook (intra-doc links, highlighted code), scx templates lay out the pages, `std/dir` and `std/path` write them, `std/http` serves them, and the search client is SafeC compiled to `wasm32` on `std/wasm/dom`. A release ships it prebuilt (`bin/safec-doc`, with its assets in `share/safec/doctool/`); from a source checkout, `safeguard doc` builds it from those sources the first time and caches it (`~/.cache/safeguard/`, or `SAFEGUARD_CACHE`). Its search client needs clang's `wasm-ld`; without it the reference is built without search.
+
+## `publish` — publishing a library {#safeguard-publish}
+
+A SafeC library is published as a git repository: dependents name it by URL (`[[dependencies]] version = "https://…"`), each release carries prebuilt libraries, and its API reference lives on the repository's own Pages site — there is no central registry. `safeguard publish` sets that up:
+
+```bash
+safeguard publish                      # dry run: print what it would do
+safeguard publish --write              # do it: .gitignore, CI, README/LICENSE
+safeguard publish --tag --bump=minor   # 0.3.1 -> 0.4.0: commit, tag v0.4.0
+safeguard publish --tag --push         # and push the branch and the tag
+```
+
+Step by step:
+
+1. **git** — `git init -b main` when the project isn't in a repository.
+2. **`.gitignore`** — adds what is missing of `build/`, `deps/`, `.safec_cache/`, `dist/`, `public/`, editor files (`.vscode/`, `.idea/`, `*.swp`, `*~`) and OS files (`.DS_Store`, `Thumbs.db`, `desktop.ini`).
+3. **Metadata** — the version must be semver; a missing `description`, `license` or `repository` is reported (`repository` is filled in from the `origin` remote when there is one). A `README.md` is written when there is none; a `LICENSE` too when `license = "MIT"` (otherwise you are told to add the license text).
+4. **Version** — `--bump=major|minor|patch` (or `--bump=1.4.0`) updates `version` in `Package.toml`; a version that isn't newer is refused.
+5. **CI** — for the provider `--ci` (or `[publish] ci`) names, default `github`. It builds and tests on Linux, macOS and Windows on every push and pull request, installing LLVM 21's clang and a SafeC release the way the SafeC release workflow does (`.ci/install-safec.sh`); and on a version tag it builds prebuilt archives per OS/arch — `lib/` with the static library (`lib<name>.a`) and the shared one (`.so`, `.dylib`, or `.dll` + import `.lib`), `include/` with the exported headers — attaches them to a release, and deploys `safeguard doc` to Pages. An extracted archive is itself a [prebuilt dependency](#dependencies) directory.
+6. **`--tag`** — the work tree must be clean and have a commit; runs `safeguard test` (`--no-verify` skips it), commits the files `publish` wrote, and creates the annotated tag `v<version>` (`[publish] tag_prefix`). An existing tag is refused.
+7. **`--push`** — only when asked: pushes the current branch and the tag to `origin` (`--remote` for another).
+
+Nothing is written without `--write` (`--tag` and `--push` imply it), and nothing is pushed without `--push`.
+
+| `--ci` | Files | Build + test | Releases | Pages |
+|--------|-------|--------------|----------|-------|
+| `github` (default) | `.github/workflows/ci.yml`, `release.yml` | Linux x86_64, macOS arm64, Windows x86_64 (hosted runners) | GitHub Release with the archives | GitHub Pages via `actions/deploy-pages` — enable it once: *Settings → Pages → Source: GitHub Actions* |
+| `gitlab` | `.gitlab-ci.yml` | Linux on `saas-linux-*`; macOS and Windows on GitLab.com's hosted `saas-macos-*` / `saas-windows-*` runners (macOS needs a Premium or Ultimate plan; on a self-managed instance, register runners with those tags or delete the jobs) | archives in the project's generic package registry, linked from a GitLab Release (`release-cli`) | GitLab Pages (the `pages` job publishes `public/`) |
+| `gitea` | `.gitea/workflows/ci.yml`, `release.yml`, `.ci/upload-release.sh` | Linux on any runner labeled `ubuntu-latest`; macOS/Windows entries are commented out — Gitea's runners are self-hosted, so enable them once you register `macos` / `windows` runners | a Gitea release, through its API (`.ci/upload-release.sh`, needs a `RELEASE_TOKEN` secret with write access) | Gitea has no Pages service: the reference is pushed to a `pages` branch for a static host to serve |
+| `forgejo` | `.forgejo/workflows/…` (same as Gitea) | Linux on the Forgejo runner's default `docker` label; macOS/Windows as for Gitea | a Forgejo release through the same API | the `pages` branch — on Codeberg, Codeberg Pages serves it at `https://<user>.codeberg.page/<repo>/` |
+
+The prebuilt targets are the ones SafeC itself ships releases for (Linux x86_64, macOS arm64, Windows x86_64): CI installs a SafeC release, which needs one for its OS. The CI pins the SafeC release you have installed (`$SAFEC_HOME/.release`), so builds don't change under you; edit `SAFEC_VERSION` in the generated files to move. Generating the API reference in CI needs a SafeC release that includes `safeguard doc`.
+
 ## Cross targets {#cross-targets}
 
 `--target <alias|triple>` (on `build`, `check`, `test`) cross-compiles the project and its standard library for another machine. A bare-metal alias (`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `arm-81m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — see [Bare-Metal Targets](/reference/baremetal#targets)) implies freestanding mode; any LLVM triple is accepted too.
@@ -150,7 +220,28 @@ name = "mylib"
 version = "https://github.com/user/mylib"
 ```
 
-The `[package]` section defines the project name and version.
+The `[package]` section defines the project name and version, and optionally what `safeguard doc` and `safeguard publish` use:
+
+```toml
+[package]
+name          = "geo"
+version       = "0.3.1"                     # semver; 'publish --bump' updates it
+author        = "Jane Doe"
+description   = "2D geometry primitives"
+license       = "MIT"
+repository    = "https://github.com/jane/geo"   # source links in the docs, the CI's release URLs
+homepage      = "https://jane.dev/geo"
+documentation = "https://jane.github.io/geo/"   # where the API reference is published
+readme        = "README.md"                 # shown on the reference's front page (default README.md)
+keywords      = ["geometry", "math"]
+
+[publish]
+ci         = "github"     # github (default), gitlab, gitea, forgejo
+branch     = "main"       # the branch CI builds
+tag_prefix = "v"          # release tags: v1.2.3
+pages      = true         # deploy 'safeguard doc' to Pages on a tag
+release    = true         # attach prebuilt libraries to a release on a tag
+```
 
 Each `[[dependencies]]` entry names a dependency and where it comes from (see [Dependencies](#dependencies)).
 

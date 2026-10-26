@@ -24,6 +24,13 @@ exclude: [site, public, dist, node_modules, README.md, CLAUDE.md]
 # with these extensions are left alone instead of getting '.html'.
 file_extensions: [sc, scx, h, c, cpp, hpp, cc, cuh, go, py, rs, zig, toml, lock, sh, metal, cu, hip, cl, wgsl, mod, sum, md, txt, json, in, xml]
 
+# Trees build.sh generates before the generator runs, copied into the
+# output: the std API reference ('safeguard doc --std', safec-doc) at /api/.
+# Absent (an older SafeC without 'safeguard doc'), they are skipped and
+# links to them fail the link check.
+generated:
+  - {from: build/api, to: api}
+
 # Root locale first. 'key' names locales/<key>.yaml; the locale's URL
 # prefix and its markdown subdirectory come from that file's 'prefix'.
 locales:

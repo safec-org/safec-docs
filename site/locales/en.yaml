@@ -16,6 +16,7 @@ footer:
         - {text: Guide, link: /guide/introduction}
         - {text: Language Reference, link: /reference/types}
         - {text: Standard Library, link: /stdlib/}
+        - {text: API Reference, link: /api/}
     - title: Use
       items:
         - {text: Install, link: /install}
@@ -74,6 +75,8 @@ nav:
         link: /reference/types
       - text: Standard Library
         link: /stdlib/
+      - text: API Reference
+        link: /api/
       - text: Advanced
         link: /advanced/compiler
       - text: Benchmarks
@@ -269,6 +272,8 @@ sidebar:
             link: /advanced/compiler
           - text: Package Manager
             link: /advanced/safeguard
+          - text: Doc Comments
+            link: /advanced/doc-comments
           - text: scx Templating
             link: /advanced/scx
           - text: Safety Model

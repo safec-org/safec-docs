@@ -9,11 +9,13 @@
 | `safeguard new <name> [--lang L] [--std]` | `Package.toml`과 `src/main.sc`를 갖춘 새 프로젝트 디렉터리를 스캐폴딩(`--lang c`/`cpp`/`objc`/`objcpp`를 주면 [C, C++ 또는 Objective-C 패키지](#c-c-and-objective-c-packages)) |
 | `safeguard init [--lang L] [--std]` | 현재 디렉터리에 `Package.toml` 초기화 |
 | `safeguard fetch` | `Package.toml`에 나열된 git 의존성을 클론하고 소스 의존성을 빌드 |
-| `safeguard build [--release]` | 프로젝트와 모든 의존성 컴파일 |
+| `safeguard build [--release] [--crate-type T]` | 프로젝트와 모든 의존성 컴파일(`--crate-type staticlib\|cdylib\|bin`은 `[build] crate_type`을 대신함) |
 | `safeguard check` | 빠른 컴파일 전용 패스 — 오브젝트 어셈블이나 링킹 없이 오류만 보고 |
 | `safeguard std-modules [std/x.h\|file...]` | 빌드가 컴파일하는 std 소스와 그 소스를 위해 링크하는 시스템 라이브러리를 나열([표준 라이브러리 모듈](#standard-library-linking) 참고) |
 | `safeguard std-prebuilt <prefix>` | 이 머신용 std를 섹션마다 아카이브 하나씩 `<prefix>/lib/<triple>/std/<section>.a`로 컴파일. 릴리스가 함께 배포하는 [미리 빌드된 std](#prebuilt-std) |
 | `safeguard test` | `tests/` 아래의 모든 파일을 독립적인 바이너리로 빌드하고 실행 |
+| `safeguard doc [--serve] [--std]` | [API 레퍼런스](#safeguard-doc)를 `build/doc/`에 생성(`--std`면 std의 레퍼런스) |
+| `safeguard publish [--ci=…] [--write] [--tag] [--push]` | 저장소를 [배포](#safeguard-publish)할 수 있게 준비: `.gitignore`, CI, 릴리스 아카이브, Pages |
 | `safeguard run` | 프로젝트 바이너리를 빌드하고 실행 |
 | `safeguard bundle [--sign <identity>]` | 바이너리를 빌드하여 애플리케이션으로 패키징: `.app`, 앱 폴더 또는 `.deb`([앱 번들](#app-bundles) 참고) |
 | `safeguard clean` | `build/` 디렉터리와 모든 산출물 제거 |
@@ -46,7 +48,10 @@ Rust의 `cargo check`와 비슷합니다: 모든 소스 파일을 전체 프론�
 [`std::test`](/ko/stdlib/testing)의 `TestSuite`와 자연스럽게 조합됩니다 —
 `test_run_and_exit()`은 테스트 파일 `main()`의 마지막 줄이 되도록
 설계되었으며, 일련의 어서션을 `safeguard test`가 확인하는 단일
-성공/실패 종료 코드로 변환합니다:
+성공/실패 종료 코드로 변환합니다. 라이브러리 패키지(`crate_type =
+"staticlib"` 또는 `"cdylib"`)에서는 라이브러리 자체를 정적 아카이브로
+빌드해 모든 테스트에 링크하고 `src/`를 include 경로에 넣으므로,
+테스트가 그 API를 직접 사용할 수 있습니다:
 
 ```c
 // tests/math_test.sc
@@ -120,6 +125,71 @@ safeguard: analysis complete — 3 diagnostic(s), 0 error(s)
 
 오류가 없으면 종료 코드 0을 반환하고(경고는 치명적이지 않음), 오류 수준 진단이 하나라도 발견되면 1을 반환합니다.
 
+## `doc` — API 레퍼런스 {#safeguard-doc}
+
+`safeguard doc`은 `rustdoc`처럼 선언 자체와 거기 붙은 문서 주석으로부터 라이브러리의 API 레퍼런스를 `build/doc/`에 생성합니다:
+
+```bash
+safeguard doc                 # build/doc/index.html
+safeguard doc --serve         # 그리고 http://localhost:8000/ 에서 제공 (--port N)
+safeguard doc --std           # SafeC 자체의 std (이 사이트의 /api/)
+```
+
+생성되는 것:
+
+- 항목마다 한 페이지 — 구조체와 공용체(필드, 메서드), 열거형(열거자), 트레이트(필수 메서드), 함수, 매크로, 상수, 타입 별칭 — 선언은 하이라이트되고, 문서 주석은 렌더링되며, 소스의 해당 줄로 가는 링크(메서드나 함수가 다른 곳에서 정의되면 정의로 가는 링크도)가 붙습니다;
+- 모듈마다 한 페이지: 헤더 하나가 모듈이고 디렉터리에 따라 중첩됩니다(`include/geo/shapes.h`는 `geo::shapes`). 모듈 자체의 문서와 종류별 항목이 나오고, 크레이트 페이지에는 `README.md`와 모듈 트리가, `all.html`에는 전체 목록이 있습니다;
+- 줄 앵커가 있는 하이라이트된 소스 페이지(`src/include/geo/shapes.h.html#L42`). `Package.toml`에 `repository`가 있으면 릴리스 태그의 해당 파일로 가는 링크도 붙습니다;
+- [문서 내 링크](/ko/advanced/doc-comments#intra-doc-links)(`[Point::norm2]`), 그리고 시그니처 안의 모든 이름이 해당 항목으로 링크됩니다 — std 타입은 [std API 레퍼런스](/api/)로 연결됩니다;
+- 검색: WebAssembly로 컴파일된 SafeC 프로그램(`std/wasm/dom` 기반)이 브라우저에서 레퍼런스의 색인을 검색합니다 — `/` 또는 <kbd>Ctrl</kbd>+<kbd>K</kbd>, 화살표와 <kbd>Enter</kbd>;
+- 라이트/다크 테마(SafeC 사이트의 테마). 직접 바꾸기 전까지는 OS 설정을 따릅니다.
+
+출력의 모든 링크는 상대 경로라서 `build/doc/`은 어떤 URL 접두사 아래에서도, 디스크에서 바로 열어도 동작하며, 링크나 `#앵커`가 하나라도 깨져 있으면 `safeguard doc`이 실패합니다. 읽어 들이는 주석 규칙은 [문서 주석](/ko/advanced/doc-comments) 페이지에 있습니다.
+
+| 옵션 | 효과 |
+|--------|--------|
+| `--serve`, `--port N` | 빌드한 뒤 HTTP로 제공(기본 포트 8000) |
+| `--std` | 프로젝트 대신 SafeC의 std(`$SAFEC_HOME/std`)를 문서화. `Package.toml` 불필요 |
+| `--out DIR` | `build/doc/`이 아닌 곳에 출력 |
+| `--private` | 숨겨진 항목도 포함: `@hidden`, `_`로 시작하거나 끝나는 이름, `static` 함수 |
+| `--std-url URL` | std 항목 링크가 가리키는 곳(기본값: 이 사이트의 `/api/`; `SAFEC_STD_DOCS_URL`로도 지정) |
+| `--home URL[=text]` | 레퍼런스를 호스팅하는 사이트로 돌아가는 헤더 링크 |
+| `--no-check` | 링크 검사 생략 |
+
+**동작 방식.** 선언은 패턴 매칭이 아니라 컴파일러 자체의 프런트엔드에서 나옵니다: `safec --emit-doc-json`이 패키지의 모든 헤더와 소스를 전처리·파싱하고(의미 분석과 코드 생성은 하지 않음), 각 선언 — 종류, 이름, 네임스페이스, 제네릭 매개변수와 바운드, 매개변수, 필드, 메서드, 열거자, 매크로, 시그니처로 쓰이는 소스 텍스트, 위치 — 를 그 주변 파일에서 읽은 문서 주석과 함께 JSON으로 씁니다. 페이지 생성기 **safec-doc**은 그 자체가 std의 웹 라이브러리로 만든 SafeC 프로그램입니다(SafeC 저장소의 `safeguard/doctool`): `std/serial/json`이 그 파일을 읽고, `std/serial/markdown`이 렌더 훅(문서 내 링크, 코드 하이라이트)으로 주석을 렌더링하고, scx 템플릿이 페이지를 구성하고, `std/dir`과 `std/path`가 파일을 쓰고, `std/http`가 제공하며, 검색 클라이언트는 `std/wasm/dom` 위의 `wasm32`로 컴파일된 SafeC입니다. 릴리스에는 미리 빌드된 상태로 포함되고(`bin/safec-doc`, 에셋은 `share/safec/doctool/`), 소스 체크아웃에서는 `safeguard doc`이 처음 실행될 때 그 소스로 빌드해 캐시합니다(`~/.cache/safeguard/` 또는 `SAFEGUARD_CACHE`). 검색 클라이언트에는 clang의 `wasm-ld`가 필요하며, 없으면 검색 없이 레퍼런스가 만들어집니다.
+
+## `publish` — 라이브러리 배포 {#safeguard-publish}
+
+SafeC 라이브러리는 git 저장소로 배포됩니다: 의존하는 쪽은 URL로 이름을 지정하고(`[[dependencies]] version = "https://…"`), 릴리스마다 미리 빌드된 라이브러리가 붙으며, API 레퍼런스는 그 저장소 자체의 Pages 사이트에 올라갑니다 — 중앙 레지스트리는 없습니다. `safeguard publish`가 이것을 준비합니다:
+
+```bash
+safeguard publish                      # 드라이 런: 할 일을 출력만 함
+safeguard publish --write              # 실행: .gitignore, CI, README/LICENSE
+safeguard publish --tag --bump=minor   # 0.3.1 -> 0.4.0: 커밋하고 v0.4.0 태그
+safeguard publish --tag --push         # 그리고 브랜치와 태그를 push
+```
+
+단계별로:
+
+1. **git** — 프로젝트가 저장소 안에 있지 않으면 `git init -b main`.
+2. **`.gitignore`** — `build/`, `deps/`, `.safec_cache/`, `dist/`, `public/`, 에디터 파일(`.vscode/`, `.idea/`, `*.swp`, `*~`), OS 파일(`.DS_Store`, `Thumbs.db`, `desktop.ini`) 중 빠진 것을 추가합니다.
+3. **메타데이터** — 버전은 semver여야 합니다. `description`, `license`, `repository`가 없으면 알려 줍니다(`origin` 원격이 있으면 `repository`를 거기서 채웁니다). `README.md`가 없으면 작성하고, `license = "MIT"`이면 `LICENSE`도 작성합니다(그 외에는 라이선스 본문을 추가하라고 안내합니다).
+4. **버전** — `--bump=major|minor|patch`(또는 `--bump=1.4.0`)가 `Package.toml`의 `version`을 갱신합니다. 더 새 버전이 아니면 거부합니다.
+5. **CI** — `--ci`(또는 `[publish] ci`)가 지정한 제공자용, 기본값 `github`. 모든 push와 풀 리퀘스트에서 Linux, macOS, Windows로 빌드·테스트하며, SafeC 릴리스 워크플로와 같은 방식으로 LLVM 21의 clang과 SafeC 릴리스를 설치합니다(`.ci/install-safec.sh`). 버전 태그에서는 OS/아키텍처별 미리 빌드된 아카이브 — 정적 라이브러리(`lib<name>.a`)와 공유 라이브러리(`.so`, `.dylib`, 또는 `.dll` + 임포트 `.lib`)가 든 `lib/`, 내보낸 헤더가 든 `include/` — 를 만들어 릴리스에 첨부하고, `safeguard doc`을 Pages에 배포합니다. 압축을 푼 아카이브는 그 자체로 [미리 빌드된 의존성](#dependencies) 디렉터리입니다.
+6. **`--tag`** — 작업 트리가 깨끗하고 커밋이 있어야 합니다. `safeguard test`를 실행하고(`--no-verify`로 생략), `publish`가 작성한 파일을 커밋한 뒤 주석 달린 태그 `v<version>`(`[publish] tag_prefix`)을 만듭니다. 이미 있는 태그는 거부합니다.
+7. **`--push`** — 요청했을 때만: 현재 브랜치와 태그를 `origin`에 push합니다(다른 원격은 `--remote`).
+
+`--write` 없이는 아무것도 쓰지 않으며(`--tag`와 `--push`는 이를 포함), `--push` 없이는 아무것도 push하지 않습니다.
+
+| `--ci` | 파일 | 빌드 + 테스트 | 릴리스 | Pages |
+|--------|-------|--------------|----------|-------|
+| `github`(기본값) | `.github/workflows/ci.yml`, `release.yml` | Linux x86_64, macOS arm64, Windows x86_64(호스티드 러너) | 아카이브가 붙은 GitHub Release | `actions/deploy-pages`로 GitHub Pages — 한 번 활성화 필요: *Settings → Pages → Source: GitHub Actions* |
+| `gitlab` | `.gitlab-ci.yml` | `saas-linux-*`의 Linux; GitLab.com 호스티드 `saas-macos-*` / `saas-windows-*` 러너의 macOS와 Windows(macOS는 Premium 또는 Ultimate 플랜 필요. 자체 관리 인스턴스에서는 그 태그로 러너를 등록하거나 작업을 삭제) | 프로젝트의 generic 패키지 레지스트리에 올린 아카이브를 GitLab Release에서 링크(`release-cli`) | GitLab Pages(`pages` 작업이 `public/`을 게시) |
+| `gitea` | `.gitea/workflows/ci.yml`, `release.yml`, `.ci/upload-release.sh` | `ubuntu-latest` 레이블 러너의 Linux. Gitea 러너는 자체 호스팅이므로 macOS/Windows 항목은 주석 처리되어 있으며, `macos` / `windows` 러너를 등록한 뒤 활성화 | API를 통한 Gitea 릴리스(`.ci/upload-release.sh`, 쓰기 권한이 있는 `RELEASE_TOKEN` 시크릿 필요) | Gitea에는 Pages 서비스가 없어서 레퍼런스를 `pages` 브랜치에 push하며, 정적 호스트가 이를 제공해야 함 |
+| `forgejo` | `.forgejo/workflows/…`(Gitea와 동일) | Forgejo 러너의 기본 `docker` 레이블에서 Linux; macOS/Windows는 Gitea와 같음 | 같은 API를 통한 Forgejo 릴리스 | `pages` 브랜치 — Codeberg에서는 Codeberg Pages가 `https://<user>.codeberg.page/<repo>/`로 제공 |
+
+미리 빌드되는 대상은 SafeC 자체가 릴리스를 내는 대상(Linux x86_64, macOS arm64, Windows x86_64)입니다: CI는 SafeC 릴리스를 설치하므로 해당 OS용 릴리스가 있어야 합니다. CI는 설치되어 있는 SafeC 릴리스(`$SAFEC_HOME/.release`)로 고정되므로 빌드가 모르는 사이 바뀌지 않습니다. 옮기려면 생성된 파일의 `SAFEC_VERSION`을 고치세요. CI에서 API 레퍼런스를 생성하려면 `safeguard doc`이 포함된 SafeC 릴리스가 필요합니다.
+
 ## 크로스 타깃 {#cross-targets}
 
 `--target <alias|triple>`(`build`, `check`, `test`에서 사용)은 프로젝트와 그 표준 라이브러리를 다른 머신용으로 크로스 컴파일합니다. 베어메탈 별칭(`x86`, `x86_64`, `aarch32`, `aarch64`, `thumb`, `thumb2`, `arm-6m`, `arm-7m`, `arm-7em`, `arm-8m`, `arm-81m`, `rv32i`, `rv32e`, `rv64i`, `rv64e`, `wasm32`, `wasm64` — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고)은 freestanding 모드를 함의하며, 임의의 LLVM 트리플도 받아들입니다.
@@ -149,7 +219,28 @@ name = "mylib"
 version = "https://github.com/user/mylib"
 ```
 
-`[package]` 섹션은 프로젝트 이름과 버전을 정의합니다.
+`[package]` 섹션은 프로젝트 이름과 버전을 정의하며, 선택적으로 `safeguard doc`과 `safeguard publish`가 사용하는 정보도 담습니다:
+
+```toml
+[package]
+name          = "geo"
+version       = "0.3.1"                     # semver. 'publish --bump'가 갱신
+author        = "Jane Doe"
+description   = "2D geometry primitives"
+license       = "MIT"
+repository    = "https://github.com/jane/geo"   # 문서의 소스 링크, CI의 릴리스 URL
+homepage      = "https://jane.dev/geo"
+documentation = "https://jane.github.io/geo/"   # API 레퍼런스가 게시되는 곳
+readme        = "README.md"                 # 레퍼런스 첫 페이지에 표시(기본값 README.md)
+keywords      = ["geometry", "math"]
+
+[publish]
+ci         = "github"     # github(기본값), gitlab, gitea, forgejo
+branch     = "main"       # CI가 빌드하는 브랜치
+tag_prefix = "v"          # 릴리스 태그: v1.2.3
+pages      = true         # 태그에서 'safeguard doc'을 Pages에 배포
+release    = true         # 태그에서 미리 빌드된 라이브러리를 릴리스에 첨부
+```
 
 각 `[[dependencies]]` 항목은 의존성의 이름과 출처를 지정합니다([의존성](#dependencies) 참고).
 

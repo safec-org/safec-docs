@@ -45,6 +45,19 @@ static int url_known(const &Site site, const &Vec<struct Page> pages, const &Str
     struct String theme_file = path_join(site.theme.as_ptr(), asset.as_ptr());
     int ok = path_kind(file.as_ptr()) == DIR_FILE ||
              (path.starts_with("/assets/") && path_kind(theme_file.as_ptr()) == DIR_FILE);
+    // A generated tree copied into the output ('generated' in site.yaml:
+    // the std API reference under /api/): its file, or a directory's
+    // index.html.
+    if (!ok) {
+        struct String out_file = path_join(site.output.as_ptr(), rel.as_ptr());
+        if (path_kind(out_file.as_ptr()) == DIR_FILE) { ok = 1; }
+        else if (path.ends_with("/")) {
+            struct String idx = path_join(out_file.as_ptr(), "index.html");
+            ok = path_kind(idx.as_ptr()) == DIR_FILE;
+            idx.free();
+        }
+        out_file.free();
+    }
     rel.free(); file.free(); asset.free(); theme_file.free();
     return ok;
 }
@@ -180,6 +193,31 @@ static int searchable(const &Page p) {
     return 1;
 }
 
+// site.yaml 'generated': trees build.sh produced before the generator ran
+// ({from: build/api, to: api} — the std API reference, 'safeguard doc
+// --std'), copied into the output when present. They carry their own link
+// check; links into them are checked against the copied files.
+static void copy_generated(const &Site site) {
+    ?&Value gen = site.cfg.object_get("generated");
+    match (gen) {
+        case some(list): {
+            for (unsigned long i = 0UL; i < list.array_len(); i = i + 1UL) {
+                &Value e = list.array_at(i);
+                struct String from = path_join(site.root.as_ptr(), util_vstr(e, "from", ""));
+                struct String to = path_join(site.output.as_ptr(), util_vstr(e, "to", ""));
+                if (path_kind(from.as_ptr()) == DIR_DIR) {
+                    if (!dir_copy_tree(from.as_ptr(), to.as_ptr())) {
+                        eprint("safec-site: cannot copy ");
+                        eprintln(from.as_ptr());
+                    }
+                }
+                from.free(); to.free();
+            }
+        }
+        case null: { }
+    }
+}
+
 static int build(&Site site, int check) {
     struct Vec<struct Page> pages = Vec::new();
     if (!pages_discover(site, &pages)) { pages_free(&pages); return 0; }
@@ -197,6 +235,7 @@ static int build(&Site site, int check) {
     struct String assets = path_join(site.output.as_ptr(), "assets");
     if (!dir_copy_tree(site.theme.as_ptr(), assets.as_ptr())) { ok = 0; }
     assets.free();
+    copy_generated(site);
 
     struct String sitemap = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
     struct Vec<struct Value> indexes = Vec::new();
