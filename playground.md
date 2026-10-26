@@ -31,7 +31,7 @@ code: |
 
 - **Examples** loads any runnable program from [the Book](/book/); every SafeC program elsewhere on this site has a *Run in Playground* link that opens it here.
 - **Share** puts the program into the page's address (`#code=…`, base64url) and copies the link — nothing is uploaded anywhere.
-- **Run** compiles and runs the program entirely in your browser, in a background worker, with a self-hosted SafeC compiler built to WebAssembly. Programs see a `printf`/stdout but no files, network or threads. The compiler is still being built; until it ships, this page says so and you can run programs locally:
+- **Run** compiles and runs the program entirely in your browser, in a background worker, with a self-hosted SafeC compiler built to WebAssembly. Programs see a `printf`/stdout but no files, network or threads. The compiler is scc, SafeC's compiler written in SafeC ([selfhost/](https://github.com/safec-org/SafeC/tree/main/selfhost)); it accepts the language subset described in its `SUBSET.md` and does not run the ownership and thread-safety checks. For those, and for the full std, run programs locally:
 
 ```bash norun
 safeguard new hello && cd hello
