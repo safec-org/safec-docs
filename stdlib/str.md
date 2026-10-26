@@ -194,7 +194,7 @@ int main() {
 
     // Tokenisation
     char buf[64];
-    str_copy(buf, "one,two,three", 64);
+    str_copy(buf[..], "one,two,three");
     ?&char save = null;
     ?&char tok = str_tok(buf, ",", &save);
     while (!tok.is_null()) {

@@ -381,6 +381,7 @@ struct BufWriter {
 ```c
 #include <std/io.h>
 #include <std/io_buf.h>
+#include <std/str.h>
 #include <std/collections/string.h>
 
 int main() {
@@ -390,7 +391,7 @@ int main() {
         case some(f): {
             struct BufWriter<File> out = std::BufWriter::over(f);
             const &char text = "alpha\nbeta\ngamma\n";
-            unsafe { std::write_all(&out, (const &unsigned char)(const unsigned char*)text, 17UL); }
+            std::write_all(&out, str_bytes(text));
             if (out.flush() != 0) { return 1; }  // before the file is closed
             f.close();
         }

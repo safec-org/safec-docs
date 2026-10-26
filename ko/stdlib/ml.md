@@ -2300,7 +2300,7 @@ int main() {
     std::println_float((double)y.at1(1UL));   // 7
 
     y.sum().backward();                       // w.grad: float32
-    struct Slice<float> g = std::slice_of(w.grad, w.size);
+    struct Slice<float> g = std::Slice::of(w.grad, w.size);
     std::println_float((double)*g.at(1UL));   // 4 (= x[1])
     x.free(); w.free();
     return 0;

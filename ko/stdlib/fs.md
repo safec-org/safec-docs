@@ -541,13 +541,13 @@ int main() {
     unsigned char msg[8];
     msg[0]='b'; msg[1]='o'; msg[2]='o'; msg[3]='t';
     msg[4]=' '; msg[5]='o'; msg[6]='k'; msg[7]='\n';
-    node.write(0, msg, 8UL);
+    node.write(0, msg[..]);
 
     // Read back
     struct VfsNode node2;
     std::vfs_root.open("/tmp/log.txt", VFS_O_READ, &node2);
     unsigned char buf[8];
-    unsigned long n = node2.read(0, buf, 8UL);
+    unsigned long n = node2.read(0, buf[..]);
     // buf[0..n] == "boot ok\n"
 
     return n == 8UL ? 0 : 1;

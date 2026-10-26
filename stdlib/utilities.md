@@ -402,8 +402,8 @@ int main() {
     std::sys_qsort(xs[..], cmp_int);       // 1 3 5 7 9
     int key = 7;
     match (std::sys_bsearch(&key, xs[..], cmp_int)) {
-        case some(p): { return *p == 7 ? 0 : 1; }
-        case null:    { return 1; }
+        case some(i): { return xs[i] == 7 ? 0 : 1; }   // i is the index found
+        case none:    { return 1; }
     }
 }
 ```

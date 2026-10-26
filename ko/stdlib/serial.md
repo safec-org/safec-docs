@@ -590,8 +590,7 @@ int main() {
     struct Point p;
     p.x = 0; p.y = 0;
     struct PbReader r;
-    // String holds char; reinterpreting its bytes as unsigned char needs unsafe.
-    unsafe { r = std::PbReader::new((const &unsigned char)buf.as_ptr(), buf.length()); }
+    r = std::PbReader::new(buf.as_bytes());   // []const char is a byte slice
     while (r.has_more()) {
         int field = 0; int wire = 0;
         if (!r.read_tag(&field, &wire)) break;

@@ -224,7 +224,7 @@ Free the results with `.free()` like any other `String` or `Vec`.
 
 int main() {
     unsigned char msg[5] = { 'S', 'a', 'f', 'e', 'C' };
-    struct String enc = std::base64_encode(msg, 5UL);  // "U2FmZUM="
+    struct String enc = std::base64_encode(msg[..]);  // "U2FmZUM="
 
     int ok = 0;
     struct Vec<unsigned char> dec = std::base64_decode(enc.as_ptr(), &ok);
@@ -279,15 +279,10 @@ Set `max_out` whenever the input is untrusted: a few kilobytes of crafted DEFLAT
 
 int main() {
     struct String text = std::String::repeat_str("compress me ", 1000UL);
-    struct Vec<unsigned char> gz;
-    unsafe { gz = std::gzip_compress((const &unsigned char)text.as_ptr(), text.length(), DEFLATE_DEFAULT); }
+    struct Vec<unsigned char> gz = std::gzip_compress(text.as_bytes(), DEFLATE_DEFAULT);
 
     int ok = 0;
-    struct Vec<unsigned char> back = std::Vec::new();
-    match (gz.data) {
-        case some(d): { back = std::gzip_decompress(d, gz.len, 1000000UL, &ok); }
-        case null: { }
-    }
+    struct Vec<unsigned char> back = std::gzip_decompress(gz.as_slice(), 1000000UL, &ok);
     int same = ok && back.len == text.length();
 
     back.free();
