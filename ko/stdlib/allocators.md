@@ -250,7 +250,9 @@ int main() {
     std::print("remaining: ");
     std::println_int((long long)a.remaining());
     a.reset();                               // next frame starts empty
-    return counts.is_null() ? 1 : 0;
+    int rc = counts.is_null() ? 1 : 0;
+    a.destroy();                             // BumpAllocator는 Drop 타입입니다
+    return rc;
 }
 ```
 

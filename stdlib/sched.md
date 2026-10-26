@@ -112,6 +112,7 @@ int main() {
 
     std::reactor_run(&g_sched, &reactor);
     reactor.close_();
+    reactor.sigfds.free(); reactor.watched.free();   // close_() leaves its tables allocated
     return 0;
 }
 ```

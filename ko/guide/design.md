@@ -196,6 +196,11 @@ SafeC의 리전 모델은 어떤 면에서는 더 관대하고(arena 안으로�
 SafeC는 에러 처리를 위해 반환 값을 사용합니다. 이는 예외보다 장황하지만, 제어 흐름은 항상 눈에 보입니다:
 
 ```c
+#include <stdio.h>
+
+#define SENSOR_COUNT 4
+static float sensorValues[SENSOR_COUNT] = { 21.5f, 22.0f, 19.8f, 20.1f };
+
 int readSensor(int id, &float out) {
     if (id < 0 || id >= SENSOR_COUNT) return -1;
     *out = sensorValues[id];              // 참조를 통해 쓰기; unsafe 불필요

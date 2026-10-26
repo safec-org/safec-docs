@@ -40,6 +40,7 @@ struct HttpResponse create(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();           // Router is a Drop type: freed however main returns
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -901,16 +902,20 @@ A `WsConn` is message-based (`recv` yields whole frames), so it is not a byte-st
 
 int main() {
     int listener = std::ws_listen(9001);
-    struct WsConn conn;
-    while (conn.accept(listener)) {
-        struct WsMessage msg;
-        while (conn.recv(&msg)) {
-            if (msg.opcode == WS_OPCODE_CLOSE) { msg.free(); break; }
-            if (msg.opcode == WS_OPCODE_PING)  { conn.send_pong(); }
-            if (msg.opcode == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
-            msg.free();
+    while (1) {
+        struct WsConn conn;
+        conn.fd = -1;                         // nothing to close if accept fails
+        if (!conn.accept(listener)) { conn.close(); break; }
+        while (1) {
+            struct WsMessage msg;             // a fresh message per frame
+            if (!conn.recv(&msg)) { msg.free(); break; }
+            int op = msg.opcode;
+            msg.free();                       // free() consumes msg
+            if (op == WS_OPCODE_CLOSE) break;
+            if (op == WS_OPCODE_PING)  { conn.send_pong(); }
+            if (op == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
         }
-        conn.close();
+        conn.close();                         // close() consumes conn
     }
     return 0;
 }

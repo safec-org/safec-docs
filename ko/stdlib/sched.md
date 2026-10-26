@@ -150,6 +150,7 @@ int main() {
 
     std::reactor_run(&g_sched, &reactor);
     reactor.close_();
+    reactor.sigfds.free(); reactor.watched.free();   // close_()는 테이블을 해제하지 않습니다
     return 0;
 }
 ```

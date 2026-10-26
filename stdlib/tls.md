@@ -40,10 +40,10 @@ int main() {
     struct Result<TlsStream, TlsError> r = std::TlsStream::connect(fd, "example.com", &cfg);
     cfg.free();
     match (r.get_err()) {
-        case some(e): { std::println(e.message); return 1; }   // the fd is still yours to close
+        case some(e): { std::println(e.message); r.drop(); return 1; }   // the fd is still yours to close
         case null: { }
     }
-    struct TlsStream t = r.value;
+    struct TlsStream t = r.unwrap();                  // consumes r
     std::print(t.backend_name()); std::print(" "); std::println(t.cipher());
 
     const &char req = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
@@ -65,14 +65,16 @@ sc.load_files("cert.pem", "key.pem");     // chain (leaf first) and its key: PKC
 sc.set_alpn("h2,http/1.1");               // the server's preference order
 struct Result<TlsAcceptor, TlsError> ar = std::TlsAcceptor::new(&sc);
 sc.free();                                // the acceptor keeps what it needs
-struct TlsAcceptor acc = ar.value;        // (check ar.ok() first)
+struct TlsAcceptor acc = ar.unwrap();     // (check ar.ok() first: unwrap() panics on an error)
 
 int fd = std::tcp_accept_nb(listen_fd);   // blocking from here: fd_set_blocking(fd)
 struct Result<TlsStream, TlsError> r = acc.accept(fd);   // the handshake
 if (r.ok()) {
-    struct TlsStream t = r.value;
+    struct TlsStream t = r.unwrap();
     // t.read / t.write ..., t.alpn(), t.peer_certificate(&cert) ...
     t.close();
+} else {
+    r.drop();                             // frees the TlsError
 }
 acc.free();                               // after the streams it started have finished their handshakes
 ```

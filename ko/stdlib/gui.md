@@ -32,7 +32,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // no display
+        case null: { app.free(); return 1; }     // no display
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -244,9 +244,11 @@ static void tick(&GuiApp app, unsigned int id, ?&State os) {
     match (os) {
         case some(s): {
             s.seconds = s.seconds + 1;
-            char buf[32];
-            unsafe { snprintf(&buf[0], 32UL, "%d s", s.seconds); }
-            s.label.set_text(&buf[0]);
+            struct String t = std::String::new();
+            t.push_int((long long)s.seconds);
+            t.push(" s");
+            s.label.set_text(t.as_ptr());
+            t.free();
         }
         case null: { }
     }
@@ -262,7 +264,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow oa = app.open_window("Widgets", 300, 120);
     ?&GuiWindow ob = app.open_window("Canvas", 300, 200);
-    if (oa.is_null() || ob.is_null()) { return 1; }
+    if (oa.is_null() || ob.is_null()) { app.free(); return 1; }
     &GuiWindow a; &GuiWindow b;
     unsafe { a = (struct GuiWindow*)oa; b = (struct GuiWindow*)ob; }
 

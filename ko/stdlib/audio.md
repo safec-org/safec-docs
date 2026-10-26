@@ -86,7 +86,10 @@ int main() {
     struct Result<AudioStream, AudioError> r =
         audio.open_stream((?&AudioStreamParams)&out, null, AUDIO_FORMAT_F32, 48000U, &frames,
                           render, (?&Tone)&tone, null);
-    match (r.get_err()) { case some(e): { printf("%s\n", e.message); return 1; } case null: {} }
+    match (r.get_err()) {
+        case some(e): { printf("%s\n", e.message); r.drop(); audio.close(); return 1; }
+        case null: {}
+    }
     struct AudioStream s = r.unwrap_or(std::AudioStream::closed());
     s.start();
     std::thread_sleep_ms(2000UL);                        // two seconds

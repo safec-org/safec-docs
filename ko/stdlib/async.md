@@ -75,6 +75,7 @@ int main() {
     struct Countdown c;
     c.st = ASYNC_INIT;
     int v = block_on(&c);                          // prints 3 2 1, returns 42
+    c.drop();                                      // a Drop type: finished, so this does nothing
     return v == 42 ? 0 : 1;
 }
 ```
@@ -472,10 +473,10 @@ ex.run(&clk);
 
 인터럽트가 밀리초 틱을 세는 마이크로컨트롤러에서:
 
-```c
+```c norun
 static volatile long long g_ms = 0;               // incremented by the SysTick handler
 static long long board_now() { return g_ms; }
-static void board_idle(long long timeout_ms) { asm volatile("wfi"); }   // any interrupt wakes it
+static void board_idle(long long timeout_ms) { unsafe { asm volatile("wfi"); } }   // any interrupt wakes it
 
 static struct LocalExecutor ex;
 int main() {
@@ -698,7 +699,7 @@ struct AsyncTcpStream {
     static struct ConnectFut connect(unsigned int addr_network_order, unsigned short port);
     struct ReadFut     read([]unsigned char buf);        // -> long long: bytes, 0 at EOF, -1 on error
     struct WriteFut    write([]const unsigned char buf);       // -> long long: bytes written, -1 on error
-    struct WriteAllFut write_all([]unsigned char buf);   // -> int: 1 all written, 0 on error
+    struct WriteAllFut write_all([]const unsigned char buf);   // -> int: 1 all written, 0 on error
     int close();
 };
 
@@ -710,6 +711,9 @@ I/O 퓨처는 논블로킹 호출을 바로 시도합니다([`std/sched/io_nb.h`
 연결마다 핸들러 태스크를 하나씩 두는 에코 서버:
 
 ```c
+#include <std/async/async.h>
+#include <std/async/net.h>
+
 struct EchoConn {
     int st; struct AsyncTcpStream c; struct ReadFut rd; struct WriteAllFut wr;
     long long n; int ok; unsigned char buf[512];
@@ -725,8 +729,9 @@ struct Poll<int> EchoConn::poll(&Context cx) {
         if (self.n <= 0LL) break;                       // EOF or error
         self.wr = self.c.write_all(self.buf[0..(unsigned long)self.n]);
         AWAIT_INTO(2, self.ok, self.wr);
+        if (self.ok == 0) break;
     }
-    self.c.close();
+    unsafe { self.c.close(); }    // early, in place: drop() then closes nothing again
     ASYNC_RETURN(0);
     ASYNC_END;
 }
@@ -750,19 +755,26 @@ struct Poll<int> Server::poll(&Context cx) {
     for (self.n = 0; self.n < 16; self.n = self.n + 1) {
         self.acc = self.l.accept();
         AWAIT_INTO(1, self.c, self.acc);
+        if (self.c.fd < 0) break;
         {
             struct EchoConn e;
             e.st = ASYNC_INIT;
-            e.c = self.c;
+            e.c = std::replace(&self.c, AsyncTcpStream::from_fd(-1));   // move the stream out
             self.conns[self.n] = AsyncTask::new(e);
-            async_spawn(cx, &self.conns[self.n]);       // the handler lives in the server's struct
+            drop(async_spawn(cx, &self.conns[self.n]));  // the handler lives in the server's struct
         }
     }
     ASYNC_RETURN(self.n);
     ASYNC_END;
 }
 
-void Server::drop() { if (self.st == 1) self.acc.drop(); self.l.close(); self.st = ASYNC_DONE; }
+void Server::drop() {
+    if (self.st == 1) self.acc.drop();
+    self.c.drop();
+    for (int i = 0; i < self.n; i = i + 1) self.conns[i].drop();
+    self.l.close();
+    self.st = ASYNC_DONE;
+}
 
 static struct Runtime rt;
 static struct AsyncTask<struct Server, int> server;
@@ -772,9 +784,10 @@ int main() {
     if (rt.init() != 0) return 1;
     struct Server s;
     s.st = ASYNC_INIT;
+    s.n = 0;
     s.l = AsyncTcpListener::bind((unsigned short)7000);
     server = AsyncTask::new(s);
-    rt.spawn(&server);
+    drop(rt.spawn(&server));      // the JoinHandle: not awaited here
     rt.run();
     rt.close_();
     return 0;

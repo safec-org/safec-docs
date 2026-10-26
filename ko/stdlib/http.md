@@ -40,6 +40,7 @@ struct HttpResponse create(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();           // Router는 Drop 타입: main이 어떻게 반환하든 해제됩니다
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -900,16 +901,20 @@ struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     int listener = std::ws_listen(9001);
-    struct WsConn conn;
-    while (conn.accept(listener)) {
-        struct WsMessage msg;
-        while (conn.recv(&msg)) {
-            if (msg.opcode == WS_OPCODE_CLOSE) { msg.free(); break; }
-            if (msg.opcode == WS_OPCODE_PING)  { conn.send_pong(); }
-            if (msg.opcode == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
-            msg.free();
+    while (1) {
+        struct WsConn conn;
+        conn.fd = -1;                         // accept가 실패하면 닫을 것이 없습니다
+        if (!conn.accept(listener)) { conn.close(); break; }
+        while (1) {
+            struct WsMessage msg;             // 프레임마다 새 메시지
+            if (!conn.recv(&msg)) { msg.free(); break; }
+            int op = msg.opcode;
+            msg.free();                       // free()는 msg를 소비합니다
+            if (op == WS_OPCODE_CLOSE) break;
+            if (op == WS_OPCODE_PING)  { conn.send_pong(); }
+            if (op == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
         }
-        conn.close();
+        conn.close();                         // close()는 conn을 소비합니다
     }
     return 0;
 }
