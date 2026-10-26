@@ -131,6 +131,8 @@ nav:
         link: /ko/stdlib/sched
       - text: 네트워킹
         link: /ko/stdlib/net
+      - text: TLS
+        link: /ko/stdlib/tls
       - text: HTTP와 웹
         link: /ko/stdlib/http
       - text: WebAssembly와 DOM
@@ -304,6 +306,8 @@ sidebar:
             link: /ko/stdlib/sched
           - text: 네트워킹
             link: /ko/stdlib/net
+          - text: TLS
+            link: /ko/stdlib/tls
           - text: HTTP와 웹
             link: /ko/stdlib/http
           - text: WebAssembly와 DOM

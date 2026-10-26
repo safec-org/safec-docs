@@ -131,6 +131,8 @@ nav:
         link: /stdlib/sched
       - text: Networking
         link: /stdlib/net
+      - text: TLS
+        link: /stdlib/tls
       - text: HTTP & Web
         link: /stdlib/http
       - text: WebAssembly & DOM
@@ -304,6 +306,8 @@ sidebar:
             link: /stdlib/sched
           - text: Networking
             link: /stdlib/net
+          - text: TLS
+            link: /stdlib/tls
           - text: HTTP & Web
             link: /stdlib/http
           - text: WebAssembly & DOM
