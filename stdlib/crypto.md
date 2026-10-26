@@ -599,8 +599,8 @@ struct SecureAllocator {
 
     // One slot for size bytes aligned to align; null when every slot is in
     // use, size > obj_size, or align is above slab.max_align() (at most 8).
-    ?&heap void   alloc(unsigned long size, unsigned long align);
-    void          dealloc(?&heap void ptr);  // zeroes the slot, then frees it; null is a no-op
+    ?&heap unsigned char alloc(unsigned long size, unsigned long align);
+    void          dealloc(?&heap unsigned char ptr);  // zeroes the slot, then frees it; null is a no-op
     unsigned long available() const;
     void          destroy();             // zeroes every slot, frees the backing buffer
 };

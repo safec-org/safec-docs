@@ -100,10 +100,12 @@ void process() {
 `<std/mem.h>`의 `malloc_defer(n)`은 위의 할당-후-`defer dealloc` 패턴을
 하나의 호출로 설탕 처리(sugar)합니다. `malloc_defer`는 실제 함수가
 아닙니다 — 변수 선언의 초기화식으로만 인식되는 파서 수준의 문법 설탕이며,
-선언 부분은 `std::alloc_raw_(n)`(제네릭 `std::alloc` 뒤에 있는 타입 소거
-할당자)으로, 그 바로 뒤에는 합성된 `defer std::dealloc_raw_(buf);`로
-탈설탕(desugar)됩니다. 결과는 원시 `void*`이므로, 타입이 있고 널 검사가
-되는 뷰를 얻으려면 변수를 널 가능 힙 참조로 선언하십시오:
+선언 부분은 `std::alloc(n)`(선언된 타입에서 `T`를 가져오는 제네릭
+할당자)으로, 그 바로 뒤에는 합성된 `defer std::dealloc(buf);`로
+탈설탕(desugar)됩니다. 타입이 있고 널 검사가 되는 뷰를 얻으려면 변수를 널
+가능 힙 참조로 선언하십시오(`auto`로 선언하면 `T`를 가져올 타입이 없으므로
+타입 소거된 `std::alloc_raw_(n)` / `std::dealloc_raw_` 쌍이 쓰이고, 변수는
+바이트 포인터 `unsigned char*`가 됩니다):
 
 ```c
 #include <std/mem.h>
@@ -114,7 +116,7 @@ void process2() {
         case some(p): { *p = 1; }   // ... p 사용 ...
         case null:    { }           // 메모리 부족
     }
-}   // std::dealloc_raw_(buf)가 여기서 합성된 defer를 통해 실행됨
+}   // std::dealloc(buf)가 여기서 합성된 defer를 통해 실행됨
 ```
 
 지연된 해제는 스코프가 끝날 때 실행되므로, 그 뒤의 문장들에 대해서는
