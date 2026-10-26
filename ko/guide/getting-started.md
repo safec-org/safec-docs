@@ -57,6 +57,7 @@ cd hello
 
 ```
 hello/
+  .gitignore
   Package.toml
   src/
     main.sc
