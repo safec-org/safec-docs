@@ -385,7 +385,7 @@ struct Poll<Unit> Flag::poll(&Context cx) {
     return Poll::pending();                    // ... then report Pending
 }
 void Flag::set()  { self.is_set = 1; self.waiter.wake(); }
-void Flag::drop() { self.waiter.clear(); }
+void Flag::drop() { self.waiter.drop(); }   // 갖고 있던 waker를 놓습니다
 ```
 
 (스레드 사이에서 공유된다면 `std/async`의 기본 요소들처럼 검사와 등록을 잠금으로 감싸야 합니다.)

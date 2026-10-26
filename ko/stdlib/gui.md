@@ -328,6 +328,7 @@ gui_headless_advance(600.0);                   // the clock, in ms
 gui_headless_set_scale(2.0);                   // windows made from now on are 2x
 int cur = gui_headless_cursor(&win);           // GUI_CURSOR_* last asked for
 unsigned long n = gui_headless_present_count(&win);
+win.destroy();
 ```
 
 ### 백엔드 작성하기 {#writing-a-backend}

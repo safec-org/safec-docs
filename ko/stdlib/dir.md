@@ -96,6 +96,7 @@ for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
     if (ext.eq_cstr("md")) { std::println(pages.at(i).as_ptr()); }
     ext.free();
 }
+pages.free();
 ```
 
 ## 경로 문자열 {#path}

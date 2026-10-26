@@ -385,7 +385,7 @@ struct Poll<Unit> Flag::poll(&Context cx) {
     return Poll::pending();                    // ... then report Pending
 }
 void Flag::set()  { self.is_set = 1; self.waiter.wake(); }
-void Flag::drop() { self.waiter.clear(); }
+void Flag::drop() { self.waiter.drop(); }   // releases a held waker
 ```
 
 (Shared between threads it would need a lock around the check and the registration, as `std/async`'s own primitives have.)

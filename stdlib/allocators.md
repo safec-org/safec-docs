@@ -135,6 +135,7 @@ struct PoolAllocator pool = std::PoolAllocator::new(4096UL);
 ?&heap Packet p = std::alloc_t(&pool);                 // T = Packet
 ?&heap float xs = std::alloc_array_t(&pool, 64UL);     // 64 floats
 match (p) { case some(x): std::dealloc_t(&pool, x); case null: { } }
+pool.destroy();
 ```
 
 `alloc_array_t` aborts with a diagnostic if `n * sizeof(T)` overflows (`checked_mul_size`). The memory is uninitialised. These are distinct from [`std::alloc` / `std::dealloc`](/stdlib/mem), which allocate from the general-purpose heap and take no allocator.

@@ -266,4 +266,6 @@ gui_headless_type(&win, "hello");
 struct GuiEvent ev;
 while (win.poll_event(&ev)) { ui.dispatch(&ev); }
 ASSERT_TRUE(name.text.eq_cstr("hello"));
+ui.free();                 // the UI and its widget tree
+win.destroy();
 ```

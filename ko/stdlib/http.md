@@ -882,12 +882,14 @@ struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
     if (!std::ws_is_upgrade(req)) return std::HttpResponse::text(426, "WebSocket only");
     int ok = 0;
     struct WsConn ws = std::WsConn::accept_upgrade(req, ctx.conn, &ok);
-    if (!ok) return std::HttpResponse::error(400);
-    struct WsMessage m;
-    while (ws.recv_message(&m, 1048576UL)) {
-        if (m.opcode == WS_OPCODE_CLOSE) { m.free(); break; }
-        ws.send_text("got it");
+    if (!ok) { ws.close(); return std::HttpResponse::error(400); }
+    while (1) {
+        struct WsMessage m;
+        if (!ws.recv_message(&m, 1048576UL)) { m.free(); break; }
+        int op = m.opcode;
         m.free();
+        if (op == WS_OPCODE_CLOSE) break;
+        ws.send_text("got it");
     }
     ws.close();
     return std::HttpResponse::new(200);   // ignored: the connection was detached

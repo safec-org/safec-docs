@@ -135,6 +135,7 @@ struct PoolAllocator pool = std::PoolAllocator::new(4096UL);
 ?&heap Packet p = std::alloc_t(&pool);                 // T = Packet
 ?&heap float xs = std::alloc_array_t(&pool, 64UL);     // 64 floats
 match (p) { case some(x): std::dealloc_t(&pool, x); case null: { } }
+pool.destroy();
 ```
 
 `alloc_array_t`는 `n * sizeof(T)`가 오버플로하면 진단 메시지와 함께 중단합니다(`checked_mul_size`). 메모리는 초기화되지 않습니다. 이 헬퍼들은 얼로케이터를 받지 않고 범용 힙에서 할당하는 [`std::alloc` / `std::dealloc`](/ko/stdlib/mem)과는 별개입니다.
