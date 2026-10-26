@@ -29,9 +29,9 @@ code: |
 
 ## 플레이그라운드 소개 {#about}
 
-- **예제**에서 [SafeC 북](/ko/book/)의 실행 가능한 프로그램을 불러올 수 있습니다. 이 사이트의 다른 모든 SafeC 프로그램에도 이곳에서 여는 *플레이그라운드에서 실행* 링크가 있습니다.
+- **예제**에서 [SafeC 북](/ko/book/)의 실행 가능한 프로그램을 불러올 수 있습니다. 이 사이트의 다른 SafeC 프로그램 중 플레이그라운드가 빌드할 수 있는 것(컴파일러에 포함된 C·std 헤더만 include하는 프로그램, 아래 참고)에는 이곳에서 여는 *플레이그라운드에서 실행* 링크가 있습니다.
 - **공유**는 프로그램을 페이지 주소(`#code=…`, base64url)에 담고 링크를 복사합니다 — 어디에도 업로드되지 않습니다.
-- **실행**은 WebAssembly로 빌드한 셀프 호스팅 SafeC 컴파일러로, 백그라운드 워커에서 브라우저 안에서만 프로그램을 컴파일·실행합니다. 프로그램은 `printf`/stdout을 쓸 수 있지만 파일, 네트워크, 스레드는 없습니다. 컴파일러는 SafeC로 작성한 SafeC 컴파일러 scc([selfhost/](https://github.com/safec-org/SafeC/tree/main/selfhost))입니다. `SUBSET.md`에 설명된 언어 부분집합을 받아들이며, 소유권·스레드 안전성 검사는 실행하지 않습니다. 이 검사와 전체 std가 필요하면 로컬에서 실행하세요:
+- **실행**은 WebAssembly로 빌드한 셀프 호스팅 SafeC 컴파일러로, 백그라운드 워커에서 브라우저 안에서만 프로그램을 컴파일·실행합니다. 프로그램은 `printf`/stdout을 쓸 수 있지만 파일, 네트워크, 스레드는 없습니다. 컴파일러는 SafeC로 작성한 SafeC 컴파일러 scc([selfhost/](https://github.com/safec-org/SafeC/tree/main/selfhost))입니다. `SUBSET.md`에 설명된 언어 부분집합을 받아들이며, 소유권·스레드 안전성 검사는 실행하지 않습니다. 프로그램은 C 라이브러리 부분집합 `stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `math.h`, `stdbool.h`, `stdint.h`, `stddef.h`, `limits.h`, `time.h`, `assert.h`와 std 헤더 `std/io.h`, `std/str.h`, `std/mem.h`, `std/fmt.h`, `std/math.h`, `std/convert.h`, `std/panic.h`, `std/result.h`, `std/cmp.h`, `std/traits.h`, `std/bit.h`, `std/atomic.h`, `std/sys.h`, `std/collections/{slice,vec,string,map}.h` 및 이들이 쓰는 작은 헤더를 include할 수 있습니다. 이 검사와 전체 std가 필요하면 로컬에서 실행하세요:
 
 ```bash norun
 safeguard new hello && cd hello

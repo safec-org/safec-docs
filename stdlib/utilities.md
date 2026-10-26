@@ -444,7 +444,7 @@ int time_days_in_month(int month, int year);        // month 0-11, full year (e.
 int time_is_leap(int year);
 ```
 
-```c
+```c norun
 #include <std/time.h>
 #include <std/io.h>
 

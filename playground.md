@@ -29,9 +29,9 @@ code: |
 
 ## About the playground {#about}
 
-- **Examples** loads any runnable program from [the Book](/book/); every SafeC program elsewhere on this site has a *Run in Playground* link that opens it here.
+- **Examples** loads any runnable program from [the Book](/book/); every SafeC program elsewhere on this site that the playground can build (one that includes only the C and std headers bundled with its compiler, below) has a *Run in Playground* link that opens it here.
 - **Share** puts the program into the page's address (`#code=…`, base64url) and copies the link — nothing is uploaded anywhere.
-- **Run** compiles and runs the program entirely in your browser, in a background worker, with a self-hosted SafeC compiler built to WebAssembly. Programs see a `printf`/stdout but no files, network or threads. The compiler is scc, SafeC's compiler written in SafeC ([selfhost/](https://github.com/safec-org/SafeC/tree/main/selfhost)); it accepts the language subset described in its `SUBSET.md` and does not run the ownership and thread-safety checks. For those, and for the full std, run programs locally:
+- **Run** compiles and runs the program entirely in your browser, in a background worker, with a self-hosted SafeC compiler built to WebAssembly. Programs see a `printf`/stdout but no files, network or threads. The compiler is scc, SafeC's compiler written in SafeC ([selfhost/](https://github.com/safec-org/SafeC/tree/main/selfhost)); it accepts the language subset described in its `SUBSET.md` and does not run the ownership and thread-safety checks. Programs can include the C library subsets `stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `math.h`, `stdbool.h`, `stdint.h`, `stddef.h`, `limits.h`, `time.h` and `assert.h`, and the std headers `std/io.h`, `std/str.h`, `std/mem.h`, `std/fmt.h`, `std/math.h`, `std/convert.h`, `std/panic.h`, `std/result.h`, `std/cmp.h`, `std/traits.h`, `std/bit.h`, `std/atomic.h`, `std/sys.h`, `std/collections/{slice,vec,string,map}.h` and the small headers they use. For those, and for the full std, run programs locally:
 
 ```bash norun
 safeguard new hello && cd hello

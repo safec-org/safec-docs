@@ -219,7 +219,7 @@ void example() {
 채널 자체는 정적 저장소를 통해 공유되는데, 생성된 스레드가 쓰는 모든 값이
 스레드보다 오래 살아야 하는 것과 같은 이유입니다.
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 static ?&void g_ch = null;
 

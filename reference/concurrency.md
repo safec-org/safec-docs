@@ -219,7 +219,7 @@ The handle is opaque and values go in and out by reference, so no `unsafe`
 is involved. The channel itself is shared through static storage here, the
 same way any value a spawned thread uses must outlive it:
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 static ?&void g_ch = null;
 

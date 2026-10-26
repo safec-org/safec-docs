@@ -465,7 +465,7 @@ extern "C" int sum_cpp(int a, int b) {
 }
 ```
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 // src/main.sc
 extern int add_c(int a, int b);

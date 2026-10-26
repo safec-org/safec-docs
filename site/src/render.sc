@@ -308,11 +308,63 @@ static void render_layout(&RenderCtx c, const &MdNode n, &String out) {
     title.free();
 }
 
-// A whole SafeC program (something the playground can run)?
+// The headers the playground's in-browser compiler (SafeC's scc) bundles:
+// the C subsets in selfhost/include/ and the std headers that
+// selfhost/tools/genvfs.py serves (its STD_SEED and what they include).
+// Any other #include fails there. Keep in step with "Programs can
+// #include" in SafeC's selfhost/web/README.md.
+static const &char PLAYGROUND_HEADERS() {
+    return    " assert.h ctype.h limits.h math.h stdbool.h stddef.h stdint.h stdio.h"
+    " stdlib.h string.h time.h"
+    " std/assert.h std/atomic.h std/bit.h std/cmp.h std/convert.h std/ctype.h"
+    " std/erased.h std/float.h std/fmt.h std/inttypes.h std/io.h std/io_file.h"
+    " std/io_traits.h std/limits.h std/math.h std/mem.h std/ownership.h std/panic.h"
+    " std/result.h std/stdbool.h std/stdckdint.h std/stddef.h std/stderr_compat.h"
+    " std/stdint.h std/str.h std/sys.h std/time.h std/traits.h"
+    " std/collections/map.h std/collections/slice.h std/collections/string.h"
+    " std/collections/vec.h ";
+}
+
+// Does every #include of 'code' name a header the playground has?
+static int playground_includes(const &String code) {
+    struct String list = String::from(PLAYGROUND_HEADERS());
+    struct String rest = code.clone();
+    int ok = 1;
+    while (ok && rest.len > 0UL) {
+        long long nl = rest.find_char('\n');
+        struct String line = rest.substr(0UL, nl < 0LL ? rest.len : (unsigned long)nl);
+        struct String t = line.trim();
+        if (t.starts_with("#include")) {
+            struct String spec = t.substr(8UL, t.len);
+            struct String s = spec.trim();
+            long long close = s.find_char('>');
+            if (!s.starts_with("<") || close < 1LL) {
+                ok = 0;                              // "local.h": not in the playground
+            } else {
+                struct String name = s.substr(1UL, (unsigned long)close);
+                struct String key = String::from(" ");
+                key.push_str(&name);
+                key.push(" ");
+                ok = list.contains(key.as_ptr());
+                key.free(); name.free();
+            }
+            s.free(); spec.free();
+        }
+        t.free(); line.free();
+        struct String next = nl < 0LL ? String::new() : rest.substr((unsigned long)nl + 1UL, rest.len);
+        rest.free();
+        rest = next;
+    }
+    rest.free(); list.free();
+    return ok;
+}
+
+// A whole SafeC program the playground can run? ("c run" forces the link.)
 static int runnable(const &String lang, const &String info, const &String code) {
     if (info.contains("norun")) { return 0; }
     if (!(lang.eq_cstr("c") || lang.eq_cstr("sc") || lang.eq_cstr("safec"))) { return 0; }
-    return code.contains("int main(") || info.contains(" run");
+    if (info.contains(" run")) { return 1; }
+    return code.contains("int main(") && playground_includes(code);
 }
 
 static void render_code(&RenderCtx c, const &MdNode n, &String out) {

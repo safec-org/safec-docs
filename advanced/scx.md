@@ -182,7 +182,7 @@ it finds under `src/` regardless of [feature flags](/advanced/safeguard#feature-
 the same as any `.sc` file. A frontend/backend split comes from *calling*
 scx-rendered pages conditionally, not from excluding the file:
 
-```c
+```c norun
 // src/main.sc
 #ifdef SAFEC_FEATURE_FRONTEND
 struct String render_home(const &char visitor_name); // src/pages.scx
