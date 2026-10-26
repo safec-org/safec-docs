@@ -50,6 +50,7 @@ ALSA와 JACK은 `dlopen()`으로 열리므로, `std/audio`로 빌드한 프로�
 ```c
 #include <std/audio/audio.h>
 #include <std/math.h>
+#include <std/thread.h>
 extern int printf(const char* fmt, ...);
 
 struct Tone { double phase; double step; };
@@ -88,7 +89,7 @@ int main() {
     match (r.get_err()) { case some(e): { printf("%s\n", e.message); return 1; } case null: {} }
     struct AudioStream s = r.unwrap_or(std::AudioStream::closed());
     s.start();
-    std::audio_sleep_us_(2000000LL);                      // two seconds
+    std::thread_sleep_ms(2000UL);                        // two seconds
     s.stop();
     s.close();
     audio.close();
