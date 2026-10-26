@@ -85,7 +85,7 @@ struct GuiWindow {
     int  wait_event(&GuiEvent out, int timeoutMs);
     void present();                       // show the buffer
     void present_rect(int x, int y, int w, int h);
-    void destroy();
+    void destroy() consume;
 
     void set_title(const &char title);    // UTF-8
     void set_size(int width, int height); // logical
@@ -177,7 +177,7 @@ struct GuiColor {
     static struct GuiColor hexa(unsigned int rrggbbaa);
     static struct GuiColor rgbaf(float r, float g, float b, float a);   // 0..1
     static struct GuiColor hsv(float h, float s, float v, float a);     // h in degrees
-    struct GuiColor with_alpha(unsigned char a) const;
+    struct GuiColor with_alpha(float f) const;   // alpha multiplied by f (0..1)
     struct GuiColor mix(struct GuiColor other, float t) const;
     struct GuiColor shade(float amount) const;   // > 0 lighter, < 0 darker
     unsigned int packed() const;                 // 0xRRGGBBAA
@@ -219,7 +219,7 @@ struct GuiApp {
     void quit(int exitCode);
     double now_ms() const;
     void set_frame_interval(double ms);   // default 1000/60
-    void free();                // closes every window
+    void free() consume;        // closes every window
 };
 ```
 
@@ -408,10 +408,10 @@ struct GuiImage {
     int  save_png(const &char path) const;                       // RGBA, stored deflate blocks
     void premultiply(); void unpremultiply();
     struct GuiImage copy() const;
-    struct GuiImage scaled(int width, int height, int smooth) const;  // area average / bilinear
+    struct GuiImage scaled(int width, int height) const;  // area average shrinking, bilinear enlarging
     unsigned int get_pixel(int x, int y) const; void set_pixel(int x, int y, unsigned int rgba);
     void draw(&GuiWindow win, int x, int y) const;              // a straight copy
-    void free();
+    void free() consume;
 };
 ```
 

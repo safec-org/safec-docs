@@ -164,7 +164,7 @@ struct Audio {
                                                        &unsigned int frames,
                                                        fn int(&AudioIo, ?&T) callback, ?&T user,
                                                        ?&AudioStreamOptions opts);
-    void close();                                            // streams stay valid
+    void close() consume;                                    // streams stay valid
 };
 ```
 
@@ -265,7 +265,7 @@ struct AudioStream {
     struct AudioError start();
     struct AudioError stop();             // play out what's queued, then stop
     struct AudioError abort();            // stop now
-    void close();                         // abort if running; release everything; idempotent
+    void close() consume;                 // abort if running; release everything; idempotent
 
     int    is_open() const;
     int    is_running() const;            // 0 after the callback returned STOP/ABORT, too
@@ -336,16 +336,17 @@ const &char audio_error_name(int code);
 
 ```c
 unsigned long audio_f32_to_i16([]const float in, []short out);   // and back: audio_i16_to_f32
-void audio_f32_to_i32(...);  void audio_i32_to_f32(...);
-unsigned long audio_f32_to_i24([]const float in, []S24 out);   // packed 3-byte
-void audio_i24_to_f32(...);
-void audio_f32_to_i8(...);   void audio_i8_to_f32(...);
-void audio_f32_to_f64(...);  void audio_f64_to_f32(...);
-void audio_i16_to_i32(...);  void audio_i32_to_i16(...);
+unsigned long audio_f32_to_i32([]const float in, []int out);         // and back
+unsigned long audio_f32_to_i24([]const float in, []S24 out);         // packed 3-byte; and back
+unsigned long audio_f32_to_i8([]const float in, []signed char out);  // and back
+unsigned long audio_f32_to_f64([]const float in, []double out);      // and back
+unsigned long audio_i16_to_i32([]const short in, []int out);         // and back
+// each converts min(in.len, out.len) samples and returns that count
 unsigned long audio_f32_to_i16_dither([]const float in, []short out, &unsigned int state);  // TPDF
 
-void audio_interleave_f32(const &float planar, &float out, unsigned long frames, int channels);
-void audio_deinterleave_f32(const &float in, &float planar, unsigned long frames, int channels);
+// frames = min(planar.len, out.len) / channels; returns it
+unsigned long audio_interleave_f32([]const float planar, []float out, int channels);
+unsigned long audio_deinterleave_f32([]const float in, []float planar, int channels);
 void audio_gain_f32([]float buf, float gain);
 unsigned long audio_mix_f32([]float dst, []const float src, float gain);
 float audio_peak_f32([]const float buf);
@@ -353,8 +354,8 @@ float audio_peak_f32([]const float buf);
 // std/dsp interop
 unsigned long audio_f32_to_fixed([]const float in, []Fixed out);   // Q8.24
 unsigned long audio_fixed_to_f32([]const Fixed in, []float out);
-unsigned long audio_buffer_write_f32(&AudioBuffer buf, const &float in, unsigned long frames);
-unsigned long audio_buffer_read_f32(&AudioBuffer buf, &float out, unsigned long frames);
+unsigned long audio_buffer_write_f32(&AudioBuffer buf, []const float in);   // in.len / channels frames
+unsigned long audio_buffer_read_f32(&AudioBuffer buf, []float out);         // up to out.len / channels
 ```
 
 N비트 정수 `s`는 `s / 2^(N-1)`로 대응되므로 가장 작은 음수 값은 정확히 −1.0입니다; float에서 정수로는 `2^(N-1) − 1`을 곱하고 가장 가까운 값으로 반올림하며 포화시킵니다. `audio_buffer_write_f32`/`read_f32`는 인터리브된 프레임을 [`std::AudioBuffer`](/ko/stdlib/dsp#audiobuffer-lock-free-multi-channel-ring-buffer) — std/dsp의 필터가 읽는 락 없는 SPSC 링 — 로 넣고 꺼내며, 스택 위의 고정 크기 청크 단위로 Q8.24로 변환합니다: 콜백과 프로그램의 나머지 사이의 자연스러운 전달 수단입니다. 녹음된 데이터의 샘플 레이트 변환에는 [`resample_sinc_f32`](/ko/stdlib/dsp#resample-upsampling-downsampling) 등을 씁니다.
@@ -380,7 +381,7 @@ struct MidiIn {
     void ignore_types(int sysex, int timing, int active_sensing);   // default: all three ignored
     long get_message([]unsigned char buf, &double timestamp);
     unsigned long dropped() const;
-    void close();
+    void close() consume;
 };
 
 struct MidiOut {

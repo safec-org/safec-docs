@@ -117,15 +117,15 @@ struct CovSite {
 
 struct Coverage {
     CovSite       sites[COV_MAX_SITES];  // 1024
-    unsigned int  used;
+    int           count;
 
     int           register_site(const &char file, int line);
     void          hit(int idx);
     unsigned long get(int idx) const;
-    unsigned long covered_count() const;
-    unsigned long coverage_pct() const;  // integer 0–100
+    int           covered_count() const;
+    int           coverage_pct() const;  // integer 0–100
     void          reset();
-    void          report();              // print HIT/MISS per site (hosted only)
+    void          report() const;        // print HIT/MISS per site (hosted only)
 }
 ```
 

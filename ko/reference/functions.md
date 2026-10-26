@@ -183,20 +183,20 @@ struct Tensor { ... };
 `static`으로 선언한 메서드는 `self`가 없으며 타입을 통해 호출합니다. 타입의 생성자와 그 밖의 타입 수준 함수를 두는 자리입니다:
 
 ```c
-struct File {
+struct Log {
     int fd;
 
-    static struct File open(const &char path);   // self 없음
-    int read(&unsigned char buf, unsigned long n);
+    static struct Log open(const &char path);   // self 없음
+    int write([]const unsigned char bytes);
 };
 
-struct File File::open(const &char path) { ... }  // 다른 메서드처럼 정의하며 'static'은 쓰지 않습니다
+struct Log Log::open(const &char path) { ... }   // 다른 메서드처럼 정의하며 'static'은 쓰지 않습니다
 
-struct File f = File::open("data.bin");           // 구조체의 네임스페이스 안에서
-struct File g = std::File::open("data.bin");      // 'namespace std' 바깥에서
+struct Log l = Log::open("app.log");              // 타입을 통해 호출
+struct String s = std::String::from("data");      // std 타입의 것, 'namespace std' 바깥에서
 ```
 
-정적 메서드는 일반 함수 `File_open`으로 lowering됩니다. 다른 메서드와 같은 맹글링에서 self 포인터만 빠지므로, 호출 비용은 함수 호출 하나와 같습니다. 단어 형태의 키워드는 `(`가 뒤따르는 자리에서 메서드 이름으로 쓸 수 있으므로 `Vec::new()`, `String::join(...)`, `t.spawn()`이 모두 유효합니다.
+정적 메서드는 일반 함수 `Log_open`으로 lowering됩니다. 다른 메서드와 같은 맹글링에서 self 포인터만 빠지므로, 호출 비용은 함수 호출 하나와 같습니다. 단어 형태의 키워드는 `(`가 뒤따르는 자리에서 메서드 이름으로 쓸 수 있으므로 `Vec::new()`, `String::join(...)`, `t.spawn()`이 모두 유효합니다.
 
 [제네릭 구조체](/ko/reference/generics#generic-structs-and-methods)의 정적 메서드는 구조체의 매개변수에 대한 제네릭 함수이며, 다른 제네릭 호출과 같이 추론됩니다. 인자에서 추론하고, 매개변수가 반환 타입에만 나타나면 대상 타입에서 추론합니다:
 

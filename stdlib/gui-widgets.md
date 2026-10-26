@@ -80,7 +80,7 @@ struct GuiUi {
     void show_modal(&Widget dialog);
     void close_modal(&Widget dialog);
     ?&Widget modal() const;
-    void free();
+    void free() consume;
 };
 ```
 

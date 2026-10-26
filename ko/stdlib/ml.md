@@ -110,7 +110,7 @@ struct DenseTensor {
     float at2(unsigned long r, unsigned long c) const;
     void  set1(unsigned long i, float v);                  // rounded to E
     void  set2(unsigned long r, unsigned long c, float v);
-    void  free();
+    void  free() consume;
     // ... and the methods below
 };
 

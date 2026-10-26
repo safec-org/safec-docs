@@ -375,7 +375,7 @@ struct TcpConn {
                  unsigned int local_ip, unsigned short local_port,
                  unsigned int isn);
 
-    void close();   // FIN 전송
+    void close() consume;   // FIN 전송
 }
 
 // pkt의 바이트 오프셋 'offset'에서 TCP 헤더를 파싱한다. 성공 시 0, 잘렸거나

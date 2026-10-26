@@ -20,13 +20,13 @@ struct DirEntry {
     struct String name;   // 항목 자체의 이름, 디렉터리 부분 없음
     int kind;             // DIR_FILE / DIR_DIR / DIR_LINK / DIR_OTHER
     static struct DirEntry new();
-    void free();
+    void free() consume;
 };
 
 struct Dir {
     static ?&Dir open(const &char path);   // 읽을 수 있는 디렉터리가 아니면 null
     int  next(&DirEntry out);              // 1 = 항목을 읽음(이름이 교체됨), 0 = 끝
-    void close();
+    void close() consume;
 };
 ```
 

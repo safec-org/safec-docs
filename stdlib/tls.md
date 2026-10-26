@@ -119,7 +119,7 @@ struct TlsConfig {
     void set_client_cert(const &char cert_pem, const &char key_pem);
     void insecure_skip_verify();     // verification off: tests against self-signed servers only
     struct TlsConfig clone() const;
-    void free();
+    void free() consume;
 };
 
 struct TlsServerConfig {
@@ -135,7 +135,7 @@ struct TlsServerConfig {
     static struct TlsServerConfig new();
     int  load_files(const &char cert_path, const &char key_path);   // 0 if either can't be read
     void set_alpn(const &char protocols);
-    void free();
+    void free() consume;
 };
 ```
 
@@ -154,8 +154,8 @@ struct TlsStream {
     long long read([]unsigned char buf);         // count, 0 = peer closed, -1, TLS_WANT_*
     long long write([]const unsigned char buf);  // count, -1, TLS_WANT_*
     int       shutdown();      // send close_notify (once)
-    int       close();         // shutdown, free, close the socket
-    void      release();       // free the TLS state, leave the fd open
+    int       close() consume; // shutdown, free, close the socket
+    void      release() consume;       // free the TLS state, leave the fd open
 
     int  is_open() const;
     int  version() const;               // TLS_VERSION_1_2 / TLS_VERSION_1_3
@@ -170,7 +170,7 @@ struct TlsAcceptor {
     static struct Result<TlsAcceptor, TlsError> new(const &TlsServerConfig cfg);
     struct Result<TlsStream, TlsError> accept(int fd);   // blocking handshake
     struct Result<TlsStream, TlsError> start(int fd);    // non-blocking: drive with handshake()
-    void free();
+    void free() consume;
 };
 ```
 

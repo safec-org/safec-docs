@@ -129,7 +129,7 @@ int sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lon
 
 // 같은 연산을 항상 호출한 스레드에서만 (풀 없음; 링크된 벤더 라이브러리는
 // 단일 스레드로): 이미 병렬인 코드용.
-void sgemm_serial(/* 같은 매개변수 */);
+int sgemm_serial(/* 같은 매개변수 */);
 
 int sgemm_vendor();            // 벤더 BLAS를 쓰고 있으면 1
 const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"

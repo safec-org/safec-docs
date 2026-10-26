@@ -101,7 +101,7 @@ generic<T> struct Poll {
     static struct Poll<T> pending();
     int is_ready() const;
     int is_pending() const;
-    ?T  take() const;               // the value, or null if Pending
+    ?T  take() consume;             // the value, or null if Pending
 };
 
 trait Future {
@@ -130,7 +130,7 @@ struct Waker {
                                            ?&T data, unsigned long tag);
     static struct Waker noop();
 
-    void wake();                         // wake_by_ref(), then drop()
+    void wake() consume;                 // wake_by_ref(), then drop()
     void wake_by_ref() const;
     struct Waker clone() const;          // runs the clone hook
     void drop();                         // runs the drop hook; a dropped waker wakes nothing
@@ -402,7 +402,7 @@ generic<F: Future, T> struct AsyncTask {
     static struct AsyncTask<F, T> new(F fut);
     int is_finished() const;           // done, either way
     int is_aborted() const;
-    ?T  take() const;                  // the output if it finished (not aborted)
+    ?T  take();                        // the output if it finished (not aborted)
 };
 
 generic<T> struct JoinHandle {         // returned by spawn
@@ -510,7 +510,7 @@ struct ThreadPool {
     generic<F, T> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
     generic<F: Future, T> T block_on(F fut);   // run as a task, block this thread for the value
     void wait_idle();                    // every spawned task finished
-    void shutdown();                     // stop and join the workers
+    void shutdown() consume;             // stop and join the workers
 };
 ```
 
@@ -690,7 +690,7 @@ struct AsyncTcpListener {
     static struct AsyncTcpListener bind(unsigned short port);   // 0: any free port
     struct AcceptFut accept();                           // -> struct AsyncTcpStream (.fd < 0 on error)
     unsigned short local_port() const;
-    int close();
+    int close() consume;
 };
 
 struct AsyncTcpStream {
@@ -700,7 +700,7 @@ struct AsyncTcpStream {
     struct ReadFut     read([]unsigned char buf);        // -> long long: bytes, 0 at EOF, -1 on error
     struct WriteFut    write([]const unsigned char buf);       // -> long long: bytes written, -1 on error
     struct WriteAllFut write_all([]const unsigned char buf);   // -> int: 1 all written, 0 on error
-    int close();
+    int close() consume;
 };
 
 struct IoReady { static struct IoReady new(int fd, int filter); };   // -> UNIT once ready

@@ -52,6 +52,10 @@ int main() {
 
 이 페이지의 나머지 부분 — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — 는 위의 `spawn`/`join` 키워드 대신 OS 스레드를 직접 제어하고 싶을 때 사용하는, 별도로 명시적으로 호출하는 API입니다. 두 계층 모두 호스티드 타깃에서는 pthread/Win32 기반으로 동작합니다. `thread_create`의 핸들은 Win32에서 `spawn`의 핸들과 ABI 호환이지만, 그 외에는 두 API가 서로 독립적입니다(이 API는 훅 백엔드 계약의 일부가 아닙니다).
 
+::: tip 검사되는 스레드
+`std/thread.h`에는 컴파일러의 [Send/Sync 검사](/ko/reference/threads)가 적용되는 타입 있는 계층도 있습니다: `thread_spawn(f, arg)`는 인자(`T: Send`)를 새 스레드로 옮기고 `SpawnedThread<T, R>`를 반환하며, 그 `join()`이 `f`의 결과를 돌려줍니다. `Mutex<T>` / `RwLock<T>`는 보호하는 값을 소유합니다. 아래의 핸들 기반 함수는 스레드가 무엇을 공유하는지 전혀 검사하지 않으므로 타입 있는 계층을 쓰세요.
+:::
+
 ```c
 #include <std/thread.h>
 ```

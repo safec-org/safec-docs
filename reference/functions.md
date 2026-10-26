@@ -184,20 +184,20 @@ This keeps each module's methods with that module: the standard library's `Float
 A method declared `static` has no `self` and is called through its type — the place for a type's constructors and other type-level functions:
 
 ```c
-struct File {
+struct Log {
     int fd;
 
-    static struct File open(const &char path);   // no self
-    int read(&unsigned char buf, unsigned long n);
+    static struct Log open(const &char path);   // no self
+    int write([]const unsigned char bytes);
 };
 
-struct File File::open(const &char path) { ... }  // defined like any method, without 'static'
+struct Log Log::open(const &char path) { ... }   // defined like any method, without 'static'
 
-struct File f = File::open("data.bin");           // inside the struct's namespace
-struct File g = std::File::open("data.bin");      // from outside 'namespace std'
+struct Log l = Log::open("app.log");              // called through the type
+struct String s = std::String::from("data");      // a std type's, from outside 'namespace std'
 ```
 
-A static method lowers to the plain function `File_open` — the same mangling as any method, minus the self pointer — so a call costs exactly a function call. Any keyword spelled like a word can name a method where `(` follows, so `Vec::new()`, `String::join(...)` and `t.spawn()` are all valid.
+A static method lowers to the plain function `Log_open` — the same mangling as any method, minus the self pointer — so a call costs exactly a function call. Any keyword spelled like a word can name a method where `(` follows, so `Vec::new()`, `String::join(...)` and `t.spawn()` are all valid.
 
 On a [generic struct](/reference/generics#generic-structs-and-methods) a static method is a generic function over the struct's parameters, inferred like any generic call: from the arguments, or from the target type when the parameters only appear in the return type:
 

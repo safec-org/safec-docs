@@ -164,7 +164,7 @@ struct Audio {
                                                        &unsigned int frames,
                                                        fn int(&AudioIo, ?&T) callback, ?&T user,
                                                        ?&AudioStreamOptions opts);
-    void close();                                            // streams stay valid
+    void close() consume;                                    // streams stay valid
 };
 ```
 
@@ -265,7 +265,7 @@ struct AudioStream {
     struct AudioError start();
     struct AudioError stop();             // play out what's queued, then stop
     struct AudioError abort();            // stop now
-    void close();                         // abort if running; release everything; idempotent
+    void close() consume;                 // abort if running; release everything; idempotent
 
     int    is_open() const;
     int    is_running() const;            // 0 after the callback returned STOP/ABORT, too
@@ -336,16 +336,17 @@ The conversions streams do, for application use; all allocation-free and safe in
 
 ```c
 unsigned long audio_f32_to_i16([]const float in, []short out);   // and back: audio_i16_to_f32
-void audio_f32_to_i32(...);  void audio_i32_to_f32(...);
-unsigned long audio_f32_to_i24([]const float in, []S24 out);   // packed 3-byte
-void audio_i24_to_f32(...);
-void audio_f32_to_i8(...);   void audio_i8_to_f32(...);
-void audio_f32_to_f64(...);  void audio_f64_to_f32(...);
-void audio_i16_to_i32(...);  void audio_i32_to_i16(...);
+unsigned long audio_f32_to_i32([]const float in, []int out);         // and back
+unsigned long audio_f32_to_i24([]const float in, []S24 out);         // packed 3-byte; and back
+unsigned long audio_f32_to_i8([]const float in, []signed char out);  // and back
+unsigned long audio_f32_to_f64([]const float in, []double out);      // and back
+unsigned long audio_i16_to_i32([]const short in, []int out);         // and back
+// each converts min(in.len, out.len) samples and returns that count
 unsigned long audio_f32_to_i16_dither([]const float in, []short out, &unsigned int state);  // TPDF
 
-void audio_interleave_f32(const &float planar, &float out, unsigned long frames, int channels);
-void audio_deinterleave_f32(const &float in, &float planar, unsigned long frames, int channels);
+// frames = min(planar.len, out.len) / channels; returns it
+unsigned long audio_interleave_f32([]const float planar, []float out, int channels);
+unsigned long audio_deinterleave_f32([]const float in, []float planar, int channels);
 void audio_gain_f32([]float buf, float gain);
 unsigned long audio_mix_f32([]float dst, []const float src, float gain);
 float audio_peak_f32([]const float buf);
@@ -353,8 +354,8 @@ float audio_peak_f32([]const float buf);
 // std/dsp interop
 unsigned long audio_f32_to_fixed([]const float in, []Fixed out);   // Q8.24
 unsigned long audio_fixed_to_f32([]const Fixed in, []float out);
-unsigned long audio_buffer_write_f32(&AudioBuffer buf, const &float in, unsigned long frames);
-unsigned long audio_buffer_read_f32(&AudioBuffer buf, &float out, unsigned long frames);
+unsigned long audio_buffer_write_f32(&AudioBuffer buf, []const float in);   // in.len / channels frames
+unsigned long audio_buffer_read_f32(&AudioBuffer buf, []float out);         // up to out.len / channels
 ```
 
 An N-bit integer `s` maps to `s / 2^(N-1)`, so the most negative value is exactly −1.0; float to integer multiplies by `2^(N-1) − 1`, rounds to nearest and saturates. `audio_buffer_write_f32`/`read_f32` move interleaved frames into and out of a [`std::AudioBuffer`](/stdlib/dsp#audiobuffer-lock-free-multi-channel-ring-buffer) — the lock-free SPSC ring std/dsp's filters read from — converting to Q8.24 in fixed-size chunks on the stack: the natural hand-off between a callback and the rest of a program. For sample-rate conversion of recorded material use [`resample_sinc_f32`](/stdlib/dsp#resample-upsampling-downsampling) and friends.
@@ -380,7 +381,7 @@ struct MidiIn {
     void ignore_types(int sysex, int timing, int active_sensing);   // default: all three ignored
     long get_message([]unsigned char buf, &double timestamp);
     unsigned long dropped() const;
-    void close();
+    void close() consume;
 };
 
 struct MidiOut {

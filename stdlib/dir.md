@@ -20,13 +20,13 @@ struct DirEntry {
     struct String name;   // the entry's own name, no directory part
     int kind;             // DIR_FILE / DIR_DIR / DIR_LINK / DIR_OTHER
     static struct DirEntry new();
-    void free();
+    void free() consume;
 };
 
 struct Dir {
     static ?&Dir open(const &char path);   // null if it isn't a readable directory
     int  next(&DirEntry out);              // 1 = an entry was read (its name replaced), 0 = end
-    void close();
+    void close() consume;
 };
 ```
 

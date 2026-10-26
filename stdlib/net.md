@@ -375,7 +375,7 @@ struct TcpConn {
                  unsigned int local_ip, unsigned short local_port,
                  unsigned int isn);
 
-    void close();   // send FIN
+    void close() consume;   // send FIN
 }
 
 // Parse TCP header from pkt at byte offset 'offset'.

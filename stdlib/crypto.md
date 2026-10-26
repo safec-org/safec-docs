@@ -61,7 +61,7 @@ struct AesCtx {
     int gcm_decrypt([]const unsigned char iv, []const unsigned char aad, []unsigned char data, []const unsigned char tag);
 
     // Wipe the key schedule and IV (volatile stores) when done.
-    void destroy();
+    void destroy() consume;
 }
 ```
 
@@ -602,7 +602,7 @@ struct SecureAllocator {
     ?&heap unsigned char alloc(unsigned long size, unsigned long align);
     void          dealloc(?&heap unsigned char ptr);  // zeroes the slot, then frees it; null is a no-op
     unsigned long available() const;
-    void          destroy();             // zeroes every slot, frees the backing buffer
+    void          destroy() consume;     // zeroes every slot, frees the backing buffer
 };
 ```
 
@@ -789,7 +789,7 @@ struct TlsTranscript {
     struct Sha256Ctx hash;
 
     void update([]const unsigned char data);
-    void finish(unsigned char out[32]);   // snapshot — the transcript stays usable
+    void finish([]unsigned char out);     // 32 bytes; a snapshot — the transcript stays usable
 };
 
 struct TlsSession {

@@ -227,7 +227,7 @@ struct BumpAllocator {
     void          dealloc(?&heap unsigned char ptr);   // no-op (one block can't be freed)
     void          reset();                    // every earlier allocation becomes invalid
     unsigned long remaining() const;
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -277,7 +277,7 @@ struct SlabAllocator {
     void          reset();                   // frees every slot at once
     unsigned long available() const;         // free slots
     unsigned long max_align() const;         // largest power of two dividing obj_size, <= 8
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -321,7 +321,7 @@ struct PoolAllocator {
     void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
     unsigned long available() const;         // total free bytes
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -341,7 +341,7 @@ struct TlsfAllocator {
     ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // byte level; null if exhausted or align > 8
     void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 

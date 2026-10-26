@@ -55,7 +55,7 @@ struct Value {
     void            array_push(struct Value v);                    // takes ownership of v
     void            object_set(const &char key, struct Value v);   // takes ownership of v
     struct Value    clone() const;                                 // deep copy
-    void            free();                                        // releases the whole tree
+    void            free() consume;                                // releases the whole tree
 
     // Text formats (any Format, see below).
     generic<F: Format> struct String encode(F f) const;                                  // a fresh String
@@ -455,7 +455,7 @@ struct MdNode {
     struct String render_html() const;       // text escaped; raw HTML only with the html option
     struct String render_markdown() const;   // round-trips: parse(render_markdown()) renders the same
     void          plain_text(&String out) const;   // text content, no markup
-    void          free();                    // frees the subtree and the node itself
+    void          free() consume;            // frees the subtree and the node itself
 };
 
 void md_slugify(const &char text, &String out);   // "2. Temporal Safety" -> "_2-temporal-safety"
@@ -567,15 +567,16 @@ struct PbReader {
     int read_bool(&int out);
     int read_double(&double out);
     int read_float(&float out);
-    // *dataOut points into the reader's buffer — copy it if it must outlive that buffer.
-    int read_length_delimited(&&const unsigned char dataOut, &unsigned long lenOut);
+    // A slice of the reader's own buffer (zero-copy) — copy it if it must outlive
+    // that buffer. null on a truncated encoding.
+    ?[]const unsigned char read_length_delimited();
     int skip_field(int wire_type);   // skip an unknown field (forward compatibility)
 };
 ```
 
 The writers stay free functions: they append to any `String`, so there is no protobuf-specific struct for them to be methods of.
 
-`read_length_delimited` writes a reference into the reader's own buffer through `dataOut` (a reference to a reference) — it aliases the buffer, so copy the bytes if they must outlive it.
+`read_length_delimited` returns a slice of the reader's own buffer (`null` when the encoding is truncated) — it aliases the buffer, so copy the bytes (e.g. `String::from_bytes`) if they must outlive it.
 
 ```c
 #include <std/serial/protobuf.h>

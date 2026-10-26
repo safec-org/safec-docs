@@ -119,7 +119,7 @@ struct TlsConfig {
     void set_client_cert(const &char cert_pem, const &char key_pem);
     void insecure_skip_verify();     // 검증 끔: 자체 서명 테스트 서버에만
     struct TlsConfig clone() const;
-    void free();
+    void free() consume;
 };
 
 struct TlsServerConfig {
@@ -135,7 +135,7 @@ struct TlsServerConfig {
     static struct TlsServerConfig new();
     int  load_files(const &char cert_path, const &char key_path);   // 하나라도 못 읽으면 0
     void set_alpn(const &char protocols);
-    void free();
+    void free() consume;
 };
 ```
 
@@ -154,8 +154,8 @@ struct TlsStream {
     long long read([]unsigned char buf);         // 읽은 수, 0 = 상대가 닫음, -1, TLS_WANT_*
     long long write([]const unsigned char buf);  // 쓴 수, -1, TLS_WANT_*
     int       shutdown();      // close_notify 보내기(한 번)
-    int       close();         // shutdown, 해제, 소켓 닫기
-    void      release();       // TLS 상태만 해제하고 fd는 열어 둠
+    int       close() consume; // shutdown, 해제, 소켓 닫기
+    void      release() consume;       // TLS 상태만 해제하고 fd는 열어 둠
 
     int  is_open() const;
     int  version() const;               // TLS_VERSION_1_2 / TLS_VERSION_1_3
@@ -170,7 +170,7 @@ struct TlsAcceptor {
     static struct Result<TlsAcceptor, TlsError> new(const &TlsServerConfig cfg);
     struct Result<TlsStream, TlsError> accept(int fd);   // 블로킹 핸드셰이크
     struct Result<TlsStream, TlsError> start(int fd);    // 논블로킹: handshake()로 진행
-    void free();
+    void free() consume;
 };
 ```
 

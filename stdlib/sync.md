@@ -95,7 +95,7 @@ struct LFQueue {
     int           is_empty() const;
     int           is_full() const;
     unsigned long length() const;
-    void          destroy();        // frees the buffer if LFQueue::new allocated it
+    void          destroy() consume;// frees the buffer if LFQueue::new allocated it
 };
 ```
 
@@ -181,7 +181,7 @@ struct MpscQueue {
     int           is_empty() const;
     int           is_full() const;
     unsigned long length() const;
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
