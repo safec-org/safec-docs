@@ -304,6 +304,63 @@ int fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
 ::::
 
 :::: section alt
+## 머신러닝, CPU에서 GPU까지 {#ml}
+
+::: lead
+`std/ml`은 SafeC 안에서 신경망을 학습하고 실행합니다 — 자동미분 텐서, 요즘 모델을 이루는 레이어, GPU 백엔드까지, Python도 프레임워크 런타임도 없이.
+:::
+
+::: split
+::: col
+- **텐서와 자동미분.** 역방향 자동미분을 갖춘 `DenseTensor<E>`. float32(`FloatTensor`), fp16(`HalfTensor`), bf16(`BF16Tensor`)으로 저장하고 float32로 계산합니다.
+- **레이어와 모델.** MLP, 손실 함수, SGD부터 AdamW와 Lion까지의 옵티마이저, 멀티헤드·플래시·고급 어텐션(MLA, Gated DeltaNet), DiT와 JiT 트랜스포머, RNN과 xLSTM, Mamba, CNN과 ResNet 형태의 ConvNet, U-Net과 디퓨전, 오토인코더, GAN, 강화 학습, LoRA / QLoRA 파인튜닝.
+- **커널 하나로 모든 GPU.** 같은 학습 코드가 CPU(내장 GEMM 또는 벤더 BLAS)나 텐서 디바이스 — CUDA, ROCm, Metal, Vulkan(SPIR-V), WebGPU — 에서 돌아가며, 모두 커널 소스 하나에서 나오고 fp16·bf16 혼합 정밀도를 지원합니다.
+- **측정 결과.** PyTorch의 최적 구성과 비교해 작은 MLP를 2.6배(MI100), 7.8배(H200) 빠르게 학습하고 Gemma 4 E2B를 3.1배, 1.5배 빠르게 디코딩합니다. M1 Pro에서는 MLX와 PyTorch가 앞서는 테스트도 있습니다. [벤치마크](/ko/benchmarks#machine-learning)를 보세요.
+
+::: actions
+[머신러닝 레퍼런스](/ko/stdlib/ml)
+[ML 벤치마크](/ko/benchmarks#machine-learning)
+:::
+:::
+::: col
+```c norun
+#include <std/ml/module.h>
+#include <std/ml/datasets.h>
+#include <std/ml/trainer.h>
+extern int printf(const char* fmt, ...);
+
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
+    return tensor_cross_entropy_loss(m.forward(x), y);    // autograd builds the graph
+}
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
+
+int main() {
+    struct Rng rng = Rng::new(1UL);
+    struct Dataset data = Dataset::moons(400UL, 0.1f, &rng);
+    defer data.drop();
+    struct DatasetSplit sp = data.split(0.25f, &rng);
+    defer sp.train.drop();
+    defer sp.test.drop();
+    struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+    defer net.drop();
+    struct Optimizer opt = Optimizer::new(OPT_ADAM, 0.01f);
+    defer opt.drop();
+    model_add_params(&net, &opt);
+
+    struct TrainConfig cfg = TrainConfig::default();
+    cfg.epochs = 60UL;
+    cfg.device = device_auto();   // CUDA, ROCm, Metal, Vulkan or WebGPU if built in, else the CPU
+    trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+    float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);
+    printf("accuracy %.2f on %s\n", acc, device_name(cfg.device));
+    return 0;
+}
+```
+:::
+:::
+::::
+
+:::: section
 ## 설치 {#install}
 
 ::::: tabs
@@ -329,7 +386,7 @@ safeguard run
 SafeC는 컴파일과 링크에 **clang 21 이상**이 필요합니다(설치 스크립트가 찾아 주거나 설치 방법을 알려 줍니다). 옵션, 요구 사항, 소스 빌드는 [설치](/ko/install)를 보세요.
 ::::
 
-:::: section
+:::: section alt
 ## 시작하기 {#next}
 
 ::::: cards 3

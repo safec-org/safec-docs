@@ -304,6 +304,63 @@ The whole standard library builds for every bare-metal target; `std/wasm` drives
 ::::
 
 :::: section alt
+## Machine learning, CPU to GPU {#ml}
+
+::: lead
+`std/ml` trains and runs neural networks in SafeC itself — tensors with autograd, the layers today's models are built from, and GPU backends — with no Python and no framework runtime.
+:::
+
+::: split
+::: col
+- **Tensors and autograd.** `DenseTensor<E>` with reverse-mode autograd, stored as float32 (`FloatTensor`), fp16 (`HalfTensor`) or bf16 (`BF16Tensor`) and computed in float32.
+- **Layers and models.** MLPs, losses and optimizers from SGD to AdamW and Lion; multi-head, flash and advanced attention (MLA, Gated DeltaNet); DiT and JiT transformers, RNNs and xLSTM, Mamba, CNNs and ResNet-style ConvNets, U-Net and diffusion, autoencoders, GANs, reinforcement learning and LoRA / QLoRA fine-tuning.
+- **One kernel set, every GPU.** The same training code runs on the CPU (built-in GEMM or a vendor BLAS) or on a tensor device: CUDA, ROCm, Metal, Vulkan (SPIR-V) or WebGPU, all from one kernel source, with fp16 and bf16 mixed precision.
+- **Measured.** Against PyTorch's best configuration, SafeC trains a small MLP 2.6× (MI100) and 7.8× (H200) faster and decodes Gemma 4 E2B 3.1× and 1.5× faster; on an M1 Pro, MLX and PyTorch still win some tests. See [the benchmarks](/benchmarks#machine-learning).
+
+::: actions
+[Machine learning reference](/stdlib/ml)
+[ML benchmarks](/benchmarks#machine-learning)
+:::
+:::
+::: col
+```c norun
+#include <std/ml/module.h>
+#include <std/ml/datasets.h>
+#include <std/ml/trainer.h>
+extern int printf(const char* fmt, ...);
+
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x, const &FloatTensor y) {
+    return tensor_cross_entropy_loss(m.forward(x), y);    // autograd builds the graph
+}
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) { return m.forward(x); }
+
+int main() {
+    struct Rng rng = Rng::new(1UL);
+    struct Dataset data = Dataset::moons(400UL, 0.1f, &rng);
+    defer data.drop();
+    struct DatasetSplit sp = data.split(0.25f, &rng);
+    defer sp.train.drop();
+    defer sp.test.drop();
+    struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+    defer net.drop();
+    struct Optimizer opt = Optimizer::new(OPT_ADAM, 0.01f);
+    defer opt.drop();
+    model_add_params(&net, &opt);
+
+    struct TrainConfig cfg = TrainConfig::default();
+    cfg.epochs = 60UL;
+    cfg.device = device_auto();   // CUDA, ROCm, Metal, Vulkan or WebGPU if built in, else the CPU
+    trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+    float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);
+    printf("accuracy %.2f on %s\n", acc, device_name(cfg.device));
+    return 0;
+}
+```
+:::
+:::
+::::
+
+:::: section
 ## Install {#install}
 
 ::::: tabs
@@ -329,7 +386,7 @@ safeguard run
 SafeC needs **clang 21 or newer** to compile and link (the installer finds it or tells you how to get it). See [Install](/install) for options, requirements and building from source.
 ::::
 
-:::: section
+:::: section alt
 ## Get going {#next}
 
 ::::: cards 3
