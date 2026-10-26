@@ -69,7 +69,7 @@ CPU 텐서/자동미분 코어, 폭넓은 어텐션/디퓨전/아키텍처 라�
 [반정밀도 텐서](#half-precision-tensors)를 참고합니다.
 
 ```c
-&FloatTensor x = FloatTensor::from_1d(values, 3UL, /*requiresGrad=*/1);
+&FloatTensor x = FloatTensor::from_1d(((const float*)values)[0..3UL], /*requiresGrad=*/1);
 &FloatTensor y = tensor_mul(x, x).sum();  // y = sum(x^2)
 y.backward();                               // 이제 x.grad는 2x를 담고 있다
 ```
@@ -133,8 +133,8 @@ trait Tensor {
 // Shown for FloatTensor; HalfTensor:: and BF16Tensor:: are the same.
 static &FloatTensor FloatTensor::new_1d(unsigned long n, int requiresGrad);
 static &FloatTensor FloatTensor::new_2d(unsigned long rows, unsigned long cols, int requiresGrad);
-static &FloatTensor FloatTensor::from_1d(const &float values, unsigned long n, int requiresGrad);
-static &FloatTensor FloatTensor::from_2d(const &float values, unsigned long rows, unsigned long cols, int requiresGrad);
+static &FloatTensor FloatTensor::from_1d([]const float values, int requiresGrad);
+static &FloatTensor FloatTensor::from_2d([]const float values, unsigned long rows, unsigned long cols, int requiresGrad);   // values.len >= rows * cols
 &FloatTensor FloatTensor::zeros_like() const;
 void    FloatTensor::fill(float v);   // in place
 
@@ -1649,7 +1649,7 @@ Apple Silicon에서 진짜 CPU+GPU 공유 메모리입니다(MLX 자체의 셀�
   CPU 및 MPS 경로와 같은 손실까지 학습합니다.
 - **CUDA**: NVIDIA H200(sm_90, CUDA 13.0, 드라이버 580)에서 검증했습니다 —
   `tests/stdlib/cuda/run.sh`가 모든 연산, 네 가지 GEMM 전치 조합(ReLU 융합
-  유무 모두), 그래프, 호스트 배열 API와 영구 버퍼 API, fp16/bf16 커널,
+  유무 모두), 그래프, 호스트 배열 API, fp16/bf16 커널,
   [cuDNN·cuFFT 라이브러리](#cuda-cudnn-cufft)를 CPU 결과와 비교하고(216개 검사),
   [ML 벤치마크](/ko/benchmarks#ml-mlp)는
   CPU 및 ROCm 경로와 같은 손실까지 학습합니다.
@@ -1810,7 +1810,6 @@ ROCm 연산에 더해, 두 가지 융합으로 학습 한 스텝의 커널 실�
 | 디코딩(한 번에 토큰 하나) | `cuda_half_gemv(w, x, y, n, k)`: fp16/bf16 가중치 `[n][k]`와 fp32 벡터로 `y = w x`. 출력 행마다 워프 1–4개, `k`가 8의 배수면 16바이트 스트리밍 로드(`ld.global.nc.L1::no_allocate`, 동시에 4개). H200에서 Gemma 4 E2B의 어텐션·down 프로젝션에서 한 행짜리 `cuda_half_gemm_f32`(cuBLAS)보다 1.3–2.2배 빠르고, 262k 행 LM head에서 1.05배(4.47 TB/s), 합친 12288 × 1536 gate/up에서 0.89배입니다. `cuda_rmsnorm(x, w, y, rows, n, eps)`는 행마다, 가중치는 선택, 제자리 가능. [ROCm](#rocm-hip-amd)과 같은 API이며 [Gemma 4 CUDA 엔진](/ko/benchmarks#ml-llm)의 커널에서 가져왔습니다 |
 | 그래프 | `cuda_capture_begin` / `cuda_capture_end` → `CudaGraph`, `cuda_graph_launch`, `CudaGraph::free` |
 | 호스트 배열 | `cuda_add_f32` … `cuda_matmul_f32_blas` — 업로드, 계산, 읽기를 한 번에 |
-| 영구 버퍼(`&void` 핸들) | `cuda_upload_persistent`, `cuda_matmul_f32_persistent`, `cuda_sgd_update_f32`, fp16/bf16용 `cuda_*_f16_*`/`cuda_*_bf16_*`(2바이트 저장, fp32 연산) |
 
 위의 MLP 한 스텝을 융합하면:
 
@@ -1865,7 +1864,7 @@ GPU판입니다. `fft.h`와 달리 2의 거듭제곱이 아닌 길이도 받습�
 
 | 분류 | 함수 |
 |---|---|
-| 호스트 배열, `double` | `cuda_fft`, `cuda_ifft`, `cuda_fft_batch(data, n, batch, inverse)`, `cuda_fft2d`, `cuda_ifft2d` (`imaging.h`의 `fft2d`) |
+| 호스트 배열, `double` | `cuda_fft`, `cuda_ifft`, `cuda_fft_batch(data[0..n * batch], n, inverse)`, `cuda_fft2d`, `cuda_ifft2d` (`imaging.h`의 `fft2d`) |
 | 큐 연산, fp32 `CudaBuf` | `cuda_fft_c2c(in, out, n, batch, inverse)` (re/im 교차 배치), `cuda_fft_r2c` (실수 n개 → 복소수 n/2+1개), `cuda_fft_c2r` (cuFFT처럼 입력을 덮어씀) |
 
 `tests/stdlib/cuda`는 두 라이브러리를 CPU 코드와 비교합니다: stride 1과 2,
@@ -1935,7 +1934,7 @@ HIP 커널 하나로 실행됩니다(`rocm_bias_channels`).
 
 | 그룹 | 함수 |
 |---|---|
-| 호스트 배열, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data, n, batch, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
+| 호스트 배열, `double` | `rocm_fft`, `rocm_ifft`, `rocm_fft_batch(data[0..n * batch], n, inverse)`, `rocm_fft2d`, `rocm_ifft2d` |
 | 큐, fp32 `RocmBuf` | `rocm_fft_c2c(in, out, n, batch, inverse)`, `rocm_fft_r2c`, `rocm_fft_c2r`(입력을 덮어쓸 수 있음) |
 
 `tests/stdlib/rocm/rocm_dnn_fft_check.sc`는 CUDA 모음과 같은 검사를 CPU 코드와
@@ -1955,44 +1954,33 @@ MI100에서 64채널 합성곱 하나는 0.027 ms(PyTorch-ROCm 0.063 ms), 배치
 // <p> = mps | cuda | spirv | webgpu
 int <p>_available();
 
-int <p>_add_f32(const &float a, const &float b, &float out, unsigned long n);   // also sub, mul, div, pow
-int <p>_relu_f32(const &float a, &float out, unsigned long n);                  // also log, exp, sqrt
-int <p>_scale_f32(const &float a, float k, &float out, unsigned long n);
-int <p>_sum_f32(const &float a, &float out, unsigned long n);                   // out[0] = sum
-int <p>_matmul_f32(const &float a, const &float b, &float out,
+int <p>_add_f32([]const float a, []const float b, []float out);   // also sub, mul, div, pow; n = out.len
+int <p>_relu_f32([]const float a, []float out);                    // also log, exp, sqrt
+int <p>_scale_f32([]const float a, float k, []float out);
+int <p>_sum_f32([]const float a, []float out);                     // out[0] = sum of a
+int <p>_matmul_f32([]const float a, []const float b, []float out,
                    unsigned long M, unsigned long K, unsigned long N);          // [M,K] x [K,N]
-int cuda_matmul_f32_blas(const &float a, const &float b, &float out,
+int cuda_matmul_f32_blas([]const float a, []const float b, []float out,
                          unsigned long M, unsigned long K, unsigned long N);    // cuBLAS
 ```
 
-호스트 배열은 첫 원소에 대한 참조로 넘깁니다. 아래의 장치 버퍼는 CUDA, SPIR-V, WebGPU에서는 메모리가 GPU 드라이버에 속하므로 불투명한 `&void` 핸들이고, Metal에서는 ROCm의 `RocmBuf`처럼 `MpsBuf`(아래)입니다.
+호스트 배열은 슬라이스로 넘깁니다(입력 `[]const float`, 출력 `[]float`). `n`은 `out.len`이며, 입력이 더 짧으면 연산은 0을 돌려줍니다. 장치에 머무는 데이터는 대신 타입이 있는 버퍼 객체에 둡니다: `CudaBuf`(CUDA), `RocmBuf`(ROCm), `SpirvBuf`(SPIR-V), `WebGpuBuf`(WebGPU), `MpsBuf`(Metal, 아래). 각각 `alloc(n, dtype)`이나 `upload(host)`로 만들고 `read(bytes)` / `read_f32(floats)`(CUDA와 ROCm은 `cuda_read` / `rocm_read`)로 읽어 옵니다.
 
-**영구 버퍼**는 가중치를 호출 사이에 장치에 남겨 두어 학습 루프가 다시 업로드하지 않게 합니다:
-
-```c
-// <p> = cuda | spirv | webgpu
-?&void <p>_upload_persistent(const &float data, unsigned long bytes);   // null on failure
-void   <p>_release_persistent(&void buf);
-int    <p>_persistent_available();
-int    <p>_matmul_f32_persistent(&void bufA, &void bufB, &float out,
-                                unsigned long M, unsigned long K, unsigned long N); // cuda, webgpu
-int    cuda_sgd_update_f32(&void devW, &void devGrad, float lr, unsigned long n);    // in place
-int    webgpu_sgd_update_f32(&void bufW, &void bufGrad, float lr, unsigned long n);
-```
+**영구 버퍼**는 가중치를 호출 사이에 장치에 남겨 두어 학습 루프가 다시 업로드하지 않게 합니다: 한 번 업로드한 뒤 버퍼 연산(`cuda_gemm`, `webgpu_matmul`, `webgpu_sgd_update`, `mps_matmul_f32_persistent` 등)을 버퍼에 실행합니다.
 
 Metal의 장치 버퍼는 `struct MpsBuf`입니다. `MTLBuffer` 핸들, 바이트 크기, 원소 타입(`0` = fp32, `MPS_FP16`, `MPS_BF16`)을 담습니다. 메모리를 CPU와 공유하므로 `read`와 `write`는 전송 없는 복사입니다. 0으로 초기화한 `MpsBuf`는 무효이고, 모든 연산은 무효 버퍼에 0을 반환하며, 무효 버퍼의 `free()`는 아무것도 하지 않습니다.
 
 ```c
 struct MpsBuf {
-    void* handle; unsigned long bytes; int dtype;
+    ?&MtlObject handle; unsigned long bytes; int dtype;
     int  valid() const;
     void free();                                          // 버퍼 풀로 반환
-    int  read(&void dst, unsigned long bytes) const;      // 이 버퍼에 쓰는 배치가 모두 끝난 뒤 유효
-    int  write(const &void src, unsigned long bytes);
+    int  read([]unsigned char dst) const;                 // 이 버퍼에 쓰는 배치가 모두 끝난 뒤 유효
+    int  write([]const unsigned char src);
     static struct MpsBuf alloc(unsigned long n, int dtype);                 // 원소 n개
-    static struct MpsBuf upload(const &float host, unsigned long n);        // fp32 값 n개
-    static struct MpsBuf upload_f16(const &float host, unsigned long n);    // CPU에서 반올림; upload_bf16도 있음
-    static struct MpsBuf upload_bits(const &unsigned short bits, unsigned long n, int dtype);  // 원시 fp16 / bf16
+    static struct SpirvBuf upload([]const float host);        // fp32 값 n개
+    static struct MpsBuf upload_f16([]const float host);    // CPU에서 반올림; upload_bf16도 있음
+    static struct MpsBuf upload_bits([]const unsigned short bits, int dtype);  // 원시 fp16 / bf16
     static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
     static struct MpsBuf batch_last_output();             // 열린 배치 소유: free() 금지
 };
@@ -2004,13 +1992,13 @@ int mps_sgd_update_f32_chained(struct MpsBuf bufW, struct MpsBuf bufGrad, float 
 **반정밀도**(MPS, CUDA, WebGPU): fp16/bf16으로 업로드해 네이티브로 계산하고, 원시 16비트 값을 읽어 옵니다(아래 `float16.h`로 변환). ROCm은 16비트 데이터를 대신 `RocmHalfBuf`에 담습니다. 위의 ROCm 표를 참고하세요.
 
 ```c
-?&void cuda_upload_f16_persistent(const &float data, unsigned long n);   // also _bf16; webgpu_ (f16); Metal: MpsBuf::upload_f16
+static struct CudaHalfBuf CudaHalfBuf::upload([]const float host, int dtype);   // also RocmHalfBuf; Metal: MpsBuf::upload_f16 / _bf16; WebGPU: WebGpuBuf::upload_f16
 int    mps_matmul_f16_persistent(struct MpsBuf bufA, struct MpsBuf bufB, &unsigned short out,
-                                unsigned long M, unsigned long K, unsigned long N); // also _bf16; cuda_, webgpu_ (&void)
-int    cuda_sgd_update_f16(&void devW, &void devGrad, float lr, unsigned long n);    // also _bf16; webgpu_ (f16)
+                                unsigned long M, unsigned long K, unsigned long N); // also _bf16
+int    cuda_half_sgd(struct CudaHalfBuf w, struct CudaHalfBuf g, float lr);   // also rocm_half_sgd
 int   mps_matmul_f16(const &float a, const &float b, &float out,
                      unsigned long M, unsigned long K, unsigned long N);   // also mps_matmul_bf16
-int   mps_relu_f16(const &float a, &float out, unsigned long n);           // also mps_relu_bf16
+int mps_relu_f16([]const float a, []float out);           // also mps_relu_bf16
 ```
 
 **MPS 배칭.** `mps_batch_begin()`과 `mps_batch_end()` 사이에서는 MPS 연산이 각자 커밋하고 기다리는 대신 하나의 공유 커맨드 버퍼에 인코딩되므로, 순전파 + 손실 + 역전파를 묶은 스텝이 GPU 제출 한 번으로 실행됩니다. `*_chained` 변형은 이전 연산의 출력 버퍼(`MpsBuf::batch_last_output()`)를 호스트 메모리를 거치지 않고 입력으로 받습니다. `mps_batch_submit()`은 열린 배치에 지금까지 인코딩된 작업을 기다리지 않고 GPU로 보내므로, 긴 배치에서 인코딩과 실행이 겹칩니다.
@@ -2025,7 +2013,7 @@ generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
 int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
-int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, unsigned long n);
+int mps_relu_backward_f32(((const float*)([]const float a))[0..[]float out], ((float*)([]const float selfGrad))[0..[]float out]);
 
 // Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
 //   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
@@ -2062,7 +2050,7 @@ int mps_relu_backward_f32(const &float a, const &float selfGrad, &float out, uns
 | Flash | `mps_flash_attention(q, k, v, out, heads, seqLen, kvLen, headDim, scale, causal)`, `mps_flash_attention_ex(q, k, v, out, shape, dtype, scale, causal)` |
 | Linear | `mps_linear_attention(q, k, v, out, heads, seqLen, kvLen, headDim, causal)`, `mps_linear_attention_ex(q, k, v, out, shape, dtype, causal)` |
 | 호스트 배열 | `mps_flash_attention_f32`, `mps_linear_attention_f32` (업로드, 계산, 읽어 오기) |
-| 버퍼 | `MpsBuf::alloc(n, dtype)`, `buf.read(dst, bytes)`, `mps_attention_head_dim_ok(headDim)` |
+| 버퍼 | `MpsBuf::alloc(n, dtype)`, `buf.read(((unsigned char*)dst)[0..bytes])`, `mps_attention_head_dim_ok(headDim)` |
 
 M1 Pro에서 fp32 flash 어텐션은 MLX의 fused 어텐션보다 1.01–1.42배, PyTorch `mps` 장치보다 1.13–1.70배 빠르고, head dim 128의 bf16은 MLX와 같으며, fp16과 head dim 64의 bf16은 이들의 0.80–1.02배(2.6–3.4 TFLOPS)이고, linear 어텐션은 벡터화한 PyTorch와 MLX보다 2.0–4.4배 빠릅니다. [벤치마크](/ko/benchmarks#ml-attention)를 참고하세요.
 
@@ -2183,12 +2171,12 @@ float          fp16_to_f32(unsigned short h);
 unsigned short f32_to_bf16(float v);
 float          bf16_to_f32(unsigned short b);
 
-void f32_to_fp16_bulk(const &float src, &unsigned short dst, unsigned long n);
-void fp16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
-void f32_to_bf16_bulk(const &float src, &unsigned short dst, unsigned long n);
-void bf16_to_f32_bulk(const &unsigned short src, &float dst, unsigned long n);
-void fp16_to_bf16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
-void bf16_to_fp16_bulk(const &unsigned short src, &unsigned short dst, unsigned long n);
+void f32_to_fp16_bulk([]const float src, []unsigned short dst);
+void fp16_to_f32_bulk([]const unsigned short src, []float dst);
+void f32_to_bf16_bulk([]const float src, []unsigned short dst);
+void bf16_to_f32_bulk([]const unsigned short src, []float dst);
+void fp16_to_bf16_bulk([]const unsigned short src, []unsigned short dst);
+void bf16_to_fp16_bulk([]const unsigned short src, []unsigned short dst);
 
 int         half_cpu_features();        // HALF_CPU_* 비트, 한 번 감지
 const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
@@ -2268,10 +2256,10 @@ generic<E>    void tensors_free(&Vec<&DenseTensor<E>> ts);
 generic<E>    int  half_grads_accumulate(const &Vec<&DenseTensor<E>> grads, &Vec<&FloatTensor> params,
                                          float invScale);  // 1 = 모두 유한
 
-int HalfTensor::gemv(const &float x, &float y) const;     // y = w x, float32 x / y
-int HalfTensor::gemv_batch(const &float x, unsigned long m, &float y) const; // 벡터 m개: x [m][k], y [m][n]
-int BF16Tensor::gemv(const &float x, &float y) const;
-int BF16Tensor::gemv_batch(const &float x, unsigned long m, &float y) const;
+int HalfTensor::gemv([]const float x, []float y) const;     // y = w x, float32 x (k) / y (n)
+int HalfTensor::gemv_batch([]const float x, unsigned long m, []float y) const; // 벡터 m개: x [m][k], y [m][n]
+int BF16Tensor::gemv([]const float x, []float y) const;
+int BF16Tensor::gemv_batch([]const float x, unsigned long m, []float y) const;
 
 &FloatTensor FloatTensor::cast(int dtype) const;                            // straight-through gradient
 &FloatTensor tensor_matmul_lowp(const &FloatTensor a, const &FloatTensor b, int dtype);    // cast(cast(a) @ cast(b))
@@ -2312,7 +2300,7 @@ int main() {
     std::println_float((double)y.at1(1UL));   // 7
 
     y.sum().backward();                       // w.grad: float32
-    struct Slice<float> g = std::slice_of(w.grad, w.size);
+    struct Slice<float> g = std::Slice::of(w.grad, w.size);
     std::println_float((double)*g.at(1UL));   // 4 (= x[1])
     x.free(); w.free();
     return 0;
@@ -2349,9 +2337,9 @@ int main() {
     float wv[2] = { 0.1f, 0.2f };
     float xv[2] = { 1.0f, 2.0f };
     float tv[1] = { 1.0f };
-    &FloatTensor w = FloatTensor::from_2d(&wv[0], 2UL, 1UL, 1);
-    &FloatTensor x = FloatTensor::from_2d(&xv[0], 1UL, 2UL, 0);
-    &FloatTensor t = FloatTensor::from_2d(&tv[0], 1UL, 1UL, 0);
+    &FloatTensor w = FloatTensor::from_2d(wv[0..2UL * 1UL], 2UL, 1UL, 1);
+    &FloatTensor x = FloatTensor::from_2d(xv[0..1UL * 2UL], 1UL, 2UL, 0);
+    &FloatTensor t = FloatTensor::from_2d(tv[0..1UL * 1UL], 1UL, 1UL, 0);
     struct LossScaler scaler = LossScaler::new();
     int ok = 1;
     for (int i = 0; i < 20; i = i + 1) ok = ok & train_step(w, x, t, &scaler, 0.05f);

@@ -113,7 +113,7 @@ void          dom_set_disabled(int handle, int disabled);
 
 // Any property: String(el[name]), el[name] = value, and numeric forms.
 struct String dom_get_prop(int handle, const &char name);              // empty for undefined/null
-int           dom_get_prop_buf(int handle, const &char name, &char buf, int cap);  // full length, -1 if unset
+int dom_get_prop_buf(int handle, const &char name, []char buf);  // full length, -1 if unset
 void          dom_set_prop(int handle, const &char name, const &char value);
 double        dom_get_prop_num(int handle, const &char name);
 void          dom_set_prop_num(int handle, const &char name, double value);         // 0/1 for booleans

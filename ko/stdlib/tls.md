@@ -47,9 +47,9 @@ int main() {
     std::print(t.backend_name()); std::print(" "); std::println(t.cipher());
 
     const &char req = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
-    unsafe { t.write((const &unsigned char)req, std::str_len(req)); }
+    unsafe { t.write(((const unsigned char*)req)[0..std::str_len(req)]); }
     unsigned char buf[4096];
-    long long n = t.read(&buf[0], 4096UL);            // 읽은 수, 서버가 닫으면 0, 오류면 -1
+    long long n = t.read(buf[0..4096UL]);            // 읽은 수, 서버가 닫으면 0, 오류면 -1
     t.close();                                        // close_notify 후 소켓을 닫습니다
     return n > 0LL ? 0 : 1;
 }
@@ -149,8 +149,8 @@ struct TlsStream {
     static struct Result<TlsStream, TlsError> client(int fd, const &char host, const ?&TlsConfig cfg);
 
     int       handshake();     // 0 완료, TLS_WANT_READ / TLS_WANT_WRITE, -1 실패
-    long long read(&unsigned char buf, unsigned long n);         // 읽은 수, 0 = 상대가 닫음, -1, TLS_WANT_*
-    long long write(const &unsigned char buf, unsigned long n);  // 쓴 수, -1, TLS_WANT_*
+    long long read([]unsigned char buf);         // 읽은 수, 0 = 상대가 닫음, -1, TLS_WANT_*
+    long long write([]const unsigned char buf);  // 쓴 수, -1, TLS_WANT_*
     int       shutdown();      // close_notify 보내기(한 번)
     int       close();         // shutdown, 해제, 소켓 닫기
     void      release();       // TLS 상태만 해제하고 fd는 열어 둠

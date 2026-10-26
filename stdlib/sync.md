@@ -88,7 +88,7 @@ A bounded single-producer / single-consumer queue. `head`/`tail` are monotonical
 generic<T>
 struct LFQueue {
     static struct LFQueue<T> new(unsigned long cap);                    // cap rounded UP to a power of two
-    static struct LFQueue<T> over(&heap T buffer, unsigned long cap);   // caller's buffer; cap rounded DOWN
+    static struct LFQueue<T> over([]T buffer);   // caller's buffer; buffer.len rounded DOWN
 
     int           enqueue(T val);   // producer; 1 on success, 0 if full
     ?T            dequeue();        // consumer; null if empty

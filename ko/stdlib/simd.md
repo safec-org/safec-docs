@@ -125,10 +125,7 @@ CPU용 단정밀도 GEMM입니다. A와 B를 연속 스트립으로 패킹한 �
 
 // C = alpha * op(A) * op(B) + beta * C, 행 우선; op(A)는 m x k, op(B)는 k x n.
 // 'ld' = 두 행의 시작 사이의 원소 수. beta == 0이면 C를 읽지 않음.
-void sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k,
-           float alpha, const &float a, unsigned long lda,
-           const &float b, unsigned long ldb,
-           float beta, &float c, unsigned long ldc);
+int sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned long k, float alpha, []const float a, unsigned long lda, []const float b, unsigned long ldb, float beta, []float c, unsigned long ldc);
 
 // 같은 연산을 항상 호출한 스레드에서만 (풀 없음; 링크된 벤더 라이브러리는
 // 단일 스레드로): 이미 병렬인 코드용.
@@ -155,9 +152,9 @@ Ryzen 7 7800X3D(Zen 4, 8코어 / 16스레드)에서 N × N × N, 베이스라인
 
 ```c
 #include <std/simd/vmath.h>
-void vm_exp_f32(const &float x, &float y, unsigned long n);
-void vm_tanh_f32(const &float x, &float y, unsigned long n);
-void vm_sigmoid_f32(const &float x, &float y, unsigned long n);
+unsigned long vm_exp_f32([]const float x, []float y);
+unsigned long vm_tanh_f32([]const float x, []float y);
+unsigned long vm_sigmoid_f32([]const float x, []float y);
 ```
 
 `y[i] = f(x[i])`를 분기 없는 다항식 코드(Cephes 방식 구간 축소)로 계산하며, CPU의 [SIMD 수준](#cpu-levels)으로 벡터화되고 32,768개 원소부터 스레드 풀에 나뉩니다. 측정 오차는 exp 1 ulp 미만, tanh 1.3 ulp, sigmoid 2 ulp이며 비정규 결과도 포함합니다. NaN은 전파되고 오버플로는 무한대가 됩니다. 7800X3D에서 원소당 약 0.2 ns입니다. `x`와 `y`는 같은 배열이어도 됩니다. std의 활성화(sigmoid, tanh, GELU, SiLU, ELU, GLU, SwiGLU)와 softmax가 이것을 씁니다.

@@ -47,9 +47,9 @@ int main() {
     std::print(t.backend_name()); std::print(" "); std::println(t.cipher());
 
     const &char req = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
-    unsafe { t.write((const &unsigned char)req, std::str_len(req)); }
+    unsafe { t.write(((const unsigned char*)req)[0..std::str_len(req)]); }
     unsigned char buf[4096];
-    long long n = t.read(&buf[0], 4096UL);            // count, 0 once the server closed, -1 on error
+    long long n = t.read(buf[0..4096UL]);            // count, 0 once the server closed, -1 on error
     t.close();                                        // close_notify, then closes the socket
     return n > 0LL ? 0 : 1;
 }
@@ -149,8 +149,8 @@ struct TlsStream {
     static struct Result<TlsStream, TlsError> client(int fd, const &char host, const ?&TlsConfig cfg);
 
     int       handshake();     // 0 done, TLS_WANT_READ / TLS_WANT_WRITE, -1 failed
-    long long read(&unsigned char buf, unsigned long n);         // count, 0 = peer closed, -1, TLS_WANT_*
-    long long write(const &unsigned char buf, unsigned long n);  // count, -1, TLS_WANT_*
+    long long read([]unsigned char buf);         // count, 0 = peer closed, -1, TLS_WANT_*
+    long long write([]const unsigned char buf);  // count, -1, TLS_WANT_*
     int       shutdown();      // send close_notify (once)
     int       close();         // shutdown, free, close the socket
     void      release();       // free the TLS state, leave the fd open

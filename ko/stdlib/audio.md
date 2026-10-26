@@ -59,11 +59,11 @@ struct Tone { double phase; double step; };
 int render(&AudioIo io, ?&Tone tp) {
     match (tp) {
         case some(t): {
-            struct Slice<float> out = io.output_f32();   // frames x channels, interleaved
+            []float out = io.output_f32();   // frames x channels, interleaved
             for (unsigned int f = 0U; f < io.frames; f = f + 1U) {
                 float v = (float)(0.2 * std::sin_d(t.phase));
-                out.set((unsigned long)f * 2UL, v);
-                out.set((unsigned long)f * 2UL + 1UL, v);
+                out[(unsigned long)f * 2UL] = v;           // bounds-checked
+                out[(unsigned long)f * 2UL + 1UL] = v;
                 t.phase = t.phase + t.step;
             }
         }
@@ -126,7 +126,7 @@ int main() {
 #define AUDIO_API_WEBAUDIO    5
 #define AUDIO_API_DUMMY       6
 
-int audio_compiled_apis(&int out, int cap);   // this build's APIs, in preference order; returns the count
+int audio_compiled_apis([]int out);   // this build's APIs, in preference order; returns the count
 int audio_api_compiled(int api);
 int audio_default_api();                      // see below
 const &char audio_api_name(int api);          // "alsa"
@@ -141,7 +141,7 @@ int audio_api_by_name(const &char name);      // AUDIO_API_UNSPECIFIED if unknow
 ```c
 struct Audio {
     int    api_id;
-    ?&void impl;
+    ?&struct AudioHost_ impl;   // std-private; null when closed
 
     static struct Result<Audio, AudioError> open(int api);   // probes the devices
     static struct Audio closed();
@@ -233,7 +233,7 @@ struct AudioStreamOptions {
 int callback(&AudioIo io, ?&T user);   // AUDIO_CB_CONTINUE, AUDIO_CB_STOP or AUDIO_CB_ABORT
 
 struct AudioIo {
-    ?&void       output, input;          // null for the direction not opened
+    []unsigned char output_, input_;     // the buffers' bytes; empty for the direction not opened
     unsigned int frames;
     double       stream_time;            // seconds processed before this period
     unsigned int status;                 // AUDIO_STATUS_INPUT_OVERFLOW | AUDIO_STATUS_OUTPUT_UNDERFLOW
@@ -242,20 +242,21 @@ struct AudioIo {
     int          interleaved;
     unsigned int sample_rate;
 
-    struct Slice<float>  output_f32();   // also input_f32, _f64, _i16, _i32, _i8; empty for another format
-    struct Slice<unsigned char> output_bytes();          // any format (the only view of I24)
-    struct Slice<float>  output_channel_f32(int ch);     // one channel of a non-interleaved f32 stream
-    void clear_output();
+    []float              output_f32() const;   // input_f32() is []const float; also _f64, _i16, _i32, _i8
+    []S24                output_i24() const;   // packed 3-byte samples (std/audio/s24.h)
+    []unsigned char      output_bytes() const; // any format
+    []float              output_channel_f32(int ch) const;  // one channel of a non-interleaved f32 stream
+    void clear_output() const;
 };
 ```
 
-타입이 있는 뷰는 버퍼 위의 경계 검사 [`Slice<T>`](/ko/stdlib/collections#slice)입니다: `frames * channels`개 샘플이며, 스트림이 non-interleaved가 아니면 인터리브(프레임 우선)입니다. `status`에는 이전 콜백 이후 백엔드가 본 xrun이 담깁니다: ALSA의 `-EPIPE`, JACK의 xrun 콜백, Core Audio의 프로세서 과부하, WASAPI의 데이터 불연속과 빈 렌더 버퍼, 말라 버린 AudioWorklet 큐, 더미 API의 늦은 깨어남.
+타입이 있는 뷰는 버퍼 위의 경계 검사되는 내장 슬라이스(`[]T`, 입력은 `[]const T`)입니다: `frames * channels`개 샘플이며, 스트림이 non-interleaved가 아니면 인터리브(프레임 우선)입니다. `status`에는 이전 콜백 이후 백엔드가 본 xrun이 담깁니다: ALSA의 `-EPIPE`, JACK의 xrun 콜백, Core Audio의 프로세서 과부하, WASAPI의 데이터 불연속과 빈 렌더 버퍼, 말라 버린 AudioWorklet 큐, 더미 API의 늦은 깨어남.
 
 ### `AudioStream` {#audiostream}
 
 ```c
 struct AudioStream {
-    ?&void impl;
+    ?&struct AudioStreamState_ impl;   // std-private; null when closed
     static struct AudioStream closed();
 
     struct AudioError start();
@@ -331,24 +332,24 @@ const &char audio_error_name(int code);
 스트림이 하는 변환을 애플리케이션용으로 제공합니다; 모두 할당이 없고 콜백 안에서 안전합니다.
 
 ```c
-void audio_f32_to_i16(const &float in, &short out, unsigned long n);   // and back: audio_i16_to_f32
+unsigned long audio_f32_to_i16([]const float in, []short out);   // and back: audio_i16_to_f32
 void audio_f32_to_i32(...);  void audio_i32_to_f32(...);
-void audio_f32_to_i24(const &float in, &unsigned char out, unsigned long n);   // packed 3-byte
+unsigned long audio_f32_to_i24([]const float in, []S24 out);   // packed 3-byte
 void audio_i24_to_f32(...);
 void audio_f32_to_i8(...);   void audio_i8_to_f32(...);
 void audio_f32_to_f64(...);  void audio_f64_to_f32(...);
 void audio_i16_to_i32(...);  void audio_i32_to_i16(...);
-void audio_f32_to_i16_dither(const &float in, &short out, unsigned long n, &unsigned int state);  // TPDF
+unsigned long audio_f32_to_i16_dither([]const float in, []short out, &unsigned int state);  // TPDF
 
 void audio_interleave_f32(const &float planar, &float out, unsigned long frames, int channels);
 void audio_deinterleave_f32(const &float in, &float planar, unsigned long frames, int channels);
-void audio_gain_f32(&float buf, unsigned long n, float gain);
-void audio_mix_f32(&float dst, const &float src, unsigned long n, float gain);
-float audio_peak_f32(const &float buf, unsigned long n);
+void audio_gain_f32([]float buf, float gain);
+unsigned long audio_mix_f32([]float dst, []const float src, float gain);
+float audio_peak_f32([]const float buf);
 
 // std/dsp interop
-void audio_f32_to_fixed(const &float in, &Fixed out, unsigned long n);   // Q8.24
-void audio_fixed_to_f32(const &Fixed in, &float out, unsigned long n);
+unsigned long audio_f32_to_fixed([]const float in, []Fixed out);   // Q8.24
+unsigned long audio_fixed_to_f32([]const Fixed in, []float out);
 unsigned long audio_buffer_write_f32(&AudioBuffer buf, const &float in, unsigned long frames);
 unsigned long audio_buffer_read_f32(&AudioBuffer buf, &float out, unsigned long frames);
 ```
@@ -374,7 +375,7 @@ struct MidiIn {
     generic<T> void set_callback(fn void(&MidiEvent, ?&T) callback, ?&T user);
     void cancel_callback();                                   // back to the queue
     void ignore_types(int sysex, int timing, int active_sensing);   // default: all three ignored
-    long get_message(&unsigned char buf, unsigned long cap, &double timestamp);
+    long get_message([]unsigned char buf, &double timestamp);
     unsigned long dropped() const;
     void close();
 };
@@ -382,7 +383,7 @@ struct MidiIn {
 struct MidiOut {
     static struct Result<MidiOut, AudioError> open(int api, const &char client_name);
     // port_count, port_info, open_port, open_virtual_port, close_port, is_port_open, close as above
-    struct AudioError send_message(const &unsigned char msg, unsigned long len);   // one whole message
+    struct AudioError send_message([]const unsigned char msg);   // one whole message
     struct AudioError send(struct MidiMsg msg);
 };
 ```
@@ -395,7 +396,7 @@ struct MidiOut {
 struct MidiEvent {
     double timestamp;                  // seconds since the port opened (monotonic)
     double delta;                      // since the previous message
-    struct Slice<unsigned char> bytes; // valid during the callback
+    []const unsigned char bytes;       // valid during the callback
     int status() const;
     struct MidiMsg short_msg() const;  // len 0 for sysex
 };
@@ -419,7 +420,7 @@ struct MidiMsg {                      // up to 3 bytes: everything but sysex
     static struct MidiMsg song_position(int beats);
     static struct MidiMsg song_select(int song);
     static struct MidiMsg system(int status);                       // MIDI_CLOCK, MIDI_START, ...
-    static struct MidiMsg of(const &unsigned char bytes, unsigned long n);
+    static struct MidiMsg of([]const unsigned char bytes);
     int status() const;  int type() const;  int channel() const;
     int data1() const;   int data2() const;
     int is_note_on() const;  int is_note_off() const;  int pitch_bend_value() const;
@@ -427,7 +428,7 @@ struct MidiMsg {                      // up to 3 bytes: everything but sysex
 
 int  midi_message_length(int status);       // 1..3, 0 for sysex, -1 for a data byte
 int  midi_is_realtime(int status);
-long midi_build_sysex(&unsigned char out, unsigned long cap, const &unsigned char payload, unsigned long n);
+long midi_build_sysex([]unsigned char out, []const unsigned char payload);
 int  midi_14bit(int lsb, int msb);
 ```
 
@@ -437,7 +438,7 @@ int  midi_14bit(int lsb, int msb);
 
 ```c
 struct MidiParser {
-    static struct MidiParser new(?&unsigned char sysex_buf, unsigned long cap);
+    static struct MidiParser new([]unsigned char sysex_buf);
     int  feed(int byte);                 // MIDI_PARSE_NONE / _MESSAGE / _SYSEX / _ERROR
     struct MidiMsg message() const;      // after MIDI_PARSE_MESSAGE
     unsigned long sysex_length() const;  // after MIDI_PARSE_SYSEX (in sysex_buf, F0 .. F7)
@@ -446,7 +447,7 @@ struct MidiParser {
 
 struct MidiEncoder {
     static struct MidiEncoder new(int use_running_status);
-    long encode(const &unsigned char msg, unsigned long len, &unsigned char out, unsigned long cap);
+    long encode([]const unsigned char msg, []unsigned char out);
     void reset();
 };
 ```

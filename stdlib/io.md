@@ -49,12 +49,12 @@ void eprint_float(double v);
 All return the number of characters written (excluding NUL), or -1 on error.
 
 ```c
-int io_fmt_int(&char buf, int n, long long v);
-int io_fmt_uint(&char buf, int n, unsigned long long v);
-int io_fmt_float(&char buf, int n, double v);
-int io_fmt_float_prec(&char buf, int n, double v, int prec);
-int io_fmt_hex(&char buf, int n, unsigned long long v);
-int io_fmt_str(&char buf, int n, const &char s);
+int io_fmt_int([]char buf, long long v);
+int io_fmt_uint([]char buf, unsigned long long v);
+int io_fmt_float([]char buf, double v);
+int io_fmt_float_prec([]char buf, double v, int prec);
+int io_fmt_hex([]char buf, unsigned long long v);
+int io_fmt_str([]char buf, const &char s);
 ```
 
 ### Input (stdin) {#input-stdin}
@@ -62,8 +62,8 @@ int io_fmt_str(&char buf, int n, const &char s);
 ```c
 int  io_getchar();                        // read single char; returns SC_EOF on end
 int  io_ungetc(int c);                    // push char back onto stdin
-int  io_read_line(&char buf, int n);      // read line (up to n-1 chars + NUL)
-int  io_read_token(&char buf, int n);     // read whitespace-delimited token
+int io_read_line([]char buf);      // read line (up to n-1 chars + NUL)
+int io_read_token([]char buf);     // read whitespace-delimited token
 int  io_scan_int(&long long out);           // parse decimal int from stdin
 int  io_scan_uint(&unsigned long long out); // parse unsigned int from stdin
 int  io_scan_float(&double out);            // parse float from stdin
@@ -96,7 +96,7 @@ void flush_stderr();
 #include <std/io_file.h>
 ```
 
-Handles are `&File` references to an opaque type — the C `FILE` underneath is never exposed. The [static method](/reference/functions#static-methods) `File::open` returns `?&File` (null on failure), so it must be narrowed (`match`, `std::expect_ref`) before use; every operation is then a method on the non-null `&File` (`f.read(buf, n)`, `f.close()`, ...). From outside `namespace std`, call it as `std::File::open(...)`. Byte buffers are `&unsigned char` / `const &unsigned char`.
+Handles are `&File` references to an opaque type — the C `FILE` underneath is never exposed. The [static method](/reference/functions#static-methods) `File::open` returns `?&File` (null on failure), so it must be narrowed (`match`, `std::expect_ref`) before use; every operation is then a method on the non-null `&File` (`f.read(((unsigned char*)buf)[0..n])`, `f.close()`, ...). From outside `namespace std`, call it as `std::File::open(...)`. Byte buffers are `&unsigned char` / `const &unsigned char`.
 
 `File` is a [`SeekableStream`](#io-traits) and a `Flusher`, so the generic stream helpers and [`BufReader` / `BufWriter`](#buffered-io) work on it.
 
@@ -105,11 +105,11 @@ struct File {
     static ?&File open(const &char path, const &char mode);  // "r", "w", "a", "rb", "wb", etc.
     int       close();                                       // 0 on success
 
-    long long read(&unsigned char buf, unsigned long n);       // bytes read, 0 at EOF, -1 on error
+    long long read([]unsigned char buf);       // bytes read, 0 at EOF, -1 on error
     int       getc();                                          // char, or -1 at EOF/error
-    ?&char    gets(&char buf, int n);                          // buf, or null at EOF/error
+    ?&char gets([]char buf);                          // buf, or null at EOF/error
 
-    long long write(const &unsigned char buf, unsigned long n); // bytes written, -1 on error
+    long long write([]const unsigned char buf); // bytes written, -1 on error
     int       putc(int c);                                      // c, or -1 on error
     int       puts(const &char s);                              // non-negative on success (no newline)
 
@@ -125,7 +125,7 @@ struct File {
 
     // Whole files (static).
     static int read_to_string(const &char path, &String out);           // appends the contents; 1 on success
-    static int write_bytes(const &char path, const &char data, unsigned long n); // create/truncate + write; 1 on success
+    static int write_bytes(const &char path, []const unsigned char data); // create/truncate + write; 1 on success
 };
 ```
 
@@ -135,11 +135,11 @@ struct File {
 
 ### Read {#read}
 
-`f.read(buf, n)` reads at most `n` bytes and returns the count: fewer than `n` near the end, 0 at end of file, -1 when an error stopped it before any byte was read. To read exactly `n` bytes, use [`read_exact`](#io-traits). `f.getc()` returns one character or -1; `f.gets(buf, n)` reads up to `n - 1` characters and NUL-terminates.
+`f.read(buf)` reads at most `buf.len` bytes and returns the count: fewer than `buf.len` near the end, 0 at end of file, -1 when an error stopped it before any byte was read. To read exactly `n` bytes, use [`read_exact`](#io-traits). `f.getc()` returns one character or -1; `f.gets(buf)` reads up to `buf.len - 1` characters and NUL-terminates.
 
 ### Write {#write}
 
-`f.write(buf, n)` returns the count written (fewer than `n` on an error part-way), or -1 when an error stopped it before any byte; [`write_all`](#io-traits) loops until everything is written. `f.putc(c)` and `f.puts(s)` write one character and a string.
+`f.write(((const unsigned char*)buf)[0..n])` returns the count written (fewer than `n` on an error part-way), or -1 when an error stopped it before any byte; [`write_all`](#io-traits) loops until everything is written. `f.putc(c)` and `f.puts(s)` write one character and a string.
 
 ### Seek / Tell {#seek-tell}
 
@@ -161,7 +161,7 @@ struct File {
 struct String text = String::new();
 if (std::File::read_to_string("notes.md", &text)) {
     text.push("\n- one more line\n");
-    std::File::write_bytes("notes.md", text.as_ptr(), text.len);
+    std::File::write_bytes("notes.md", text.as_bytes());
 }
 text.free();
 ```
@@ -176,10 +176,10 @@ std's blocking byte streams share one `read` / `write` shape. `io_traits.h` name
 
 ```c
 trait Reader {
-    long long read(&unsigned char buf, unsigned long n);         // count, 0 at end, -1 on error
+    long long read([]unsigned char buf);         // count, 0 at end, -1 on error
 }
 trait Writer {
-    long long write(const &unsigned char buf, unsigned long n);  // count (may be short), -1 on error
+    long long write([]const unsigned char buf);  // count (may be short), -1 on error
 }
 trait Seekable {
     int       seek(long long offset, int whence);                // 0 = start, 1 = current, 2 = end; 0 on success
@@ -194,8 +194,8 @@ trait SeekableStream : Stream + Seekable {}
 
 | Trait | Composed of | Satisfied by |
 |---|---|---|
-| `Reader` | `read(buf, n)` | `File`, `Pipe`, `TcpStream`, `BufReader<R>` |
-| `Writer` | `write(buf, n)` | `File`, `Pipe`, `TcpStream`, `BufWriter<W>` |
+| `Reader` | `read(buf)` (`[]unsigned char`) | `File`, `Pipe`, `TcpStream`, `TlsStream`, `BufReader<R>` |
+| `Writer` | `write(buf)` (`[]const unsigned char`) | `File`, `Pipe`, `TcpStream`, `TlsStream`, `BufWriter<W>` |
 | `Seekable` | `seek(offset, whence)`, `tell()` | `File` |
 | `Flusher` | `flush()` | `File`, `BufWriter<W>` |
 | `Stream` | `Reader + Writer` | `File`, [`Pipe`](/stdlib/ipc#pipe-anonymous-pipes) (reads the read end, writes the write end), [`TcpStream`](/stdlib/http#tcp-streams) (`std/http/http.h`, a connected blocking TCP socket) |
@@ -203,16 +203,16 @@ trait SeekableStream : Stream + Seekable {}
 
 | Function / struct | Bound | Does |
 |---|---|---|
-| `read_exact(&r, buf, n)` | `Reader` | reads exactly `n` bytes, looping over short reads: 1 once all arrived, 0 if the stream ended or failed first (`buf` then holds what did arrive) |
-| `write_all(&w, buf, n)` | `Writer` | writes all `n` bytes, looping over short writes: 1 on success, 0 if the stream failed (or accepted nothing) first |
+| `read_exact(&r, ((unsigned char*)buf)[0..n])` | `Reader` | reads exactly `n` bytes, looping over short reads: 1 once all arrived, 0 if the stream ended or failed first (`buf` then holds what did arrive) |
+| `write_all(&w, ((const unsigned char*)buf)[0..n])` | `Writer` | writes all `n` bytes, looping over short writes: 1 on success, 0 if the stream failed (or accepted nothing) first |
 | `copy_stream(&r, &w)` | `Reader`, `Writer` | copies `r` into `w` until `r` ends: the byte count, or -1 if a read or write failed |
 | `stream_size(&s)` | `Seekable` | the stream's length (its end offset), leaving the position where it was; -1 on error |
 | [`BufReader<R>`](#buffered-io) | `Reader` | a buffer in front of a reader, with `read_until`; a `Reader` itself |
 | [`BufWriter<W>`](#buffered-io) | `Writer` | a buffer in front of a writer; a `Writer` and `Flusher` itself |
 
 ```c
-generic<R: Reader>             int       read_exact(&R r, &unsigned char buf, unsigned long n);
-generic<W: Writer>             int       write_all(&W w, const &unsigned char buf, unsigned long n);
+generic<R: Reader> int read_exact(&R r, []unsigned char buf);
+generic<W: Writer> int write_all(&W w, []const unsigned char buf);
 generic<R: Reader, W: Writer>  long long copy_stream(&R r, &W w);
 generic<S: Seekable>           long long stream_size(&S s);
 ```
@@ -230,7 +230,7 @@ long long byte_sum(&R r) {
     unsigned char chunk[256];
     long long sum = 0LL;
     while (1) {
-        long long k = r.read(&chunk[0], 256UL);
+        long long k = r.read(chunk[0..256UL]);
         if (k == 0LL) { return sum; }
         if (k < 0LL) { return -1LL; }
         for (long long i = 0LL; i < k; i = i + 1LL) { sum = sum + (long long)chunk[i]; }
@@ -244,7 +244,7 @@ int main() {
     // Through a pipe: write all, close the write end, read to the end.
     struct Pipe p;
     if (p.init() != 0) { return 1; }
-    if (!std::write_all(&p, &msg[0], 3UL)) { return 1; }
+    if (!std::write_all(&p, msg[0..3])) { return 1; }
     p.close_write();
     long long a = byte_sum(&p);                 // R = Pipe
     p.close_read();
@@ -253,7 +253,7 @@ int main() {
     match (std::File::open("/tmp/sum.bin", "w+b")) {
         case null: { return 1; }
         case some(f): {
-            std::write_all(f, &msg[0], 3UL);
+            std::write_all(f, msg[0..3]);
             f.seek(0LL, 0);
             long long b = byte_sum(f);          // R = File
             long long n = std::stream_size(f);  // Seekable
@@ -308,7 +308,7 @@ struct BufReader {
     &R inner;                                              // the stream read from (borrowed)
 
     static struct BufReader<R> over(&R inner);
-    long long     read(&unsigned char out, unsigned long n); // from the buffer first; 0 at end, -1 on error
+    long long read([]unsigned char out);     // from the buffer first; 0 at end, -1 on error
     int           read_until(&String out, const &char term);
     unsigned long buffered() const;                          // bytes a read can return without touching the stream
 };
@@ -318,7 +318,7 @@ struct BufWriter {
     &W inner;                                              // the stream written to (borrowed)
 
     static struct BufWriter<W> over(&W inner);
-    long long write(const &unsigned char data, unsigned long n); // takes all n bytes: n, or -1 if the stream failed
+    long long write([]const unsigned char data); // takes all of data: data.len, or -1 if the stream failed
     int       flush();                                           // writes out the buffer: 0, or -1 (buffer dropped either way)
 };
 ```
@@ -330,6 +330,7 @@ A `BufWriter` holds what was written until `flush()` (or until its buffer fills)
 ```c
 #include <std/io.h>
 #include <std/io_buf.h>
+#include <std/str.h>
 #include <std/collections/string.h>
 
 int main() {
@@ -339,7 +340,7 @@ int main() {
         case some(f): {
             struct BufWriter<File> out = std::BufWriter::over(f);
             const &char text = "alpha\nbeta\ngamma\n";
-            unsafe { std::write_all(&out, (const &unsigned char)(const unsigned char*)text, 17UL); }
+            std::write_all(&out, str_bytes(text));
             if (out.flush() != 0) { return 1; }  // before the file is closed
             f.close();
         }
@@ -388,7 +389,7 @@ int main() {
     match (std::File::open("output.txt", "r")) {
         case some(g): {
             char buf[256];
-            unsafe { g.gets(buf, 256); }
+            g.gets(buf[..]);
             std::print("Read: ");
             unsafe { std::println(buf); }
             g.close();

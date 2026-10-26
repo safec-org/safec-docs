@@ -92,7 +92,7 @@ Each block still carries the 16-byte header, which matters most for very small o
 ### safe_memcpy {#safe_memcpy}
 
 ```c
-generic<T> void safe_memcpy(&T dst, const &T src, unsigned long n);
+generic<T> unsigned long safe_memcpy([]T dst, []const T src);
 ```
 
 Copy `n` bytes from `src` to `dst`. The source and destination regions **must not overlap**. Use `safe_memmove` for overlapping regions.
@@ -100,7 +100,7 @@ Copy `n` bytes from `src` to `dst`. The source and destination regions **must no
 ### safe_memmove {#safe_memmove}
 
 ```c
-generic<T> void safe_memmove(&T dst, const &T src, unsigned long n);
+generic<T> unsigned long safe_memmove([]T dst, []const T src);
 ```
 
 Copy `n` bytes from `src` to `dst`. Safe for overlapping regions.
@@ -108,7 +108,8 @@ Copy `n` bytes from `src` to `dst`. Safe for overlapping regions.
 ### safe_memset {#safe_memset}
 
 ```c
-generic<T> void safe_memset(&T ptr, int val, unsigned long n);
+generic<T> void safe_memset([]T s, int val);        // every byte of s's elements
+generic<T> void safe_memset_obj(&T v, int val);     // one object
 ```
 
 Set `n` bytes starting at `ptr` to the value `val` (interpreted as `unsigned char`).
@@ -116,7 +117,7 @@ Set `n` bytes starting at `ptr` to the value `val` (interpreted as `unsigned cha
 ### safe_memcmp {#safe_memcmp}
 
 ```c
-generic<T> int safe_memcmp(const &T a, const &T b, unsigned long n);
+generic<T> int safe_memcmp([]const T a, []const T b);
 ```
 
 Compare `n` bytes of memory at `a` and `b`. Returns:
@@ -138,7 +139,8 @@ int           mem_fits_page(unsigned long addr, unsigned long size);    // 1 if 
 // locality: 0 = no reuse, 1 = low, 2 = moderate, 3 = high. __builtin_prefetch; no-op elsewhere.
 generic<T> void mem_prefetch(const &T addr, int write, int locality);
 generic<T> void mem_clflush(const &T addr);              // write back + invalidate addr's line (x86 CLFLUSH, AArch64 DC CIVAC; else no-op)
-generic<T> void mem_zero_secure(&T ptr, unsigned long n); // zero with volatile stores the optimizer can't remove
+generic<T> void mem_zero_secure([]T s);    // zero with volatile stores the optimizer can't remove
+generic<T> void mem_zero_secure_obj(&T v); // the same for one object
 ```
 
 The address arithmetic helpers take plain `unsigned long` addresses; the rest take a reference to the first byte of the region, like the `safe_mem*` functions above.
@@ -156,8 +158,8 @@ int main() {
     match (maybe) {
         case null:     { return 1; }               // out of memory
         case some(buf): {
-            std::safe_memset(buf, 0, 10UL * sizeof(int));
-            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view
+            struct Slice<int> s = std::Slice::of(buf, 10UL);   // bounds-checked view of the 10 ints
+            std::safe_memset(s.as_slice(), 0);
             s.set(0UL, 42);
             s.set(1UL, 99);
 
@@ -165,7 +167,7 @@ int main() {
             ?&heap int copy = std::alloc(10UL * sizeof(int));
             match (copy) {
                 case some(c): {
-                    std::safe_memcpy(c, buf, 10UL * sizeof(int));
+                    std::safe_memcpy(std::Slice::of(c, 10UL).as_slice(), s.as_slice());   // 10 elements
                     std::println_int(*std::Slice::of(c, 10UL).at(0UL));   // 42
                 }
                 case null: { }

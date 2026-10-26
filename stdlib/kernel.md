@@ -183,8 +183,8 @@ process (`-1` if it was the one removed).
 
 `Mailbox` (via `Mailbox::new(owner_pid)`) — a fixed-capacity
 (`MAILBOX_CAPACITY` = 64 messages, `MSG_MAX_SIZE` = 256 bytes payload)
-message queue. `send(sender_pid, type, payload, size)` (`payload` is a
-`const ?&unsigned char`; pass `null` with `size` 0 for a signal-only message), `recv(&Message out)`,
+message queue. `send(sender_pid, type, payload)` (`payload` is a
+`[]const unsigned char`, at most 256 bytes kept; an empty slice for a signal-only message), `recv(&Message out)`,
 `peek(&Message out)` (non-destructive), `has_msg()`,
 `length()`, `clear()`.
 

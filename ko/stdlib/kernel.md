@@ -180,8 +180,8 @@ pc)`, `exit(code)`(`PROC_ZOMBIE`로 전이).
 
 `Mailbox`(`Mailbox::new(owner_pid)`로 생성) — 고정 용량
 (`MAILBOX_CAPACITY` = 64개 메시지, `MSG_MAX_SIZE` = 256바이트 페이로드)
-메시지 큐. `send(sender_pid, type, payload, size)`(`payload`는
-`const ?&unsigned char`이며, 신호 전용 메시지는 `size` 0과 함께 `null`을 전달), `recv(&Message out)`,
+메시지 큐. `send(sender_pid, type, payload)`(`payload`는
+`[]const unsigned char`이며 최대 256바이트를 보관. 신호 전용 메시지는 빈 슬라이스를 전달), `recv(&Message out)`,
 `peek(&Message out)`(비파괴적), `has_msg()`,
 `length()`, `clear()`.
 

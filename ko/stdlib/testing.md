@@ -81,10 +81,10 @@ void bench() {
 ## 퍼징 (`test/fuzz.h`) {#fuzzing-testfuzzh}
 
 `FuzzTarget`(`FuzzTarget::new(func, iters)`로 생성, `func`:
-`fn void(const &unsigned char data, unsigned long size)`) — 구조를
-인식하지 못하는 경량 인프로세스 뮤테이터입니다: `run(corpus, corpus_size)`는
+`fn void([]const unsigned char data)`) — 구조를
+인식하지 못하는 경량 인프로세스 뮤테이터입니다: `run(corpus)`는
 시드 코퍼스에서 시작해 `iters`번의 무작위 변이를 적용하고, 각 결과를
-대상 함수에 전달합니다. 커버리지 기반이 아니므로 개발 중 간단하고 임시적인
+대상 함수에 전달합니다. 코퍼스와 각 입력은 바이트 슬라이스입니다. 커버리지 기반이 아니므로 개발 중 간단하고 임시적인
 퍼징을 위한 것이지, CI에서 libFuzzer/AFL을 대체하는 용도는 아닙니다. 대상
 함수 안에서 발생하는 크래시/패닉은 포착되지 않으며, 일반적인 프로세스
 크래시로 그대로 드러납니다.

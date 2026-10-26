@@ -360,7 +360,9 @@ int main() {
 }
 ```
 
-컨테이너가 *서로 다른* 컨텍스트 타입의 콜백을 동시에 담아야 하는 경우(타이머 휠, 위젯 트리, 여러 드라이버를 마운트하는 VFS), 슬롯은 그 쌍을 타입 소거된 형태로 저장하지만, 그것을 채우는 유일한 방법은 짝이 맞는 `fn(?&T)`와 `?&T`를 받는 제네릭 메서드 — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — 이므로 모든 호출은 여전히 컴파일 타임에 검사됩니다. `std/`에 남아 있는 `void*` 선언은 C ABI 경계입니다: libc/OS extern, `mem.h`의 원시 바이트 할당자, MMIO 기본 주소, GPU/WASM 외부 인터페이스.
+컨테이너가 *서로 다른* 컨텍스트 타입의 콜백을 동시에 담아야 하는 경우(타이머 휠, 위젯 트리, 여러 드라이버를 마운트하는 VFS), 슬롯은 그 쌍을 타입 소거된 형태로 저장하지만, 그것을 채우는 유일한 방법은 짝이 맞는 `fn(?&T)`와 `?&T`를 받는 제네릭 메서드 — `TimerWheel::add`, `Widget::on_click`, `Vfs::mount`, `TaskScheduler::spawn` — 이므로 모든 호출은 여전히 컴파일 타임에 검사됩니다. 소거된 슬롯은 `void*`가 아니라 `?&Erased`(`std/erased.h`)입니다. `std/`에 남아 있는 `void*` 선언은 C ABI 경계 — libc/OS extern, 제네릭 래퍼의 비공개 `*_raw_` 쪽, std 내부 헤더 — 뿐이며, 공개 선언에 원시 포인터가 나타나면 `tests/std_modules/api_lint.py`(스모크 테스트가 실행)가 빌드를 실패시킵니다.
+
+버퍼는 **슬라이스**입니다. C API라면 포인터와 길이를 받거나 포인터로 배열을 돌려줄 자리에서 std는 내장 슬라이스를 받습니다: 원소를 쓸 때는 `[]T`, 읽기만 할 때는 `[]const T` — `f.read(buf[..])`, `sha256(data, digest[..])`, `fft(xs[0..n])`, `String::from_bytes(str_bytes("text"))`. 슬라이스는 길이를 함께 가지고, 인덱싱은 경계 검사되며, 크기가 정해진 출력(키, 다이제스트)은 진입 시 검사됩니다. [슬라이스](/ko/reference/types#slice-types)를 보세요.
 
 ## 표준 라이브러리 포함하기 {#including-the-standard-library}
 

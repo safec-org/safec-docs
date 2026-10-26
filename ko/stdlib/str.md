@@ -53,7 +53,7 @@ int str_eq(const &char a, const &char b);
 ### str_copy {#str_copy}
 
 ```c
-void str_copy(&char dst, const &char src, unsigned long n);
+int str_copy([]char dst, const &char src);
 ```
 
 `src`를 `dst`로 복사합니다 -- NUL을 포함해 최대 `n`바이트까지. `dst`는
@@ -62,7 +62,7 @@ void str_copy(&char dst, const &char src, unsigned long n);
 ### str_cat {#str_cat}
 
 ```c
-void str_cat(&char dst, const &char src);
+int str_cat([]char dst, const &char src);
 ```
 
 `dst`에 있는 NUL로 끝나는 문자열 뒤에 `src`를 덧붙입니다. 대상 버퍼는
@@ -71,7 +71,7 @@ void str_cat(&char dst, const &char src);
 ### str_ncat {#str_ncat}
 
 ```c
-void str_ncat(&char dst, const &char src, unsigned long n);
+int str_ncat([]char dst, const &char src, unsigned long n);
 ```
 
 `src`의 최대 `n`바이트를 `dst`에 덧붙이고 항상 NUL로 종료합니다.
@@ -155,7 +155,7 @@ unsigned long str_cspan(const &char s, const &char reject);
 ### mem_chr {#mem_chr}
 
 ```c
-const ?&unsigned char mem_chr(const &unsigned char s, int c, unsigned long n);
+const ?&unsigned char mem_chr([]const unsigned char s, int c);
 ```
 
 `s`가 가리키는 `n`바이트 블록 안에서 바이트 `c`가 처음 나타나는
@@ -212,7 +212,7 @@ int main() {
 
     // Tokenisation
     char buf[64];
-    str_copy(buf, "one,two,three", 64);
+    str_copy(buf[..], "one,two,three");
     ?&char save = null;
     ?&char tok = str_tok(buf, ",", &save);
     while (!tok.is_null()) {

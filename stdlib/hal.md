@@ -45,7 +45,7 @@ comes from the declared variable, so `new` takes no type argument.
 |---|---|---|---|
 | GPIO | `hal/gpio.h` | `GpioPin<C>` | `GpioPin::new(base, pin, direction)`; `set_direction`, `write`, `read`, `toggle`, `set_pull` |
 | I2C | `hal/i2c.h` | `I2cBus<C>` | `I2cBus::new(base, speed, clock_hz)`; `write`, `read`, `write_read` (write, then read), `probe`; a failed transfer still sends STOP, releasing the bus |
-| SPI | `hal/spi.h` | `SpiDevice<C>` | `SpiDevice::new(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, ?&rx, len)` (`rx` may be `null`), `read` |
+| SPI | `hal/spi.h` | `SpiDevice<C>` | `SpiDevice::new(base, mode)`; `transfer` (one byte, full-duplex), `cs_assert`/`cs_deassert`, `write(tx, rx)` (`[]const unsigned char` tx, an optional `?[]unsigned char` rx: `null` to ignore the input), `read(rx)` |
 | UART | `hal/uart.h` | `Uart<C>` | `Uart::new(base, baud, clock_hz)`; `write_byte`, `read_byte`, `write_str`, `rx_ready`, `tx_ready` |
 | Timer | `hal/timer.h` | `Timer<C>` | `Timer::new(base, prescaler)`; `set_period`, `start`, `stop`, `read`, `clear_flag`, `flag_set` |
 | Watchdog | `hal/watchdog.h` | `Watchdog<C>` | `Watchdog::new(base, timeout)`; `enable` (typically cannot be disabled once armed), `feed`, `caused_reset` |
@@ -92,7 +92,7 @@ type holds no state of its own (the `std` chips have a single unused
 |---|---|---|---|
 | `GpioChip` | `set_direction(base, pin, direction)`, `write(base, pin, value)`, `read(base, pin)`, `toggle(base, pin)`, `set_pull(base, pin, pull)` | `GpioPin<C: GpioChip>` | `GpioGeneric`, `Stm32F4Gpio` |
 | `UartChip` | `init(base, baud, clock_hz)`, `tx_ready(base)`, `rx_ready(base)`, `put(base, c)`, `get(base)` | `Uart<C: UartChip>` | `UartGeneric`, `Pl011`, `Ns16550`, `Stm32F4Usart` |
-| `I2cChip` | `init(base, speed, clock_hz)`, `write(base, addr, data, len)`, `read(base, addr, data, len)`, `probe(base, addr)` (the `I2C_*` results) | `I2cBus<C: I2cChip>` | `I2cGeneric`, `Stm32F4I2c` |
+| `I2cChip` | `init(base, speed, clock_hz)`, `write(base, addr, data)`, `read(base, addr, data)` (byte slices), `probe(base, addr)` (the `I2C_*` results) | `I2cBus<C: I2cChip>` | `I2cGeneric`, `Stm32F4I2c` |
 | `SpiChip` | `init(base, mode)`, `transfer(base, tx)`, `cs(base, asserted)` | `SpiDevice<C: SpiChip>` | `SpiGeneric`, `Stm32F4Spi` |
 | `TimerChip` | `init(base, prescaler)`, `set_period(base, period)`, `run(base, on)`, `count(base)`, `flag(base)`, `clear_flag(base)` | `Timer<C: TimerChip>` | `TimerGeneric`, `Stm32F4Tim` |
 | `WatchdogChip` | `init(base, timeout)`, `enable(base)`, `feed(base)`, `caused_reset(base)` | `Watchdog<C: WatchdogChip>` | `WatchdogGeneric`, `Stm32F4Iwdg` |

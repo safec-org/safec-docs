@@ -220,7 +220,7 @@ struct BumpAllocator {
     unsigned long used;
     unsigned long cap;
 
-    static struct BumpAllocator over(&unsigned char buffer, unsigned long cap);  // over your buffer
+    static struct BumpAllocator over([]unsigned char buffer);  // over your buffer
     static struct BumpAllocator new(unsigned long cap);                          // allocates cap bytes
 
     ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if full
@@ -240,7 +240,7 @@ struct Particle { float x; float y; int life; };
 static unsigned char g_frame[4096];          // per-frame scratch, no heap
 
 int main() {
-    struct BumpAllocator a = std::BumpAllocator::over(&g_frame[0], 4096UL);
+    struct BumpAllocator a = std::BumpAllocator::over(g_frame[..]);
     ?&heap Particle p = std::alloc_t(&a);
     ?&heap int counts = std::alloc_array_t(&a, 16UL);
     match (p) {
@@ -265,7 +265,7 @@ struct SlabAllocator {
     unsigned long obj_size;
 
     // over your buffer of obj_size * count bytes (no double-free tags)
-    static struct SlabAllocator over(&unsigned char buffer, unsigned long obj_size, unsigned long count);
+    static struct SlabAllocator over([]unsigned char buffer, unsigned long obj_size);
     static struct SlabAllocator new(unsigned long obj_size, unsigned long count);
 
     // byte level: one object for size <= obj_size bytes; null if full, size > obj_size
@@ -312,7 +312,7 @@ int main() {
 struct PoolAllocator {
     unsigned long cap;
 
-    static struct PoolAllocator over(&unsigned char buffer, unsigned long cap);  // over your buffer (8-aligned)
+    static struct PoolAllocator over([]unsigned char buffer);  // over your buffer (8-aligned)
     static struct PoolAllocator new(unsigned long cap);
 
     ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if no block fits or align > 8
@@ -333,7 +333,7 @@ Two-Level Segregated Fit: 크기 클래스에 대한 2단계 비트맵이 맞는
 struct TlsfAllocator {
     unsigned long cap;
 
-    static struct TlsfAllocator over(&unsigned char buffer, unsigned long cap);  // over your buffer
+    static struct TlsfAllocator over([]unsigned char buffer);  // over your buffer
     static struct TlsfAllocator new(unsigned long cap);
 
     ?&heap void   alloc(unsigned long size, unsigned long align);   // byte level; null if exhausted or align > 8

@@ -140,15 +140,15 @@ int fenv_save_clear(&unsigned char env);  // save, then clear all flags
 각 함수는 `buf[0 .. cap-1]`에 쓰고, 항상 NUL로 종료하며, 쓴 문자 수(NUL 제외)나 오류 시 `-1`을 반환합니다.
 
 ```c
-int fmt_int(&char buf, unsigned long cap, long long v);
-int fmt_uint(&char buf, unsigned long cap, unsigned long long v);
-int fmt_float(&char buf, unsigned long cap, double v, int decimals);
-int fmt_hex(&char buf, unsigned long cap, unsigned long long v);        // lowercase
-int fmt_hex_upper(&char buf, unsigned long cap, unsigned long long v);
-int fmt_bool(&char buf, unsigned long cap, int v);                       // "true" / "false"
+int fmt_int([]char buf, long long v);
+int fmt_uint([]char buf, unsigned long long v);
+int fmt_float([]char buf, double v, int decimals);
+int fmt_hex([]char buf, unsigned long long v);        // lowercase
+int fmt_hex_upper([]char buf, unsigned long long v);
+int fmt_bool([]char buf, int v);                       // "true" / "false"
 
-int fmt_str(&char dst, unsigned long cap, const &char src);    // copy; returns chars copied
-int fmt_append(&char dst, unsigned long cap, const &char src); // returns new length, -1 if cap exceeded
+int fmt_str([]char dst, const &char src);    // copy; returns chars copied
+int fmt_append([]char dst, const &char src); // returns new length, -1 if cap exceeded
 ```
 
 ```c
@@ -157,10 +157,10 @@ int fmt_append(&char dst, unsigned long cap, const &char src); // returns new le
 
 int main() {
     char buf[32];
-    std::fmt_str(buf, 32UL, "x = ");
+    std::fmt_str(buf[..], "x = ");
     char num[16];
-    std::fmt_int(num, 16UL, 42LL);
-    std::fmt_append(buf, 32UL, num);
+    std::fmt_int(num[..], 42LL);
+    std::fmt_append(buf[..], num);
     std::println(buf);          // x = 42
     return 0;
 }
@@ -303,7 +303,7 @@ int main() {
 ```
 
 ```c
-?&void signal_handle(int sig, fn void(int) handler);   // previous handler (opaque); SIG_ERR on error
+int   signal_handle(int sig, fn void(int) handler);   // 0, or -1 for an invalid or uncatchable signal
 void  signal_default(int sig);
 void  signal_ignore(int sig);
 int   signal_raise(int sig);                   // to this process
@@ -313,7 +313,7 @@ void  signal_pause();                          // block until a signal arrives
 
 시그널 번호(POSIX 값): `SIG_HUP()`, `SIG_INT()`, `SIG_QUIT()`, `SIG_ILL()`, `SIG_ABRT()`, `SIG_FPE()`, `SIG_KILL()`, `SIG_SEGV()`, `SIG_PIPE()`, `SIG_ALRM()`, `SIG_TERM()`, `SIG_USR1()`, `SIG_USR2()`, `SIG_CHLD()`, `SIG_CONT()`, `SIG_STOP()`, `SIG_TSTP()`, `SIG_WINCH()`. `SIG_KILL`과 `SIG_STOP`은 잡을 수 없습니다. `SIG_USR1`, `SIG_USR2`, `SIG_CHLD`, `SIG_CONT`, `SIG_STOP`, `SIG_TSTP`는 Linux와 macOS/BSD에서 번호가 다르며, 함수가 대상에 맞는 번호를 반환합니다.
 
-`signal_handle`은 이전 핸들러를 불투명한 `?&void`로 반환합니다. SafeC 함수가 아니라 C 라이브러리의 `SIG_DFL`/`SIG_IGN` 표식일 수 있기 때문입니다.
+`signal_handle`은 성공하면 0을, 잡을 수 없는 시그널이면 -1을 반환합니다. 이전 핸들러는 돌려주지 않습니다(SafeC 함수가 아니라 C 라이브러리의 `SIG_DFL`/`SIG_IGN` 표식일 수 있기 때문입니다). 처리 방식을 되돌리려면 `signal_default` / `signal_ignore`를 쓰세요.
 
 ---
 
@@ -399,11 +399,11 @@ static int cmp_int(const &int a, const &int b) { return *a - *b; }
 
 int main() {
     int xs[5] = { 5, 3, 9, 1, 7 };
-    std::sys_qsort(&xs[0], 5UL, cmp_int);       // 1 3 5 7 9
+    std::sys_qsort(xs[..], cmp_int);       // 1 3 5 7 9
     int key = 7;
-    match (std::sys_bsearch(&key, &xs[0], 5UL, cmp_int)) {
-        case some(p): { return *p == 7 ? 0 : 1; }
-        case null:    { return 1; }
+    match (std::sys_bsearch(&key, xs[..], cmp_int)) {
+        case some(i): { return xs[i] == 7 ? 0 : 1; }   // i is the index found
+        case none:    { return 1; }
     }
 }
 ```
@@ -416,18 +416,20 @@ int main() {
 #include <std/time.h>
 ```
 
-분해된 시간은 C의 `struct tm` 순서를 따르는 9원소 `int` 배열입니다: `[0]` 초, `[1]` 분, `[2]` 시, `[3]` 일, `[4]` 월(0–11), `[5]` 1900년 이후 연도, `[6]` 요일(0 = 일요일), `[7]` 연중 일, `[8]` 서머타임 플래그.
+분해된 시간은 C의 `struct tm` 필드를 이름으로 가진 `struct TimeFields`입니다: `sec`(초), `min`(분), `hour`(시), `mday`(일), `mon`(월, 0–11), `year`(1900년 이후 연도), `wday`(요일, 0 = 일요일), `yday`(연중 일), `isdst`(서머타임 플래그).
 
 ```c
 long long time_now();                               // Unix seconds
 
-void      time_gmtime(long long t, &int out);       // UTC; out has 9 elements
-void      time_localtime(long long t, &int out);
-long long time_mktime(&int tm_fields);              // local broken-down -> Unix seconds, -1 on error
+struct TimeFields { int sec; int min; int hour; int mday; int mon; int year; int wday; int yday; int isdst; };
+
+struct TimeFields time_gmtime(long long t);         // UTC
+struct TimeFields time_localtime(long long t);
+long long time_mktime(const &TimeFields tm);        // local broken-down -> Unix seconds, -1 on error
 
 // strftime / strptime formats. time_format returns bytes written (0 on failure); time_parse returns 1 on success.
-unsigned long time_format(&char buf, unsigned long cap, const &char fmt, &int tm_fields);
-int           time_parse(const &char s, const &char fmt, &int tm_fields);
+unsigned long time_format([]char buf, const &char fmt, const &TimeFields tm);
+int           time_parse(const &char s, const &char fmt, &TimeFields tm);
 
 double    time_diff(long long end, long long start);  // seconds
 
@@ -447,10 +449,9 @@ int time_is_leap(int year);
 #include <std/io.h>
 
 int main() {
-    int tm[9];
-    std::time_gmtime(std::time_now(), &tm[0]);
+    struct TimeFields tm = std::time_gmtime(std::time_now());
     char buf[32];
-    std::time_format(&buf[0], 32UL, "%Y-%m-%d %H:%M:%S", &tm[0]);
+    std::time_format(buf[..], "%Y-%m-%d %H:%M:%S", &tm);
     std::println(buf);
 
     long long t0 = std::time_mono_ns();
@@ -485,7 +486,7 @@ struct DmaBuffer {
     unsigned long phys_at(unsigned long offset) const;
 
     // Wraps an existing allocation; phys 0 = identity-mapped.
-    static struct DmaBuffer wrap(&unsigned char virt, unsigned long phys, unsigned long size);
+    static struct DmaBuffer wrap([]unsigned char virt, unsigned long phys);
 };
 
 // One driver owns a channel, so its callback context is typed.
