@@ -120,11 +120,17 @@ int main() {
 | dns | `net/dns.h` | A 레코드 쿼리 빌더 + 응답 파서 (레이블 압축) |
 | dhcp | `net/dhcp.h` | `DhcpClient` DORA 핸드셰이크 |
 
+### [TLS](/ko/stdlib/tls) {#tls}
+
+| 모듈 | 헤더 | 설명 |
+|--------|--------|-------------|
+| tls | `tls/tls.h` | 소켓 위의 `TlsStream` 클라이언트와 `TlsAcceptor` 서버: OS의 TLS(`dlopen`으로 불러오는 OpenSSL, SChannel, SecureTransport) 또는 SafeC 자체 TLS 1.3. 시스템 루트 검증, ALPN, 클라이언트 인증서, 논블로킹 `TLS_WANT_*` |
+
 ### [HTTP & 웹](/ko/stdlib/http) {#http-web}
 
 | 모듈 | 헤더 | 설명 |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버: keep-alive `HttpServer`, 리다이렉트와 gzip을 처리하는 URL 클라이언트(`http_fetch`), 요청/응답 헬퍼, 청크 인코딩 |
+| http | `http/http.h` | HTTP/1.1 클라이언트 + 서버: keep-alive `HttpServer`(`TlsServerConfig`로 HTTPS), 리다이렉트·gzip·`https://`를 처리하는 URL 클라이언트(`http_fetch`), 요청/응답 헬퍼, 청크 인코딩 |
 | headers | `http/headers.h` | 대소문자를 구분하지 않는 헤더 맵 `HttpHeaders`, 헤더 파라미터 |
 | router | `http/router.h`, `http/route.h` | `:param`/`*` 패턴, 404/405, 미들웨어(로거, CORS, gzip, 본문 제한)를 갖춘 `Router` |
 | static_files | `http/static_files.h` | 정적 파일 제공: MIME 타입, ETag/Last-Modified/304, 바이트 범위 |
@@ -216,8 +222,16 @@ int main() {
 | hash | `crypto/hash.h` | `Hasher` / `BlockHash` 트레이트; 모든 해시에 대한 `hash_bytes` |
 | hmac | `crypto/hmac.h` | 임의의 `BlockHash` 위의 `Hmac<H>`; 원샷 `hmac_sha256` |
 | rng | `crypto/rng.h` | ChaCha20 CSPRNG; OS(`BCryptGenRandom`, `getentropy`, `getrandom`), `rdrand` 또는 `/dev/urandom`으로 시딩 |
+| chacha20 | `crypto/chacha20.h` | ChaCha20, Poly1305, ChaCha20-Poly1305 AEAD(RFC 8439), 상수 시간 |
+| x25519 | `crypto/x25519.h` | X25519 키 교환(RFC 7748), 상수 시간 래더 |
+| ec | `crypto/ec.h` | P-256/P-384 ECDH + ECDSA(완전 공식, RFC 6979 서명) |
+| rsa | `crypto/rsa.h` | RSA PKCS#1 v1.5 + PSS 검증과 서명(1024–4096비트) |
+| hkdf | `crypto/hkdf.h` | 모든 `BlockHash` 위의 HKDF extract/expand |
+| digest | `crypto/digest.h` | 실행 시간에 고르는 해시(`DIGEST_*`), MGF1 |
+| ct | `crypto/ct.h` | 상수 시간 비교/선택 헬퍼 |
+| bignum | `crypto/bignum.h` | 고정 폭 몽고메리 산술, 모듈러 거듭제곱 |
 | secure_alloc | `crypto/secure_alloc.h` | 해제 시 제로화를 수행하는 슬랩 얼로케이터 |
-| x509 | `crypto/x509.h` | X.509 DER/ASN.1 파서; SAN, 와일드카드 호스트네임, 유효성 |
+| x509 | `crypto/x509.h` | X.509 DER/ASN.1 파서; SAN, IP·와일드카드 호스트 매칭, 유효성; RSA/ECDSA 서명 검증(`X509Parsed`) |
 | tls | `crypto/tls.h` | TLS 1.3 레코드 레이어; AES-256-GCM 레코드 보호(RFC 8446 §5.2), 논스 XOR 시퀀스 |
 
 ### [디버깅 & 프로파일링](/ko/stdlib/debug) {#debugging-profiling}

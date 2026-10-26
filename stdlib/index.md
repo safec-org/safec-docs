@@ -120,11 +120,17 @@ int main() {
 | dns | `net/dns.h` | A-record query builder + reply parser (label compression) |
 | dhcp | `net/dhcp.h` | `DhcpClient` DORA handshake |
 
+### [TLS](/stdlib/tls) {#tls}
+
+| Module | Header | Description |
+|--------|--------|-------------|
+| tls | `tls/tls.h` | `TlsStream` clients and `TlsAcceptor` servers over a socket: the OS's TLS (OpenSSL via `dlopen`, SChannel, SecureTransport) or SafeC's own TLS 1.3; system-root verification, ALPN, client certificates, non-blocking `TLS_WANT_*` |
+
 ### [HTTP & Web](/stdlib/http) {#http-web}
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| http | `http/http.h` | HTTP/1.1 client + server: keep-alive `HttpServer`, URL client with redirects + gzip (`http_fetch`), request/response helpers, chunked coding |
+| http | `http/http.h` | HTTP/1.1 client + server: keep-alive `HttpServer` (HTTPS with a `TlsServerConfig`), URL client with redirects + gzip and `https://` (`http_fetch`), request/response helpers, chunked coding |
 | headers | `http/headers.h` | `HttpHeaders` case-insensitive header map, header parameters |
 | router | `http/router.h`, `http/route.h` | `Router` with `:param`/`*` patterns, 404/405, middleware (logger, CORS, gzip, body limit) |
 | static_files | `http/static_files.h` | Static file serving: MIME types, ETag/Last-Modified/304, byte ranges |
@@ -216,8 +222,16 @@ int main() {
 | hash | `crypto/hash.h` | `Hasher` / `BlockHash` traits; `hash_bytes` over any hash |
 | hmac | `crypto/hmac.h` | `Hmac<H>` over any `BlockHash`; one-shot `hmac_sha256` |
 | rng | `crypto/rng.h` | ChaCha20 CSPRNG, seeded from the OS (`BCryptGenRandom`, `getentropy`, `getrandom`), `rdrand` or `/dev/urandom` |
+| chacha20 | `crypto/chacha20.h` | ChaCha20, Poly1305, ChaCha20-Poly1305 AEAD (RFC 8439), constant time |
+| x25519 | `crypto/x25519.h` | X25519 key exchange (RFC 7748), constant-time ladder |
+| ec | `crypto/ec.h` | P-256/P-384 ECDH + ECDSA (complete formulas, RFC 6979 signing) |
+| rsa | `crypto/rsa.h` | RSA PKCS#1 v1.5 + PSS verify and sign (1024–4096 bits) |
+| hkdf | `crypto/hkdf.h` | HKDF extract/expand over any `BlockHash` |
+| digest | `crypto/digest.h` | Hashes chosen at run time (`DIGEST_*`), MGF1 |
+| ct | `crypto/ct.h` | Constant-time compare/select helpers |
+| bignum | `crypto/bignum.h` | Fixed-width Montgomery arithmetic, modular exponentiation |
 | secure_alloc | `crypto/secure_alloc.h` | Slab allocator with zeroing-on-free |
-| x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, wildcard hostname, validity |
+| x509 | `crypto/x509.h` | X.509 DER/ASN.1 parser; SAN, IP and wildcard host matching, validity; RSA/ECDSA signature verification (`X509Parsed`) |
 | tls | `crypto/tls.h` | TLS 1.3 record layer; AES-256-GCM record protection (RFC 8446 §5.2), nonce XOR seq |
 
 ### [Debugging & Profiling](/stdlib/debug) {#debugging-profiling}
