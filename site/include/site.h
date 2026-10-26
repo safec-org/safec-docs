@@ -65,7 +65,7 @@ struct Site {
 // Loads <root>/site.yaml and every locales/<key>.yaml it names.
 // 'base_override' (nullable) replaces site.yaml's 'base'. 1 on success.
 int site_load(&Site site, const &char root, const ?&char base_override);
-void site_free(&Site site);
+void site_free(struct Site site);
 
 // ── pages.sc ─────────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ struct Page page_new(const &Site site, const &char rel);
 // The page's 'layout' frontmatter ("doc" when absent).
 const &char page_layout(const &Page page);
 
-void pages_free(&Vec<struct Page> pages);
+void pages_free(struct Vec<struct Page> pages);
 
 // ── render.sc ────────────────────────────────────────────────────────────────
 
@@ -212,7 +212,7 @@ struct PageView {
 // 'examples': the page's locale's playground examples (render_page).
 void view_build(const &Site site, const &Vec<struct Page> pages, unsigned long idx, const &Value examples, &PageView v);
 void view_build_404(const &Site site, unsigned long locale, &PageView v);
-void view_free(&PageView v);
+void view_free(struct PageView v);
 
 // ── templates/*.scx ──────────────────────────────────────────────────────────
 

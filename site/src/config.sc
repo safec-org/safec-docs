@@ -34,7 +34,15 @@ static struct String resolve(const &char root, const &char rel) {
 }
 
 int site_load(&Site site, const &char root, const ?&char base_override) {
+    // Every field gets a value first, so a site that fails to load can
+    // still be freed whole.
     site.root = String::from(root);
+    site.source = String::new();
+    site.public_dir = String::new();
+    site.output = String::new();
+    site.theme = String::new();
+    site.base = String::new();
+    site.cfg = Value::null();
     site.locales = Vec::new();
     site.versions = Vec::new();
     site.extra_urls = Vec::new();
@@ -42,17 +50,17 @@ int site_load(&Site site, const &char root, const ?&char base_override) {
     const ?&char home = sys_getenv("SAFEC_HOME");
     match (home) { case some(h): { site.safec_home.push(h); } case null: { } }
     struct String cfg_path = path_join(root, "site.yaml");
-    int ok = load_yaml(cfg_path.as_ptr(), &site.cfg);
+    int ok = load_yaml(cfg_path.as_ptr(), &site.cfg);   // overwrites the null tree
     cfg_path.free();
     if (!ok) { return 0; }
 
-    site.source     = resolve(root, util_vstr(&site.cfg, "source", ".."));
-    site.public_dir = resolve(root, util_vstr(&site.cfg, "public", "../public"));
-    site.output     = resolve(root, util_vstr(&site.cfg, "output", "../dist"));
-    site.theme      = resolve(root, util_vstr(&site.cfg, "theme", "theme"));
+    std::replace(&site.source, resolve(root, util_vstr(&site.cfg, "source", ".."))).drop();
+    std::replace(&site.public_dir, resolve(root, util_vstr(&site.cfg, "public", "../public"))).drop();
+    std::replace(&site.output, resolve(root, util_vstr(&site.cfg, "output", "../dist"))).drop();
+    std::replace(&site.theme, resolve(root, util_vstr(&site.cfg, "theme", "theme"))).drop();
     match (base_override) {
-        case some(b): { site.base = String::from(b); }
-        case null: { site.base = String::from(util_vstr(&site.cfg, "base", "/")); }
+        case some(b): { std::replace(&site.base, String::from(b)).drop(); }
+        case null: { std::replace(&site.base, String::from(util_vstr(&site.cfg, "base", "/"))).drop(); }
     }
     if (!site.base.ends_with("/")) { site.base.push_char('/'); }
 
@@ -64,12 +72,13 @@ int site_load(&Site site, const &char root, const ?&char base_override) {
                 &Value entry = arr.array_at(i);
                 struct Locale loc;
                 loc.key = String::from(util_vstr(entry, "key", "en"));
+                loc.data = Value::null();
                 struct String rel = String::from("locales/");
                 rel.push_str(&loc.key);
                 rel.push(".yaml");
                 struct String path = path_join(root, rel.as_ptr());
                 rel.free();
-                if (!load_yaml(path.as_ptr(), &loc.data)) { path.free(); return 0; }
+                if (!load_yaml(path.as_ptr(), &loc.data)) { path.free(); loc.key.free(); loc.data.free(); return 0; }
                 path.free();
                 loc.prefix = String::from(util_vstr(&loc.data, "prefix", "/"));
                 // "/ko/" -> "ko"; "/" -> "".
@@ -87,18 +96,6 @@ int site_load(&Site site, const &char root, const ?&char base_override) {
     return 1;
 }
 
-void site_free(&Site site) {
-    for (unsigned long i = 0UL; i < site.locales.len; i = i + 1UL) {
-        &Locale l = site.locales.at(i);
-        l.key.free(); l.prefix.free(); l.dir.free(); l.data.free();
-    }
-    site.locales.free();
-    for (unsigned long i = 0UL; i < site.versions.len; i = i + 1UL) { site.versions.at(i).free(); }
-    site.versions.free();
-    for (unsigned long i = 0UL; i < site.extra_urls.len; i = i + 1UL) { site.extra_urls.at(i).free(); }
-    site.extra_urls.free();
-    site.safec_home.free();
-    site.root.free(); site.source.free(); site.public_dir.free();
-    site.output.free(); site.theme.free(); site.base.free();
-    site.cfg.free();
+void site_free(struct Site site) {
+    drop(site);   // every string, tree and list it owns
 }

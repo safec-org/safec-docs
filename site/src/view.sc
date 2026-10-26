@@ -733,14 +733,6 @@ void view_build_404(const &Site site, unsigned long locale, &PageView v) {
     none.headings.free(); none.sections.free();
 }
 
-void view_free(&PageView v) {
-    v.lang.free(); v.title.free(); v.description.free(); v.base.free(); v.head_extra.free();
-    v.home_href.free(); v.logo_src.free(); v.site_title.free(); v.nav.free(); v.locale_menu.free();
-    v.sidebar.free(); v.toc.free(); v.content.free(); v.prev_next.free(); v.crumbs.free();
-    v.version_menu.free(); v.footer_cols.free(); v.page_script.free();
-    v.footer_message.free(); v.footer_copyright.free(); v.outline_label.free();
-    v.menu_label.free(); v.search_label.free(); v.theme_label.free(); v.return_top_label.free();
-    v.skip_label.free(); v.not_found_title.free(); v.not_found_quote.free(); v.not_found_link.free();
-    v.github.free(); v.page_class.free(); v.client_js.free(); v.css.free();
-    v.search_placeholder.free(); v.no_results.free(); v.copied.free(); v.lang_label.free(); v.locale_key.free(); v.locale_prefix.free();
+void view_free(struct PageView v) {
+    drop(v);   // every string it holds
 }

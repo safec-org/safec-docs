@@ -19,6 +19,14 @@
 #include <std/path.h>
 #include <std/sys.h>
 
+// Whether 'l' has anything but whitespace.
+static int has_text_(const &String l) {
+    struct String t = l.trim();
+    int r = t.len > 0UL;
+    t.free();
+    return r;
+}
+
 struct ClSection {
     struct String version;   // "Unreleased", "1.0.0-beta-7" (no leading 'v')
     struct String heading;   // the heading text without brackets
@@ -94,7 +102,7 @@ static void parse_changelog(const &String text, &Vec<struct ClSection> out) {
                 int c0 = s.heading.char_at(k);
                 if (c0 >= (int)'0' && c0 <= (int)'9' && s.heading.char_at(k + 4UL) == (int)'-' &&
                     s.heading.char_at(k + 7UL) == (int)'-' && (k == 0UL || s.heading.char_at(k - 1UL) == (int)' ' || s.heading.char_at(k - 1UL) == (int)'(')) {
-                    s.date = s.heading.substr(k, k + 10UL);
+                    std::replace(&s.date, s.heading.substr(k, k + 10UL)).drop();
                     break;
                 }
             }
@@ -116,7 +124,6 @@ static void parse_changelog(const &String text, &Vec<struct ClSection> out) {
         t.free();
         absolutize_links(&s.body);
     }
-    for (unsigned long i = 0UL; i < lines.len; i = i + 1UL) { lines.at(i).free(); }
     lines.free();
 }
 
@@ -182,7 +189,7 @@ static void tidy_github_body(const &char body, &String out) {
             out.push_str(&url);
             out.push("))\n");
             title.free(); url.free(); num.free();
-        } else if (l.trim().len > 0UL) {
+        } else if (has_text_(&l)) {
             out.push_str(&l);
             out.push_char('\n');
         }
@@ -400,7 +407,7 @@ void releases_add_pages(&Site site, &Vec<struct Page> pages) {
     sorted.sort(cmp_release);
     rels = Value::array();
     for (unsigned long i = 0UL; i < sorted.len; i = i + 1UL) {
-        rels.array_push(*sorted.at(i));
+        rels.array_push(sorted.at(i).clone());   // sorted keeps (and drops) its own
         site.versions.push(String::from(util_vstr(sorted.at(i), "tag_name", "")));
     }
     sorted.free();
@@ -432,10 +439,6 @@ void releases_add_pages(&Site site, &Vec<struct Page> pages) {
         }
         add_changelog_page(site, pages, li, &rels, &cl);
     }
-    for (unsigned long i = 0UL; i < cl.len; i = i + 1UL) {
-        &ClSection s = cl.at(i);
-        s.version.free(); s.heading.free(); s.date.free(); s.body.free();
-    }
-    cl.free();
+    cl.free();   // and each section's strings
     rels.free();
 }
