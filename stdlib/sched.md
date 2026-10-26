@@ -60,7 +60,11 @@ struct Reactor {
     // reactor (std/async's IoDriver). poll() is this with a callback that
     // calls sched->unblock_fd(). Each backend implements only this.
     generic<T> int poll_events(fn void(?&T, int, int) on_ready, ?&T ctx, long long timeout_ms);
-    void close_();
+    void close_();   // closes the OS queue (on epoll, every signalfd it opened; on Windows,
+                     // its WSAStartup) and frees the registration tables. Idempotent: a closed
+                     // reactor is like Reactor::new() — init() may reopen it, and closing or
+                     // dropping it again does nothing
+    void drop();     // close_(): a Reactor is a Drop type, so drop a local one on every path
 }
 ```
 
@@ -111,8 +115,7 @@ int main() {
     //     g_sched.spawn(echo_conn, conn_ref);
 
     std::reactor_run(&g_sched, &reactor);
-    reactor.close_();
-    reactor.sigfds.free(); reactor.watched.free();   // close_() leaves its tables allocated
+    reactor.drop();
     return 0;
 }
 ```

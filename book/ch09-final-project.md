@@ -24,7 +24,7 @@ struct Store {
     void set(const &char key, const &char value);
     ?struct String get(const &char key);
     int remove(const &char key);
-    void free();
+    void drop();
 };
 ```
 
@@ -42,17 +42,14 @@ void Store::init() {
 }
 
 void Store::set(const &char key, const &char value) {
-    match (self.entries.remove(key)) {          // replacing? free the old value
-        case some(old): old.free();
-        case none:      { }
-    }
-    self.entries.insert(key, std::String::from(value));
+    self.entries.insert(key, std::String::from(value));   // replacing drops the old value
 }
 ```
 
 The map is generic, so it knows it stores `struct String`s — there is no
-casting anywhere. The map owns copies of the keys; the `String` values
-are owned by `Store`, which is why `set` frees a value it replaces.
+casting anywhere. The map owns copies of the keys *and* the `String`
+values: inserting under a key that is already there drops the value it
+replaces, so `set` is a plain insert.
 
 ```c
 ?struct String Store::get(const &char key) {
@@ -74,19 +71,21 @@ cloned, independently owned `String` sidesteps the question entirely.
 ```c
 int Store::remove(const &char key) {
     match (self.entries.remove(key)) {
-        case some(old): { old.free(); return 1; }
+        case some(old): { old.drop(); return 1; }
         case none:      return 0;
     }
     return 0;
 }
 
-static void free_value(const &char key, &String v) { v.free(); }
-
-void Store::free() {
-    self.entries.foreach(free_value);   // the values are ours to free
-    self.entries.free();
+void Store::drop() {
+    self.entries.drop();   // drops every key and value
 }
 ```
+
+`remove` on the map moves the value out to us, so `Store::remove` drops
+it. Everything still in the map is the map's: dropping the map drops
+every key and every value with it, so `Store::drop` is one call — freeing
+the values yourself first (a `foreach` over them) would free them twice.
 
 ## Putting it together
 
@@ -96,10 +95,11 @@ extern int printf(const char* fmt, ...);
 int main() {
     struct Store store;
     store.init();
-    defer store.free();
+    defer store.drop();
 
     store.set("name", "SafeC");
     store.set("kind", "language");
+    store.set("name", "SafeC!");      // overwrites: the old value is dropped
 
     ?struct String name = store.get("name");
     match (name) {
@@ -121,12 +121,12 @@ int main() {
 ```
 
 ```
-name: SafeC
+name: SafeC!
 removed kind: 1
 kind: (not found, as expected)
 ```
 
-`defer store.free();` right after `store.init();` is [Chapter
+`defer store.drop();` right after `store.init();` is [Chapter
 8](/book/ch08-error-handling)'s acquisition-next-to-release idiom, one
 more time — by the time you're writing your own SafeC programs, this
 pairing should feel automatic rather than like something you have to
@@ -140,7 +140,7 @@ everything else this book didn't have room to cover in depth:
 
 - **Persistence**: serialize `entries` to disk with
   [`std::csv`](/reference/generics) or [`std::json`](/stdlib/serial) on
-  `free()`, load it back on `init()`.
+  `drop()`, load it back on `init()`.
 - **Concurrency**: wrap access to `entries` with a mutex from
   [`std::sync`](/stdlib/sync) and share one `Store` across threads spawned
   with `std::spawn` (see [Concurrency](/reference/concurrency)).
