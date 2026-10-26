@@ -131,7 +131,7 @@ struct Coverage {
 
 ### COV_SITE() macro {#cov_site-macro}
 
-Place `COV_SITE();` at any point you want to instrument. It registers once (via a `static int` guard) and increments the counter on every call:
+Place `COV_SITE();` at any point you want to instrument. It registers once (via a `static int` guard) and increments the counter on every call. It is a function-like macro, so it needs [compat preprocessor mode](/reference/preprocessor) (`[build] compat_preprocessor = true` in a safeguard package; `safeguard test` turns it on for tests):
 
 ```c
 int clamp(int v, int lo, int hi) {

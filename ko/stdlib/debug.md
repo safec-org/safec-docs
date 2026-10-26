@@ -131,7 +131,7 @@ struct Coverage {
 
 ### COV_SITE() 매크로 {#cov_site-macro}
 
-계측하고 싶은 지점에 `COV_SITE();`를 배치합니다. (`static int` 가드를 통해) 한 번만 등록되며, 호출될 때마다 카운터를 증가시킵니다.
+계측하고 싶은 지점에 `COV_SITE();`를 배치합니다. (`static int` 가드를 통해) 한 번만 등록되며, 호출될 때마다 카운터를 증가시킵니다. 함수형 매크로이므로 [compat 전처리기 모드](/ko/reference/preprocessor)가 필요합니다(safeguard 패키지에서는 `[build] compat_preprocessor = true`, `safeguard test`는 테스트에 이를 켭니다).
 
 ```c
 int clamp(int v, int lo, int hi) {
