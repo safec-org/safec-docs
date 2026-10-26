@@ -8,7 +8,7 @@
 //
 // Fences in the docs today: c (SafeC — ~1800 blocks), bash, toml, cpp,
 // rust, zig, js, powershell, text.
-#include "site.h"
+#include "highlight.h"
 #include <std/ctype.h>
 #include <std/str.h>
 

@@ -1,0 +1,51 @@
+---
+title: "This cycle in SafeC: async, audio, a web stack, a GUI toolkit and HTTPS"
+date: 2026-10-25
+author: The SafeC Team
+tags: [release, std, async, audio, web, gui]
+summary: Since 1.0.0-beta-6, SafeC's standard library gained Rust-style async, real-time audio and MIDI, a full web stack with HTTPS, an anti-aliased GUI toolkit that also runs on Wayland and in the browser, and prebuilt sections; the docs are now built with SafeC and Windows CI is green again.
+---
+
+The weeks since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6) went into the standard library: a program that serves HTTP, opens a window, plays audio and awaits futures can now be written with nothing but `std`. Everything below is merged on `main` (pull requests [#56](https://github.com/safec-org/SafeC/pull/56)–[#67](https://github.com/safec-org/SafeC/pull/67)) and will ship in the next release; the [changelog](/changelog) tracks it under *Unreleased*.
+
+## std/async: futures without language coroutines {#async}
+
+[`std/async`](/stdlib/async) ([#61](https://github.com/safec-org/SafeC/pull/61)) brings Rust's `Future` / `Poll` / `Waker` / `Context` model to SafeC as a library. A future is a struct with a `poll` method; the `ASYNC_BEGIN` / `AWAIT` / `ASYNC_RETURN` macros turn it into a resumable state machine over `goto`, with every local that lives across an await stored in the struct.
+
+On top of that: timers, `join` / `select` / timeout combinators, channels, `Mutex`, `Semaphore`, `Notify` and cancellation, a deterministic no-heap single-threaded `LocalExecutor` that also runs on bare metal and wasm32, a multi-threaded `ThreadPool`, a host `block_on`, and an `IoDriver` + `Runtime` with async TCP on the epoll, kqueue and WSAPoll reactor. The compiler learned the `goto` rules this depends on — duplicate labels, jumps over declarations, labels after `return` — and `safeguard` gained `[build] compat_preprocessor` for packages built on the macros. See `examples/async_demo`.
+
+## std/audio: real-time audio and MIDI {#audio}
+
+[`std/audio`](/stdlib/audio) ([#59](https://github.com/safec-org/SafeC/pull/59)) is one callback-based API for audio streams and MIDI ports with format conversion. Audio backends: ALSA, JACK, Core Audio, WASAPI, Web Audio and a dummy device for tests; MIDI: the ALSA sequencer, JACK, Core MIDI, WinMM and Web MIDI, over a MIDI core with message types, a parser and a lock-free queue. Runtime tests cover the dummy backend, ALSA's null and file PCMs, a JACK loopback and MIDI, with a Windows check under Wine; `examples/audio_demo` lists devices, plays a sine and monitors MIDI. Along the way `safeguard` learned `_macos` and `_wasm` platform-variant std sources.
+
+## A web stack {#web}
+
+[#57](https://github.com/safec-org/SafeC/pull/57) rebuilt [`std/http`](/stdlib/http) into a stack for real services: structured headers and request/response helpers, a keep-alive `HttpServer` with chunked transfer coding, a `Router` with middleware and route patterns, static files, cookies, multipart forms, server-sent events and WebSocket upgrades, plus a URL client that follows redirects and decodes gzip. It came with `std/encoding/url` (RFC 3986 parsing and resolution, query parameters, form encoding) and `std/encoding/deflate` (DEFLATE, zlib and gzip, CRC-32 and Adler-32).
+
+On the browser side, [`std/wasm`](/stdlib/wasm) grew full DOM and browser-API interop — events, timers, fetch, storage, history — with its JavaScript glue shipped in std and tested under Node. `examples/fullstack_demo` puts both halves together: a Router server and a SafeC-to-wasm client.
+
+## std/gui: a GUI toolkit {#gui}
+
+[#63](https://github.com/safec-org/SafeC/pull/63) turned [`std/gui`](/stdlib/gui) into a toolkit: an anti-aliased vector canvas with TrueType font loading, kerning and text layout ([GUI Graphics](/stdlib/gui-graphics)); a retained [widget toolkit](/stdlib/gui-widgets) with layout and theming; and `GuiApp` for multi-window applications, all over a `GuiBackend` interface beneath a portable window layer. Canvas tests compare against a golden image, the widget tests run on a headless backend, and two-window `GuiApp` tests run on X11 (under Xvfb) and Win32 (under Wine). Try `examples/gui_hello` and `examples/gui_gallery`, which shows every widget.
+
+[#65](https://github.com/safec-org/SafeC/pull/65) then took the toolkit to [more platforms](/stdlib/gui-platforms): a Wayland backend (chosen at run time on Linux), a WebAssembly backend that draws into a `<canvas>` or through WebGL with windows inside the page, IME text input and DOM interop, and GPU presenters over OpenGL ES (EGL), Metal and Direct3D 11. `safeguard bundle --target wasm32` packages a GUI app as a runnable web page.
+
+## Prebuilt std, in sections {#sections}
+
+Releases now ship the standard library prebuilt for each platform as one archive per *section* — std's top-level directories, like `core`, `collections`, `gui` or `ml` ([#56](https://github.com/safec-org/SafeC/pull/56)). `safeguard` links the sections a project uses instead of compiling them, and `install.sh --std=...` / `install.ps1 -Std ...` choose which to install. std is now always compiled optimized, in debug builds too, and the release binaries target macOS 11 and glibc 2.25 (Debian 10, Ubuntu 18.04, RHEL 8 and later).
+
+## The docs, built with SafeC {#docs}
+
+The documentation site you're reading is now generated by a SafeC program instead of VitePress. That work added the std pieces a static-site generator needs ([#58](https://github.com/safec-org/SafeC/pull/58)): [`std/dir` and `std/path`](/stdlib/dir) with whole-file `File::read_to_string` / `write_bytes`, a CommonMark + GFM [Markdown](/stdlib/serial) parser with containers, heading ids and render hooks, YAML flow collections and block scalars, `html_unescape` / `html_strip_tags`, a wasm runtime with a reusing size-class allocator over `memory.grow`, and fixes to [scx](/advanced/scx) templates. The compiler now lexes C's `\a \b \f \v \e` escapes. The [new website](/blog/new-website) builds on all of it.
+
+## Windows fixes {#windows}
+
+[#64](https://github.com/safec-org/SafeC/pull/64) made Windows CI green again: the compiler keeps a generic function's COMDAT when the ABI pass rebuilds it, `std/sched` passes `WSAStartup` a real 408-byte `WSADATA`, and the WSAPoll reactor no longer indexes its watch list after dispatching. A smaller compiler fix from [#63](https://github.com/safec-org/SafeC/pull/63): an `f`-suffixed floating literal is a `float`.
+
+## HTTPS {#https}
+
+The last piece landed as this post was being written: [#66](https://github.com/safec-org/SafeC/pull/66) adds [`std/tls`](/stdlib/tls), with the operating system's TLS where there is one — OpenSSL (loaded at run time), SChannel and SecureTransport — and a TLS 1.3 engine written in SafeC (client and server) as the fallback, with X.509 parsing, certificate path validation and the system's trust roots. `std/crypto` grew what that needs: X25519, P-256 / P-384 ECDH and ECDSA, RSA PKCS#1 v1.5 and PSS, HKDF and ChaCha20. With it, `std/http` speaks `https://` in `http_fetch` and friends and in the SSE client, `WsConn` speaks `wss://`, and `HttpServer` serves HTTPS with a `TlsServerConfig`.
+
+## Try it {#try}
+
+Everything above is on `main`. Until the next release, [build from source](/install#quick-install), or install [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6) and follow the [changelog](/changelog).

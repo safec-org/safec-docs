@@ -1,0 +1,9 @@
+[package]
+name        = "site-playground"
+version     = "0.1.0"
+author      = "SafeC Contributors"
+description = "The SafeC website's playground editor (wasm32; build with: safeguard build --release --target wasm32)"
+license     = "MIT"
+
+[build]
+edition = "2026"

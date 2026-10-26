@@ -16,7 +16,10 @@
 //     generator) is fetched once, then every keystroke ranks its
 //     sections here, in SafeC; arrows + Enter navigate;
 //   - 404: the visitor's locale strings when the missing URL is under a
-//     locale prefix (e.g. /ko/...).
+//     locale prefix (e.g. /ko/...);
+//   - tabs (::: tabs in markdown): html.js-tabs hides all but the active
+//     panel; the visitor's OS tab (html[data-os], set by the boot script)
+//     opens first.
 #include <std/wasm/wasm_rt.h>
 #include <std/wasm/dom.h>
 #include <std/serial/json.h>
@@ -27,6 +30,11 @@
 extern void site_clipboard_write(const char* text, int len);
 
 // ── small helpers ────────────────────────────────────────────────────────────
+
+// dom_release, except for the handles the client keeps (std's glue hands
+// out one handle per element, so releasing an event target or an
+// ancestor could free the handle of, say, the search input or <body>).
+static void release_h(int h);
 
 static void esc(&String out, const &char s, unsigned long n) {
     for (unsigned long i = 0UL; i < n; i = i + 1UL) {
@@ -60,10 +68,10 @@ static int up_to_class(int h, const &char cls) {
     for (int depth = 0; depth < 6 && cur >= 0; depth = depth + 1) {
         if (dom_class_contains(cur, cls)) { return cur; }
         int p = dom_parent(cur);
-        if (cur != h) { dom_release(cur); }
+        if (cur != h) { release_h(cur); }
         cur = p;
     }
-    if (cur >= 0 && cur != h) { dom_release(cur); }
+    if (cur >= 0 && cur != h) { release_h(cur); }
     return DOM_NONE;
 }
 
@@ -73,14 +81,14 @@ static struct String action_of(int h) {
     for (int depth = 0; depth < 6 && cur >= 0; depth = depth + 1) {
         if (dom_has_attr(cur, "data-action")) {
             struct String a = dom_get_attr(cur, "data-action");
-            if (cur != h) { dom_release(cur); }
+            if (cur != h) { release_h(cur); }
             return a;
         }
         int p = dom_parent(cur);
-        if (cur != h) { dom_release(cur); }
+        if (cur != h) { release_h(cur); }
         cur = p;
     }
-    if (cur >= 0 && cur != h) { dom_release(cur); }
+    if (cur >= 0 && cur != h) { release_h(cur); }
     return String::new();
 }
 
@@ -118,6 +126,17 @@ struct Client {
 
 static struct Client gC;
 
+static int gCopiedBtn = -1;
+
+static void release_h(int h) {
+    if (h < 0 || h == gC.html || h == gC.body || h == gC.dialog || h == gC.input ||
+        h == gC.results || h == gC.empty || h == gCopiedBtn) { return; }
+    for (unsigned long i = 0UL; i < gC.toc_links.len; i = i + 1UL) {
+        if (*gC.toc_links.at(i) == h || *gC.toc_targets.at(i) == h) { return; }
+    }
+    dom_release(h);
+}
+
 // ── theme, menu, nav menus ───────────────────────────────────────────────────
 
 static void toggle_theme(&Client c) {
@@ -128,7 +147,7 @@ static void toggle_theme(&Client c) {
 static void set_menu(&Client c, int open) {
     if (open) { dom_class_add(c.body, "menu-open"); } else { dom_class_remove(c.body, "menu-open"); }
     int btn = dom_query(".menu-toggle");
-    if (btn >= 0) { dom_set_attr(btn, "aria-expanded", open ? "true" : "false"); dom_release(btn); }
+    if (btn >= 0) { dom_set_attr(btn, "aria-expanded", open ? "true" : "false"); release_h(btn); }
 }
 
 static void close_nav_menus(int except) {
@@ -139,21 +158,18 @@ static void close_nav_menus(int except) {
         if (g != except) {
             dom_class_remove(g, "open");
             int b = dom_query_in(g, ".nav-group-btn");
-            if (b >= 0) { dom_set_attr(b, "aria-expanded", "false"); dom_release(b); }
+            if (b >= 0) { dom_set_attr(b, "aria-expanded", "false"); release_h(b); }
         }
-        dom_release(g);
+        release_h(g);
     }
     groups.free();
 }
 
 // ── copy buttons ─────────────────────────────────────────────────────────────
 
-static int gCopiedBtn = -1;
-
 static void uncopy(?&Client c) {
     if (gCopiedBtn >= 0) {
-        dom_class_remove(gCopiedBtn, "copied");
-        dom_release(gCopiedBtn);
+        dom_class_remove(gCopiedBtn, "copied");   // kept: the button may be clicked again
         gCopiedBtn = -1;
     }
 }
@@ -166,14 +182,14 @@ static void copy_code(&Client c, int btn) {
         struct String text = dom_get_text(code);
         unsafe { site_clipboard_write(text.as_ptr(), (int)text.len); }
         text.free();
-        dom_release(code);
+        release_h(code);
         uncopy((?&Client)null);
         dom_set_attr(btn, "data-label", c.copied_label.as_ptr());
         dom_class_add(btn, "copied");
         gCopiedBtn = btn;
         unsafe { dom_set_timeout(uncopy, (?&Client)&gC, 2000); }
     }
-    dom_release(block);
+    release_h(block);
 }
 
 // ── scroll-spy ───────────────────────────────────────────────────────────────
@@ -431,7 +447,7 @@ static void move_selection(&Client c, int delta) {
     int sel = *links.at((unsigned long)c.selected);
     dom_class_add(sel, "selected");
     dom_call(sel, "scrollIntoView");
-    for (unsigned long i = 0UL; i < links.len; i = i + 1UL) { dom_release(*links.at(i)); }
+    for (unsigned long i = 0UL; i < links.len; i = i + 1UL) { release_h(*links.at(i)); }
     links.free();
 }
 
@@ -439,7 +455,7 @@ static void open_selected(&Client c) {
     int sel = dom_query_in(c.results, "a.selected");
     if (sel < 0) { return; }
     struct String href = dom_get_attr(sel, "href");
-    dom_release(sel);
+    release_h(sel);
     close_search(c);
     dom_navigate(href.as_ptr());
     href.free();
@@ -456,34 +472,44 @@ static void on_click(?&Client cp, &DomEvent ev) {
         case some(c): {
             int t = ev.target();
             if (t < 0) { return; }
-            if (c.search_open && t == c.dialog) { close_search(c); dom_release(t); return; }
+            if (c.search_open && t == c.dialog) { close_search(c); release_h(t); return; }
             if (dom_class_contains(t, "copy")) { copy_code(c, t); return; }   // keeps 't' (uncopy releases it)
             struct String action = action_of(t);
             if (action.eq_cstr("theme")) { toggle_theme(c); }
             else if (action.eq_cstr("menu")) { set_menu(c, !dom_class_contains(c.body, "menu-open")); }
             else if (action.eq_cstr("search")) { open_search(c); }
             action.free();
+            int tb = up_to_class(t, "tab-btn");
+            if (tb >= 0) {
+                int list = dom_parent(tb);
+                int tabs = list >= 0 ? dom_parent(list) : DOM_NONE;
+                struct String idx = dom_get_attr(tb, "data-tab");
+                if (tabs >= 0) { tabs_select(tabs, &idx); release_h(tabs); }
+                if (list >= 0) { release_h(list); }
+                idx.free();
+                if (tb != t) { release_h(tb); }
+            }
             int btn = up_to_class(t, "nav-group-btn");
             if (btn >= 0) {
                 int group = dom_parent(btn);
                 close_nav_menus(group);
                 int open = dom_class_toggle(group, "open");
                 dom_set_attr(btn, "aria-expanded", open ? "true" : "false");
-                dom_release(group);
-                if (btn != t) { dom_release(btn); }
+                release_h(group);
+                if (btn != t) { release_h(btn); }
             } else {
                 int group = up_to_class(t, "nav-group");
                 if (group < 0) { close_nav_menus(DOM_NONE); }
-                else if (group != t) { dom_release(group); }
+                else if (group != t) { release_h(group); }
             }
             if (c.search_open) {
                 int list = up_to_class(t, "search-results");
                 if (list >= 0) {
                     close_search(c);   // a result link is being followed
-                    if (list != t) { dom_release(list); }
+                    if (list != t) { release_h(list); }
                 }
             }
-            dom_release(t);
+            release_h(t);
         }
         case null: { }
     }
@@ -505,7 +531,7 @@ static void on_keydown(?&Client cp, &DomEvent ev) {
                     struct String tag = dom_get_prop(t, "tagName");
                     typing = tag.eq_cstr("INPUT") || tag.eq_cstr("TEXTAREA");
                     tag.free();
-                    dom_release(t);
+                    release_h(t);
                 }
                 int k_combo = (ev.ctrl_key() || ev.meta_key()) && (key.eq_cstr("k") || key.eq_cstr("K"));
                 if (k_combo || (key.eq_cstr("/") && !typing)) {
@@ -520,6 +546,55 @@ static void on_keydown(?&Client cp, &DomEvent ev) {
         }
         case null: { }
     }
+}
+
+// ── tabs ─────────────────────────────────────────────────────────────────────
+
+// Activates tab 'idx' (its data-tab value) of the .tabs element 'tabs'.
+static void tabs_select(int tabs, const &String idx) {
+    struct Vec<int> els = Vec::new();
+    dom_query_all_in(tabs, ".tab-btn, .tab-panel", &els);
+    for (unsigned long i = 0UL; i < els.len; i = i + 1UL) {
+        int e = *els.at(i);
+        struct String t = dom_get_attr(e, "data-tab");
+        int on = t.eq(idx);
+        if (on) { dom_class_add(e, "active"); } else { dom_class_remove(e, "active"); }
+        if (dom_class_contains(e, "tab-btn")) { dom_set_attr(e, "aria-selected", on ? "true" : "false"); }
+        t.free();
+        // Not released: the glue hands out one handle per element, and the
+        // caller may hold this one (the clicked button).
+    }
+    els.free();
+}
+
+static void setup_tabs(&Client c) {
+    dom_class_add(c.html, "js-tabs");
+    struct String os = dom_get_attr(c.html, "data-os");
+    if (os.len == 0UL) { os.free(); return; }
+    struct Vec<int> groups = Vec::new();
+    dom_query_all(".tabs", &groups);
+    for (unsigned long i = 0UL; i < groups.len; i = i + 1UL) {
+        int g = *groups.at(i);
+        struct Vec<int> btns = Vec::new();
+        dom_query_all_in(g, ".tab-btn", &btns);
+        int done = 0;
+        for (unsigned long k = 0UL; k < btns.len; k = k + 1UL) {
+            int b = *btns.at(k);
+            struct String bos = dom_get_attr(b, "data-os");
+            if (!done && bos.contains(os.as_ptr())) {
+                struct String idx = dom_get_attr(b, "data-tab");
+                tabs_select(g, &idx);
+                idx.free();
+                done = 1;
+            }
+            bos.free();
+            release_h(b);
+        }
+        btns.free();
+        release_h(g);
+    }
+    groups.free();
+    os.free();
 }
 
 // ── 404 in the visitor's locale ──────────────────────────────────────────────
@@ -538,16 +613,16 @@ static void localize_404(&Client c) {
             struct String link = dom_get_attr(a, "data-link");
             struct String lang = dom_get_attr(a, "data-lang");
             int h = dom_query(".nf-title");
-            if (h >= 0) { dom_set_text(h, title.as_ptr()); dom_release(h); }
+            if (h >= 0) { dom_set_text(h, title.as_ptr()); release_h(h); }
             h = dom_query(".nf-quote");
-            if (h >= 0) { dom_set_text(h, quote.as_ptr()); dom_release(h); }
+            if (h >= 0) { dom_set_text(h, quote.as_ptr()); release_h(h); }
             h = dom_query(".nf-home");
-            if (h >= 0) { dom_set_text(h, link.as_ptr()); dom_set_attr(h, "href", prefix.as_ptr()); dom_release(h); }
+            if (h >= 0) { dom_set_text(h, link.as_ptr()); dom_set_attr(h, "href", prefix.as_ptr()); release_h(h); }
             dom_set_attr(c.html, "lang", lang.as_ptr());
             title.free(); quote.free(); link.free(); lang.free();
         }
         prefix.free();
-        dom_release(a);
+        release_h(a);
     }
     alts.free();
     path.free();
@@ -583,6 +658,7 @@ __attribute__((export_name("site_init"))) int site_init() {
         if (gC.input >= 0) { dom_on(gC.input, "input", on_input, (?&Client)&gC); }
     }
     setup_spy(&gC);
+    setup_tabs(&gC);
     localize_404(&gC);
     return 0;
 }

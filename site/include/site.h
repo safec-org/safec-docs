@@ -10,6 +10,13 @@
 //   Page + Site ──► PageView (prebuilt HTML fragments)          (view.sc)
 //   PageView ──► full document via scx templates                (templates/*.scx)
 //   search index, sitemap.xml, 404.html, public/ + theme copy   (main.sc)
+//
+// Generated pages (no .md file of their own) join the page list before
+// rendering, so links to them are checked and they are searchable:
+//   release notes + changelog, from SafeC's CHANGELOG.md and its
+//     release history (data/releases.json)                       (releases.sc)
+//   blog index pages (paginated), tag pages, Atom + RSS feeds     (blog.sc)
+//   redirect pages for moved/alias URLs (site.yaml 'redirects')   (main.sc)
 #pragma once
 #include <std/collections/string.h>
 #include <std/collections/vec.h>
@@ -22,6 +29,9 @@ int  util_write_file(const &char path, const &String data);
 
 // Appends 's' HTML-escaped (& < > " ') to 'out'.
 void util_push_esc(&String out, const &char s);
+
+// Is 's' the empty string?
+int util_empty(const &char s);
 
 // The string at obj[key], or 'fallback' when missing / not a string.
 const &char util_vstr(const &Value obj, const &char key, const &char fallback);
@@ -44,6 +54,12 @@ struct Site {
     struct String base;    // "/safec-docs/"
     struct Value  cfg;     // the whole site.yaml tree
     struct Vec<struct Locale> locales;
+    struct String safec_home;   // $SAFEC_HOME ("" if unset): CHANGELOG.md, selfhost/
+    // Release tags, newest first (releases.sc): the docs version selector.
+    struct Vec<struct String> versions;
+    // Served paths (no base) of generated non-page files — feeds, redirect
+    // pages — that links may point at (the link check accepts them).
+    struct Vec<struct String> extra_urls;
 };
 
 // Loads <root>/site.yaml and every locales/<key>.yaml it names.
@@ -78,6 +94,7 @@ struct Page {
     struct String title;
     struct Vec<struct Heading> headings;
     struct Vec<struct Section> sections;
+    int generated;         // 1: made by the generator (no .md file), see above
 };
 
 // Fills 'pages' with every .md file under site.source (minus site.yaml's
@@ -92,12 +109,27 @@ int source_files(const &Site site, &Vec<struct String> out);
 // Splits a leading '---' YAML block off 'text' into page.front / page.body_md.
 void page_split_frontmatter(&Page page, const &String text);
 
+// A page for the markdown-relative path 'rel' ("guide/x.md", "blog/index.md",
+// "ko/changelog.md"): locale, route, url, src and out filled in; front an
+// empty object, body_md empty, generated 0.
+struct Page page_new(const &Site site, const &char rel);
+
+// The page's 'layout' frontmatter ("doc" when absent).
+const &char page_layout(const &Page page);
+
 void pages_free(&Vec<struct Page> pages);
 
 // ── render.sc ────────────────────────────────────────────────────────────────
 
 // Markdown -> HTML for one page: fills html, headings, sections and title.
-void render_page(const &Site site, &Page page);
+// Full SafeC programs among the code blocks of the locale's Book pages are
+// appended to 'examples' (VAL_ARRAY of {t: title, c: code}) for the
+// playground's example picker.
+void render_page(const &Site site, &Page page, &Value examples);
+
+// Appends 'code' as the URL-hash payload the playground reads
+// ("code=" + base64url of the UTF-8 bytes, no padding).
+void playground_hash(const &char code, unsigned long len, &String out);
 
 // Rewrites one link target the way every href on the site is rewritten:
 // internal routes get the base prefix and '.html'; external links and
@@ -105,10 +137,31 @@ void render_page(const &Site site, &Page page);
 void link_rewrite(const &Site site, const &char href, &String out);
 
 // ── highlight.sc ─────────────────────────────────────────────────────────────
+#include "highlight.h"
 
-// Appends 'code' (len bytes) HTML-escaped, with <span class="tok-..."> runs
-// for 'lang'.
-void highlight_code(const &char lang, const &char code, unsigned long len, &String out);
+// ── releases.sc ──────────────────────────────────────────────────────────────
+
+// Adds a release-notes post per SafeC release (en + every other locale)
+// and a changelog page per locale, from $SAFEC_HOME/CHANGELOG.md (or
+// $SAFEC_CHANGELOG) and the release history (build/releases.json when the
+// build fetched it, else data/releases.json); fills site.versions.
+void releases_add_pages(&Site site, &Vec<struct Page> pages);
+
+// ── blog.sc ──────────────────────────────────────────────────────────────────
+
+// Is 'page' a blog post: under <locale prefix>blog/ with a 'date'?
+int blog_is_post(const &Site site, const &Page page);
+
+// Adds each locale's blog index pages (paginated), the tag index and one
+// page per tag; links every post to its neighbours (front '_prev'/'_next').
+void blog_add_pages(&Site site, &Vec<struct Page> pages);
+
+// Writes <prefix>blog/feed.xml (Atom) and <prefix>blog/rss.xml (RSS 2.0)
+// for each locale. 1 on success.
+int blog_write_feeds(const &Site site, const &Vec<struct Page> pages);
+
+// Appends a post's "date · author" line and tag links (HTML).
+void blog_post_meta(const &Site site, const &Page page, &String out);
 
 // ── view.sc ──────────────────────────────────────────────────────────────────
 
@@ -129,8 +182,10 @@ struct PageView {
     struct String toc;          // raw: "on this page"
     struct String content;      // raw: rendered markdown
     struct String prev_next;    // raw
-    struct String hero;         // raw (home layout only)
-    struct String features;     // raw (home layout only)
+    struct String crumbs;       // raw: breadcrumbs above a doc page
+    struct String version_menu; // raw: docs version selector (placeholder)
+    struct String footer_cols;  // raw: footer link columns
+    struct String page_script;  // raw: extra <script> tags at the end of <body>
     struct String footer_message;
     struct String footer_copyright;
     struct String outline_label;
@@ -147,21 +202,22 @@ struct PageView {
     struct String not_found_quote;
     struct String not_found_link;
     struct String github;
-    struct String page_class;   // "doc" | "home" | "not-found"
+    struct String page_class;   // layout: "doc" | "home" | "page" | "blog" | "post" | "playground" | "not-found"
     struct String client_js;    // assets/site.js URL
     struct String css;          // assets/style.css URL
     struct String locale_key;   // "en" | "ko" (search index, client strings)
     struct String locale_prefix;
 };
 
-void view_build(const &Site site, const &Vec<struct Page> pages, unsigned long idx, &PageView v);
+// 'examples': the page's locale's playground examples (render_page).
+void view_build(const &Site site, const &Vec<struct Page> pages, unsigned long idx, const &Value examples, &PageView v);
 void view_build_404(const &Site site, unsigned long locale, &PageView v);
 void view_free(&PageView v);
 
 // ── templates/*.scx ──────────────────────────────────────────────────────────
 
-struct String tpl_doc(const &PageView v);
-struct String tpl_home(const &PageView v);
+struct String tpl_doc(const &PageView v);         // docs: sidebar + outline
+struct String tpl_wide(const &PageView v);        // landing, page, blog, post, playground
 struct String tpl_not_found(const &PageView v);
 
 // ── search.sc ────────────────────────────────────────────────────────────────
