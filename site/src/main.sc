@@ -89,7 +89,7 @@ static int check_html(const &Site site, const &Vec<struct Page> pages, const &ch
             struct String frag = String::new();
             long long hash = path.find_char('#');
             if (hash >= 0LL) {
-                frag = path.substr((unsigned long)hash + 1UL, path.len);
+                std::replace(&frag, path.substr((unsigned long)hash + 1UL, path.len)).drop();
                 path.truncate((unsigned long)hash);
             }
             long long pi = -1LL;
@@ -220,10 +220,8 @@ static void copy_generated(const &Site site) {
 
 static int build(&Site site, int check) {
     struct Vec<struct Page> pages = Vec::new();
-    if (!pages_discover(site, &pages)) { pages_free(&pages); return 0; }
-    for (unsigned long i = 0UL; i < site.versions.len; i = i + 1UL) { site.versions.at(i).free(); }
+    if (!pages_discover(site, &pages)) { pages_free(pages); return 0; }
     site.versions.clear();
-    for (unsigned long i = 0UL; i < site.extra_urls.len; i = i + 1UL) { site.extra_urls.at(i).free(); }
     site.extra_urls.clear();
     releases_add_pages(site, &pages);
     blog_add_pages(site, &pages);
@@ -259,7 +257,7 @@ static int build(&Site site, int check) {
         if (!write_or_report(p.out.as_ptr(), &doc)) { ok = 0; }
         if (check) { bad = bad + check_html(site, &pages, p.src.as_ptr(), &doc); }
         doc.free();
-        view_free(&v);
+        view_free(v);
         if (searchable(p)) { search_add_page(site, p, indexes.at(p.locale)); }
         append_sitemap(site, p, &sitemap);
     }
@@ -272,7 +270,7 @@ static int build(&Site site, int check) {
     struct String nf_path = path_join(site.output.as_ptr(), "404.html");
     if (!write_or_report(nf_path.as_ptr(), &nf_doc)) { ok = 0; }
     if (check) { bad = bad + check_html(site, &pages, "404.html", &nf_doc); }
-    nf_doc.free(); nf_path.free(); view_free(&nf);
+    nf_doc.free(); nf_path.free(); view_free(nf);
 
     for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) {
         struct String rel = String::from("assets/search-");
@@ -282,8 +280,6 @@ static int build(&Site site, int check) {
         struct String json = value_to_json(indexes.at(li));
         if (!write_or_report(path.as_ptr(), &json)) { ok = 0; }
         rel.free(); path.free(); json.free();
-        indexes.at(li).free();
-        examples.at(li).free();
     }
     indexes.free();
     examples.free();
@@ -306,7 +302,7 @@ static int build(&Site site, int check) {
     print_int((long long)pages.len);
     print(" pages -> ");
     println(site.output.as_ptr());
-    pages_free(&pages);
+    pages_free(pages);
     return ok;
 }
 
@@ -330,7 +326,6 @@ static long long newest_input(const &Site site) {
         struct FileStat st;
         if (file_stat(full.as_ptr(), &st) && st.mtime_ns > newest) { newest = st.mtime_ns; }
         full.free();
-        files.at(i).free();
     }
     files.free();
     const char* extra[3] = { "site.yaml", "locales", "theme" };
@@ -345,7 +340,6 @@ static long long newest_input(const &Site site) {
             struct FileStat st;
             if (file_stat(full.as_ptr(), &st) && st.mtime_ns > newest) { newest = st.mtime_ns; }
             full.free();
-            more.at(i).free();
         }
         more.free();
         p.free();
@@ -355,13 +349,13 @@ static long long newest_input(const &Site site) {
 
 static void rebuild_if_changed() {
     struct Site site;
-    if (!site_load(&site, gSiteRoot.as_ptr(), "/")) { return; }
+    if (!site_load(&site, gSiteRoot.as_ptr(), "/")) { site_free(site); return; }
     long long newest = newest_input(&site);
     if (newest > gBuiltAt) {
         build(&site, 0);
         gBuiltAt = newest;
     }
-    site_free(&site);
+    site_free(site);
 }
 
 static const char* mime_for(const &String path) {
@@ -428,9 +422,13 @@ int main(int argc, char** argv) {
     for (int i = 0; i < argc; i = i + 1) {
         unsafe { args.push(String::from(argv[i])); }
     }
+    defer args.drop();
     struct String cmd = args.at(1UL).clone();
+    defer cmd.drop();
     struct String root = String::from(".");
+    defer root.drop();
     struct String base = String::new();
+    defer base.drop();
     int has_base = 0;
     int port = 5173;
     for (unsigned long i = 2UL; i < args.len; i = i + 1UL) {
@@ -440,7 +438,7 @@ int main(int argc, char** argv) {
         if (a.eq_cstr("--base")) { base.clear(); base.push_str(&val); has_base = 1; i = i + 1UL; }
         else if (a.eq_cstr("--root")) { root.clear(); root.push_str(&val); i = i + 1UL; }
         else if (a.eq_cstr("--port")) { port = sys_atoi(val.as_ptr()); i = i + 1UL; }
-        else { usage(); return 2; }
+        else { usage(); val.free(); return 2; }
         val.free();
     }
 
@@ -451,10 +449,10 @@ int main(int argc, char** argv) {
     struct Site site;
     const ?&char base_opt = (const ?&char)null;
     if (has_base) { base_opt = base.as_ptr(); }
-    if (!site_load(&site, root.as_ptr(), base_opt)) { return 1; }
+    if (!site_load(&site, root.as_ptr(), base_opt)) { site_free(site); return 1; }
     gBuiltAt = newest_input(&site);
     int ok = build(&site, cmd.eq_cstr("check"));
-    if (!serve) { return ok ? 0 : 1; }
+    if (!serve) { site_free(site); return ok ? 0 : 1; }
 
     gServeRoot = site.output.clone();
     gSiteRoot = root.clone();
@@ -463,5 +461,6 @@ int main(int argc, char** argv) {
     print(" at http://localhost:");
     print_int((long long)port);
     println("/");
+    site_free(site);
     return http_serve((unsigned short)port, serve_handler) == 0 ? 0 : 1;
 }

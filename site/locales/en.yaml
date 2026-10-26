@@ -148,6 +148,8 @@ sidebar:
             link: /reference/literals
           - text: Memory & Regions
             link: /reference/memory
+          - text: Ownership & Drop
+            link: /reference/ownership
           - text: Functions
             link: /reference/functions
           - text: Generics
@@ -170,6 +172,8 @@ sidebar:
             link: /reference/ffi
           - text: Concurrency
             link: /reference/concurrency
+          - text: Thread Safety
+            link: /reference/threads
           - text: Bare-Metal
             link: /reference/baremetal
           - text: Preprocessor

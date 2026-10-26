@@ -53,7 +53,7 @@ There are no implicit constructors, no implicit destructors, no implicit convers
 
 **No implicit memory, no implicit conversion, no implicit error handling.**
 
-The programmer decides when memory is allocated, how long it lives, and when it is freed. The compiler verifies that these decisions are safe — but it does not make these decisions for you.
+The programmer decides when memory is allocated, how long it lives, and when it is freed. The compiler verifies that these decisions are safe — but it does not make these decisions for you. A type with a `drop()` method is never dropped behind your back: you call `drop()` (or `defer` it), and the compiler rejects the program if any path forgets to, or uses the value afterwards (see [Ownership & Drop](/reference/ownership)).
 
 ```c
 #include <stdlib.h>
@@ -143,7 +143,7 @@ These principles combine into a concrete contract. SafeC guarantees the absence 
 | Hidden panics | No panics unless bounds checks are enabled |
 | Implicit exceptions | Errors are return values, not thrown objects |
 | Background GC | No garbage collector exists |
-| Implicit destructors | Resource cleanup is explicit (`defer`, manual `free`) |
+| Implicit destructors | Resource cleanup is explicit (`defer`, `drop()`, `free`); the compiler checks that owned values are dropped exactly once, but never inserts the call |
 
 This contract is not aspirational — it is enforced by the compiler. Code that would violate these guarantees does not compile.
 
@@ -268,7 +268,7 @@ SafeC's design can be summarized in one sentence:
 
 > **Everything the programmer writes is everything that executes — the compiler verifies correctness but adds nothing hidden.**
 
-This is the opposite of the C++ and Rust philosophy, where the compiler is expected to generate substantial invisible code (destructors, drop glue, move constructors, unwinding tables). SafeC trusts the programmer to make explicit decisions and uses compile-time analysis to verify those decisions are safe.
+This is the opposite of the C++ and Rust philosophy, where the compiler is expected to generate substantial invisible code (destructors, drop glue, move constructors, unwinding tables). SafeC trusts the programmer to make explicit decisions and uses compile-time analysis to verify those decisions are safe — the same ownership rules a Rust destructor enforces are checked, but the `drop()` call is one you wrote.
 
 ## Next Steps {#next-steps}
 

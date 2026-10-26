@@ -26,8 +26,7 @@ void page_split_frontmatter(&Page page, const &String text) {
     int ok = 0;
     struct Value fm = yaml_parse(yaml.as_ptr(), &ok);
     if (ok && fm.kind_of() == VAL_OBJECT) {
-        page.front.free();
-        page.front = fm;
+        std::replace(&page.front, fm).drop();
     } else {
         fm.free();
         eprint("safec-site: ignoring malformed frontmatter in ");
@@ -90,7 +89,6 @@ int source_files(const &Site site, &Vec<struct String> out) {
                     for (unsigned long i = 0UL; i < inner.len; i = i + 1UL) {
                         struct String rel = path_join(e.name.as_ptr(), inner.at(i).as_ptr());
                         if (!excluded(site, &rel)) { out.push(rel); } else { rel.free(); }
-                        inner.at(i).free();
                     }
                     inner.free();
                     sub.free();
@@ -167,32 +165,16 @@ int pages_discover(const &Site site, &Vec<struct Page> pages) {
             eprintln(p.src.as_ptr());
             ok = 0;
         }
-        p.front.free();
-        p.body_md.free();
+        std::replace(&p.front, Value::null()).drop();     // page_split_frontmatter fills them
+        std::replace(&p.body_md, String::new()).drop();
         page_split_frontmatter(&p, &text);
         text.free();
         pages.push(p);
     }
-    for (unsigned long i = 0UL; i < files.len; i = i + 1UL) { files.at(i).free(); }
     files.free();
     return ok;
 }
 
-void pages_free(&Vec<struct Page> pages) {
-    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
-        &Page p = pages.at(i);
-        p.route.free(); p.url.free(); p.src.free(); p.out.free();
-        p.front.free(); p.body_md.free(); p.html.free(); p.title.free();
-        for (unsigned long k = 0UL; k < p.headings.len; k = k + 1UL) {
-            p.headings.at(k).id.free();
-            p.headings.at(k).text.free();
-        }
-        p.headings.free();
-        for (unsigned long k = 0UL; k < p.sections.len; k = k + 1UL) {
-            &Section s = p.sections.at(k);
-            s.id.free(); s.title.free(); s.text.free();
-        }
-        p.sections.free();
-    }
-    pages.free();
+void pages_free(struct Vec<struct Page> pages) {
+    pages.drop();   // and every page's strings, tree and lists
 }

@@ -424,9 +424,7 @@ void blog_add_pages(&Site site, &Vec<struct Page> pages) {
         struct String r2 = bp.clone(); r2.push("rss.xml");
         site.extra_urls.push(r2);
         bp.free();
-        for (unsigned long x = 0UL; x < tags.len; x = x + 1UL) { tags.at(x).free(); }
         tags.free(); counts.free();
-        for (unsigned long k = 0UL; k < posts.len; k = k + 1UL) { posts.at(k).date.free(); posts.at(k).route.free(); }
         posts.free();
     }
 }
@@ -532,7 +530,6 @@ int blog_write_feeds(const &Site site, const &Vec<struct Page> pages) {
         rel.free(); dir.free(); ap.free(); rp.free();
         atom.free(); rss.free(); bp.free(); self_atom.free(); self_rss.free(); home.free();
         feed_title.free(); updated.free();
-        for (unsigned long k = 0UL; k < posts.len; k = k + 1UL) { posts.at(k).date.free(); posts.at(k).route.free(); }
         posts.free();
     }
     return ok;

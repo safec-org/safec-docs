@@ -62,7 +62,7 @@ void link_rewrite(const &Site site, const &char href, &String out) {
     long long hash = h.find_char('#');
     if (hash >= 0LL) {
         path.truncate((unsigned long)hash);
-        frag = h.substr((unsigned long)hash, h.len);
+        std::replace(&frag, h.substr((unsigned long)hash, h.len)).drop();
     }
     out.push(site.base.as_ptr());
     path.remove_range(0UL, 1UL);   // base already ends in '/'
@@ -316,9 +316,8 @@ static int runnable(const &String lang, const &String info, const &String code) 
 }
 
 static void render_code(&RenderCtx c, const &MdNode n, &String out) {
-    struct String lang = String::new();
     long long sp = n.info.find_char(' ');
-    if (sp >= 0LL) { lang = n.info.substr(0UL, (unsigned long)sp); } else { lang.push_str(&n.info); }
+    struct String lang = sp >= 0LL ? n.info.substr(0UL, (unsigned long)sp) : n.info.clone();
     if (lang.len == 0UL) { lang.push("text"); }
     out.push("<div class=\"language-");
     util_push_esc(out, lang.as_ptr());
@@ -523,8 +522,7 @@ void render_page(const &Site site, &Page page, &Value examples) {
     ctx.tabs_seen = 0;
     ctx.h1 = String::new();
     ctx.heading = String::new();
-    page.html.free();
-    unsafe { page.html = md_render_html_with(doc, render_hook, (?&RenderCtx)&ctx); }
+    unsafe { std::replace(&page.html, md_render_html_with(doc, render_hook, (?&RenderCtx)&ctx)).drop(); }
     ctx.h1.free(); ctx.heading.free();
     page.title.clear();
     collect_headings(doc, page);

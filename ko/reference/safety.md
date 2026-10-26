@@ -1,6 +1,6 @@
 # 안전성
 
-SafeC는 여러 개의 맞물린 분석을 통해 컴파일 타임에 메모리 안전성을 강제합니다. 이 검사들은 프로그램이 실행되기 전에 흔한 C 버그 -- 해제 후 사용(use-after-free), 버퍼 오버플로, 널 역참조, 별칭(aliasing) 위반 -- 를 잡아냅니다.
+SafeC는 여러 개의 맞물린 분석을 통해 컴파일 타임에 메모리 안전성을 강제합니다. 이 검사들은 프로그램이 실행되기 전에 흔한 C 버그 -- 해제 후 사용(use-after-free), 버퍼 오버플로, 널 역참조, 별칭(aliasing) 위반, 소유 자원의 누수, 데이터 경쟁 -- 를 잡아냅니다.
 
 ## 확정 초기화 {#definite-initialization}
 
@@ -309,6 +309,24 @@ unsigned int float_bits(float f) {
 
 참조 매개변수에는 `noalias`를 붙이지 않습니다. 빌림 검사기는 두 인자가 서로 별칭이 되는 것을 막지만, 함수는 여전히 다른 경로(예: 직접 쓰는 전역 변수)로 같은 객체에 닿을 수 있으므로 그 약속을 할 수 없습니다.
 
+## 소유권과 Drop {#ownership-and-drop}
+
+`void drop()`을 정의하는 타입(내장 `Drop` 트레이트)은 자원을 소유하며, 그런 값을 담은 타입도 마찬가지입니다. 컴파일러는 그런 값이 모든 경로 — `return`, `break`, `goto`, `match`, `defer`를 거치는 — 에서 정확히 한 번 drop 또는 move되는지 검사하고, 누수, drop/move 후 사용, 이중 drop, 살아 있는 값 덮어쓰기를 거부합니다. 코드는 삽입하지 않습니다: `drop()`은 소스가 호출하는 곳에서만 실행됩니다.
+
+```c
+void f(int c) {
+    struct Vec<int> v = Vec::new();
+    if (c) return;      // ERROR: value of Drop type 'Vec<int>' leaks when the function returns
+    v.drop();
+}
+```
+
+[소유권과 Drop](/ko/reference/ownership)을 참고하십시오.
+
+## 스레드 안전성 {#thread-safety}
+
+모든 타입은 구조로부터 유도되는 Send(다른 스레드로 옮길 수 있음) 그리고/또는 Sync(`const &`로 스레드 간에 공유할 수 있음)입니다. `spawn`, `spawn_scoped`, 채널, `std::thread_spawn`, `Mutex<T>`, async 스레드 풀은 넘겨도 안전한 것만 받으므로, `unsafe` 밖에서는 데이터 경쟁이 배제됩니다. [스레드 안전성](/ko/reference/threads)을 참고하십시오.
+
 ## Unsafe 경계 {#the-unsafe-boundary}
 
 안전성 규칙이 지나치게 제한적일 때, `unsafe {}` 블록을 사용해 이를 우회할 수 있습니다. `unsafe` 블록 내부에서는
@@ -318,6 +336,7 @@ unsigned int float_bits(float f) {
 - 별칭 규칙이 강제되지 않습니다
 - 원시 포인터를 역참조(`*p`, `p[i]`, `p->f`)하고, 산술로 옮기고, 정수에서 만들고, 다른 포인터 타입으로 재해석하고, non-null 참조(`(&T)p`)로 바꿀 수 있습니다
 - 널 역참조가 방지되지 않습니다
+- raw 포인터로 도달한 값의 소유권은 추적되지 않으며, `forget(x)`로 Drop 값을 drop하지 않고 포기할 수 있습니다
 
 ```c
 unsafe {
@@ -355,6 +374,8 @@ unsafe {
 | Nullable 여부 강제 | Yes | -- | Yes |
 | 정적 경계 검사 | Yes | -- | Yes |
 | 동적 경계 검사 | -- | Yes | Yes |
+| 소유권: [Drop](/ko/reference/ownership) 값의 누수, drop/move 후 사용, 이중 drop | Yes | -- | Yes |
+| 스레드 안전성: 스레드가 받는 것의 Send/Sync ([스레드 안전성](/ko/reference/threads)) | Yes | -- | Yes (raw 포인터는 `unsafe`에서만) |
 | 할당자 이중 해제/유효하지 않은 해제 태그 검사 (`std::alloc`/`dealloc`, `pool.h`/`slab.h`/`tlsf.h`) | -- | Yes | N/A (런타임 전용) |
 
 버그 분류별로 — 이는 위의 메커니즘들을 전형적인 C 버그 분류 체계에
@@ -368,11 +389,12 @@ unsafe {
 | 버퍼 오버플로/오버리드, 상수 인덱스 | Yes | -- | 위의 정적 경계 검사. |
 | 버퍼 오버플로/오버리드, 동적 인덱스 | -- | Yes | 위의 런타임 경계 검사 — 임의의 런타임 계산 인덱스가 범위 내에 있음을 미리 증명하는 것은 일반적으로 결정 불가능(undecidable)하므로, 이는 빈틈이 아니라 의도적인 런타임 백스톱입니다. |
 | 데이터 레이스: 별칭된 데이터에 대한 WAR/RAW/WAW, 단일 스레드 | Yes | -- | 보로우 체커의 "하나의 가변 XOR 다수의 공유" 규칙 — "스코프 기반 추적" 절 위의 팁 참고. |
-| 데이터 레이스: 스레드 간 | Yes | -- | `spawn`/scoped-spawn은 가변인 비-`&static` 참조 인자를 거부합니다; [동시성](/ko/reference/concurrency) 참고. |
+| 데이터 레이스: 스레드 간 | Yes | -- | 모든 타입은 구조로부터 유도되는 Send 그리고/또는 Sync입니다. `spawn`은 Sync인(또는 자기 쓰기를 동기화하는) 정적 데이터만 공유하고, `spawn_scoped`는 join할 때까지 지역 변수를 빌려주며, 채널과 `thread_spawn`은 Send 값을 move하고, `Mutex<T>`는 가드를 통해서만 값에 접근합니다. 무엇이 커버되고 무엇이 커버되지 않는지(교착 상태는 아님)는 [스레드 안전성](/ko/reference/threads) 참고. |
 | 데이터 레이스: `unsafe` 내부 / 원시 포인터 | -- | -- | 의도적으로 검사되지 않습니다 — `unsafe`는 별칭 추적에 대한 명시적 옵트아웃이며, C와 동일합니다. 검사기의 버그가 아니라, 설계상의 경계입니다. |
 | 해제 후 사용: 스택 참조 | Yes | -- | 위의 리전 이스케이프 분석. |
 | 해제 후 사용: 아레나 참조 | Yes | -- | 각 함수 본문에 대한 데이터플로우 분석으로, 마크별 `arena_free_to` 추적과 호출 요약을 포함합니다; [아레나 참조는 리셋 시 소멸합니다](#arena-references-die-on-reset) 참고. |
 | 해제 후 사용: 힙 참조 (`std::dealloc(p)`) | Yes | Yes (백스톱) | 같은 데이터플로우 분석 — 복사본, 구조체 필드, 배열 원소, 호출을 통해 포인터를 따라가며, 할당자 인스턴스의 `.dealloc()` 메서드도 인식합니다; 커버되지 *않는* 것(원시 `free()`와 본문이 없는 그 밖의 `extern` 함수, 함수 포인터를 통한 호출, `unsafe {}` 안에서 원시 포인터로 도달한 메모리)은 [메모리와 리전](/ko/reference/memory#compile-time-use-after-free-and-double-free-checking) 참고. |
 | 이중 해제 | Yes (`&heap T`에 대한 `std::dealloc(p)` 또는 할당자의 `.dealloc(p)`, 또는 반복된 아레나 리셋/free_to) | Yes (다른 모든 할당자, 그리고 컴파일 타임 사례에 대한 백스톱으로도) | 위의 힙 UAF 행과 동일한 메커니즘/범위, 그리고 그것이 커버하지 못하는 모든 경우를 위한 아래의 할당자 태그 검사. |
 | 잘못 짝지어진 해제 (잘못된 할당자의 해제 함수로 포인터를 해제) | -- | Yes | 각 할당자(`std::alloc`/`dealloc`, 그리고 `pool.h`/`slab.h`/`tlsf.h`의 할당자들)는 자신의 블록에 태그를 붙이고 해제 시 태그를 검사합니다. 컴파일러는 주어진 포인터를 *어느* 할당자가 생성했는지 추적하지 않으므로, 잘못된 할당자의 해제 함수를 통해 해제된 포인터는 미리가 아니라 그 할당자 자신의 태그 검사가 런타임에 거부할 때 잡힙니다. |
-| 메모리 누수 | -- | -- | 컴파일 타임에도 런타임에도 검사되지 않습니다. 일반적인 누수 탐지에는 전 프로그램 단위의 소유권/이스케이프 분석이 필요합니다 — Rust 자체의 보로우 체커도 누수 없음(leak-freedom)을 보장하지 못하는 것과 같은 이유입니다(거기서도 `Rc` 순환과 `mem::forget`은 "안전한" 누수입니다). 모든 할당에는 바로 옆에 `defer std::dealloc(...)`(실패 시에만 처리하는 경우엔 `errdefer`)을 짝지어, 정리(cleanup)를 컴파일러가 강제하는 대신 구조적으로 잊기 어렵게 만드십시오 — [Defer](/ko/reference/control-flow#defer)와 [오류 처리](/ko/book/ch08-error-handling) 참고. |
+| 메모리 누수: Drop 타입의 값 | Yes | -- | `drop()` 메서드를 가진 타입(또는 그런 값을 담은 타입)은 모든 경로에서 drop 또는 move되어야 합니다. 잊거나, `drop()` 후 사용하거나, 두 번 drop하면 컴파일 오류이며 런타임 비용은 없습니다. [소유권과 Drop](/ko/reference/ownership) 참고. 표준 라이브러리의 소유 타입(`Vec`, `String`, `HashMap`, 파일, 소켓, 스레드, 가드, GUI와 오디오 핸들, future)은 모두 `Drop`을 구현합니다. |
+| 메모리 누수: raw 할당, `unsafe`, 순환 | -- | -- | 어떤 Drop 타입도 소유하지 않는 `std::alloc`의 맨 `&heap T`, raw 포인터 뒤의 메모리, `forget()`(`unsafe`에서만 허용)으로 포기한 것은 추적하지 않습니다. 할당을 `drop()`을 가진 타입으로 감싸거나, 바로 옆에 `defer std::dealloc(...)`을 짝지으십시오 — [Defer](/ko/reference/control-flow#defer) 참고. |

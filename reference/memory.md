@@ -208,6 +208,23 @@ loop that frees a linked structure node by node through safe references
 rule; its frees still count for the code after it.
 :::
 
+### Leak Checking: Owning Types {#leak-checking}
+
+The checks above cover *references*: they catch a use or a free after a free. They don't require the memory to be freed at all — a bare `&heap T` that is never deallocated is not reported. Leaks are caught for **owning types** instead: a struct with a `drop()` method (like `std::Vec`, `std::String` or a `Buf` that frees its buffer in `drop()`) must be dropped or moved on every path, so the allocation it owns can't be forgotten:
+
+```c
+struct Buf { &heap char data; void drop(); };
+void Buf::drop() { std::dealloc(self.data); }
+
+void f(int c) {
+    struct Buf b = Buf::new(4096UL);
+    if (c) return;     // ERROR: value of Drop type 'Buf' leaks when the function returns
+    b.drop();
+}
+```
+
+Wrap allocations that outlive a scope in such a type. See [Ownership & Drop](/reference/ownership).
+
 ## Arena Regions {#arena-regions}
 
 Arenas provide bulk allocation and deallocation. You declare a region, allocate into it with `new<R>`, and reset all allocations at once with `arena_reset<R>()`.

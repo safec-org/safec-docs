@@ -1,6 +1,6 @@
 # Safety
 
-SafeC enforces memory safety at compile time through several interlocking analyses. These checks catch common C bugs -- use-after-free, buffer overflows, null dereferences, aliasing violations -- before the program ever runs.
+SafeC enforces memory safety at compile time through several interlocking analyses. These checks catch common C bugs -- use-after-free, buffer overflows, null dereferences, aliasing violations, leaks of owned resources, data races -- before the program ever runs.
 
 ## Definite Initialization {#definite-initialization}
 
@@ -300,6 +300,24 @@ Union members and `volatile` accesses are exempt. Code that does type-pun throug
 
 Reference parameters are not marked `noalias`. The borrow checker stops two arguments from aliasing, but a function can still reach the same object another way, for example through a global it writes directly, so that promise can't be made.
 
+## Ownership and Drop {#ownership-and-drop}
+
+A type that defines `void drop()` (the builtin `Drop` trait) owns a resource, and so does any type holding one. The compiler checks that every such value is dropped or moved exactly once on every path — through `return`, `break`, `goto`, `match` and `defer` — and rejects leaks, use after drop or move, double drops and overwriting a live value. It inserts no code: `drop()` runs only where the source calls it.
+
+```c
+void f(int c) {
+    struct Vec<int> v = Vec::new();
+    if (c) return;      // ERROR: value of Drop type 'Vec<int>' leaks when the function returns
+    v.drop();
+}
+```
+
+See [Ownership & Drop](/reference/ownership).
+
+## Thread Safety {#thread-safety}
+
+Every type is Send (may move to another thread) and/or Sync (may be shared between threads by `const &`), derived from its structure. `spawn`, `spawn_scoped`, channels, `std::thread_spawn`, `Mutex<T>` and the async thread pool accept only what is safe to hand over, which rules out data races outside `unsafe`. See [Thread Safety](/reference/threads).
+
 ## The Unsafe Boundary {#the-unsafe-boundary}
 
 When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing them. Inside an `unsafe` block:
@@ -309,6 +327,7 @@ When the safety rules are too restrictive, `unsafe {}` blocks allow bypassing th
 - Aliasing rules are not enforced
 - Raw pointers can be dereferenced (`*p`, `p[i]`, `p->f`), moved with arithmetic, made from integers, reinterpreted as other pointer types, and turned into non-null references (`(&T)p`)
 - Null dereferences are not prevented
+- Ownership of values reached through raw pointers is not tracked, and `forget(x)` may give up a Drop value without dropping it
 
 ```c
 unsafe {
@@ -346,6 +365,8 @@ By mechanism:
 | Nullability enforcement | Yes | -- | Yes |
 | Static bounds check | Yes | -- | Yes |
 | Dynamic bounds check | -- | Yes | Yes |
+| Ownership: leaks, use after drop/move, double drop of [Drop](/reference/ownership) values | Yes | -- | Yes |
+| Thread safety: Send/Sync of what threads receive ([Thread Safety](/reference/threads)) | Yes | -- | Yes (raw pointers only in `unsafe`) |
 | Allocator double-free/invalid-free tag check (`std::alloc`/`dealloc`, `pool.h`/`slab.h`/`tlsf.h`) | -- | Yes | N/A (runtime-only) |
 
 By named bug class — this maps the mechanisms above onto the classic C
@@ -359,11 +380,12 @@ covers a bug class that goes by several names:
 | Buffer overflow / overread, constant index | Yes | -- | Static bounds check, above. |
 | Buffer overflow / overread, dynamic index | -- | Yes | Runtime bounds check, above — proving an arbitrary runtime-computed index in-bounds ahead of time is undecidable in general, so this is a deliberate runtime backstop, not a gap. |
 | Data race: WAR/RAW/WAW on aliased data, single-threaded | Yes | -- | The borrow checker's "one mutable XOR many shared" rule — see the tip above the "Scope-Based Tracking" section. |
-| Data race: across threads | Yes | -- | `spawn`/scoped-spawn reject mutable non-`&static` reference arguments; see [Concurrency](/reference/concurrency). |
+| Data race: across threads | Yes | -- | Every type is Send and/or Sync, derived from its structure; `spawn` only shares static data that is Sync (or synchronizes its own writes), `spawn_scoped` lends locals until the join, channels and `thread_spawn` move Send values, and `Mutex<T>` reaches its value only through a guard. See [Thread Safety](/reference/threads) for what is and isn't covered (deadlocks are not). |
 | Data race: inside `unsafe` / raw pointers | -- | -- | Deliberately unchecked — `unsafe` is the explicit opt-out for aliasing tracking, same as C. Not a bug in the checker; it's the boundary by design. |
 | Use-after-free: stack references | Yes | -- | Region escape analysis, above. |
 | Use-after-free: arena references | Yes | -- | Dataflow analysis over each function body, with per-mark `arena_free_to` tracking and call summaries; see [Arena References Die on Reset](#arena-references-die-on-reset). |
 | Use-after-free: heap references (`std::dealloc(p)`) | Yes | Yes (backstop) | The same dataflow analysis — follows the pointer through copies, struct fields, array elements and calls, and recognizes allocator-instance `.dealloc()` methods too; see [Memory & Regions](/reference/memory#compile-time-use-after-free-and-double-free-checking) for what it does *not* cover (raw `free()` and other bodiless `extern` functions, calls through function pointers, memory reached through raw pointers in `unsafe {}`). |
 | Double free | Yes (`std::dealloc(p)` or an allocator's `.dealloc(p)` on a `&heap T`, or a repeated arena reset/free_to) | Yes (every other allocator, and as a backstop for the compile-time cases too) | Same mechanism/scope as the heap-UAF row above, plus the allocator tag check below for everything it doesn't cover. |
 | Mismatched free (freeing a pointer with the wrong allocator's free function) | -- | Yes | Each allocator (`std::alloc`/`dealloc`, and `pool.h`/`slab.h`/`tlsf.h`'s allocators) tags its own blocks and checks the tag on free. The compiler doesn't track *which* allocator produced a given pointer, so a pointer freed through the wrong allocator's free function is caught when that allocator's own tag check rejects it at runtime, not ahead of time. |
-| Memory leak | -- | -- | Not checked, at compile time or runtime. General leak detection needs whole-program ownership/escape analysis — the same reason Rust's own borrow checker doesn't guarantee leak-freedom either (`Rc` cycles and `mem::forget` are "safe" leaks there too). Pair every allocation with `defer std::dealloc(...)` (or `errdefer` for the failure-only case) right next to it, so cleanup is structurally hard to forget rather than compiler-enforced — see [Defer](/reference/control-flow#defer) and [Error Handling](/book/ch08-error-handling). |
+| Memory leak: values of a Drop type | Yes | -- | A type with a `drop()` method (or one holding such a value) must be dropped or moved on every path: forgetting one, using it after `drop()`, or dropping it twice is a compile error, with no run-time cost. See [Ownership & Drop](/reference/ownership). The standard library's owning types (`Vec`, `String`, `HashMap`, files, sockets, threads, guards, GUI and audio handles, futures) all implement `Drop`. |
+| Memory leak: raw allocations, `unsafe`, cycles | -- | -- | A bare `&heap T` from `std::alloc` that no Drop type owns, memory behind raw pointers, and anything given up with `forget()` (only allowed in `unsafe`) aren't tracked. Wrap allocations in a type with `drop()`, or pair them with `defer std::dealloc(...)` right next to them — see [Defer](/reference/control-flow#defer). |
