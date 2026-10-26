@@ -76,7 +76,7 @@ C를 시스템 언어로 만드는 모든 것 — 예측 가능한 성능, 안�
 ::: card chip
 ### [베어메탈과 WebAssembly](/ko/reference/baremetal)
 
-`--freestanding`은 인터럽트 핸들러, 인라인 어셈블리, `volatile` MMIO와 함께 14개의 OS 없는 타깃(Cortex-M, RISC-V, x86, AArch64)으로 빌드합니다. `--target=wasm32`는 `std/wasm` DOM 바인딩을 쓰는 브라우저 모듈을 만듭니다.
+`--freestanding`은 인터럽트 핸들러, 인라인 어셈블리, `volatile` MMIO와 함께 15개의 OS 없는 타깃(Cortex-M, RISC-V, x86, AArch64)으로 빌드합니다. `--target=wasm32`는 `std/wasm` DOM 바인딩을 쓰는 브라우저 모듈을 만듭니다.
 :::
 ::: card flow
 ### [런타임 부담 없는 비동기](/ko/stdlib/async)
@@ -187,6 +187,7 @@ struct HttpResponse hello(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -210,7 +211,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // 디스플레이 없음
+        case null: { app.free(); return 1; }     // 디스플레이 없음
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -251,7 +252,9 @@ void Countdown::drop() { if (self.st == 1) self.d.drop(); }
 
 int main() {
     struct Countdown c; c.st = ASYNC_INIT;
-    return block_on(&c) == 42 ? 0 : 1;       // or LocalExecutor / ThreadPool / Runtime
+    int v = block_on(&c);                    // or LocalExecutor / ThreadPool / Runtime
+    c.drop();
+    return v == 42 ? 0 : 1;
 }
 ```
 future, waker, join/select/timeout, 채널, epoll·kqueue·WSAPoll 기반 비동기 TCP — [비동기](/ko/stdlib/async).
@@ -267,11 +270,11 @@ struct Tone { double phase; double step; };
 int render(&AudioIo io, ?&Tone tp) {
     match (tp) {
         case some(t): {
-            struct Slice<float> out = io.output_f32();   // frames x channels, interleaved
+            []float out = io.output_f32();   // frames x channels, interleaved
             for (unsigned int f = 0U; f < io.frames; f = f + 1U) {
                 float v = (float)(0.2 * std::sin_d(t.phase));
-                out.set((unsigned long)f * 2UL, v);
-                out.set((unsigned long)f * 2UL + 1UL, v);
+                out[(unsigned long)f * 2UL] = v;           // bounds-checked
+                out[(unsigned long)f * 2UL + 1UL] = v;
                 t.phase = t.phase + t.step;
             }
         }

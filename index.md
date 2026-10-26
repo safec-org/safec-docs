@@ -76,7 +76,7 @@ No implicit allocations, no exceptions, no hidden copies, no narrowing conversio
 ::: card chip
 ### [Bare metal and WebAssembly](/reference/baremetal)
 
-`--freestanding` builds for 14 no-OS targets (Cortex-M, RISC-V, x86, AArch64) with interrupt handlers, inline assembly and `volatile` MMIO. `--target=wasm32` builds browser modules with `std/wasm` DOM bindings.
+`--freestanding` builds for 15 no-OS targets (Cortex-M, RISC-V, x86, AArch64) with interrupt handlers, inline assembly and `volatile` MMIO. `--target=wasm32` builds browser modules with `std/wasm` DOM bindings.
 :::
 ::: card flow
 ### [Async without a runtime tax](/stdlib/async)
@@ -187,6 +187,7 @@ struct HttpResponse hello(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -210,7 +211,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // no display
+        case null: { app.free(); return 1; }     // no display
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -251,7 +252,9 @@ void Countdown::drop() { if (self.st == 1) self.d.drop(); }
 
 int main() {
     struct Countdown c; c.st = ASYNC_INIT;
-    return block_on(&c) == 42 ? 0 : 1;       // or LocalExecutor / ThreadPool / Runtime
+    int v = block_on(&c);                    // or LocalExecutor / ThreadPool / Runtime
+    c.drop();
+    return v == 42 ? 0 : 1;
 }
 ```
 Futures, wakers, join/select/timeout, channels and async TCP over epoll, kqueue and WSAPoll — [Async](/stdlib/async).
@@ -267,11 +270,11 @@ struct Tone { double phase; double step; };
 int render(&AudioIo io, ?&Tone tp) {
     match (tp) {
         case some(t): {
-            struct Slice<float> out = io.output_f32();   // frames x channels, interleaved
+            []float out = io.output_f32();   // frames x channels, interleaved
             for (unsigned int f = 0U; f < io.frames; f = f + 1U) {
                 float v = (float)(0.2 * std::sin_d(t.phase));
-                out.set((unsigned long)f * 2UL, v);
-                out.set((unsigned long)f * 2UL + 1UL, v);
+                out[(unsigned long)f * 2UL] = v;           // bounds-checked
+                out[(unsigned long)f * 2UL + 1UL] = v;
                 t.phase = t.phase + t.step;
             }
         }
