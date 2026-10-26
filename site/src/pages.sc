@@ -109,6 +109,46 @@ int source_files(const &Site site, &Vec<struct String> out) {
     return 0;
 }
 
+struct Page page_new(const &Site site, const &char rel_c) {
+    struct String rel = String::from(rel_c);
+    struct Page p;
+    p.locale = locale_of(site, &rel);
+    // "guide/x.md" -> "/guide/x" + "/guide/x.html"; "a/index.md" -> "/a/".
+    struct String stem = rel.strip_suffix(".md");
+    p.route = String::from("/");
+    p.url = String::from("/");
+    struct String out_rel = String::new();
+    if (stem.eq_cstr("index") || stem.ends_with("/index")) {
+        struct String dir = stem.strip_suffix("index");
+        p.route.push_str(&dir);
+        p.url.push_str(&dir);
+        dir.free();
+    } else {
+        p.route.push_str(&stem);
+        p.url.push_str(&stem);
+        p.url.push(".html");
+    }
+    out_rel.push_str(&stem);
+    out_rel.push(".html");
+    stem.free();
+    p.src = path_join(site.source.as_ptr(), rel.as_ptr());
+    p.out = path_join(site.output.as_ptr(), out_rel.as_ptr());
+    out_rel.free();
+    p.front = Value::object();
+    p.body_md = String::new();
+    p.html = String::new();
+    p.title = String::new();
+    p.headings = Vec::new();
+    p.sections = Vec::new();
+    p.generated = 0;
+    rel.free();
+    return p;
+}
+
+const &char page_layout(const &Page page) {
+    return util_vstr(&page.front, "layout", "doc");
+}
+
 int pages_discover(const &Site site, &Vec<struct Page> pages) {
     struct Vec<struct String> files = Vec::new();
     if (!source_files(site, &files)) { files.free(); return 0; }
@@ -120,41 +160,15 @@ int pages_discover(const &Site site, &Vec<struct Page> pages) {
         ext.free();
         if (!md) { continue; }
 
-        struct Page p;
-        p.locale = locale_of(site, rel);
-        // "guide/x.md" -> "/guide/x" + "/guide/x.html"; "a/index.md" -> "/a/".
-        struct String stem = rel.strip_suffix(".md");
-        p.route = String::from("/");
-        p.url = String::from("/");
-        struct String out_rel = String::new();
-        if (stem.eq_cstr("index") || stem.ends_with("/index")) {
-            struct String dir = stem.strip_suffix("index");
-            p.route.push_str(&dir);
-            p.url.push_str(&dir);
-            out_rel.push_str(&stem);
-            out_rel.push(".html");
-            dir.free();
-        } else {
-            p.route.push_str(&stem);
-            p.url.push_str(&stem);
-            p.url.push(".html");
-            out_rel.push_str(&stem);
-            out_rel.push(".html");
-        }
-        stem.free();
-        p.src = path_join(site.source.as_ptr(), rel.as_ptr());
-        p.out = path_join(site.output.as_ptr(), out_rel.as_ptr());
-        out_rel.free();
-        p.html = String::new();
-        p.title = String::new();
-        p.headings = Vec::new();
-        p.sections = Vec::new();
+        struct Page p = page_new(site, rel.as_ptr());
         struct String text = String::new();
         if (!File::read_to_string(p.src.as_ptr(), &text)) {
             eprint("safec-site: cannot read ");
             eprintln(p.src.as_ptr());
             ok = 0;
         }
+        p.front.free();
+        p.body_md.free();
         page_split_frontmatter(&p, &text);
         text.free();
         pages.push(p);

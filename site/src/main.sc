@@ -29,23 +29,47 @@ static int write_or_report(const &char path, const &String data) {
 
 // ── dead-link check ──────────────────────────────────────────────────────────
 
-// Every href into the site must name an emitted page, and a '#fragment'
-// on it a heading id or an id="" on that page; links to other files must
-// name a file under public/.
-static int check_links(const &Site site, const &Vec<struct Page> pages) {
+// Is 'path' (no base, leading '/') something the build emits?
+static int url_known(const &Site site, const &Vec<struct Page> pages, const &String path, &long long page_idx) {
+    *page_idx = -1LL;
+    for (unsigned long j = 0UL; j < pages.len; j = j + 1UL) {
+        if (pages.at(j).url.eq(path)) { *page_idx = (long long)j; return 1; }
+    }
+    for (unsigned long j = 0UL; j < site.extra_urls.len; j = j + 1UL) {
+        if (site.extra_urls.at(j).eq(path)) { return 1; }
+    }
+    if (path.eq_cstr("/")) { return 1; }
+    struct String rel = path.strip_prefix("/");
+    struct String file = path_join(site.public_dir.as_ptr(), rel.as_ptr());
+    struct String asset = path.strip_prefix("/assets/");
+    struct String theme_file = path_join(site.theme.as_ptr(), asset.as_ptr());
+    int ok = path_kind(file.as_ptr()) == DIR_FILE ||
+             (path.starts_with("/assets/") && path_kind(theme_file.as_ptr()) == DIR_FILE);
+    rel.free(); file.free(); asset.free(); theme_file.free();
+    return ok;
+}
+
+// Every href/src into the site in 'html' (a whole emitted document) must
+// name an emitted page or file, and a '#fragment' on a page a heading id
+// or an id="" on it. Fragments holding '=' are data (the playground's
+// '#code=...'), not anchors.
+static int check_html(const &Site site, const &Vec<struct Page> pages, const &char src, const &String html) {
     int bad = 0;
-    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
-        &Page p = pages.at(i);
+    const char* attrs[2] = { "href=\"", "src=\"" };
+    for (int ai = 0; ai < 2; ai = ai + 1) {
+        const &char attr;
+        unsafe { attr = attrs[ai]; }
+        struct String needle = String::from(attr);
         unsigned long k = 0UL;
         for (;;) {
-            struct String rest = p.html.substr(k, p.html.len);
-            long long at = rest.index_of("href=\"");
+            struct String rest = html.substr(k, html.len);
+            long long at = rest.index_of(attr);
             rest.free();
             if (at < 0LL) { break; }
-            unsigned long s = k + (unsigned long)at + 6UL;
+            unsigned long s = k + (unsigned long)at + needle.len;
             unsigned long e = s;
-            while (e < p.html.len && p.html.char_at(e) != (int)'"') { e = e + 1UL; }
-            struct String target = p.html.substr(s, e);
+            while (e < html.len && html.char_at(e) != (int)'"') { e = e + 1UL; }
+            struct String target = html.substr(s, e);
             k = e;
             if (!target.starts_with(site.base.as_ptr())) { target.free(); continue; }
             struct String path = target.substr(site.base.len - 1UL, target.len);   // keep the leading '/'
@@ -55,42 +79,87 @@ static int check_links(const &Site site, const &Vec<struct Page> pages) {
                 frag = path.substr((unsigned long)hash + 1UL, path.len);
                 path.truncate((unsigned long)hash);
             }
-            int found = 0;
-            for (unsigned long j = 0UL; j < pages.len; j = j + 1UL) {
-                &Page q = pages.at(j);
-                if (!q.url.eq(&path)) { continue; }
-                found = 1;
-                if (frag.len > 0UL) {
-                    int has = 0;
-                    for (unsigned long h = 0UL; h < q.headings.len; h = h + 1UL) {
-                        if (q.headings.at(h).id.eq(&frag)) { has = 1; }
-                    }
-                    struct String needle = String::from("id=\"");
-                    needle.push_str(&frag);
-                    needle.push("\"");
-                    if (!has && q.html.contains(needle.as_ptr())) { has = 1; }
-                    needle.free();
-                    if (!has) { found = 2; }
+            long long pi = -1LL;
+            int found = url_known(site, pages, &path, &pi);
+            if (found && pi >= 0LL && frag.len > 0UL && !frag.contains("=")) {
+                &Page q = pages.at((unsigned long)pi);
+                int has = 0;
+                for (unsigned long h = 0UL; h < q.headings.len; h = h + 1UL) {
+                    if (q.headings.at(h).id.eq(&frag)) { has = 1; }
                 }
-            }
-            if (found == 0) {
-                struct String rel = path.strip_prefix("/");
-                struct String file = path_join(site.public_dir.as_ptr(), rel.as_ptr());
-                rel.free();
-                if (path.eq_cstr("/") || path_kind(file.as_ptr()) == DIR_FILE) { found = 1; }
-                file.free();
+                struct String idn = String::from("id=\"");
+                idn.push_str(&frag);
+                idn.push("\"");
+                if (!has && q.html.contains(idn.as_ptr())) { has = 1; }
+                idn.free();
+                if (!has) { found = 2; }
             }
             if (found != 1) {
                 eprint(found == 2 ? "dead anchor: " : "dead link: ");
-                eprint(p.src.as_ptr());
+                eprint(src);
                 eprint(" -> ");
                 eprintln(target.as_ptr());
                 bad = bad + 1;
             }
             target.free(); path.free(); frag.free();
         }
+        needle.free();
     }
     return bad;
+}
+
+// ── redirects ────────────────────────────────────────────────────────────────
+
+// site.yaml 'redirects': [{from: /old/path, to: /new/path}, ...]. GitHub
+// Pages has no server-side redirects, so each 'from' gets a static page
+// that forwards at once (meta refresh; a script keeps the #fragment).
+// 'from' must not be a page; 'to' must be one.
+static int write_redirects(&Site site, const &Vec<struct Page> pages, int check) {
+    int ok = 1;
+    ?&Value list = site.cfg.object_get("redirects");
+    match (list) {
+        case some(rs): {
+            for (unsigned long i = 0UL; i < rs.array_len(); i = i + 1UL) {
+                &Value r = rs.array_at(i);
+                struct String from = String::from(util_vstr(r, "from", ""));
+                struct String to = String::new();
+                link_rewrite(site, util_vstr(r, "to", "/"), &to);
+                // served path + output file
+                struct String url = from.clone();
+                struct String rel = from.strip_prefix("/");
+                if (from.ends_with("/")) { rel.push("index.html"); }
+                else if (!from.ends_with(".html")) { rel.push(".html"); url.push(".html"); }
+                struct String out = path_join(site.output.as_ptr(), rel.as_ptr());
+                long long pi = -1LL;
+                if (url_known(site, pages, &url, &pi) && pi >= 0LL) {
+                    eprint("safec-site: redirect from an existing page: ");
+                    eprintln(from.as_ptr());
+                    ok = 0;
+                }
+                struct String html = String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>");
+                util_push_esc(&html, util_vstr(&site.cfg, "title", "SafeC"));
+                html.push("</title>\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"canonical\" href=\"");
+                util_push_esc(&html, util_vstr(&site.cfg, "origin", ""));
+                util_push_esc(&html, to.as_ptr());
+                html.push("\">\n<meta http-equiv=\"refresh\" content=\"0; url=");
+                util_push_esc(&html, to.as_ptr());
+                html.push("\">\n<script>location.replace(");
+                // a JS string literal: the target has no quotes or backslashes (it's a site path)
+                html.push("'"); html.push_str(&to); html.push("'");
+                html.push(" + location.hash)</script>\n</head>\n<body>\n<p>Moved to <a href=\"");
+                util_push_esc(&html, to.as_ptr());
+                html.push("\">");
+                util_push_esc(&html, to.as_ptr());
+                html.push("</a>.</p>\n</body>\n</html>\n");
+                if (!write_or_report(out.as_ptr(), &html)) { ok = 0; }
+                if (check && check_html(site, pages, from.as_ptr(), &html) > 0) { ok = 0; }
+                site.extra_urls.push(url);
+                from.free(); to.free(); rel.free(); out.free(); html.free();
+            }
+        }
+        case null: { }
+    }
+    return ok;
 }
 
 // ── build ────────────────────────────────────────────────────────────────────
@@ -105,9 +174,21 @@ static void append_sitemap(const &Site site, const &Page page, &String xml) {
     xml.push("</loc></url>\n");
 }
 
+static int searchable(const &Page p) {
+    ?&Value s = p.front.object_get("search");
+    match (s) { case some(v): { if (v.kind_of() == VAL_BOOL) { return v.as_bool(); } } case null: { } }
+    return 1;
+}
+
 static int build(&Site site, int check) {
     struct Vec<struct Page> pages = Vec::new();
     if (!pages_discover(site, &pages)) { pages_free(&pages); return 0; }
+    for (unsigned long i = 0UL; i < site.versions.len; i = i + 1UL) { site.versions.at(i).free(); }
+    site.versions.clear();
+    for (unsigned long i = 0UL; i < site.extra_urls.len; i = i + 1UL) { site.extra_urls.at(i).free(); }
+    site.extra_urls.clear();
+    releases_add_pages(site, &pages);
+    blog_add_pages(site, &pages);
     int ok = 1;
     // Start from an empty output: public/ first (pages may overwrite nothing
     // there), then the theme assets, then the generated files.
@@ -119,20 +200,31 @@ static int build(&Site site, int check) {
 
     struct String sitemap = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
     struct Vec<struct Value> indexes = Vec::new();
-    for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) { indexes.push(Value::array()); }
+    struct Vec<struct Value> examples = Vec::new();
+    for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) {
+        indexes.push(Value::array());
+        examples.push(Value::array());
+    }
 
-    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) { render_page(site, pages.at(i)); }
+    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
+        render_page(site, pages.at(i), examples.at(pages.at(i).locale));
+    }
+    // Redirect targets are checked against the pages, so pages first.
+    if (!write_redirects(site, &pages, check)) { ok = 0; }
+    int bad = 0;
     for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
         &Page p = pages.at(i);
         struct PageView v;
-        view_build(site, &pages, i, &v);
-        struct String doc = v.page_class.eq_cstr("home") ? tpl_home(&v) : tpl_doc(&v);
+        view_build(site, &pages, i, examples.at(p.locale), &v);
+        struct String doc = v.page_class.eq_cstr("doc") ? tpl_doc(&v) : tpl_wide(&v);
         if (!write_or_report(p.out.as_ptr(), &doc)) { ok = 0; }
+        if (check) { bad = bad + check_html(site, &pages, p.src.as_ptr(), &doc); }
         doc.free();
         view_free(&v);
-        search_add_page(site, p, indexes.at(p.locale));
+        if (searchable(p)) { search_add_page(site, p, indexes.at(p.locale)); }
         append_sitemap(site, p, &sitemap);
     }
+    if (!blog_write_feeds(site, &pages)) { ok = 0; }
     // 404.html at the root (GitHub Pages serves it for every miss), in the
     // root locale; the client swaps in the visitor's locale strings.
     struct PageView nf;
@@ -140,6 +232,7 @@ static int build(&Site site, int check) {
     struct String nf_doc = tpl_not_found(&nf);
     struct String nf_path = path_join(site.output.as_ptr(), "404.html");
     if (!write_or_report(nf_path.as_ptr(), &nf_doc)) { ok = 0; }
+    if (check) { bad = bad + check_html(site, &pages, "404.html", &nf_doc); }
     nf_doc.free(); nf_path.free(); view_free(&nf);
 
     for (unsigned long li = 0UL; li < site.locales.len; li = li + 1UL) {
@@ -151,8 +244,10 @@ static int build(&Site site, int check) {
         if (!write_or_report(path.as_ptr(), &json)) { ok = 0; }
         rel.free(); path.free(); json.free();
         indexes.at(li).free();
+        examples.at(li).free();
     }
     indexes.free();
+    examples.free();
     sitemap.push("</urlset>\n");
     struct String sm_path = path_join(site.output.as_ptr(), "sitemap.xml");
     if (!write_or_report(sm_path.as_ptr(), &sitemap)) { ok = 0; }
@@ -163,13 +258,10 @@ static int build(&Site site, int check) {
     util_write_file(nj.as_ptr(), &empty);
     nj.free(); empty.free();
 
-    if (check) {
-        int bad = check_links(site, &pages);
-        if (bad > 0) {
-            eprint_int((long long)bad);
-            eprintln(" dead link(s)");
-            ok = 0;
-        }
+    if (bad > 0) {
+        eprint_int((long long)bad);
+        eprintln(" dead link(s)");
+        ok = 0;
     }
     print("safec-site: ");
     print_int((long long)pages.len);

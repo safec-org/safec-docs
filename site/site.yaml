@@ -22,7 +22,7 @@ exclude: [site, public, dist, node_modules, README.md, CLAUDE.md]
 
 # Non-page files linked from pages (public/benchmarks/*.sc, ...): links
 # with these extensions are left alone instead of getting '.html'.
-file_extensions: [sc, scx, h, c, cpp, hpp, cc, cuh, go, py, rs, zig, toml, lock, sh, metal, cu, hip, cl, wgsl, mod, sum, md, txt, json, in]
+file_extensions: [sc, scx, h, c, cpp, hpp, cc, cuh, go, py, rs, zig, toml, lock, sh, metal, cu, hip, cl, wgsl, mod, sum, md, txt, json, in, xml]
 
 # Root locale first. 'key' names locales/<key>.yaml; the locale's URL
 # prefix and its markdown subdirectory come from that file's 'prefix'.
@@ -36,3 +36,31 @@ head:
   - {tag: link, rel: icon, type: image/png, sizes: 16x16, href: favicon-16x16.png}
   - {tag: link, rel: apple-touch-icon, href: apple-touch-icon.png}
   - {tag: link, rel: manifest, href: site.webmanifest}
+
+# The blog (site/src/blog.sc): posts per index page.
+blog:
+  per_page: 10
+
+# Alias and moved URLs. GitHub Pages has no server redirects, so each
+# 'from' gets a static page forwarding to 'to' (main.sc). 'to' must be a
+# page; 'from' must not be one. Every URL the site ever served stays a
+# page or gets an entry here.
+redirects:
+  - {from: /docs/, to: /learn/}
+  - {from: /docs, to: /learn/}
+  - {from: /learn, to: /learn/}
+  - {from: /std/, to: /stdlib/}
+  - {from: /download, to: /install}
+  - {from: /downloads, to: /install}
+  - {from: /releases, to: /blog/tags/release}
+  - {from: /news, to: /blog/}
+  - {from: /play, to: /playground}
+  - {from: /guide/, to: /guide/introduction}
+  - {from: /reference/, to: /reference/types}
+  - {from: /advanced/, to: /advanced/compiler}
+  - {from: /ko/docs/, to: /ko/learn/}
+  - {from: /ko/learn, to: /ko/learn/}
+  - {from: /ko/download, to: /ko/install}
+  - {from: /ko/guide/, to: /ko/guide/introduction}
+  - {from: /ko/reference/, to: /ko/reference/types}
+  - {from: /ko/advanced/, to: /ko/advanced/compiler}

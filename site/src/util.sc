@@ -38,3 +38,7 @@ const &char util_vstr(const &Value obj, const &char key, const &char fallback) {
     }
     return fallback;
 }
+
+int util_empty(const &char s) {
+    unsafe { return s[0] == '\0'; }
+}

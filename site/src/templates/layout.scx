@@ -22,25 +22,39 @@ static const char* ICON_LANG() {
     return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" d=\"M4 5h8M8 3v2m2.5 0c-1 4-3.5 7-6.5 9m2-5c1 2 3 4 5 5m2 7 4-10 4 10m-6.8-3h5.6\"/></svg>";
 }
 
+static const char* ICON_RSS() {
+    return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" d=\"M5 5a14 14 0 0 1 14 14M5 11a8 8 0 0 1 8 8\"/><circle cx=\"6\" cy=\"18\" r=\"1.5\" fill=\"currentColor\"/></svg>";
+}
+
 // Header + mobile menu button: shared by every layout.
 static struct String chrome_header(const &PageView v) {
-    return <header class="vp-header">
+    return <header class="site-header">
         <div class="header-inner">
-            <a class="brand" href={v.home_href.as_ptr()}><img class="logo" src={v.logo_src.as_ptr()} alt="" width="24" height="24"/><span>{v.site_title.as_ptr()}</span></a>
-            <button class="search-btn" type="button" data-action="search" aria-label={v.search_label.as_ptr()}>{!ICON_SEARCH()}<span class="search-label">{v.search_label.as_ptr()}</span><kbd>/</kbd></button>
+            <a class="brand" href={v.home_href.as_ptr()}><img class="logo" src={v.logo_src.as_ptr()} alt="" width="28" height="28"/><span>{v.site_title.as_ptr()}</span></a>
             <nav class="nav" aria-label="Main">{!v.nav.as_ptr()}</nav>
+            <button class="search-btn" type="button" data-action="search" aria-label={v.search_label.as_ptr()}>{!ICON_SEARCH()}<span class="search-label">{v.search_label.as_ptr()}</span><kbd>/</kbd></button>
             <div class="nav-group locale"><button class="nav-group-btn icon" type="button" aria-expanded="false" aria-label={v.lang_label.as_ptr()}>{!ICON_LANG()}<span class="caret"></span></button><div class="nav-menu">{!v.locale_menu.as_ptr()}</div></div>
             <button class="icon-btn theme-toggle" type="button" data-action="theme" title={v.theme_label.as_ptr()} aria-label={v.theme_label.as_ptr()}>{!ICON_THEME()}</button>
-            <a class="icon-btn" href={v.github.as_ptr()} target="_blank" rel="noreferrer" aria-label="GitHub">{!ICON_GITHUB()}</a>
+            <a class="icon-btn gh" href={v.github.as_ptr()} target="_blank" rel="noreferrer" aria-label="GitHub">{!ICON_GITHUB()}</a>
             <button class="icon-btn menu-toggle" type="button" data-action="menu" aria-label={v.menu_label.as_ptr()} aria-expanded="false" aria-controls="sidebar"><span class="burger"></span></button>
         </div>
     </header>;
 }
 
 static struct String chrome_footer(const &PageView v) {
-    return <footer class="vp-footer">
-        <p>{v.footer_message.as_ptr()}</p>
-        <p>{v.footer_copyright.as_ptr()}</p>
+    return <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="f-brand">
+                <a class="brand" href={v.home_href.as_ptr()}><img class="logo" src={v.logo_src.as_ptr()} alt="" width="28" height="28"/><span>{v.site_title.as_ptr()}</span></a>
+                <p>{v.description.as_ptr()}</p>
+                <div class="f-locales">{!v.locale_menu.as_ptr()}</div>
+            </div>
+            <div class="f-cols">{!v.footer_cols.as_ptr()}</div>
+        </div>
+        <div class="footer-legal">
+            <p>{v.footer_message.as_ptr()}</p>
+            <p>{v.footer_copyright.as_ptr()}</p>
+        </div>
     </footer>;
 }
 
@@ -59,9 +73,10 @@ static struct String doc_body_(const &PageView v, const &String header, const &S
         <a class="skip-link" href="#main">{v.skip_label.as_ptr()}</a>
         {!header.as_ptr()}
         <div class="sidebar-backdrop" data-action="menu"></div>
-        <aside class="sidebar" id="sidebar"><nav class="sb-nav" aria-label={v.menu_label.as_ptr()}>{!v.sidebar.as_ptr()}</nav><div class="sb-mobile-nav">{!v.nav.as_ptr()}</div></aside>
+        <aside class="sidebar" id="sidebar"><div class="sb-top">{!v.version_menu.as_ptr()}</div><nav class="sb-nav" aria-label={v.menu_label.as_ptr()}>{!v.sidebar.as_ptr()}</nav><div class="sb-mobile-nav">{!v.nav.as_ptr()}</div></aside>
         <div class="layout">
             <main class="content" id="main">
+                {!v.crumbs.as_ptr()}
                 <div class="vp-doc">{!v.content.as_ptr()}</div>
                 {!v.prev_next.as_ptr()}
             </main>
@@ -79,26 +94,29 @@ static struct String doc_body_(const &PageView v, const &String header, const &S
     </body>;
 }
 
-static struct String home_body_(const &PageView v, const &String header, const &String footer, const &String search) {
-    return <body class="home" data-locale={v.locale_key.as_ptr()} data-base={v.base.as_ptr()} data-copied={v.copied.as_ptr()}>
+// Landing, page, blog, post and playground: one full-width column; the
+// view put everything layout-specific into 'content'.
+static struct String wide_body_(const &PageView v, const &String header, const &String footer, const &String search) {
+    return <body class={v.page_class.as_ptr()} data-locale={v.locale_key.as_ptr()} data-base={v.base.as_ptr()} data-copied={v.copied.as_ptr()}>
         <a class="skip-link" href="#main">{v.skip_label.as_ptr()}</a>
         {!header.as_ptr()}
         <div class="sidebar-backdrop" data-action="menu"></div>
         <aside class="sidebar mobile-only" id="sidebar"><div class="sb-mobile-nav">{!v.nav.as_ptr()}</div></aside>
-        <main class="home-main" id="main">
-            <section class="hero"><div class="hero-copy">{!v.hero.as_ptr()}</div><img class="hero-logo" src={v.logo_src.as_ptr()} alt="SafeC"/></section>
-            <section class="features">{!v.features.as_ptr()}</section>
-            <div class="vp-doc home-doc">{!v.content.as_ptr()}</div>
+        <main class="wide" id="main">
+            <div class="wide-inner vp-doc">{!v.content.as_ptr()}</div>
         </main>
         {!footer.as_ptr()}
         {!search.as_ptr()}
         <script type="module" src={v.client_js.as_ptr()}></script>
+        {!v.page_script.as_ptr()}
     </body>;
 }
 
-static struct String not_found_body_(const &PageView v, const &String header, const &String search) {
+static struct String not_found_body_(const &PageView v, const &String header, const &String footer, const &String search) {
     return <body class="not-found" data-locale={v.locale_key.as_ptr()} data-base={v.base.as_ptr()}>
         {!header.as_ptr()}
+        <div class="sidebar-backdrop" data-action="menu"></div>
+        <aside class="sidebar mobile-only" id="sidebar"><div class="sb-mobile-nav">{!v.nav.as_ptr()}</div></aside>
         <main class="nf" id="main">
             <p class="nf-code">404</p>
             <h1 class="nf-title">{v.not_found_title.as_ptr()}</h1>
@@ -106,6 +124,7 @@ static struct String not_found_body_(const &PageView v, const &String header, co
             <a class="button brand nf-home" href={v.home_href.as_ptr()}>{v.not_found_link.as_ptr()}</a>
             {!v.content.as_ptr()}
         </main>
+        {!footer.as_ptr()}
         {!search.as_ptr()}
         <script type="module" src={v.client_js.as_ptr()}></script>
     </body>;
@@ -113,7 +132,8 @@ static struct String not_found_body_(const &PageView v, const &String header, co
 
 static struct String document_(const &PageView v, const &String body) {
     // The inline script applies the saved/OS color scheme before first
-    // paint (no flash); it is the only JavaScript besides the wasm loader.
+    // paint (no flash) and notes the visitor's OS for the install tabs; it is
+    // the only inline JavaScript.
     return <!doctype html>
     <html lang={v.lang.as_ptr()}>
     <head>
@@ -123,21 +143,21 @@ static struct String document_(const &PageView v, const &String body) {
         <meta name="description" content={v.description.as_ptr()}/>
         <meta name="color-scheme" content="light dark"/>
         <link rel="stylesheet" href={v.css.as_ptr()}/>
-        <script>(()=>{try{const t=localStorage.getItem('safec-theme');const d=t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d)}catch(e){}})()</script>
+        <script>(()=>{const h=document.documentElement;try{const t=localStorage.getItem('safec-theme');h.classList.toggle('dark',t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches)}catch(e){}const u=navigator.userAgent;h.dataset.os=/Windows/.test(u)?'windows':/Mac|iPhone|iPad/.test(u)?'mac':'linux'})()</script>
         {!v.head_extra.as_ptr()}
     </head>
     {!body.as_ptr()}
     </html>;
 }
 
-// kind: 0 doc, 1 home, 2 not found.
+// kind: 0 doc, 1 wide, 2 not found.
 static struct String page(const &PageView v, int kind) {
     struct String header = chrome_header(v);
     struct String footer = chrome_footer(v);
     struct String search = chrome_search(v);
     struct String body;
-    if (kind == 1) { body = home_body_(v, &header, &footer, &search); }
-    else if (kind == 2) { body = not_found_body_(v, &header, &search); }
+    if (kind == 1) { body = wide_body_(v, &header, &footer, &search); }
+    else if (kind == 2) { body = not_found_body_(v, &header, &footer, &search); }
     else { body = doc_body_(v, &header, &footer, &search); }
     struct String doc = document_(v, &body);
     doc.push_char('\n');
@@ -146,5 +166,5 @@ static struct String page(const &PageView v, int kind) {
 }
 
 struct String tpl_doc(const &PageView v)       { return page(v, 0); }
-struct String tpl_home(const &PageView v)      { return page(v, 1); }
+struct String tpl_wide(const &PageView v)      { return page(v, 1); }
 struct String tpl_not_found(const &PageView v) { return page(v, 2); }

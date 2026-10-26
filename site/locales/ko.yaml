@@ -8,6 +8,28 @@ description: SafeC 프로그래밍 언어 — 안전하고 결정론적인 시�
 footer:
   message: MIT 라이선스로 배포됩니다.
   copyright: Copyright 2026 SafeC Contributors
+  columns:
+    - title: 배우기
+      items:
+        - {text: 배우기 허브, link: /ko/learn/}
+        - {text: SafeC 북, link: /ko/book/}
+        - {text: 가이드, link: /ko/guide/introduction}
+        - {text: 언어 레퍼런스, link: /ko/reference/types}
+        - {text: 표준 라이브러리, link: /ko/stdlib/}
+    - title: 사용하기
+      items:
+        - {text: 설치, link: /ko/install}
+        - {text: 플레이그라운드, link: /ko/playground}
+        - {text: 도구, link: /ko/tools}
+        - {text: 벤치마크, link: /ko/benchmarks}
+        - {text: 변경 내역, link: /ko/changelog}
+    - title: 커뮤니티
+      items:
+        - {text: 커뮤니티, link: /ko/community}
+        - {text: 블로그, link: /ko/blog/}
+        - {text: GitHub, link: "https://github.com/safec-org/SafeC"}
+        - {text: 이슈, link: "https://github.com/safec-org/SafeC/issues"}
+        - {text: 릴리스, link: "https://github.com/safec-org/SafeC/releases"}
 labels:
   outline: 이 페이지에서
   prev: 이전 페이지
@@ -26,165 +48,54 @@ labels:
   notFoundLink: 홈으로 돌아가기
   skipToContent: 본문으로 건너뛰기
   lastUpdated: 마지막 업데이트
+  breadcrumbs: 이동 경로
+  learn: 배우기
+  docsVersion: 문서 버전
+  docsVersionShort: 문서
+  docsLatest: 개발 버전 (최신)
+  docsSoon: 문서 준비 중
+  runInPlayground: 플레이그라운드에서 실행
+  newerPost: 다음 글
+  olderPost: 이전 글
+# 헤더 내비게이션 (en.yaml의 주석 참고).
 nav:
-  - text: 가이드
+  - text: 배우기
+    link: /ko/learn/
+  - text: 문서
+    match: [/ko/guide/, /ko/book/, /ko/reference/, /ko/stdlib/, /ko/advanced/, /ko/benchmarks, /ko/changelog]
     items:
-      - text: 소개
-        link: /ko/guide/introduction
-      - text: 시작하기
-        link: /ko/guide/getting-started
-      - text: 설계 철학
-        link: /ko/guide/design
-      - text: 비교
-        link: /ko/guide/comparison
-  - text: 북
-    items:
-      - text: 서문
+      - text: SafeC 북
         link: /ko/book/
-      - text: 1. 시작하기
-        link: /ko/book/ch01-getting-started
-      - text: 2. 첫 프로그램
-        link: /ko/book/ch02-first-program
-      - text: 3. 공통 개념
-        link: /ko/book/ch03-common-concepts
-      - text: 4. 함수
-        link: /ko/book/ch04-functions
-      - text: 5. 리전 이해하기
-        link: /ko/book/ch05-understanding-regions
-      - text: 6. 구조체와 메서드
-        link: /ko/book/ch06-structs-and-methods
-      - text: 7. 열거형, 유니온, match
-        link: /ko/book/ch07-enums-and-match
-      - text: 8. 에러 처리
-        link: /ko/book/ch08-error-handling
-      - text: 9. 최종 프로젝트
-        link: /ko/book/ch09-final-project
-  - text: 레퍼런스
-    items:
-      - text: 타입
+      - text: 가이드
+        link: /ko/guide/introduction
+      - text: 언어 레퍼런스
         link: /ko/reference/types
-      - text: 연산자
-        link: /ko/reference/operators
-      - text: 리터럴과 한정자
-        link: /ko/reference/literals
-      - text: 메모리와 리전
-        link: /ko/reference/memory
-      - text: 함수
-        link: /ko/reference/functions
-      - text: 제네릭
-        link: /ko/reference/generics
-      - text: 다형성과 OOP
-        link: /ko/reference/polymorphism
-      - text: 함수형 프로그래밍
-        link: /ko/reference/functional
-      - text: 네임스페이스
-        link: /ko/reference/namespaces
-      - text: 네이티브 SIMD
-        link: /ko/reference/simd
-      - text: C 슈퍼셋
-        link: /ko/reference/c-superset
-      - text: 제어 흐름
-        link: /ko/reference/control-flow
-      - text: 안전성
-        link: /ko/reference/safety
-      - text: C 상호운용 (FFI)
-        link: /ko/reference/ffi
-      - text: 동시성
-        link: /ko/reference/concurrency
-      - text: 베어메탈
-        link: /ko/reference/baremetal
-      - text: 전처리기
-        link: /ko/reference/preprocessor
-      - text: 오버플로 연산자
-        link: /ko/reference/overflow
-  - text: 표준 라이브러리
-    items:
-      - text: 개요
+      - text: 표준 라이브러리
         link: /ko/stdlib/
-      - text: mem
-        link: /ko/stdlib/mem
-      - text: io
-        link: /ko/stdlib/io
-      - text: 파일과 디렉터리
-        link: /ko/stdlib/dir
-      - text: str
-        link: /ko/stdlib/str
-      - text: math
-        link: /ko/stdlib/math
-      - text: thread
-        link: /ko/stdlib/thread
-      - text: atomic
-        link: /ko/stdlib/atomic
-      - text: 직렬화
-        link: /ko/stdlib/serial
-      - text: 컬렉션
-        link: /ko/stdlib/collections
-      - text: 얼로케이터
-        link: /ko/stdlib/allocators
-      - text: 동기화
-        link: /ko/stdlib/sync
-      - text: IPC
-        link: /ko/stdlib/ipc
-      - text: 비동기
-        link: /ko/stdlib/async
-      - text: 실시간 스케줄러
-        link: /ko/stdlib/sched
-      - text: 네트워킹
-        link: /ko/stdlib/net
-      - text: HTTP와 웹
-        link: /ko/stdlib/http
-      - text: WebAssembly와 DOM
-        link: /ko/stdlib/wasm
-      - text: 머신러닝
-        link: /ko/stdlib/ml
-      - text: GUI
-        link: /ko/stdlib/gui
-      - text: GUI 그래픽
-        link: /ko/stdlib/gui-graphics
-      - text: GUI 위젯
-        link: /ko/stdlib/gui-widgets
-      - text: 오디오 & MIDI
-        link: /ko/stdlib/audio
-      - text: 인코딩
-        link: /ko/stdlib/encoding
-      - text: 파일시스템
-        link: /ko/stdlib/fs
-      - text: DSP와 실시간
-        link: /ko/stdlib/dsp
-      - text: 암호화
-        link: /ko/stdlib/crypto
-      - text: 디버깅
-        link: /ko/stdlib/debug
-      - text: SIMD
-        link: /ko/stdlib/simd
-      - text: 하드웨어 추상화
-        link: /ko/stdlib/hal
-      - text: 인터럽트와 MMIO
-        link: /ko/stdlib/interrupt
-      - text: 커널 프리미티브
-        link: /ko/stdlib/kernel
-      - text: 테스트와 벤치마킹
-        link: /ko/stdlib/testing
-      - text: 유틸리티와 C 호환
-        link: /ko/stdlib/utilities
-  - text: 고급
-    items:
-      - text: 컴파일러 아키텍처
+      - text: 고급
         link: /ko/advanced/compiler
-      - text: 패키지 매니저
-        link: /ko/advanced/safeguard
-      - text: scx 템플릿
-        link: /ko/advanced/scx
-      - text: 안전성 모델
-        link: /ko/advanced/safety-model
-      - text: 컴파일 타임 인트로스펙션
-        link: /ko/advanced/introspection
-  - text: 벤치마크
-    link: /ko/benchmarks
+      - text: 벤치마크
+        link: /ko/benchmarks
+      - text: 변경 내역
+        link: /ko/changelog
+  - text: 플레이그라운드
+    link: /ko/playground
+  - text: 도구
+    link: /ko/tools
+  - text: 블로그
+    link: /ko/blog/
+    match: [/ko/blog/]
+  - text: 커뮤니티
+    link: /ko/community
+  - text: 설치
+    link: /ko/install
+    style: cta
   - text: GitHub
     link: https://github.com/safec-org/SafeC
+
 sidebar:
   - prefix: /ko/guide/
+    name: 가이드
     groups:
       - text: 시작하기
         items:
@@ -358,3 +269,50 @@ sidebar:
             link: /ko/advanced/safety-model
           - text: 컴파일 타임 인트로스펙션
             link: /ko/advanced/introspection
+blog:
+  title: 블로그
+  description: SafeC 프로젝트 소식 — 공지, 릴리스 노트, 그리고 언어와 표준 라이브러리가 나아가는 방향.
+  allPosts: 전체 글
+  tags: 태그
+  tagTitle: 태그
+  feed: Atom 피드
+  pagination: 블로그 페이지
+  dateFormat: "{y}년 {m}월 {d}일"
+  months: [1월, 2월, 3월, 4월, 5월, 6월, 7월, 8월, 9월, 10월, 11월, 12월]
+  releaseTitle: "SafeC {v} 릴리스"
+  releaseSummary: "SafeC {v} 릴리스 노트."
+  releaseIntro: "SafeC **{v}**가 {date}에 릴리스되었습니다. 프리릴리스이며, 언어와 표준 라이브러리는 아직 빠르게 바뀌고 있습니다."
+  releaseNote: "> 아래 변경 사항은 릴리스 기록의 영어 원문입니다."
+  releaseInstall: "이 릴리스를 그대로 설치하려면:"
+  releaseAuthor: SafeC 릴리스 노트
+  highlights: 주요 변경 사항
+  pullRequests: 풀 리퀘스트
+  releaseLink: GitHub 릴리스 페이지
+  releaseNotes: 릴리스 노트
+  changelogTitle: 변경 내역
+  changelogIntro: "SafeC의 컴파일러, 표준 라이브러리, safeguard, 설치 스크립트에 대한 주요 변경 사항을 [CHANGELOG.md](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md)에서 가져와 최신순으로 보여 줍니다(영어 원문). 병합되었지만 아직 릴리스되지 않은 변경은 **Unreleased** 아래에 있고, 릴리스마다 [릴리스 노트 글](/ko/blog/tags/release)이 있습니다."
+  changelogMissing: "이번 빌드에서는 SafeC의 CHANGELOG.md를 읽지 못해 릴리스 기록만 보여 줍니다. 각 릴리스에서 릴리스 노트로 이동할 수 있습니다."
+playground:
+  examples: 예제
+  examplesPlaceholder: SafeC 북의 예제…
+  defaultExample: "Hello, regions (기본)"
+  run: 실행
+  stop: 중지
+  share: 공유
+  reset: 초기화
+  output: 출력
+  diagnostics: 진단
+  noDiagnostics: 진단 메시지가 없습니다.
+  compiling: 컴파일 중…
+  running: 실행 중…
+  exited: "종료 코드:"
+  failed: 컴파일 실패
+  stopped: 중지됨
+  linkCopied: 링크를 클립보드에 복사했습니다
+  editorLabel: SafeC 소스 코드
+  keys: "Ctrl/⌘ + Enter로 실행 · Tab은 들여쓰기 (Esc 후 Tab으로 포커스 이동) · 공유는 프로그램을 URL에 담습니다"
+  soonTitle: 브라우저 컴파일러는 곧 제공됩니다.
+  soonText: "WebAssembly로 빌드한 셀프 호스팅 SafeC 컴파일러를 개발하고 있습니다. 그전까지는 이곳에서 코드를 실행할 수 없지만, 편집·북 예제 불러오기·링크 공유는 모두 동작합니다. 프로그램은 safeguard로 로컬에서 실행하세요."
+  soonLink: SafeC 설치
+  unavailableRun: "브라우저 컴파일러는 아직 제공되지 않습니다. 이 프로그램을 실행하려면 'safeguard new hello'로 만든 프로젝트의 src/main.sc에 저장하고 'safeguard run'을 실행하세요."
+  noscript: 플레이그라운드에서 코드를 편집하고 실행하려면 JavaScript(와 WebAssembly)가 필요합니다.

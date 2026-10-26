@@ -8,6 +8,28 @@ description: The SafeC Programming Language — Safe, Deterministic Systems Prog
 footer:
   message: Released under the MIT License.
   copyright: Copyright 2026 SafeC Contributors
+  columns:
+    - title: Learn
+      items:
+        - {text: Learn hub, link: /learn/}
+        - {text: The SafeC Book, link: /book/}
+        - {text: Guide, link: /guide/introduction}
+        - {text: Language Reference, link: /reference/types}
+        - {text: Standard Library, link: /stdlib/}
+    - title: Use
+      items:
+        - {text: Install, link: /install}
+        - {text: Playground, link: /playground}
+        - {text: Tools, link: /tools}
+        - {text: Benchmarks, link: /benchmarks}
+        - {text: Changelog, link: /changelog}
+    - title: Community
+      items:
+        - {text: Community, link: /community}
+        - {text: Blog, link: /blog/}
+        - {text: GitHub, link: "https://github.com/safec-org/SafeC"}
+        - {text: Issues, link: "https://github.com/safec-org/SafeC/issues"}
+        - {text: Releases, link: "https://github.com/safec-org/SafeC/releases"}
 labels:
   outline: On this page
   prev: Previous page
@@ -26,165 +48,56 @@ labels:
   notFoundLink: Take me home
   skipToContent: Skip to content
   lastUpdated: Last updated
+  breadcrumbs: Breadcrumbs
+  learn: Learn
+  docsVersion: Documentation version
+  docsVersionShort: Docs
+  docsLatest: development (latest)
+  docsSoon: docs coming soon
+  runInPlayground: Run in Playground
+  newerPost: Newer post
+  olderPost: Older post
+# Header navigation. An entry with 'items' is a dropdown; 'match' lists
+# the route prefixes under which an entry is the current section;
+# 'style: cta' renders it as a button. The GitHub link is the header icon.
 nav:
-  - text: Guide
+  - text: Learn
+    link: /learn/
+  - text: Docs
+    match: [/guide/, /book/, /reference/, /stdlib/, /advanced/, /benchmarks, /changelog]
     items:
-      - text: Introduction
-        link: /guide/introduction
-      - text: Getting Started
-        link: /guide/getting-started
-      - text: Design Philosophy
-        link: /guide/design
-      - text: Comparison
-        link: /guide/comparison
-  - text: Book
-    items:
-      - text: Preface
+      - text: The SafeC Book
         link: /book/
-      - text: 1. Getting Started
-        link: /book/ch01-getting-started
-      - text: 2. A First Program
-        link: /book/ch02-first-program
-      - text: 3. Common Concepts
-        link: /book/ch03-common-concepts
-      - text: 4. Functions
-        link: /book/ch04-functions
-      - text: 5. Understanding Regions
-        link: /book/ch05-understanding-regions
-      - text: 6. Structs and Methods
-        link: /book/ch06-structs-and-methods
-      - text: 7. Enums, Unions, and Match
-        link: /book/ch07-enums-and-match
-      - text: 8. Error Handling
-        link: /book/ch08-error-handling
-      - text: 9. Final Project
-        link: /book/ch09-final-project
-  - text: Reference
-    items:
-      - text: Types
+      - text: Guide
+        link: /guide/introduction
+      - text: Language Reference
         link: /reference/types
-      - text: Operators
-        link: /reference/operators
-      - text: Literals & Qualifiers
-        link: /reference/literals
-      - text: Memory & Regions
-        link: /reference/memory
-      - text: Functions
-        link: /reference/functions
-      - text: Generics
-        link: /reference/generics
-      - text: Polymorphism & OOP
-        link: /reference/polymorphism
-      - text: Functional Programming
-        link: /reference/functional
-      - text: Namespaces
-        link: /reference/namespaces
-      - text: Native SIMD
-        link: /reference/simd
-      - text: C Superset
-        link: /reference/c-superset
-      - text: Control Flow
-        link: /reference/control-flow
-      - text: Safety
-        link: /reference/safety
-      - text: C Interop (FFI)
-        link: /reference/ffi
-      - text: Concurrency
-        link: /reference/concurrency
-      - text: Bare-Metal
-        link: /reference/baremetal
-      - text: Preprocessor
-        link: /reference/preprocessor
-      - text: Overflow Operators
-        link: /reference/overflow
-  - text: Standard Library
-    items:
-      - text: Overview
+      - text: Standard Library
         link: /stdlib/
-      - text: mem
-        link: /stdlib/mem
-      - text: io
-        link: /stdlib/io
-      - text: Files & Directories
-        link: /stdlib/dir
-      - text: str
-        link: /stdlib/str
-      - text: math
-        link: /stdlib/math
-      - text: thread
-        link: /stdlib/thread
-      - text: atomic
-        link: /stdlib/atomic
-      - text: Serialization
-        link: /stdlib/serial
-      - text: Collections
-        link: /stdlib/collections
-      - text: Allocators
-        link: /stdlib/allocators
-      - text: Synchronization
-        link: /stdlib/sync
-      - text: IPC
-        link: /stdlib/ipc
-      - text: Async
-        link: /stdlib/async
-      - text: Real-Time Scheduler
-        link: /stdlib/sched
-      - text: Networking
-        link: /stdlib/net
-      - text: HTTP & Web
-        link: /stdlib/http
-      - text: WebAssembly & DOM
-        link: /stdlib/wasm
-      - text: Machine Learning
-        link: /stdlib/ml
-      - text: GUI
-        link: /stdlib/gui
-      - text: GUI Graphics
-        link: /stdlib/gui-graphics
-      - text: GUI Widgets
-        link: /stdlib/gui-widgets
-      - text: Audio & MIDI
-        link: /stdlib/audio
-      - text: Encoding
-        link: /stdlib/encoding
-      - text: Filesystems
-        link: /stdlib/fs
-      - text: DSP & Real-Time
-        link: /stdlib/dsp
-      - text: Cryptography
-        link: /stdlib/crypto
-      - text: Debugging
-        link: /stdlib/debug
-      - text: SIMD
-        link: /stdlib/simd
-      - text: Hardware Abstraction
-        link: /stdlib/hal
-      - text: Interrupts & MMIO
-        link: /stdlib/interrupt
-      - text: Kernel Primitives
-        link: /stdlib/kernel
-      - text: Testing & Benchmarking
-        link: /stdlib/testing
-      - text: Utilities & C Compatibility
-        link: /stdlib/utilities
-  - text: Advanced
-    items:
-      - text: Compiler Architecture
+      - text: Advanced
         link: /advanced/compiler
-      - text: Package Manager
-        link: /advanced/safeguard
-      - text: scx Templating
-        link: /advanced/scx
-      - text: Safety Model
-        link: /advanced/safety-model
-      - text: Compile-Time Introspection
-        link: /advanced/introspection
-  - text: Benchmarks
-    link: /benchmarks
+      - text: Benchmarks
+        link: /benchmarks
+      - text: Changelog
+        link: /changelog
+  - text: Playground
+    link: /playground
+  - text: Tools
+    link: /tools
+  - text: Blog
+    link: /blog/
+    match: [/blog/]
+  - text: Community
+    link: /community
+  - text: Install
+    link: /install
+    style: cta
   - text: GitHub
     link: https://github.com/safec-org/SafeC
+
 sidebar:
   - prefix: /guide/
+    name: Guide
     groups:
       - text: Getting Started
         items:
@@ -358,3 +271,52 @@ sidebar:
             link: /advanced/safety-model
           - text: Compile-Time Introspection
             link: /advanced/introspection
+# Blog strings (site/src/blog.sc, releases.sc). {v} = version, {date} = YYYY-MM-DD.
+blog:
+  title: Blog
+  description: News from the SafeC project — announcements, release notes and what the language and its standard library are growing into.
+  allPosts: All posts
+  tags: Tags
+  tagTitle: Posts tagged
+  feed: Atom feed
+  pagination: Blog pages
+  dateFormat: "{month} {d}, {y}"
+  months: [January, February, March, April, May, June, July, August, September, October, November, December]
+  releaseTitle: "SafeC {v} released"
+  releaseSummary: "Release notes for SafeC {v}."
+  releaseIntro: "SafeC **{v}** was released on {date}. It is a pre-release: the language and std are still moving quickly."
+  releaseNote: ""
+  releaseInstall: "Install this exact release:"
+  releaseAuthor: SafeC release notes
+  highlights: Highlights
+  pullRequests: Pull requests
+  releaseLink: The release on GitHub
+  releaseNotes: Release notes
+  changelogTitle: Changelog
+  changelogIntro: "Every notable change to SafeC — the compiler, the standard library, safeguard and the install scripts — as recorded in [CHANGELOG.md](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md), newest first. Changes that are merged but not yet released are under **Unreleased**; each release also has its own [release-notes post](/blog/tags/release)."
+  changelogMissing: "SafeC's CHANGELOG.md was not available to this build; here is the release history. Each release links its notes."
+# Playground strings (site/src/view.sc builds the app; theme/playground.js runs it).
+playground:
+  examples: Examples
+  examplesPlaceholder: Examples from the Book…
+  defaultExample: "Hello, regions (default)"
+  run: Run
+  stop: Stop
+  share: Share
+  reset: Reset
+  output: Output
+  diagnostics: Diagnostics
+  noDiagnostics: No diagnostics.
+  compiling: Compiling…
+  running: Running…
+  exited: Exited with code
+  failed: Compilation failed
+  stopped: Stopped
+  linkCopied: Link copied to the clipboard
+  editorLabel: SafeC source code
+  keys: "Ctrl/⌘ + Enter runs · Tab indents (Esc, then Tab, moves focus out) · Share puts the program in the URL"
+  soonTitle: The in-browser compiler is coming soon.
+  soonText: "A self-hosted SafeC compiler built to WebAssembly is in progress; until it ships, Run can't execute code here. Everything else works: edit, load Book examples, share a link — and run the program locally with safeguard."
+  soonLink: Install SafeC
+  unavailableRun: "The in-browser compiler isn't available yet. To run this program, save it as src/main.sc in a project made with 'safeguard new hello' and run 'safeguard run'."
+  noscript: The playground needs JavaScript (and WebAssembly) to edit and run code.

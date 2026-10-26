@@ -4,6 +4,7 @@
 #include <std/io.h>
 #include <std/io_file.h>
 #include <std/path.h>
+#include <std/sys.h>
 
 static int load_yaml(const &char path, &Value out) {
     struct String text = String::new();
@@ -35,6 +36,11 @@ static struct String resolve(const &char root, const &char rel) {
 int site_load(&Site site, const &char root, const ?&char base_override) {
     site.root = String::from(root);
     site.locales = Vec::new();
+    site.versions = Vec::new();
+    site.extra_urls = Vec::new();
+    site.safec_home = String::new();
+    const ?&char home = sys_getenv("SAFEC_HOME");
+    match (home) { case some(h): { site.safec_home.push(h); } case null: { } }
     struct String cfg_path = path_join(root, "site.yaml");
     int ok = load_yaml(cfg_path.as_ptr(), &site.cfg);
     cfg_path.free();
@@ -87,6 +93,11 @@ void site_free(&Site site) {
         l.key.free(); l.prefix.free(); l.dir.free(); l.data.free();
     }
     site.locales.free();
+    for (unsigned long i = 0UL; i < site.versions.len; i = i + 1UL) { site.versions.at(i).free(); }
+    site.versions.free();
+    for (unsigned long i = 0UL; i < site.extra_urls.len; i = i + 1UL) { site.extra_urls.at(i).free(); }
+    site.extra_urls.free();
+    site.safec_home.free();
     site.root.free(); site.source.free(); site.public_dir.free();
     site.output.free(); site.theme.free(); site.base.free();
     site.cfg.free();
