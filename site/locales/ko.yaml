@@ -16,6 +16,7 @@ footer:
         - {text: 가이드, link: /ko/guide/introduction}
         - {text: 언어 레퍼런스, link: /ko/reference/types}
         - {text: 표준 라이브러리, link: /ko/stdlib/}
+        - {text: API 레퍼런스, link: /api/}
     - title: 사용하기
       items:
         - {text: 설치, link: /ko/install}
@@ -72,6 +73,8 @@ nav:
         link: /ko/reference/types
       - text: 표준 라이브러리
         link: /ko/stdlib/
+      - text: API 레퍼런스
+        link: /api/
       - text: 고급
         link: /ko/advanced/compiler
       - text: 벤치마크
@@ -267,6 +270,8 @@ sidebar:
             link: /ko/advanced/compiler
           - text: 패키지 매니저
             link: /ko/advanced/safeguard
+          - text: 문서 주석
+            link: /ko/advanced/doc-comments
           - text: scx 템플릿
             link: /ko/advanced/scx
           - text: 안전성 모델
