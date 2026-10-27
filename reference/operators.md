@@ -137,10 +137,8 @@ unsafe {
 | `>>` | Right shift | `a >> n` |
 
 ```c
-// No binary literal syntax (see Literals & Qualifiers) — write the hex
-// equivalent instead. flags = 0xC = 0b1100, mask = 0xA = 0b1010.
-uint32_t flags = 0xC;
-uint32_t mask  = 0xA;
+uint32_t flags = 0b1100;              // binary literal (see Literals & Qualifiers); = 0xC
+uint32_t mask  = 0b1010;              // = 0xA
 
 uint32_t and_result = flags & mask;   // 0x8  (0b1000)
 uint32_t or_result  = flags | mask;   // 0xE  (0b1110)
@@ -149,6 +147,19 @@ uint32_t not_result = ~flags;         // all bits flipped
 
 uint32_t shifted = 1 << 4;           // 16 (bit 4 set)
 ```
+
+### Bit-Manipulation Built-ins {#bit-builtins}
+
+The compiler also knows GCC/Clang's bit built-ins, each one instruction on most targets:
+
+| Built-in | Result |
+|---|---|
+| `__builtin_popcount(x)` / `__builtin_popcountll(x)` | number of set bits (`int`) |
+| `__builtin_clz(x)` / `__builtin_clzll(x)` | leading zero bits (`int`; undefined for `0`) |
+| `__builtin_ctz(x)` / `__builtin_ctzll(x)` | trailing zero bits (`int`; undefined for `0`) |
+| `__builtin_bswap32(x)` / `__builtin_bswap64(x)` | `x` with its bytes reversed (same type as `x`) |
+
+[`std/bit.h`](/stdlib/math#bit) wraps them in C23 `<stdbit.h>`-style functions that are defined for `0` too.
 
 ## Member Access Operators {#member-access-operators}
 

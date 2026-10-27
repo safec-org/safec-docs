@@ -138,10 +138,8 @@ unsafe {
 | `>>` | 오른쪽 시프트 | `a >> n` |
 
 ```c
-// 이진 리터럴 문법은 없습니다 (리터럴과 한정자 참고) — 대신 16진수
-// 등가값을 쓰십시오. flags = 0xC = 0b1100, mask = 0xA = 0b1010.
-uint32_t flags = 0xC;
-uint32_t mask  = 0xA;
+uint32_t flags = 0b1100;              // 이진 리터럴 (리터럴과 한정자 참고); = 0xC
+uint32_t mask  = 0b1010;              // = 0xA
 
 uint32_t and_result = flags & mask;   // 0x8  (0b1000)
 uint32_t or_result  = flags | mask;   // 0xE  (0b1110)
@@ -150,6 +148,19 @@ uint32_t not_result = ~flags;         // 모든 비트가 반전됨
 
 uint32_t shifted = 1 << 4;           // 16 (비트 4가 설정됨)
 ```
+
+### 비트 조작 내장 함수 {#bit-builtins}
+
+컴파일러는 GCC/Clang의 비트 내장 함수도 알고 있으며, 대부분의 타깃에서 각각 명령어 하나입니다.
+
+| 내장 함수 | 결과 |
+|---|---|
+| `__builtin_popcount(x)` / `__builtin_popcountll(x)` | 설정된 비트 수(`int`) |
+| `__builtin_clz(x)` / `__builtin_clzll(x)` | 앞쪽 0 비트 수(`int`; `0`에 대해서는 정의되지 않음) |
+| `__builtin_ctz(x)` / `__builtin_ctzll(x)` | 뒤쪽 0 비트 수(`int`; `0`에 대해서는 정의되지 않음) |
+| `__builtin_bswap32(x)` / `__builtin_bswap64(x)` | 바이트 순서를 뒤집은 `x`(`x`와 같은 타입) |
+
+[`std/bit.h`](/ko/stdlib/math#bit)는 이들을 `0`에 대해서도 정의된 C23 `<stdbit.h>` 스타일 함수로 감쌉니다.
 
 ## 멤버 접근 연산자 {#member-access-operators}
 

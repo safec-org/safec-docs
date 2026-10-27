@@ -394,10 +394,11 @@ atomic int counter = 0;
 | `atomic_fetch_or(ptr, val)` | `T atomic_fetch_or(T *ptr, T val)` | Bitwise OR and return previous |
 | `atomic_fetch_xor(ptr, val)` | `T atomic_fetch_xor(T *ptr, T val)` | Bitwise XOR and return previous |
 | `atomic_exchange(ptr, val)` | `T atomic_exchange(T *ptr, T val)` | Swap and return previous value |
-| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | Compare-and-swap |
+| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | Compare-and-swap: `expected` is a value, never written back |
+| `atomic_compare_exchange_strong(ptr, &expected, desired)` | `bool atomic_compare_exchange_strong(T *ptr, T *exp, T des)` | C11 compare-and-swap: on failure the current value is written to `expected` |
 | `atomic_fence()` | `void atomic_fence()` | Full memory barrier |
 
-All atomic operations use sequentially consistent ordering by default.
+All atomic operations use sequentially consistent ordering by default. A trailing string literal picks another one: `"relaxed"`, `"acquire"`, `"release"` or `"acq_rel"` (`atomic_load(&x, "acquire")`, `atomic_store(&x, v, "release")`, `atomic_fence("acq_rel")`). Give the two compare-and-swap forms `"relaxed"` or `"acquire"` at most: the same order is used for the failure case, where `"release"` and `"acq_rel"` aren't valid.
 
 ### Example: Lock-Free Counter {#example-lock-free-counter}
 

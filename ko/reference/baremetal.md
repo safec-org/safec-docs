@@ -392,10 +392,11 @@ atomic int counter = 0;
 | `atomic_fetch_or(ptr, val)` | `T atomic_fetch_or(T *ptr, T val)` | 비트 OR 후 이전 값을 반환 |
 | `atomic_fetch_xor(ptr, val)` | `T atomic_fetch_xor(T *ptr, T val)` | 비트 XOR 후 이전 값을 반환 |
 | `atomic_exchange(ptr, val)` | `T atomic_exchange(T *ptr, T val)` | 교환 후 이전 값을 반환 |
-| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | 비교 후 교환 (compare-and-swap) |
+| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | 비교 후 교환 (compare-and-swap): `expected`는 값이며 다시 쓰이지 않음 |
+| `atomic_compare_exchange_strong(ptr, &expected, desired)` | `bool atomic_compare_exchange_strong(T *ptr, T *exp, T des)` | C11 비교 후 교환: 실패하면 현재 값을 `expected`에 씀 |
 | `atomic_fence()` | `void atomic_fence()` | 완전한 메모리 배리어 |
 
-모든 원자적 연산은 기본적으로 순차적 일관성(sequentially consistent) 순서를 사용합니다.
+모든 원자적 연산은 기본적으로 순차적 일관성(sequentially consistent) 순서를 사용합니다. 끝에 문자열 리터럴을 주면 다른 순서를 고릅니다: `"relaxed"`, `"acquire"`, `"release"`, `"acq_rel"`(`atomic_load(&x, "acquire")`, `atomic_store(&x, v, "release")`, `atomic_fence("acq_rel")`). 두 비교 후 교환 형태에는 `"relaxed"`나 `"acquire"`까지만 주십시오: 같은 순서가 실패한 경우에도 쓰이는데, 거기서는 `"release"`와 `"acq_rel"`이 유효하지 않습니다.
 
 ### 예제: 락 프리 카운터 {#example-lock-free-counter}
 
