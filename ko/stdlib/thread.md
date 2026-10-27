@@ -7,10 +7,10 @@ SafeC는 두 개의 계층으로 이루어진 스레딩을 제공합니다: **`s
 ```c
 long long spawn(fn, arg);          // fn: &static 함수 참조; 스레드 핸들을 반환
 void      join(handle);
-long long spawn_scoped(fn, arg);   // spawn과 같지만, 컴파일러가 스코프 종료 전 join을 보장
+long long spawn_scoped(fn, arg);   // spawn과 같지만, 시작한 함수가 반환하기 전에 join됨
 ```
 
-`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 인자로 그대로 전달됩니다. 스레드 함수는 nullable 참조를 받고 반환합니다(`?&T f(?&T arg)`). 인자는 리전 격리를 지켜야 합니다: 생성된 스레드가 참조 대상보다 오래 살거나 그 위에서 경쟁할 수 있으므로, 컴파일러는 `&static`이 아닌 가변 참조를 거부합니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
+`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 인자로 그대로 전달됩니다. 스레드 함수는 nullable 참조를 받고 반환합니다(`?&T f(?&T arg)`). 인자는 검사됩니다([스레드 안전성](/ko/reference/threads#spawn) 참고): 생성된 스레드가 참조 대상보다 오래 살거나 그 위에서 경쟁할 수 있으므로 `spawn`의 인자는 `null`이거나 정적 데이터를 가리켜야 하며, `spawn_scoped`는 지역 변수를 빌려줄 수 있습니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
 
 ```c
 extern int printf(const char *fmt, ...);
@@ -32,7 +32,7 @@ int main() {
 
 ### 리전 격리 {#region-isolation}
 
-`spawn`의 인자는 **가변이면서 `&static`이 아닌** 참조일 수 없습니다 — 그런 참조를 전달하면 컴파일 오류("region isolation violation")가 발생합니다. 스폰된 스레드가 해당 참조가 가리키는 리전보다 더 오래 살아남을 수 있기 때문입니다. 대신 `&static` 참조, 불변 참조, 또는 (인덱스나 직접 관리하는 힙 포인터 같은) 일반 값을 전달합니다.
+`spawn`으로 시작한 스레드는 어떤 스코프에서도 join되지 않으므로, 그 인자는 `null`이거나 **정적 데이터**를 가리켜야 합니다: `T`가 Sync인 `const &static T`, 또는 `T`가 자기 상태를 스스로 동기화할 때(`Mutex`, 원자 연산)만 가변 `&static T`. 스택, 아레나, 힙 데이터를 가리키는 참조는 컴파일 오류이며("the argument '&stack int' refers to data the thread may outlive"), 원시 포인터는 `unsafe` 안에서만 허용됩니다. 스레드에 지역 변수를 넘기려면 `spawn_scoped`를 쓰세요. 전체 규칙은 [스레드 안전성](/ko/reference/threads#spawn)에 있습니다.
 
 ### 백엔드 선택 {#backend-selection}
 
@@ -48,12 +48,99 @@ int main() {
 
 **훅** 백엔드는 `spawn`/`join`을 두 개의 고정된 extern 심볼 — `__safec_thread_create(func, arg) -> i64`와 `__safec_thread_join(i64) -> void` — 에 대한 호출로 컴파일합니다. 이는 의도적인 확장 지점으로, 정확히 이 두 심볼을 제공하는 런타임이라면 컴파일러 변경 없이 `spawn`/`join`을 지원할 수 있습니다. `std/sync/bare_spawn.sc`는 스폰된 함수를 `std::TaskScheduler` 위에서 협조적으로 실행하는 참조 구현입니다([동기화](/ko/stdlib/sync) 참고). 벤더 RTOS 셰임(shim)이 동일한 두 심볼을 대신 정의할 수도 있습니다.
 
+## 타입 있는 스레드와 락 {#typed-threads}
+
+아래의 핸들 기반 함수 위에 만든 `std/thread.h`의 검사되는 계층입니다. 컴파일러의 [Send/Sync 및 소유권 검사](/ko/reference/threads)가 여기에 적용됩니다: `thread_spawn`으로 옮긴 값은 그 뒤에 쓸 수 없고, drop하지 않은 가드는 누수 오류이며, `get()`이 준 참조는 가드보다 오래 살 수 없습니다.
+
+```c
+#include <std/thread.h>
+
+// A thread that owns its argument (T: Send, R: Send). A Drop value.
+generic<T, R> struct SpawnedThread {
+    int  started() const;           // 0 if the thread couldn't be created
+    R    join() consume;            // waits; f's result
+    void drop();                    // join() and drop the result
+};
+generic<T: Send, R: Send> struct SpawnedThread<T, R> thread_spawn(fn R(T) f, T arg);   // arg moves in
+
+generic<T: Send> struct Mutex {     // Sync: share it between threads
+    static struct Mutex<T> new(T value);
+    struct MutexGuard<T> lock() const;   // blocks; the guard is the only way to the value
+    T    into_inner() consume;      // the value back
+    void drop();
+};
+generic<T> struct MutexGuard {      // !Send: unlock on the locking thread
+    &T   get();                     // valid until drop()
+    void set(T value);              // replace (dropping the old value)
+    void drop();                    // unlocks
+};
+
+generic<T: Send + Sync> struct RwLock {
+    static struct RwLock<T> new(T value);
+    struct RwReadGuard<T>  read() const;    // many at once: get() is const &T
+    struct RwWriteGuard<T> write() const;   // exclusive: get() is &T
+    void drop();
+};
+```
+
+`Mutex`와 `RwLock`은 값을 힙 상자에 두며, 락을 건 뒤에는 옮기면 안 됩니다(가드가 이를 가리킵니다). 공유하는 것은 `static`에 두고 스레드를 시작하기 전에 초기화하십시오. 한 스레드에서 두 번 락을 걸면 (POSIX에서) 교착 상태가 됩니다 — [OS 수준 뮤텍스](#mutex) 참고.
+
+```c
+#include <std/thread.h>
+#include <std/collections/vec.h>
+extern int printf(const char *fmt, ...);
+
+static struct Mutex<int> g_total;
+
+long long sum(struct Vec<int> v) {           // owns v: nothing is shared
+    long long s = 0LL;
+    for (unsigned long i = 0UL; i < v.len; i = i + 1UL) s = s + (long long)*v.at(i);
+    v.drop();
+    return s;
+}
+
+?&int add_ten(?&int unused) {
+    for (int i = 0; i < 10; i = i + 1) {
+        struct MutexGuard<int> g = g_total.lock();
+        *g.get() = *g.get() + 1;
+        g.drop();                            // unlocks
+    }
+    return null;
+}
+
+int main() {
+    struct Vec<int> v = Vec::new();
+    for (int i = 1; i <= 100; i = i + 1) v.push(i);
+    struct SpawnedThread<struct Vec<int>, long long> t = thread_spawn(sum, v);   // v moves in
+    long long s = t.join();
+
+    g_total = Mutex::new(0);
+    long long h1 = spawn(add_ten, null);
+    long long h2 = spawn(add_ten, null);
+    join(h1);
+    join(h2);
+    int total = g_total.into_inner();
+
+    struct RwLock<int> limit = RwLock::new(5);
+    struct RwReadGuard<int> r = limit.read();
+    int seen = *r.get();
+    r.drop();
+    struct RwWriteGuard<int> w = limit.write();
+    *w.get() = 6;
+    w.drop();
+    limit.drop();
+
+    printf("%lld %d %d\n", s, total, seen);
+    return 0;
+}
+```
+
 ## 직접 OS 스레드 API (`thread.h`) {#direct-os-thread-api-threadh}
 
 이 페이지의 나머지 부분 — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — 는 위의 `spawn`/`join` 키워드 대신 OS 스레드를 직접 제어하고 싶을 때 사용하는, 별도로 명시적으로 호출하는 API입니다. 두 계층 모두 호스티드 타깃에서는 pthread/Win32 기반으로 동작합니다. `thread_create`의 핸들은 Win32에서 `spawn`의 핸들과 ABI 호환이지만, 그 외에는 두 API가 서로 독립적입니다(이 API는 훅 백엔드 계약의 일부가 아닙니다).
 
 ::: tip 검사되는 스레드
-`std/thread.h`에는 컴파일러의 [Send/Sync 검사](/ko/reference/threads)가 적용되는 타입 있는 계층도 있습니다: `thread_spawn(f, arg)`는 인자(`T: Send`)를 새 스레드로 옮기고 `SpawnedThread<T, R>`를 반환하며, 그 `join()`이 `f`의 결과를 돌려줍니다. `Mutex<T>` / `RwLock<T>`는 보호하는 값을 소유합니다. 아래의 핸들 기반 함수는 스레드가 무엇을 공유하는지 전혀 검사하지 않으므로 타입 있는 계층을 쓰세요.
+`std/thread.h`에는 컴파일러의 [Send/Sync 검사](/ko/reference/threads)가 적용되는 타입 있는 계층도 있습니다: `thread_spawn(f, arg)`는 인자(`T: Send`)를 새 스레드로 옮기고 `SpawnedThread<T, R>`를 반환하며, 그 `join()`이 `f`의 결과를 돌려줍니다. `Mutex<T>` / `RwLock<T>`는 보호하는 값을 소유합니다. 아래의 핸들 기반 함수는 스레드가 무엇을 공유하는지 전혀 검사하지 않으므로 [타입 있는 계층](#typed-threads)을 쓰세요.
 :::
 
 ```c

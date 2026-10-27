@@ -257,7 +257,7 @@ int main() {
     return v == 42 ? 0 : 1;
 }
 ```
-Futures, wakers, join/select/timeout, channels and async TCP over epoll, kqueue and WSAPoll — [Async](/stdlib/async).
+Futures, wakers, join/select/timeout, channels and async TCP over epoll, kqueue and WSAPoll — [Async](/stdlib/async). (The `ASYNC_*` coroutine macros need [`compat_preprocessor = true`](/stdlib/async#quick-start).)
 :::
 ::: tab Audio
 ```c norun

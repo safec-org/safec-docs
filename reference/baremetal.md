@@ -65,7 +65,7 @@ In freestanding mode a call to a hosted-only function (`malloc`, `printf`, …) 
 
 ### Testing on bare metal {#testing}
 
-The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`); wasm32 and wasm64 images are linked with `wasm-ld` and run under Node (`run_wasm.mjs`). All 16 targets currently pass every check.
+The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`); wasm32 and wasm64 images are linked with `wasm-ld` and run under Node (`run_wasm.mjs`). It covers every target `safec --list-targets` names: the 15 bare-metal aliases above, `wasm32` and `wasm64`.
 
 `tests/stdlib/baremetal/qemu/run.sh` goes one step further and boots small programs on QEMU's emulated hardware: the native [`MmuContext`](/stdlib/kernel#mmu-context-kernelmmuh) format with translation really on (RISC-V Sv39/Sv32 in S-mode, AArch64 and ARMv7-A with the MMU enabled, x86 32-bit paging and x86-64 long mode), and the [HAL chips](/stdlib/hal#hal-chips) PL011, 16550 and STM32F4 USART/TIM/SPI against QEMU's models of them. On x86 the start-up code also turns SSE on (`CR0`/`CR4`), since LLVM's i686 code uses it.
 
@@ -394,10 +394,11 @@ atomic int counter = 0;
 | `atomic_fetch_or(ptr, val)` | `T atomic_fetch_or(T *ptr, T val)` | Bitwise OR and return previous |
 | `atomic_fetch_xor(ptr, val)` | `T atomic_fetch_xor(T *ptr, T val)` | Bitwise XOR and return previous |
 | `atomic_exchange(ptr, val)` | `T atomic_exchange(T *ptr, T val)` | Swap and return previous value |
-| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | Compare-and-swap |
+| `atomic_cas(ptr, expected, desired)` | `bool atomic_cas(T *ptr, T exp, T des)` | Compare-and-swap: `expected` is a value, never written back |
+| `atomic_compare_exchange_strong(ptr, &expected, desired)` | `bool atomic_compare_exchange_strong(T *ptr, T *exp, T des)` | C11 compare-and-swap: on failure the current value is written to `expected` |
 | `atomic_fence()` | `void atomic_fence()` | Full memory barrier |
 
-All atomic operations use sequentially consistent ordering by default.
+All atomic operations use sequentially consistent ordering by default. A trailing string literal picks another one: `"relaxed"`, `"acquire"`, `"release"` or `"acq_rel"` (`atomic_load(&x, "acquire")`, `atomic_store(&x, v, "release")`, `atomic_fence("acq_rel")`). Give the two compare-and-swap forms `"relaxed"` or `"acquire"` at most: the same order is used for the failure case, where `"release"` and `"acq_rel"` aren't valid.
 
 ### Example: Lock-Free Counter {#example-lock-free-counter}
 
@@ -519,9 +520,9 @@ naked void _start() {
 }
 
 void vga_putchar(int x, int y, char c, uint8_t color) {
-    volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
     int offset = (y * 80 + x) * 2;
     unsafe {
+        volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
         volatile_store(VGA_BUFFER + offset, (uint8_t)c);
         volatile_store(VGA_BUFFER + offset + 1, color);
     }

@@ -61,7 +61,7 @@ SafeC가 무엇이고 무엇이 아닌지: [소개](/ko/guide/introduction), [�
 ::: card code
 ### [GitHub의 예제](https://github.com/safec-org/SafeC/tree/main/examples)
 
-SafeC 저장소의 완성된 프로젝트: `async_demo`, `audio_demo`, `fullstack_demo`(라우터 서버와 wasm 클라이언트), `gui_hello`, `gui_gallery`, C++ / Objective-C 의존성 예제.
+SafeC 저장소의 완성된 프로젝트: `async_demo`, `audio_demo`, `fullstack_demo`(라우터 서버와 wasm 클라이언트), `gui_hello`, `gui_gallery`, `gui_web`(웹 페이지로 만든 GUI 프로그램), `doc_demo`(`safeguard doc`으로 문서화한 라이브러리), C++ / Objective-C 의존성 예제.
 :::
 ::: card gauge
 ### [벤치마크](/ko/benchmarks)

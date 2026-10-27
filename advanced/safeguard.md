@@ -152,9 +152,10 @@ Every link in the output is relative, so `build/doc/` works from any URL prefix 
 | `--serve`, `--port N` | Serve the result over HTTP after building it (default port 8000) |
 | `--std` | Document SafeC's std (`$SAFEC_HOME/std`) instead of the project; no `Package.toml` needed |
 | `--out DIR` | Write somewhere other than `build/doc/` |
-| `--private` | Include hidden items: `@hidden`, names starting or ending with `_`, `static` functions |
+| `--private` (or `--document-private-items`) | Include hidden items: `@hidden`, names starting or ending with `_`, `static` functions |
 | `--std-url URL` | Where links to std items point (default: this site's `/api/`; also `SAFEC_STD_DOCS_URL`) |
 | `--home URL[=text]` | A header link back to the site hosting the reference |
+| `--source-ref REF` | With `--std`: the git ref of SafeC's repository its source links point at (default `main`) |
 | `--no-check` | Skip the link check |
 
 **How it works.** The declarations come from the compiler's own front end, not from pattern matching: `safec --emit-doc-json` preprocesses and parses every header and source of the package (no semantic analysis or code generation) and writes each declaration — kind, name, namespace, generic parameters and bounds, parameters, fields, methods, enumerators, macros, its source text as the signature, and its location — with the doc comment read from the file around it, as JSON. The page generator, **safec-doc**, is itself a SafeC program (`safeguard/doctool` in the SafeC repository) built on std's web libraries: `std/serial/json` reads that file, `std/serial/markdown` renders the comments through a render hook (intra-doc links, highlighted code), scx templates lay out the pages, `std/dir` and `std/path` write them, `std/http` serves them, and the search client is SafeC compiled to `wasm32` on `std/wasm/dom`. A release ships it prebuilt (`bin/safec-doc`, with its assets in `share/safec/doctool/`); from a source checkout, `safeguard doc` builds it from those sources the first time and caches it (`~/.cache/safeguard/`, or `SAFEGUARD_CACHE`). Its search client needs clang's `wasm-ld`; without it the reference is built without search.
@@ -568,7 +569,7 @@ compat_preprocessor = true
 
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
-Four more `[build]` keys configure the final link step and what kind of
+More `[build]` keys configure the final link step and what kind of
 artifact it produces — the same underlying flags `safec --emit-bin` exposes
 directly (see [Compiler Architecture](/advanced/compiler#linking-emit-bin)),
 here driven by `Package.toml` instead of the command line:
@@ -579,6 +580,7 @@ libs       = ["m", "pthread"]   # -l<name> at the final link
 lib_dirs   = ["/usr/local/lib"] # -L<dir> at the final link
 lto        = "thin"             # "" (off, default), "thin", or "full"
 crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
+output     = "myapp"            # the artifact's name, <output> below (default: the package name)
 blas       = "auto"             # CPU BLAS for std's sgemm (see below)
 ```
 
@@ -675,6 +677,7 @@ safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
 | macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist` (`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/` (the icon and the resources) and `Contents/Frameworks/` (the dependencies' `.dylib`s) |
 | Windows | `build/<name>/`: `<output>.exe`, the dependencies' DLLs and the resources — a portable app folder |
 | Linux | `build/<pkg>_<version>_<arch>.deb` and `build/<name>.AppDir` |
+| `--target wasm32` | `build/<name>.web/`: the module, its JavaScript glue, the resources and an `index.html` |
 
 **macOS.** A `.png` icon becomes an `.icns` (scaled to each size with
 `sips`, packed with `iconutil`). Each dependency `.dylib` copied into
@@ -707,6 +710,8 @@ libraries they link (`libx11-6` for `std::gui` on X11).
 The same tree, with `AppRun`, the desktop entry and the icon at its top,
 is `build/<name>.AppDir`, ready for `appimagetool`. Without `dpkg` only the
 AppDir is made, with a warning.
+
+**WebAssembly.** `safeguard bundle --target wasm32` needs no `[bundle]` table. It writes `build/<name>.web/` with the glue of every std module the program uses (`gui_web.js`, `safec_dom.js`, `audio_web.js`) and a generated page; serve the folder over HTTP. The `web_entry`, `web_present`, `web_windows`, `web_page` and `web_files` keys tune it — see [A page from safeguard](/stdlib/gui-platforms#safeguard-bundle-wasm32).
 
 A GUI program uses [`std::gui`](/stdlib/gui), whose backend calls each
 platform's own libraries; safeguard links them by itself (Cocoa and the
@@ -828,17 +833,31 @@ Cross, bare-metal and WebAssembly builds don't use the prebuilt std; neither doe
 
 ## Environment Setup {#environment-setup}
 
-`safeguard` locates the SafeC toolchain using the `SAFEC_HOME` environment variable:
+`safeguard` locates the SafeC toolchain using the `SAFEC_HOME` environment variable, which the install script sets to the install prefix (`~/safec` by default); for a from-source build, point it at the SafeC repository root:
 
 ```bash
-export SAFEC_HOME=/path/to/SafeC
+export SAFEC_HOME=~/safec            # an install
+export SAFEC_HOME=/path/to/SafeC     # a source checkout
 ```
 
-This should point to the SafeC repository root. From there, `safeguard` auto-discovers:
+From there, `safeguard` auto-discovers:
 
-- The `safec` compiler binary at `$SAFEC_HOME/compiler/build/safec`
+- The `safec` compiler binary at `$SAFEC_HOME/bin/safec` (an install) or `$SAFEC_HOME/compiler/build/safec` (a checkout), else `safec` on `PATH`
 - The standard library at `$SAFEC_HOME/std/`
 - In an install, the [prebuilt std](#prebuilt-std) sections at `$SAFEC_HOME/lib/<triple>/std/`
+
+These variables override what it finds:
+
+| Variable | Effect |
+|---|---|
+| `SAFEC` | The `safec` binary to use |
+| `SAFEC_CLANG` / `SAFEC_CLANGXX` | The clang / clang++ that compiles and links (default: the one `safec --print-clang` reports; `llvm-ar` beside it archives) |
+| `SAFEC_STD_FROM_SOURCE=1` | Compile std from source instead of linking the [prebuilt std](#prebuilt-std) |
+| `SAFEC_STD_ARCHIVE` | Link this std archive instead (see [prebuilt std](#prebuilt-std)) |
+| `SAFEC_BLAS` / `SAFEC_BLAS_LIBS` | The CPU BLAS choice, or its link flags (see [`[build] blas`](#linking-external-libraries-and-library-output)) |
+| `SAFEC_STD_DOCS_URL` | Where `safeguard doc` points links to std items |
+| `SAFEC_DOC` / `SAFEC_DOC_ASSETS` | The `safec-doc` binary and its theme directory |
+| `SAFEGUARD_CACHE` | Where safeguard caches the tools it builds (default: `$XDG_CACHE_HOME/safeguard`, `~/.cache/safeguard`, or `%LOCALAPPDATA%\safeguard` on Windows) |
 
 ## Project Structure {#project-structure}
 
@@ -846,6 +865,7 @@ A typical SafeC project created with `safeguard new`:
 
 ```
 myproject/
+├── .gitignore
 ├── Package.toml
 ├── src/
 │   └── main.sc

@@ -24,6 +24,9 @@ SafeC는 암묵적 변환이 없는(단, 안전한 숫자 확장 — 작은 것�
 | `int16_t` | `uint16_t` | 16비트 |
 | `int32_t` | `uint32_t` | 32비트 |
 | `int64_t` | `uint64_t` | 64비트 |
+| `intptr_t`, `ptrdiff_t` | `uintptr_t`, `size_t` | 포인터 너비 |
+
+`size_t`와 그 친구들은 타깃의 포인터 너비(`__SIZEOF_POINTER__`)를 따릅니다: 64비트 타깃에서는 8바이트, `x86`, `aarch32`, Cortex-M, RV32 같은 32비트 타깃에서는 4바이트입니다. SafeC 자체의 `long`은 모든 타깃에서 항상 64비트이므로 포인터 크기 정수가 *아닙니다* — 크기와 주소에는 `size_t`/`uintptr_t`를 쓰세요. `extern` C 함수의 포인터 너비 정수 매개변수(32비트 타깃의 `size_t`)에 넘기는 정수 인자는 캐스트 없이 호출 시 변환되므로, `unsigned long` 크기로 작성한 libc 호출도 이식성을 유지합니다.
 
 ## `auto`를 이용한 타입 추론 {#type-inference-with-auto}
 

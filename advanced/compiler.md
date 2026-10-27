@@ -178,7 +178,7 @@ across:
 | iOS | AArch64 (device + simulator) |
 | Android | AArch64, Aarch32, x86_64, x86 |
 | FreeBSD | x86_64, AArch64 |
-| Bare metal (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M), RV32I/E, RV64I/E — see [Bare-Metal Targets](/reference/baremetal#targets) |
+| Bare metal (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M, v8.1-M), RV32I/E, RV64I/E — see [Bare-Metal Targets](/reference/baremetal#targets) |
 | Portable / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
 
 Metal Shading Language is not reachable via `--target` — Apple's Metal
@@ -215,7 +215,7 @@ No `--g` flag means no debug metadata is emitted.
 
 `#include <stdio.h>` works natively in SafeC. The `CHeaderImporter` module invokes `clang -ast-dump=json` on the included header, then extracts `FunctionDecl` and `TypedefDecl` nodes into SafeC's AST.
 
-Unsupported constructs (function pointers, ObjC blocks, `long double`, `__int128`) are silently skipped. Enum typedefs are lowered to `typedef int name`.
+Declarations using constructs SafeC doesn't import — function-pointer and block typedefs, functions taking a function pointer, array typedefs, `long double`, `wchar_t` and `__int128` — are silently skipped (the full list is in [C Interop](/reference/ffi#native-c-header-import)). Enum typedefs are lowered to `typedef int name`.
 
 This can be disabled with `--no-import-c-headers`.
 

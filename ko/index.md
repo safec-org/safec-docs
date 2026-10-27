@@ -257,7 +257,7 @@ int main() {
     return v == 42 ? 0 : 1;
 }
 ```
-future, waker, join/select/timeout, 채널, epoll·kqueue·WSAPoll 기반 비동기 TCP — [비동기](/ko/stdlib/async).
+future, waker, join/select/timeout, 채널, epoll·kqueue·WSAPoll 기반 비동기 TCP — [비동기](/ko/stdlib/async). (`ASYNC_*` 코루틴 매크로에는 [`compat_preprocessor = true`](/ko/stdlib/async#quick-start)가 필요합니다.)
 :::
 ::: tab 오디오
 ```c norun

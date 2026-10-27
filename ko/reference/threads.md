@@ -66,7 +66,7 @@ struct SpawnedThread<struct Raw, int> t = thread_spawn(raw_len, r);
 
 ```c
 static struct Counter g_c;
-static struct Mutex<int> g_total;
+static struct Mutex<int> g_total;   // = Mutex::new(0) before any thread starts
 
 spawn(work, &c);         // error: spawn: the argument '&stack Counter' refers to data the
                          //        thread may outlive (a spawned thread isn't joined by its
@@ -146,7 +146,7 @@ join을 잊으면 다른 경우와 같은 누수 오류입니다. `SpawnedThread
 `Mutex<T>`는 잠겨 있는 동안에만 접근할 수 있는 `T`를 소유합니다. `lock()`은 `drop()`에서 잠금을 푸는 Drop 값 `MutexGuard<T>`를 반환합니다. `guard.get()`은 보호되는 값 안을 가리키는 참조를 반환하며, 이 참조는 가드에게서 빌린 것입니다:
 
 ```c
-static struct Mutex<int> g_m;
+static struct Mutex<int> g_m;       // = Mutex::new(0) before any thread starts
 
 void add(int k) {
     struct MutexGuard<int> g = g_m.lock();

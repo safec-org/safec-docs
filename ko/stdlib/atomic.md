@@ -63,6 +63,51 @@ int        atomic_cas_ll(&long long addr, &long long expected, long long desired
 `_int` 변형과 동일한 의미를 가지며, `long long`(64비트) 값에 대해
 동작합니다.
 
+## AtomicInt / AtomicLong {#typed-atomics}
+
+모든 접근이 원자적인 `int` / `long long`입니다. 둘 다 [Sync](/ko/reference/threads)(`unsafe impl Send + Sync`)이므로, 평범한 `int`라면 데이터 레이스로 거부될 곳에서 스레드가 가변 참조로 공유할 수 있습니다 — `spawn`에 넘기는 `&static AtomicInt`, 또는 `spawn_scoped` 스레드에 빌려주는 지역 변수. 0으로 초기화되는 `static` 변수는 `new`가 필요 없습니다.
+
+```c
+struct AtomicInt {                  // also AtomicLong, with long long values
+    static struct AtomicInt new(int v);
+    int  load() const;
+    void store(int v);
+    int  fetch_add(int d);          // returns the old value
+    int  fetch_sub(int d);
+    int  exchange(int v);
+    int  compare_exchange(&int expected, int desired);   // 1 if stored; else *expected = current
+};
+```
+
+```c
+#include <std/atomic.h>
+extern int printf(const char *fmt, ...);
+
+static struct AtomicInt g_hits;              // zero-initialized
+
+?&AtomicInt hit(?&AtomicInt c) {
+    match (c) {
+        case some(a): { for (int i = 0; i < 1000; i = i + 1) a.fetch_add(1); }
+        case null: { }
+    }
+    return null;
+}
+
+int main() {
+    long long h1 = spawn(hit, &g_hits);      // OK: AtomicInt synchronizes itself
+    long long h2 = spawn(hit, &g_hits);
+    join(h1);
+    join(h2);
+
+    struct AtomicLong total = AtomicLong::new(5LL);
+    long long expected = 5LL;
+    int stored = total.compare_exchange(&expected, 7LL);   // 1: it was 5
+
+    printf("%d %d %lld\n", g_hits.load(), stored, total.load());
+    return 0;
+}
+```
+
 ## 메모리 펜스 {#memory-fence}
 
 ```c

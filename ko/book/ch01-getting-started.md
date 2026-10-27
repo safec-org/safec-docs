@@ -16,10 +16,11 @@ curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | b
 safec --version
 ```
 
-설치 스크립트의 옵션(커스텀 설치 경로, 특정 릴리스 버전, 프리빌드 릴리스
-대신 소스에서 빌드하기 등)에 대해서는 가이드 섹션의
-[시작하기](/ko/guide/getting-started)를 참고하십시오 — 이 장에서는 첫 프로그램을
-작성하고 실행하는 데 필요한 내용만 다룹니다.
+SafeC는 clang을 거쳐 컴파일하므로 머신에 **clang 21 이상**도 필요합니다.
+이것과 설치 스크립트의 옵션(커스텀 설치 경로, 특정 릴리스 버전, 설치할
+프리빌드 std 섹션), 프리빌드 릴리스 대신 소스에서 빌드하기에 대해서는
+[설치](/ko/install)를 참고하십시오 — 이 장에서는 첫 프로그램을 작성하고
+실행하는 데 필요한 내용만 다룹니다.
 
 ## `safeguard`: 프로젝트 생성하기 {#safeguard-creating-a-project}
 
@@ -58,7 +59,7 @@ Hello from hello!
 
 ## SafeC 프로그램의 구조 {#anatomy-of-a-safec-program}
 
-`src/main.sc`를 열어 봅니다. 주석을 빼고 인사말을 바꾸면 다음과 같습니다.
+`src/main.sc`를 열어 봅니다. 주석을 빼고, 인사말을 바꾸고, 템플릿이 호출을 감싼 `unsafe { }`(`printf` 호출에는 필요 없습니다)를 없애면 다음과 같습니다.
 
 ```c
 extern int printf(const char* fmt, ...);

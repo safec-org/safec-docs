@@ -117,6 +117,21 @@ T max(T a, T b) {
 #endif
 ```
 
+### `#error`와 `#warning` {#error-warning}
+
+`#error message`는 그 메시지와 함께 컴파일을 멈추고, `#warning message`는 메시지를 보고한 뒤 계속합니다. `#if` 안의 `defined(NAME)`과 함께 쓰면 헤더가 지원하지 않는 구성을 막을 수 있습니다.
+
+```c
+#if !defined(__linux__) && !defined(__APPLE__) && !defined(_WIN32) && !defined(__SAFEC_FREESTANDING__)
+#error "unsupported target"
+#endif
+#ifndef NDEBUG
+#warning "debug build"
+#endif
+```
+
+`#pragma once` 외의 `#pragma`는 받아들이되 무시합니다.
+
 ## 사전 정의된 매크로 {#predefined-macros}
 
 | 매크로 | 값 | 설명 |
@@ -132,8 +147,8 @@ T max(T a, T b) {
 | `__wasm__`, `__wasm32__`/`__wasm64__` | `1` | WebAssembly 타깃 |
 | `__arm__`, `__ARM_ARCH`, `__ARM_ARCH_PROFILE`, `__ARM_ARCH_<name>__`, `__thumb__`, `__thumb2__` | `1`, `6`/`7`/`8`, `'A'`/`'R'`/`'M'` | 32비트 ARM, clang과 같은 철자(`__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, …) |
 
-C와 달리 SafeC는 재현 가능한 빌드를 지원하기 위해 의도적으로
-`__TIME__`과 `__DATE__`를 생략합니다.
+C와 달리 SafeC는 빌드를 재현 가능하게 유지하려고 의도적으로
+`__TIME__`과 `__DATE__`를 두지 않습니다: 둘 중 하나라도 쓰면 컴파일 오류입니다("__TIME__ and __DATE__ are disabled in SafeC").
 
 ## 명령줄 플래그 {#command-line-flags}
 
@@ -197,6 +212,17 @@ safeguard 패키지는 `[build] compat_preprocessor = true`로 자기 소스에 
 #define ASSERT_TRUE(e) test_assert_true((e) != 0, #e, __FILE__, __LINE__)
 #endif
 ```
+
+함수형 매크로는 자기가 선언하는 지역 변수에 대해 **위생적**입니다: 매크로 본문에서 선언한 변수는 전개될 때마다 이름이 바뀌므로, 호출한 쪽의 같은 이름 변수를 붙잡거나 가리지 않습니다.
+
+```c
+#define SWAP(a, b) { int tmp = a; a = b; b = tmp; }
+
+int tmp = 1, x = 2;
+SWAP(tmp, x);      // expands to { int __hyg1_tmp = tmp; tmp = x; x = __hyg1_tmp; }
+```
+
+매크로 본문에서 선언한 `struct`의 필드는 이름을 유지합니다.
 
 ## 컴파일 타임 대안 {#compile-time-alternatives}
 

@@ -41,7 +41,7 @@ The `CHeaderImporter` extracts:
 - `TypedefDecl` nodes (type aliases)
 
 It automatically skips constructs that SafeC does not support:
-- Function pointers in typedefs
+- Function pointers in typedefs, and functions with a function-pointer parameter (declare those with `extern` yourself)
 - Objective-C block types (`^`)
 - Array typedefs
 - `long double`, `wchar_t`, `__int128`

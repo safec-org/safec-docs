@@ -112,6 +112,21 @@ Conditional blocks can be nested:
 #endif
 ```
 
+### `#error` and `#warning` {#error-warning}
+
+`#error message` stops compilation with that message; `#warning message` reports it and carries on. Together with `defined(NAME)` in `#if` they guard a header against configurations it doesn't support:
+
+```c
+#if !defined(__linux__) && !defined(__APPLE__) && !defined(_WIN32) && !defined(__SAFEC_FREESTANDING__)
+#error "unsupported target"
+#endif
+#ifndef NDEBUG
+#warning "debug build"
+#endif
+```
+
+Any other `#pragma` than `#pragma once` is accepted and ignored.
+
 ## Predefined Macros {#predefined-macros}
 
 | Macro | Value | Description |
@@ -127,7 +142,7 @@ Conditional blocks can be nested:
 | `__wasm__`, `__wasm32__`/`__wasm64__` | `1` | WebAssembly targets |
 | `__arm__`, `__ARM_ARCH`, `__ARM_ARCH_PROFILE`, `__ARM_ARCH_<name>__`, `__thumb__`, `__thumb2__` | `1`, `6`/`7`/`8`, `'A'`/`'R'`/`'M'` | 32-bit ARM, spelled as clang does (`__ARM_ARCH_7EM__`, `__ARM_ARCH_8M_MAIN__`, …) |
 
-Unlike C, SafeC deliberately omits `__TIME__` and `__DATE__` to support reproducible builds.
+Unlike C, SafeC deliberately leaves out `__TIME__` and `__DATE__` to keep builds reproducible: using either is a compile error ("__TIME__ and __DATE__ are disabled in SafeC").
 
 ## Command-Line Flags {#command-line-flags}
 
@@ -188,6 +203,17 @@ In compatibility mode, function-like macros, token pasting, and stringification 
 #define ASSERT_TRUE(e) test_assert_true((e) != 0, #e, __FILE__, __LINE__)
 #endif
 ```
+
+Function-like macros are **hygienic** for the locals they declare: a variable declared in a macro body is renamed at each expansion, so it can't capture or shadow a caller's variable of the same name:
+
+```c
+#define SWAP(a, b) { int tmp = a; a = b; b = tmp; }
+
+int tmp = 1, x = 2;
+SWAP(tmp, x);      // expands to { int __hyg1_tmp = tmp; tmp = x; x = __hyg1_tmp; }
+```
+
+Fields of a `struct` declared in a macro body keep their names.
 
 ## Compile-Time Alternatives {#compile-time-alternatives}
 

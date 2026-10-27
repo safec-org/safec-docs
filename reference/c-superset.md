@@ -39,6 +39,13 @@ Recognized: `always_inline`, `pure`, `packed`, `aligned(N)` (bare
 | `weak` | On a definition, a weak definition another one may override. On an `extern` declaration, a reference that is null when nothing defines the symbol, so code can use an optional library only when the program links it (`if ((void*)f != (void*)0) f(...)`). |
 | `target("avx2,fma")` | This one function may use these ISA features on top of the build's own, for kernels chosen at run time by CPU support (see [CPU SIMD levels](/stdlib/simd#cpu-levels)). Feature names are LLVM's (`avx`, `avx2`, `fma`, `avx512f`, `sve`, `mve.fp`, ...). |
 | `noinline`, `cold` | Keep this function out of line, and mark it rarely run. Containers use them on their growth paths (`Vec::push`'s reallocation, `HashMap`'s rehash), so the inlined fast path keeps its state in registers. |
+| `noreturn` | Same as SafeC's `noreturn`: the function never returns (see [Functions](/reference/functions)) |
+| `warn_unused_result`, `nodiscard` | Same as `must_use`: discarding the result is a warning. Put it on the definition (or on a header's declaration that is the only one the caller sees) — a later definition without it doesn't keep it |
+| `const` | Same as `pure` |
+| `export_name("f")`, `import_module("m")`, `import_name("f")` | WebAssembly exports and imports (see [WebAssembly](/reference/baremetal#wasm)) |
+| `gnu_inline`, `artificial` | Make the function `inline` |
+
+Any other attribute (`visibility`, `unused`, `deprecated`, ...) is accepted and ignored, so C headers that use them still parse.
 
 Function attributes go before the declaration or after its parameter list, also after a const method's `const` (`int T::get() const __attribute__((noinline)) { ... }`). Generic functions keep them in every instantiation.
 

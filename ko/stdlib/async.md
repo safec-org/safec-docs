@@ -507,14 +507,14 @@ struct ThreadPool {
     struct TimerQueue timers;            // shared by the workers
     static struct ThreadPool new();
     int  start(int n);                   // n worker threads (up to ASYNC_POOL_MAX_THREADS = 64)
-    generic<F, T> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
-    generic<F: Future, T> T block_on(F fut);   // run as a task, block this thread for the value
+    generic<F: Send, T: Send> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
+    generic<F: Future + Send, T: Send> T block_on(F fut);   // run as a task, block this thread for the value
     void wait_idle();                    // every spawned task finished
     void shutdown() consume;             // stop and join the workers
 };
 ```
 
-멀티스레드 실행기: `n`개의 워커가 하나의 FIFO 실행 큐를 공유합니다(공유 큐 설계로, 작업 훔치기가 없는 tokio의 multi-thread 런타임과 비슷합니다). 태스크 타입, 타이머, 채널, 기본 요소는 `LocalExecutor`와 같습니다. 태스크는 결코 두 스레드에서 동시에 실행되지 않지만 — 폴링 중의 깨우기는 폴링 후에 다시 큐에 넣습니다 — 연속된 폴링이 다른 워커에서 실행될 수 있으므로, 태스크가 공유하는 것은 스레드 안전해야 합니다(`std/async`의 기본 요소는 그렇습니다. 평범한 전역 변수에는 원자적 연산이 필요합니다). 쉬는 워커는 일이 오거나 다음 타이머가 될 때까지 조건 변수에서 잠들고, 바쁜 워커는 폴링 사이에 타이머를 전진시킵니다. `start()` 전에 풀을 머무를 곳에 두십시오(워커가 그 주소를 기억합니다). I/O 퓨처는 `Runtime`이 필요하며 풀에서는 실행되지 않습니다. 풀의 태스크는 채널이나 `Oneshot`으로 `Runtime`에 결과를 넘길 수 있으며, 그 깨우기는 스레드를 넘어 `Runtime`에 닿습니다.
+멀티스레드 실행기: `n`개의 워커가 하나의 FIFO 실행 큐를 공유합니다(공유 큐 설계로, 작업 훔치기가 없는 tokio의 multi-thread 런타임과 비슷합니다). 태스크 타입, 타이머, 채널, 기본 요소는 `LocalExecutor`와 같습니다. 태스크는 워커 스레드에서 실행되므로 퓨처와 그 출력은 [Send](/ko/reference/threads#async)여야 합니다: 지역 변수를 빌리는(`&stack` 참조를 담은) 퓨처는 거부됩니다. 태스크는 결코 두 스레드에서 동시에 실행되지 않지만 — 폴링 중의 깨우기는 폴링 후에 다시 큐에 넣습니다 — 연속된 폴링이 다른 워커에서 실행될 수 있으므로, 태스크가 공유하는 것은 스레드 안전해야 합니다(`std/async`의 기본 요소는 그렇습니다. 평범한 전역 변수에는 원자적 연산이 필요합니다). 쉬는 워커는 일이 오거나 다음 타이머가 될 때까지 조건 변수에서 잠들고, 바쁜 워커는 폴링 사이에 타이머를 전진시킵니다. `start()` 전에 풀을 머무를 곳에 두십시오(워커가 그 주소를 기억합니다). I/O 퓨처는 `Runtime`이 필요하며 풀에서는 실행되지 않습니다. 풀의 태스크는 채널이나 `Oneshot`으로 `Runtime`에 결과를 넘길 수 있으며, 그 깨우기는 스레드를 넘어 `Runtime`에 닿습니다.
 
 ```c
 static struct ThreadPool pool;
@@ -587,7 +587,7 @@ struct Timeout<struct ReadFut, long long> t = timeout(conn.read(self.buf[0..512]
 ## 채널 {#channels}
 
 ```c
-generic<T> struct Oneshot {             // one value, sent once
+generic<T: Send> struct Oneshot {             // one value, sent once
     static struct Oneshot<T> new();
     int  send(T v);                     // 1, or 0 if already sent / closed
     void close();                       // the receiver gets null
@@ -595,7 +595,7 @@ generic<T> struct Oneshot {             // one value, sent once
     ?T   try_recv();
 };
 
-generic<T> struct AsyncChannel {        // bounded MPMC FIFO over your buffer
+generic<T: Send> struct AsyncChannel {        // bounded MPMC FIFO over your buffer
     static struct AsyncChannel<T> new([]T storage);
     struct ChanSend<T> send(T v);       // future: Ready(1) sent, Ready(0) closed
     struct ChanRecv<T> recv();          // future: Ready(some(v)), Ready(null) once closed and drained

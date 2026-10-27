@@ -507,14 +507,14 @@ struct ThreadPool {
     struct TimerQueue timers;            // shared by the workers
     static struct ThreadPool new();
     int  start(int n);                   // n worker threads (up to ASYNC_POOL_MAX_THREADS = 64)
-    generic<F, T> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
-    generic<F: Future, T> T block_on(F fut);   // run as a task, block this thread for the value
+    generic<F: Send, T: Send> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
+    generic<F: Future + Send, T: Send> T block_on(F fut);   // run as a task, block this thread for the value
     void wait_idle();                    // every spawned task finished
     void shutdown() consume;             // stop and join the workers
 };
 ```
 
-The multi-threaded executor: `n` workers share one FIFO run queue (a shared-queue design, like tokio's multi-thread runtime without work stealing). The task types, timers, channels and primitives are the same as for `LocalExecutor`. A task never runs on two threads at once — a wake during a poll re-queues it after the poll — but successive polls may run on different workers, so whatever tasks share must be thread-safe (`std/async`'s primitives are; plain globals need atomics). Idle workers sleep on a condition variable until work arrives or the next timer is due; busy ones advance the timers between polls. Put the pool where it will stay before `start()` (the workers keep its address). I/O futures need a `Runtime` and don't run on the pool; a pool task can hand results to one through a channel or a `Oneshot`, whose wake reaches the `Runtime` across threads.
+The multi-threaded executor: `n` workers share one FIFO run queue (a shared-queue design, like tokio's multi-thread runtime without work stealing). The task types, timers, channels and primitives are the same as for `LocalExecutor`. A task runs on a worker thread, so the future and its output must be [Send](/reference/threads#async): a future that borrows a local (holds a `&stack` reference) is rejected. A task never runs on two threads at once — a wake during a poll re-queues it after the poll — but successive polls may run on different workers, so whatever tasks share must be thread-safe (`std/async`'s primitives are; plain globals need atomics). Idle workers sleep on a condition variable until work arrives or the next timer is due; busy ones advance the timers between polls. Put the pool where it will stay before `start()` (the workers keep its address). I/O futures need a `Runtime` and don't run on the pool; a pool task can hand results to one through a channel or a `Oneshot`, whose wake reaches the `Runtime` across threads.
 
 ```c
 static struct ThreadPool pool;
@@ -587,7 +587,7 @@ Inside a coroutine, keep the combinator in a field and await it like any other f
 ## Channels {#channels}
 
 ```c
-generic<T> struct Oneshot {             // one value, sent once
+generic<T: Send> struct Oneshot {             // one value, sent once
     static struct Oneshot<T> new();
     int  send(T v);                     // 1, or 0 if already sent / closed
     void close();                       // the receiver gets null
@@ -595,7 +595,7 @@ generic<T> struct Oneshot {             // one value, sent once
     ?T   try_recv();
 };
 
-generic<T> struct AsyncChannel {        // bounded MPMC FIFO over your buffer
+generic<T: Send> struct AsyncChannel {        // bounded MPMC FIFO over your buffer
     static struct AsyncChannel<T> new([]T storage);
     struct ChanSend<T> send(T v);       // future: Ready(1) sent, Ready(0) closed
     struct ChanRecv<T> recv();          // future: Ready(some(v)), Ready(null) once closed and drained

@@ -1,6 +1,6 @@
 # 동시성
 
-SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니다. 스레드는 `spawn`으로 생성되고 `join`으로 join되며, POSIX pthread에 직접 매핑됩니다. 클로저나 런타임 스케줄러는 존재하지 않습니다 -- 동시성은 명시적이고 결정론적입니다.
+SafeC는 저수준의, C와 호환되는 동시성 기본 요소를 제공합니다. 스레드는 `spawn`으로 생성되고 `join`으로 join되며, POSIX pthread에 직접 매핑됩니다(Windows에서는 Win32 스레드, 베어메탈에서는 두 심볼 훅 — [백엔드 선택](/ko/stdlib/thread#backend-selection) 참고). 클로저나 런타임 스케줄러는 존재하지 않습니다 -- 동시성은 명시적이고 결정론적입니다.
 
 스레드가 무엇에 접근할 수 있는지는 컴파일 타임에 검사됩니다. 모든 타입은 (구조로부터 유도되는) Send 그리고/또는 Sync이며, `spawn`, `spawn_scoped`, 채널, 표준 라이브러리의 스레드 타입은 공유해도 안전한 것만 받습니다. 전체 규칙은 [스레드 안전성](/ko/reference/threads)을 참고하십시오.
 
@@ -63,7 +63,7 @@ join(h2);                      // worker2 대기
 | `spawn(fn, arg)` | `pthread_create(&tid, NULL, fn, arg)` |
 | `join(handle)` | `pthread_join((pthread_t)handle, NULL)` |
 
-`spawn`이 반환하는 핸들은 `long long`으로 캐스팅된 원시 `pthread_t` 값입니다.
+`spawn`이 반환하는 핸들은 `long long`으로 캐스팅된 원시 `pthread_t` 값입니다. 이는 호스트 Linux/macOS/BSD에서의 lowering이며, Windows 타깃은 대신 `CreateThread`/`WaitForSingleObject`를, freestanding 타깃은 `__safec_thread_create`/`__safec_thread_join`을 호출합니다([백엔드 선택](/ko/stdlib/thread#backend-selection)).
 
 ## 동시성에서의 리전 안전성 {#region-safety-in-concurrency}
 
@@ -154,7 +154,7 @@ SafeC 표준 라이브러리는 `thread` 모듈에서 더 고수준의 동시성
 - **읽기-쓰기 락**: `rwlock_create`, `rwlock_read_lock`, `rwlock_write_lock`, `rwlock_unlock`
 - **스레드 유틸리티**: `thread_yield`, `thread_sleep_ms`, `thread_self`
 
-이들은 POSIX 스레드(또는 `-D__WINDOWS__`를 사용하는 Win32 스레드) 위에 얹힌 크로스 플랫폼 래퍼입니다. 타입 없는 핸들을 주고받으므로, 이들을 통해 스레드가 무엇을 공유하는지는 아무것도 검사하지 않습니다. 모듈의 타입 있는 계층은 이들 위에 만들어졌으며 검사됩니다.
+이들은 POSIX 스레드(타깃이 Windows이면 Win32 스레드 — [thread](/ko/stdlib/thread) 참고) 위에 얹힌 크로스 플랫폼 래퍼입니다. 타입 없는 핸들을 주고받으므로, 이들을 통해 스레드가 무엇을 공유하는지는 아무것도 검사하지 않습니다. 모듈의 타입 있는 계층은 이들 위에 만들어졌으며 검사됩니다.
 
 - **`thread_spawn(f, arg)`**는 `arg`(Send 값)를 새 스레드로 move하고 `SpawnedThread<T, R>`를 반환합니다. `f`의 결과는 `join()`으로 얻습니다.
 - **`Mutex<T>`**는 `lock()`이 반환하는 `MutexGuard<T>`를 통해서만 접근할 수 있는 `T`를 소유합니다. 가드는 drop될 때 잠금을 풀며, `guard.get()`이 준 참조는 가드보다 오래 살 수 없습니다.
@@ -162,7 +162,7 @@ SafeC 표준 라이브러리는 `thread` 모듈에서 더 고수준의 동시성
 
 ```c
 #include <std/thread.h>
-static struct Mutex<int> g_total;
+static struct Mutex<int> g_total;   // = Mutex::new(0) before any thread starts
 
 void add(int k) {
     struct MutexGuard<int> g = g_total.lock();

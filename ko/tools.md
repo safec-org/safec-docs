@@ -48,6 +48,7 @@ summary: SafeC 툴체인 — safec 컴파일러, safeguard 패키지 매니저·
 | `safeguard clean` | `build/`와 `deps/` 제거 |
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 대조 |
 | `safeguard std-modules` | 빌드가 컴파일하는 std 소스와 링크하는 시스템 라이브러리 |
+| `safeguard std-prebuilt <prefix>` | 이 머신용 std를 섹션마다 아카이브 하나로 컴파일: 릴리스가 함께 배포하는 [미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std) |
 
 ```toml
 # Package.toml
@@ -72,7 +73,7 @@ version = "https://github.com/user/mylib"   # 또는: path = "../mylib"
 - 정의로 이동(std 헤더 포함),
 - 문서 심볼(아웃라인).
 
-가장 가까운 `Package.toml`에서 기능과 compat 전처리기 설정을 읽고, `initializationOptions`로 `includePaths`, `target`, `defines`, `features`를 받습니다.
+가장 가까운 `Package.toml`에서 기능과 compat 전처리기 설정을 읽고, `initializationOptions`로 `includePaths`, `target`, `defines`, `features`, `noDefaultFeatures`, `compatPreprocessor`, `provides`를 받습니다(VS Code 확장에서는 같은 이름의 `safec.*` 설정).
 
 ::::: tabs
 ::: tab VS Code
@@ -81,10 +82,10 @@ git clone https://github.com/safec-org/sc-language-server
 cd sc-language-server/editors/vscode
 npm install
 npm install -g @vscode/vsce
-vsce package                         # -> safec-1.0.0.vsix
-code --install-extension safec-1.0.0.vsix
+vsce package                         # -> safec-analyzer-<version>.vsix
+code --install-extension safec-analyzer-*.vsix
 ```
-그다음 설정에 `"safec.server.path": "/path/to/sc-lsp"`를 넣으세요. 확장은 `.sc`와 `.h`를 맡습니다. 일반 C 헤더는 *Change Language Mode*로 C/C++ 확장에 돌려줄 수 있습니다.
+그다음 설정에 `"safec.server.path": "/path/to/sc-lsp"`를 넣으세요. 확장(SafeC Analyzer)은 `.sc`, `.scx`, `.h`를 맡습니다. 일반 C 헤더는 *Change Language Mode*로 C/C++ 확장에 돌려줄 수 있습니다.
 :::
 ::: tab Neovim
 ```lua
@@ -118,7 +119,7 @@ safec hello.sc --emit-bin -o hello
 safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 ```
 
-모든 플래그와 그 뒤의 파이프라인은 [컴파일러 아키텍처](/ko/advanced/compiler)에, 단일 파일 빌드와 C 헤더는 [시작하기](/ko/guide/getting-started)에 있습니다.
+모든 플래그와 단일 파일 빌드, C 헤더는 [시작하기](/ko/guide/getting-started#compiler-flags)에, 그 뒤의 파이프라인은 [컴파일러 아키텍처](/ko/advanced/compiler)에 있습니다.
 
 ## 플레이그라운드 {#playground}
 

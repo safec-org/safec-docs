@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 스레드와 비동기, 네트워킹, TLS와 HTTP, GUI, 오디오, DSP, 머신러닝, 파일시스템, 인코딩과 직렬화, 암호, 디버깅, 베어메탈 지원을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `safeguard`는 프로그램이 쓰는 모듈의 `.sc` 구현을 링크합니다([미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std)에서 가져오거나 `build/deps/libsafec_std.a`로 컴파일합니다. [표준 라이브러리 포함하기](#including-the-standard-library) 참고). 모든 공개 선언과 그 문서 주석은 [API 레퍼런스](/api/)에 있습니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>
@@ -21,6 +21,7 @@ int main() {
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
 | [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
 | [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
+| [io_file](/ko/stdlib/io#io_file-file-io) | `io_file.h` | `File`: `?&File` 핸들 위의 open/read/write/seek/close, `File::read_to_string` / `write_bytes`; `Reader` / `Writer`이기도 함 |
 | [dir](/ko/stdlib/dir) | `dir.h` | 디렉터리 나열, `file_stat`(종류, 크기, 수정 시각), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
 | [path](/ko/stdlib/dir#path) | `path.h` | 경로 문자열: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
@@ -309,6 +310,7 @@ int main() {
 |--------|-------------|
 | `bit.h` | 비트 조작 (C23 `<stdbit.h>` + popcount/clz/ctz/bswap 내장 함수) |
 | `cmp.h` | 컴파일 타임 순서 관계: `Order` 트레이트, `Less` / `Greater` / `FnOrder` ([순서 관계](/ko/stdlib/collections#orderings) 참고) |
+| `ownership.h` | `std::replace` / `std::swap`: 다른 값을 대신 넣어서 빌린 메모리에서 값을 꺼냄([소유권](/ko/reference/ownership#borrowed-values) 참고) |
 | `traits.h` | 여러 모듈이 공유하는 기능 트레이트: `Resettable`(아레나 할당자, DSP 필터) |
 | `convert.h` | 문자열 ↔ 숫자 파싱 (C11/C17), 실패 시 `*ok` 성공 플래그 |
 | `dma.h` | 캐시 일관성 DMA 버퍼 디스크립터 (64바이트 정렬) |

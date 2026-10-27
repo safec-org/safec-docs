@@ -151,9 +151,10 @@ safeguard doc --std           # SafeC 자체의 std (이 사이트의 /api/)
 | `--serve`, `--port N` | 빌드한 뒤 HTTP로 제공(기본 포트 8000) |
 | `--std` | 프로젝트 대신 SafeC의 std(`$SAFEC_HOME/std`)를 문서화. `Package.toml` 불필요 |
 | `--out DIR` | `build/doc/`이 아닌 곳에 출력 |
-| `--private` | 숨겨진 항목도 포함: `@hidden`, `_`로 시작하거나 끝나는 이름, `static` 함수 |
+| `--private`(또는 `--document-private-items`) | 숨겨진 항목도 포함: `@hidden`, `_`로 시작하거나 끝나는 이름, `static` 함수 |
 | `--std-url URL` | std 항목 링크가 가리키는 곳(기본값: 이 사이트의 `/api/`; `SAFEC_STD_DOCS_URL`로도 지정) |
 | `--home URL[=text]` | 레퍼런스를 호스팅하는 사이트로 돌아가는 헤더 링크 |
+| `--source-ref REF` | `--std`와 함께: 소스 링크가 가리키는 SafeC 저장소의 git ref(기본값 `main`) |
 | `--no-check` | 링크 검사 생략 |
 
 **동작 방식.** 선언은 패턴 매칭이 아니라 컴파일러 자체의 프런트엔드에서 나옵니다: `safec --emit-doc-json`이 패키지의 모든 헤더와 소스를 전처리·파싱하고(의미 분석과 코드 생성은 하지 않음), 각 선언 — 종류, 이름, 네임스페이스, 제네릭 매개변수와 바운드, 매개변수, 필드, 메서드, 열거자, 매크로, 시그니처로 쓰이는 소스 텍스트, 위치 — 를 그 주변 파일에서 읽은 문서 주석과 함께 JSON으로 씁니다. 페이지 생성기 **safec-doc**은 그 자체가 std의 웹 라이브러리로 만든 SafeC 프로그램입니다(SafeC 저장소의 `safeguard/doctool`): `std/serial/json`이 그 파일을 읽고, `std/serial/markdown`이 렌더 훅(문서 내 링크, 코드 하이라이트)으로 주석을 렌더링하고, scx 템플릿이 페이지를 구성하고, `std/dir`과 `std/path`가 파일을 쓰고, `std/http`가 제공하며, 검색 클라이언트는 `std/wasm/dom` 위의 `wasm32`로 컴파일된 SafeC입니다. 릴리스에는 미리 빌드된 상태로 포함되고(`bin/safec-doc`, 에셋은 `share/safec/doctool/`), 소스 체크아웃에서는 `safeguard doc`이 처음 실행될 때 그 소스로 빌드해 캐시합니다(`~/.cache/safeguard/` 또는 `SAFEGUARD_CACHE`). 검색 클라이언트에는 clang의 `wasm-ld`가 필요하며, 없으면 검색 없이 레퍼런스가 만들어집니다.
@@ -569,7 +570,7 @@ compat_preprocessor = true
 
 ## 외부 라이브러리 링킹과 라이브러리 출력 {#linking-external-libraries-and-library-output}
 
-`[build]`의 네 가지 추가 키가 최종 링크 단계와 어떤 종류의 산출물이
+`[build]`의 추가 키들이 최종 링크 단계와 어떤 종류의 산출물이
 생성되는지를 구성합니다 — `safec --emit-bin`이 직접 노출하는 것과
 동일한 내부 플래그이며([컴파일러 아키텍처](/ko/advanced/compiler#linking-emit-bin)
 참고), 여기서는 커맨드 라인 대신 `Package.toml`에 의해 구동됩니다:
@@ -580,6 +581,7 @@ libs       = ["m", "pthread"]   # 최종 링크에서 -l<name>
 lib_dirs   = ["/usr/local/lib"] # 최종 링크에서 -L<dir>
 lto        = "thin"             # "" (기본값, 꺼짐), "thin", 또는 "full"
 crate_type = "bin"              # "bin" (기본값), "staticlib", 또는 "cdylib"
+output     = "myapp"            # 산출물 이름, 아래의 <output> (기본값: 패키지 이름)
 blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 ```
 
@@ -675,6 +677,7 @@ safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
 | macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist`(`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/`(아이콘과 리소스), `Contents/Frameworks/`(의존성의 `.dylib`) |
 | Windows | `build/<name>/`: `<output>.exe`, 의존성의 DLL, 리소스 — 포터블 앱 폴더 |
 | Linux | `build/<pkg>_<version>_<arch>.deb`와 `build/<name>.AppDir` |
+| `--target wasm32` | `build/<name>.web/`: 모듈, 그 JavaScript 글루, 리소스, `index.html` |
 
 **macOS.** `.png` 아이콘은 `.icns`로 변환됩니다(`sips`로 각 크기로
 조정하고 `iconutil`로 묶습니다). `Contents/Frameworks`로 복사된 각 의존성
@@ -706,6 +709,8 @@ v6를 선언하는 애플리케이션 매니페스트입니다.
 시스템 라이브러리의 패키지(X11의 `std::gui`라면 `libx11-6`)를 더한 것입니다. 같은 트리에 `AppRun`, 데스크톱 항목, 아이콘을
 최상위에 더한 것이 `build/<name>.AppDir`이며, `appimagetool`에 바로 넘길
 수 있습니다. `dpkg`가 없으면 경고와 함께 AppDir만 만듭니다.
+
+**WebAssembly.** `safeguard bundle --target wasm32`에는 `[bundle]` 테이블이 필요 없습니다. 프로그램이 쓰는 모든 std 모듈의 글루(`gui_web.js`, `safec_dom.js`, `audio_web.js`)와 생성된 페이지를 담은 `build/<name>.web/`을 만들며, 그 폴더를 HTTP로 제공하면 됩니다. `web_entry`, `web_present`, `web_windows`, `web_page`, `web_files` 키로 조정합니다 — [safeguard가 만드는 페이지](/ko/stdlib/gui-platforms#safeguard-bundle-wasm32) 참고.
 
 GUI 프로그램은 [`std::gui`](/ko/stdlib/gui)를 사용하며, 그 백엔드는
 플랫폼마다의 라이브러리를 호출합니다. safeguard는 이를 스스로 링크합니다(Cocoa와
@@ -827,17 +832,31 @@ safeguard: linking the prebuilt std sections core from ~/safec/lib/aarch64-apple
 
 ## 환경 설정 {#environment-setup}
 
-`safeguard`는 `SAFEC_HOME` 환경 변수를 사용하여 SafeC 툴체인을 찾습니다:
+`safeguard`는 `SAFEC_HOME` 환경 변수를 사용하여 SafeC 툴체인을 찾습니다. 설치 스크립트는 이를 설치 경로(기본값 `~/safec`)로 설정하며, 소스에서 빌드했다면 SafeC 저장소 루트를 가리키게 합니다:
 
 ```bash
-export SAFEC_HOME=/path/to/SafeC
+export SAFEC_HOME=~/safec            # an install
+export SAFEC_HOME=/path/to/SafeC     # a source checkout
 ```
 
-이는 SafeC 저장소 루트를 가리켜야 합니다. 여기서부터 `safeguard`는 다음을 자동으로 발견합니다:
+여기서부터 `safeguard`는 다음을 자동으로 발견합니다:
 
-- `$SAFEC_HOME/compiler/build/safec`에 있는 `safec` 컴파일러 바이너리
+- `$SAFEC_HOME/bin/safec`(설치본) 또는 `$SAFEC_HOME/compiler/build/safec`(체크아웃)에 있는 `safec` 컴파일러 바이너리, 없으면 `PATH`의 `safec`
 - `$SAFEC_HOME/std/`에 있는 표준 라이브러리
 - 설치본에서는 `$SAFEC_HOME/lib/<triple>/std/`에 있는 [미리 빌드된 std](#prebuilt-std) 섹션
+
+다음 변수가 찾은 것을 덮어씁니다:
+
+| 변수 | 효과 |
+|---|---|
+| `SAFEC` | 사용할 `safec` 바이너리 |
+| `SAFEC_CLANG` / `SAFEC_CLANGXX` | 컴파일·링크하는 clang / clang++(기본값: `safec --print-clang`이 알려 주는 것) |
+| `SAFEC_STD_FROM_SOURCE=1` | [미리 빌드된 std](#prebuilt-std)를 링크하는 대신 std를 소스에서 컴파일 |
+| `SAFEC_STD_ARCHIVE` | 대신 이 std 아카이브를 링크([미리 빌드된 std](#prebuilt-std) 참고) |
+| `SAFEC_BLAS` / `SAFEC_BLAS_LIBS` | CPU BLAS 선택, 또는 그 링크 플래그([`[build] blas`](#linking-external-libraries-and-library-output) 참고) |
+| `SAFEC_STD_DOCS_URL` | `safeguard doc`이 std 항목 링크를 가리키는 곳 |
+| `SAFEC_DOC` / `SAFEC_DOC_ASSETS` | `safec-doc` 바이너리와 그 테마 디렉터리 |
+| `SAFEGUARD_CACHE` | safeguard가 직접 빌드한 도구를 캐시하는 곳(기본값: `$XDG_CACHE_HOME/safeguard`, `~/.cache/safeguard`, Windows에서는 `%LOCALAPPDATA%\safeguard`) |
 
 ## 프로젝트 구조 {#project-structure}
 
@@ -845,6 +864,7 @@ export SAFEC_HOME=/path/to/SafeC
 
 ```
 myproject/
+├── .gitignore
 ├── Package.toml
 ├── src/
 │   └── main.sc

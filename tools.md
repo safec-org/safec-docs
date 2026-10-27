@@ -48,6 +48,7 @@ The compiler itself: SafeC to LLVM IR, objects or binaries, for any LLVM target.
 | `safeguard clean` | Remove `build/` and `deps/` |
 | `safeguard verify-lock` | Check `Package.lock` against the current dependency state |
 | `safeguard std-modules` | Which std sources a build compiles and which system libraries it links |
+| `safeguard std-prebuilt <prefix>` | Compile std for this machine into one archive per section: the [prebuilt std](/advanced/safeguard#prebuilt-std) a release ships |
 
 ```toml
 # Package.toml
@@ -72,7 +73,7 @@ The [Package Manager](/advanced/safeguard) page documents every command, `Packag
 - go-to-definition (into std headers too),
 - document symbols (the outline).
 
-It reads the nearest `Package.toml` for features and the compat-preprocessor setting, and accepts `includePaths`, `target`, `defines` and `features` through `initializationOptions`.
+It reads the nearest `Package.toml` for features and the compat-preprocessor setting, and accepts `includePaths`, `target`, `defines`, `features`, `noDefaultFeatures`, `compatPreprocessor` and `provides` through `initializationOptions` (the VS Code extension's `safec.*` settings of the same names).
 
 ::::: tabs
 ::: tab VS Code
@@ -81,10 +82,10 @@ git clone https://github.com/safec-org/sc-language-server
 cd sc-language-server/editors/vscode
 npm install
 npm install -g @vscode/vsce
-vsce package                         # -> safec-1.0.0.vsix
-code --install-extension safec-1.0.0.vsix
+vsce package                         # -> safec-analyzer-<version>.vsix
+code --install-extension safec-analyzer-*.vsix
 ```
-Then set `"safec.server.path": "/path/to/sc-lsp"` in your settings. The extension claims `.sc` and `.h`; use *Change Language Mode* to hand a plain C header back to the C/C++ extension.
+Then set `"safec.server.path": "/path/to/sc-lsp"` in your settings. The extension (SafeC Analyzer) claims `.sc`, `.scx` and `.h`; use *Change Language Mode* to hand a plain C header back to the C/C++ extension.
 :::
 ::: tab Neovim
 ```lua
@@ -118,7 +119,7 @@ safec hello.sc --emit-bin -o hello
 safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 ```
 
-[Compiler Architecture](/advanced/compiler) lists every flag and the pipeline behind them; [Getting Started](/guide/getting-started) covers single-file builds and C headers.
+[Getting Started](/guide/getting-started#compiler-flags) lists every flag and covers single-file builds and C headers; [Compiler Architecture](/advanced/compiler) describes the pipeline behind them.
 
 ## Playground {#playground}
 

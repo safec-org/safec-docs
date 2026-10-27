@@ -198,6 +198,8 @@ process(v);
 // v is still accessible — no ownership transfer
 ```
 
+References and plain values aren't owned. Values of a type that owns a resource — one with a `drop()` method, such as `Vec<T>` or `String` — are: they move like Rust's, and the compiler checks that each is dropped or moved exactly once on every path. Unlike Rust it never inserts the `drop()` call; you write it (or a `defer`), and forgetting it is a compile error. See [Ownership & Drop](/reference/ownership).
+
 ### No lifetime elision — because there's no lifetime parameter to elide {#no-lifetime-elision-because-there-s-no-lifetime-parameter-to-elide}
 
 Rust elides lifetimes in common cases like `fn first(s: &str) -> &str`, inferring that the returned borrow's lifetime is tied to `s`'s. SafeC doesn't have an equivalent to elide, because it doesn't have lifetime *parameters* at all — regions are a fixed, closed set (`stack`, `heap`, `arena<R>`, `static`, and the region-less `&T`/`?&T` form that opts out of tracking one), not per-call-site-inferred spans. The practical consequence is stricter than "annotations are always explicit": **a `&stack` reference can never be returned from a function, full stop** — not even the caller's own stack reference handed right back. `longest`'s Rust signature (`fn longest<'a>(a: &'a str, b: &'a str) -> &'a str`) has no direct SafeC equivalent for `&stack` parameters, because there's no lifetime variable `'a` to tie the return value to — the closest fit is a region-less `&str` return, which sidesteps the question by not tracking a specific lifetime at all rather than inferring one.
@@ -270,7 +272,7 @@ extern void c_process_point(const Point* p);
 |---|---|---|
 | Learning curve | Steep (ownership, lifetimes, traits) | Moderate (C + region annotations) |
 | Ecosystem | Large (crates.io) | Small (growing) |
-| Safety model | Ownership + borrow checker | Region types + escape analysis |
+| Safety model | Ownership + borrow checker | Region types + escape analysis, ownership checks for `Drop` types, `Send`/`Sync` |
 | Runtime | Minimal (panic handler, allocator) | None (`--freestanding`) |
 | C interop | FFI layer required | Native, zero-cost |
 | Self-referential structs | Difficult (Pin, unsafe) | Natural (arena regions) |
@@ -384,7 +386,7 @@ SafeC is a strong fit when:
 SafeC may not be the best fit when:
 
 - You need a large ecosystem of libraries (Rust's crates.io is far more mature)
-- You prefer automatic memory management (ownership transfer, RAII)
+- You prefer automatic memory management (destructors inserted for you, RAII)
 - You want async/await as language syntax (SafeC's [`std/async`](/stdlib/async) gives the same model as a library, with explicit state structs)
 - Your team is already productive in Rust or Zig
 

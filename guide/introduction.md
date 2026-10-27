@@ -56,7 +56,7 @@ SafeC guarantees the absence of hidden runtime behavior:
 
 - **No hidden heap allocation** — all allocation is explicit (`new<R>`, `malloc`)
 - **No hidden runtime** — no runtime library required (freestanding mode available)
-- **No hidden panics** — unless explicitly opted in with bounds checks
+- **No hidden panics** — the only run-time traps are the bounds and range checks on dynamic indexing and slicing (left out inside `unsafe { }`)
 - **No implicit exceptions** — errors are returned, not thrown
 - **No background GC** — memory is managed through regions and explicit deallocation
 - **No implicit destructor calls** — resource cleanup is explicit (`defer`, manual free)
@@ -79,7 +79,8 @@ SafeC extends C with safety and modern features while preserving C's execution m
 | **Defer** | `defer close(fd)` — deterministic cleanup |
 | **Compile-time evaluation** | `consteval`, `static_assert`, `if const` |
 | **Tuples** | `tuple(int, double)` with `.0`, `.1` member access |
-| **Concurrency** | `spawn`/`join`, typed channels |
+| **Ownership** | Types with `drop()` must be dropped or moved exactly once on every path — checked at compile time, never called for you |
+| **Concurrency** | `spawn`/`join`/`spawn_scoped`, channels, compile-time `Send`/`Sync` checks |
 | **Bare-metal support** | `naked`, `interrupt`, `asm`, `--freestanding` |
 
 ## What SafeC Does NOT Add {#what-safec-does-not-add}
@@ -96,13 +97,17 @@ Equally important is what SafeC deliberately omits:
 
 ## Project Components {#project-components}
 
-The SafeC project consists of three main components:
+The SafeC project consists of these components:
 
 **Compiler (`safec`)** — A full LLVM frontend that compiles `.sc` files to LLVM IR. The pipeline is: Preprocessor, Lexer, Parser, AST, Sema (semantic analysis), ConstEval (compile-time evaluation), CodeGen (LLVM IR generation).
 
-**Standard Library (`std/`)** — 20+ modules covering memory, I/O, strings, math, collections, concurrency, and system interfaces. All implemented in SafeC with C FFI for system calls.
+**Standard Library (`std/`)** — about 300 headers in 27 sections: memory, I/O, strings, math, collections and allocators; threads, synchronization and async; networking, TLS, HTTP and the web; GUI, audio and DSP; machine learning; crypto, encoding, serialization and file systems; SIMD, HAL and bare-metal kernels — see the [Standard Library](/stdlib/). All implemented in SafeC, with C FFI for system calls.
 
-**Package Manager (`safeguard`)** — A build tool and dependency manager. Handles compilation, linking, dependency fetching, and standard library integration.
+**Package Manager (`safeguard`)** — A build tool and dependency manager. Handles compilation, linking, dependency fetching, tests, formatting, linting, app bundles, API docs and standard library integration.
+
+**Language server (`sc-lsp`)** — Editor support built on the compiler's own frontend (see [Tools](/tools#sc-lsp)).
+
+**Self-hosted compiler (`scc`)** — A SafeC compiler written in SafeC, built to WebAssembly for the [Playground](/playground).
 
 ## File Extension {#file-extension}
 
