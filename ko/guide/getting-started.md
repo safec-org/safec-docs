@@ -326,7 +326,7 @@ clang math_demo.ll -lm -o math_demo
 - 정의로 이동
 - 문서 심볼
 
-LSP 서버 저장소의 `editors/vscode/` 디렉터리에 VS Code 확장이 포함되어 있습니다.
+서버는 설치 스크립트가 `PATH`에 넣는 `sc-lsp`입니다. VS Code, Neovim, Emacs 설정은 [도구](/ko/tools#sc-lsp)에 있습니다(VS Code 확장은 [sc-language-server](https://github.com/safec-org/sc-language-server) 저장소의 `editors/vscode/` 디렉터리에 있습니다).
 
 ## 다음 단계 {#next-steps}
 

@@ -326,7 +326,7 @@ An LSP server is available for `.sc` files, providing:
 - Go-to-definition
 - Document symbols
 
-A VS Code extension is included in the `editors/vscode/` directory of the LSP server repository.
+The server is `sc-lsp`, which the install script puts on your `PATH`; [Tools](/tools#sc-lsp) has the VS Code, Neovim and Emacs setups (the VS Code extension is in the `editors/vscode/` directory of the [sc-language-server](https://github.com/safec-org/sc-language-server) repository).
 
 ## Next Steps {#next-steps}
 
