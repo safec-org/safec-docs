@@ -134,7 +134,7 @@ void demo() {
 
 ### 5. Data Race Freedom {#_5-data-race-freedom}
 
-Threads spawned with `spawn()` operate on isolated data. The type system prevents sharing mutable state across thread boundaries without explicit synchronization.
+Every type is Send and/or Sync, derived from its structure (overridable with `unsafe impl Send;` / `impl !Send;`). `spawn` accepts only static data a thread may share, `spawn_scoped` lends a local until it is joined, `thread_spawn` and channels move Send values, and `Mutex<T>` reaches its value only through a guard — so safe code can't share mutable state across threads without synchronization. See [Thread Safety](/reference/threads).
 
 ### 6. Null Safety {#_6-null-safety}
 
@@ -155,7 +155,7 @@ No hidden runtime costs. SafeC does not insert garbage collection, reference cou
 | Double-free | None — UB | Same as C for raw `delete`; smart pointers avoid it structurally unless defeated by raw aliasing | Compile-time — only one owner can ever call drop | Runtime-only, opt-in (`GeneralPurposeAllocator` in Debug) | Compile-time (same check as above), plus a runtime tagged-header guard in `std::alloc`/`std::dealloc` as defense in depth |
 | Uninitialized reads | None — UB | None — UB | Compile-time — definite-assignment analysis | `undefined` is explicit and typed; Debug builds poison it (`0xaa`) to make bugs *visible*, not prevent them | Compile-time — definite-initialization check |
 | Null-pointer dereference | None — raw pointers, untracked | None for raw pointers; references can't be null by construction but can be formed from a deref'd null pointer (UB), uncaught | Compile-time — no null in safe code, `Option<T>` must be matched/unwrapped | Compile-time — optionals (`?T`) must be explicitly unwrapped | Compile-time — `?&T` requires `match`/`.is_null()`/`.default()`/`unsafe` to read (see [Null Safety](#_6-null-safety)) |
-| Data races | None — no language-level concurrency safety | None — races are UB; `atomic`/mutexes are opt-in tools, not enforced | Compile-time — `Send`/`Sync` traits enforce shared-state safety in safe code | None — no type-system enforcement, manual synchronization only | Compile-time — `spawn()` isolates data by default; sharing mutable state requires explicit synchronization |
+| Data races | None — no language-level concurrency safety | None — races are UB; `atomic`/mutexes are opt-in tools, not enforced | Compile-time — `Send`/`Sync` traits enforce shared-state safety in safe code | None — no type-system enforcement, manual synchronization only | Compile-time — derived `Send`/`Sync`, checked by `spawn`, `spawn_scoped`, channels and std's thread types; sharing mutable state requires synchronization |
 | Enforcement point | N/A | Mostly none; a few opt-in runtime checks | Compile-time first (borrow checker), runtime for the genuinely dynamic parts (bounds, panics) | Runtime, and only in safety-checked build modes — the *same binary* can be compiled with checks off | Compile-time first, runtime only where the check is inherently dynamic (index bounds) — always on outside `unsafe` |
 | Escape hatch | N/A — the whole language is this way | N/A — the whole language is this way | `unsafe {}` blocks/functions | No lexical escape hatch — safety is a whole-build-mode setting, not a per-block opt-out | `unsafe {}` blocks — lexically scoped, non-propagating (see below) |
 
