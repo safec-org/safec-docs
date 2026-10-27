@@ -152,9 +152,10 @@ Every link in the output is relative, so `build/doc/` works from any URL prefix 
 | `--serve`, `--port N` | Serve the result over HTTP after building it (default port 8000) |
 | `--std` | Document SafeC's std (`$SAFEC_HOME/std`) instead of the project; no `Package.toml` needed |
 | `--out DIR` | Write somewhere other than `build/doc/` |
-| `--private` | Include hidden items: `@hidden`, names starting or ending with `_`, `static` functions |
+| `--private` (or `--document-private-items`) | Include hidden items: `@hidden`, names starting or ending with `_`, `static` functions |
 | `--std-url URL` | Where links to std items point (default: this site's `/api/`; also `SAFEC_STD_DOCS_URL`) |
 | `--home URL[=text]` | A header link back to the site hosting the reference |
+| `--source-ref REF` | With `--std`: the git ref of SafeC's repository its source links point at (default `main`) |
 | `--no-check` | Skip the link check |
 
 **How it works.** The declarations come from the compiler's own front end, not from pattern matching: `safec --emit-doc-json` preprocesses and parses every header and source of the package (no semantic analysis or code generation) and writes each declaration — kind, name, namespace, generic parameters and bounds, parameters, fields, methods, enumerators, macros, its source text as the signature, and its location — with the doc comment read from the file around it, as JSON. The page generator, **safec-doc**, is itself a SafeC program (`safeguard/doctool` in the SafeC repository) built on std's web libraries: `std/serial/json` reads that file, `std/serial/markdown` renders the comments through a render hook (intra-doc links, highlighted code), scx templates lay out the pages, `std/dir` and `std/path` write them, `std/http` serves them, and the search client is SafeC compiled to `wasm32` on `std/wasm/dom`. A release ships it prebuilt (`bin/safec-doc`, with its assets in `share/safec/doctool/`); from a source checkout, `safeguard doc` builds it from those sources the first time and caches it (`~/.cache/safeguard/`, or `SAFEGUARD_CACHE`). Its search client needs clang's `wasm-ld`; without it the reference is built without search.

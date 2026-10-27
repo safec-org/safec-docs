@@ -151,9 +151,10 @@ safeguard doc --std           # SafeC 자체의 std (이 사이트의 /api/)
 | `--serve`, `--port N` | 빌드한 뒤 HTTP로 제공(기본 포트 8000) |
 | `--std` | 프로젝트 대신 SafeC의 std(`$SAFEC_HOME/std`)를 문서화. `Package.toml` 불필요 |
 | `--out DIR` | `build/doc/`이 아닌 곳에 출력 |
-| `--private` | 숨겨진 항목도 포함: `@hidden`, `_`로 시작하거나 끝나는 이름, `static` 함수 |
+| `--private`(또는 `--document-private-items`) | 숨겨진 항목도 포함: `@hidden`, `_`로 시작하거나 끝나는 이름, `static` 함수 |
 | `--std-url URL` | std 항목 링크가 가리키는 곳(기본값: 이 사이트의 `/api/`; `SAFEC_STD_DOCS_URL`로도 지정) |
 | `--home URL[=text]` | 레퍼런스를 호스팅하는 사이트로 돌아가는 헤더 링크 |
+| `--source-ref REF` | `--std`와 함께: 소스 링크가 가리키는 SafeC 저장소의 git ref(기본값 `main`) |
 | `--no-check` | 링크 검사 생략 |
 
 **동작 방식.** 선언은 패턴 매칭이 아니라 컴파일러 자체의 프런트엔드에서 나옵니다: `safec --emit-doc-json`이 패키지의 모든 헤더와 소스를 전처리·파싱하고(의미 분석과 코드 생성은 하지 않음), 각 선언 — 종류, 이름, 네임스페이스, 제네릭 매개변수와 바운드, 매개변수, 필드, 메서드, 열거자, 매크로, 시그니처로 쓰이는 소스 텍스트, 위치 — 를 그 주변 파일에서 읽은 문서 주석과 함께 JSON으로 씁니다. 페이지 생성기 **safec-doc**은 그 자체가 std의 웹 라이브러리로 만든 SafeC 프로그램입니다(SafeC 저장소의 `safeguard/doctool`): `std/serial/json`이 그 파일을 읽고, `std/serial/markdown`이 렌더 훅(문서 내 링크, 코드 하이라이트)으로 주석을 렌더링하고, scx 템플릿이 페이지를 구성하고, `std/dir`과 `std/path`가 파일을 쓰고, `std/http`가 제공하며, 검색 클라이언트는 `std/wasm/dom` 위의 `wasm32`로 컴파일된 SafeC입니다. 릴리스에는 미리 빌드된 상태로 포함되고(`bin/safec-doc`, 에셋은 `share/safec/doctool/`), 소스 체크아웃에서는 `safeguard doc`이 처음 실행될 때 그 소스로 빌드해 캐시합니다(`~/.cache/safeguard/` 또는 `SAFEGUARD_CACHE`). 검색 클라이언트에는 clang의 `wasm-ld`가 필요하며, 없으면 검색 없이 레퍼런스가 만들어집니다.
