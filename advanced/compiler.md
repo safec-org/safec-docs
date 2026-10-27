@@ -178,7 +178,7 @@ across:
 | iOS | AArch64 (device + simulator) |
 | Android | AArch64, Aarch32, x86_64, x86 |
 | FreeBSD | x86_64, AArch64 |
-| Bare metal (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M), RV32I/E, RV64I/E — see [Bare-Metal Targets](/reference/baremetal#targets) |
+| Bare metal (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M, v8.1-M), RV32I/E, RV64I/E — see [Bare-Metal Targets](/reference/baremetal#targets) |
 | Portable / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
 
 Metal Shading Language is not reachable via `--target` — Apple's Metal

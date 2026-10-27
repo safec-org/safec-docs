@@ -149,15 +149,42 @@ clang/lld        네이티브 바이너리로 링크
 ## 컴파일러 플래그 {#compiler-flags}
 
 ```
-safec <input.sc> [options]
+safec <input.sc> [input2.sc ...] [options]
 ```
+
+`safec`가 받는 플래그는 아래가 전부입니다(`safec --help`는 SafeC에는 필요 없는 LLVM 자체의 옵션도 함께 나열합니다).
 
 ### 출력 {#output}
 
 | 플래그 | 설명 |
 |---|---|
-| `-o <file>` | 출력 파일 경로 |
-| `--emit-llvm` | LLVM IR을 텍스트(`.ll`)로 출력 |
+| `-o <file>` | 출력 파일 경로(기본값 `-`, 표준 출력). 입력이 여러 개이고 `--emit-bin`이 없으면 입력마다 출력 하나가 생기는 디렉터리, 입력이 여러 개이고 `--emit-bin`이면 링크된 바이너리 하나 |
+| `--emit-llvm` | LLVM IR을 텍스트(`.ll`)로 출력. 없으면 LLVM 비트코드를 출력 |
+| `--emit-bin` | 시스템 clang을 거쳐 네이티브 바이너리나 라이브러리를 `-o`로 바로 컴파일·링크([링킹](/ko/advanced/compiler#linking-emit-bin) 참고) |
+| `-j <N>` | 입력 파일이 여러 개일 때의 병렬 컴파일 작업 수(기본값: 하드웨어 스레드 수) |
+
+### 최적화와 링킹 {#optimization-and-linking}
+
+| 플래그 | 설명 |
+|---|---|
+| `-O <level>` | 최적화 수준: `0`(기본값), `1`, `2`, `3`, `s`, `z` |
+| `--release` | 릴리스 프로파일: `-O`가 없으면 `-O2` |
+| `-l <name>` | 라이브러리 `name`과 링크(`--emit-bin` 전용) |
+| `-L <dir>` | `-l`용 라이브러리 검색 디렉터리 추가(`--emit-bin` 전용) |
+| `--shared` | `--emit-bin`과 함께, 실행 파일 대신 공유 라이브러리를 생성 |
+| `--static-lib` | `--emit-bin`과 함께, 정적 라이브러리(`.a`, `ar` 사용)를 생성 |
+| `--lto[=thin\|full]` | `--emit-bin`과 함께, 링크 타임 최적화(값이 없으면 `thin`) |
+
+### 타깃 {#targets}
+
+| 플래그 | 설명 |
+|---|---|
+| `--target=<alias\|triple>` | 교차 컴파일: [베어메탈 별칭](/ko/reference/baremetal#targets)(`arm-7em`, `rv32i`, `wasm32`, ...) 또는 임의의 LLVM 트리플(기본값: 호스트) |
+| `--target-cpu=<name>` | 타깃 CPU(기본값: 트리플의 범용 CPU) |
+| `--target-features=<+a,-b>` | 타깃 기능, LLVM `-mattr` 문법 |
+| `--target-abi=<name>` | 타깃 ABI(`ilp32e`, `lp64e`, ...) |
+| `--freestanding` | 프리스탠딩 모드: 호스트 런타임도 C 헤더 가져오기도 없음(베어메탈 별칭은 이를 함축) |
+| `--provides=<fn,...>` | 다른 번역 단위가 정의하는 함수(예: 베어메탈 런타임의 `malloc`). 이들을 호출해도 프리스탠딩 경고가 나지 않음 |
 
 ### 디버그 및 진단 {#debug-and-diagnostics}
 
@@ -175,10 +202,9 @@ safec <input.sc> [options]
 |---|---|
 | `--no-sema` | 의미 분석 건너뛰기 |
 | `--no-consteval` | 컴파일 타임 평가 단계 건너뛰기 |
-| `--compat-preprocessor` | 완전한 C 전처리기 호환성 활성화 |
-| `--freestanding` | 프리스탠딩 모드 (표준 라이브러리를 가정하지 않음) |
-| `--no-strict-aliasing` | 타입 기반 별칭 정보를 내보내지 않음. 포인터 캐스트로 타입 퍼닝하는 `unsafe` 코드용 ([엄격한 별칭 규칙](/ko/reference/safety#strict-aliasing) 참고) |
+| `--compat-preprocessor` | 완전한 C 전처리기 호환성 활성화(함수형 매크로, 토큰 붙이기, 문자열화 — [전처리기](/ko/reference/preprocessor) 참고) |
 | `--no-import-c-headers` | 자동 C 헤더 가져오기 비활성화 |
+| `--no-strict-aliasing` | 타입 기반 별칭 정보를 내보내지 않음. 포인터 캐스트로 타입 퍼닝하는 `unsafe` 코드용 ([엄격한 별칭 규칙](/ko/reference/safety#strict-aliasing) 참고) |
 
 ### 전처리기 {#preprocessor}
 
@@ -196,6 +222,28 @@ safec <input.sc> [options]
 | `--no-incremental` | 증분 컴파일 비활성화 (항상 처음부터 재컴파일) |
 | `--cache-dir <dir>` | 캐시 디렉터리 설정 (기본값: `.safec_cache`) |
 | `--clear-cache` | 캐시된 모든 `.bc` 파일을 지우고 종료 |
+
+### 문서 {#documentation}
+
+[`safeguard doc`](/ko/advanced/safeguard#safeguard-doc)이 패키지의 선언을 읽을 때 실행하는 것입니다.
+
+| 플래그 | 설명 |
+|---|---|
+| `--emit-doc-json` | 입력을 파싱하고(의미 분석과 코드 생성 없음) 선언과 문서 주석을 JSON으로 출력 |
+| `--doc-root <dir>` | `dir` 아래의 파일만 문서화(반복 가능). 출력의 경로는 이에 대한 상대 경로 |
+| `--doc-extern <name>=<dir>` | `dir` 아래의 선언을 외부 패키지 `name`의 항목으로 나열(그 레퍼런스로의 링크용) |
+| `--doc-private` | `static` 함수와 전역 변수도 포함 |
+
+### 정보 {#information}
+
+이들은 입력 파일이 필요 없습니다.
+
+| 플래그 | 출력 |
+|---|---|
+| `--version` | 컴파일러 버전 |
+| `--list-targets` | 베어메탈 타깃 별칭과 그 트리플, ABI |
+| `--print-target-clang-flags --target=<t>` | 그 타깃의 IR을 컴파일·링크하는 clang 플래그 |
+| `--print-clang` | `safec`가 IR을 넘기는 clang(`SAFEC_CLANG`이 이를 덮어씀) |
 
 ## C 헤더 임포트 {#c-header-import}
 
@@ -254,7 +302,7 @@ export PATH="$SAFEC_HOME/bin:$PATH"
 
 ## 링킹 {#linking}
 
-SafeC는 LLVM IR로 컴파일됩니다. 최종 링킹 단계는 시스템의 C 툴체인을 사용합니다:
+SafeC는 LLVM IR로 컴파일됩니다. `safec --emit-bin -o hello`는 clang을 거쳐 한 번에 링크하고([링킹](/ko/advanced/compiler#linking-emit-bin)), [safeguard](/ko/advanced/safeguard)는 프로젝트를 대신 링크합니다. 직접 할 때는 최종 링킹 단계에 시스템의 C 툴체인을 사용합니다:
 
 ```bash
 # 기본 링킹

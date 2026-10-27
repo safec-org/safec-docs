@@ -149,15 +149,42 @@ clang/lld        Link to native binary
 ## Compiler Flags {#compiler-flags}
 
 ```
-safec <input.sc> [options]
+safec <input.sc> [input2.sc ...] [options]
 ```
+
+Every flag `safec` accepts is below (`safec --help` also lists LLVM's own options, which SafeC doesn't need).
 
 ### Output {#output}
 
 | Flag | Description |
 |---|---|
-| `-o <file>` | Output file path |
-| `--emit-llvm` | Emit LLVM IR as text (`.ll`) |
+| `-o <file>` | Output file path (default `-`, standard output). With several inputs and no `--emit-bin`, a directory that gets one output per input; with several inputs and `--emit-bin`, the one linked binary |
+| `--emit-llvm` | Emit LLVM IR as text (`.ll`); without it the output is LLVM bitcode |
+| `--emit-bin` | Compile and link a native binary or library straight to `-o`, through the system clang (see [Linking](/advanced/compiler#linking-emit-bin)) |
+| `-j <N>` | Parallel compile jobs for several input files (default: the number of hardware threads) |
+
+### Optimization and Linking {#optimization-and-linking}
+
+| Flag | Description |
+|---|---|
+| `-O <level>` | Optimization level: `0` (default), `1`, `2`, `3`, `s`, `z` |
+| `--release` | Release profile: `-O2` unless `-O` is given |
+| `-l <name>` | Link against library `name` (`--emit-bin` only) |
+| `-L <dir>` | Add a library search directory for `-l` (`--emit-bin` only) |
+| `--shared` | With `--emit-bin`, produce a shared library instead of an executable |
+| `--static-lib` | With `--emit-bin`, produce a static library (`.a`, via `ar`) |
+| `--lto[=thin\|full]` | With `--emit-bin`, link-time optimization (`thin` when no value is given) |
+
+### Targets {#targets}
+
+| Flag | Description |
+|---|---|
+| `--target=<alias\|triple>` | Cross-compile: a [bare-metal alias](/reference/baremetal#targets) (`arm-7em`, `rv32i`, `wasm32`, ...) or any LLVM triple (default: the host) |
+| `--target-cpu=<name>` | Target CPU (default: the triple's generic CPU) |
+| `--target-features=<+a,-b>` | Target features, LLVM `-mattr` syntax |
+| `--target-abi=<name>` | Target ABI (`ilp32e`, `lp64e`, ...) |
+| `--freestanding` | Freestanding mode: no hosted runtime and no C header import (implied by the bare-metal aliases) |
+| `--provides=<fn,...>` | Functions another translation unit defines (e.g. a bare-metal runtime's `malloc`), so calling them gives no freestanding warning |
 
 ### Debug and Diagnostics {#debug-and-diagnostics}
 
@@ -175,8 +202,7 @@ safec <input.sc> [options]
 |---|---|
 | `--no-sema` | Skip semantic analysis |
 | `--no-consteval` | Skip compile-time evaluation pass |
-| `--compat-preprocessor` | Enable full C preprocessor compatibility |
-| `--freestanding` | Freestanding mode (no standard library assumptions) |
+| `--compat-preprocessor` | Enable full C preprocessor compatibility (function-like macros, token pasting, stringification — see [Preprocessor](/reference/preprocessor)) |
 | `--no-import-c-headers` | Disable automatic C header import |
 | `--no-strict-aliasing` | Don't emit type-based alias info, for `unsafe` code that type-puns through pointer casts (see [Strict Aliasing](/reference/safety#strict-aliasing)) |
 
@@ -196,6 +222,28 @@ Incremental compilation (per-file `.bc` caching) is **on by default** — no fla
 | `--no-incremental` | Disable incremental compilation (always recompile from scratch) |
 | `--cache-dir <dir>` | Set cache directory (default: `.safec_cache`) |
 | `--clear-cache` | Clear all cached `.bc` files and exit |
+
+### Documentation {#documentation}
+
+What [`safeguard doc`](/advanced/safeguard#safeguard-doc) runs to read a package's declarations:
+
+| Flag | Description |
+|---|---|
+| `--emit-doc-json` | Parse the inputs (no semantic analysis or codegen) and write their declarations and doc comments as JSON |
+| `--doc-root <dir>` | Document only files under `dir` (repeatable); paths in the output are relative to it |
+| `--doc-extern <name>=<dir>` | List declarations under `dir` as items of the external package `name`, for links into its reference |
+| `--doc-private` | Include `static` functions and globals |
+
+### Information {#information}
+
+These need no input file:
+
+| Flag | Prints |
+|---|---|
+| `--version` | The compiler version |
+| `--list-targets` | The bare-metal target aliases with their triples and ABIs |
+| `--print-target-clang-flags --target=<t>` | The clang flags that compile and link IR for that target |
+| `--print-clang` | The clang `safec` hands its IR to (`SAFEC_CLANG` overrides it) |
 
 ## C Header Import {#c-header-import}
 
@@ -254,7 +302,7 @@ export PATH="$SAFEC_HOME/bin:$PATH"
 
 ## Linking {#linking}
 
-SafeC compiles to LLVM IR. The final linking step uses your system's C toolchain:
+SafeC compiles to LLVM IR. `safec --emit-bin -o hello` links it in one step through clang ([Linking](/advanced/compiler#linking-emit-bin)), and [safeguard](/advanced/safeguard) links a project for you; by hand, the final linking step uses your system's C toolchain:
 
 ```bash
 # Basic linking

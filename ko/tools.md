@@ -118,7 +118,7 @@ safec hello.sc --emit-bin -o hello
 safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 ```
 
-모든 플래그와 그 뒤의 파이프라인은 [컴파일러 아키텍처](/ko/advanced/compiler)에, 단일 파일 빌드와 C 헤더는 [시작하기](/ko/guide/getting-started)에 있습니다.
+모든 플래그와 단일 파일 빌드, C 헤더는 [시작하기](/ko/guide/getting-started#compiler-flags)에, 그 뒤의 파이프라인은 [컴파일러 아키텍처](/ko/advanced/compiler)에 있습니다.
 
 ## 플레이그라운드 {#playground}
 

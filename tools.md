@@ -118,7 +118,7 @@ safec hello.sc --emit-bin -o hello
 safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 ```
 
-[Compiler Architecture](/advanced/compiler) lists every flag and the pipeline behind them; [Getting Started](/guide/getting-started) covers single-file builds and C headers.
+[Getting Started](/guide/getting-started#compiler-flags) lists every flag and covers single-file builds and C headers; [Compiler Architecture](/advanced/compiler) describes the pipeline behind them.
 
 ## Playground {#playground}
 

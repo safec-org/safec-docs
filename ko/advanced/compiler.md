@@ -178,7 +178,7 @@ LLVM `TargetMachine`을 선택하며, 이는 (코드 생성 중 `sizeof`/구조�
 | iOS | AArch64 (디바이스 + 시뮬레이터) |
 | Android | AArch64, Aarch32, x86_64, x86 |
 | FreeBSD | x86_64, AArch64 |
-| 베어메탈 (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M), RV32I/E, RV64I/E — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고 |
+| 베어메탈 (`--target=<alias>`) | x86, x86-64, AArch32, AArch64, Thumb, Thumb-2, Cortex-M (ARMv6-M, v7-M, v7E-M, v8-M, v8.1-M), RV32I/E, RV64I/E — [베어메탈 타깃](/ko/reference/baremetal#targets) 참고 |
 | 포터블 / GPU | WebAssembly, SPIR-V, CUDA (NVPTX), ROCm (AMDGPU) |
 
 Metal Shading Language는 `--target`으로 도달할 수 없습니다 — NVPTX/AMDGPU/SPIR-V와
