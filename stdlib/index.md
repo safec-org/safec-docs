@@ -21,6 +21,7 @@ int main() {
 | [io](/stdlib/io) | `io.h` | Formatted output (stdout/stderr), stdin input, buffer formatting |
 | [io_traits](/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` traits composed into `Stream` / `SeekableStream`; `read_exact`, `write_all`, `copy_stream` over any stream |
 | [io_buf](/stdlib/io) | `io_buf.h` | `BufReader<R>` / `BufWriter<W>` buffering over any `Reader` / `Writer` (themselves a `Reader` / `Writer`) |
+| [io_file](/stdlib/io) | `io_file.h` | `File`: open/read/write/seek/close on a `?&File` handle, `File::read_to_string` / `write_bytes`; a `Reader` / `Writer` |
 | [dir](/stdlib/dir) | `dir.h` | Directory listing, `file_stat` (kind, size, mtime), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
 | [path](/stdlib/dir#path) | `path.h` | Path strings: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/stdlib/str) | `str.h` | String length, comparison, copy, search, tokenisation, duplication |
@@ -309,6 +310,7 @@ int main() {
 |--------|-------------|
 | `bit.h` | Bit manipulation (C23 `<stdbit.h>` + popcount/clz/ctz/bswap builtins) |
 | `cmp.h` | Compile-time orderings: the `Order` trait, `Less` / `Greater` / `FnOrder` (see [Orderings](/stdlib/collections#orderings)) |
+| `ownership.h` | `std::replace` / `std::swap`: take a value out of borrowed memory by putting another in its place (see [Ownership](/reference/ownership#borrowed-values)) |
 | `traits.h` | Capability traits shared across modules: `Resettable` (arena allocators, DSP filters) |
 | `convert.h` | String ↔ number parsing (C11/C17), `*ok` success flag on failure |
 | `dma.h` | Cache-coherent DMA buffer descriptors (64-byte aligned) |

@@ -21,6 +21,7 @@ int main() {
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
 | [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
 | [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
+| [io_file](/ko/stdlib/io) | `io_file.h` | `File`: `?&File` 핸들 위의 open/read/write/seek/close, `File::read_to_string` / `write_bytes`; `Reader` / `Writer`이기도 함 |
 | [dir](/ko/stdlib/dir) | `dir.h` | 디렉터리 나열, `file_stat`(종류, 크기, 수정 시각), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
 | [path](/ko/stdlib/dir#path) | `path.h` | 경로 문자열: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
@@ -309,6 +310,7 @@ int main() {
 |--------|-------------|
 | `bit.h` | 비트 조작 (C23 `<stdbit.h>` + popcount/clz/ctz/bswap 내장 함수) |
 | `cmp.h` | 컴파일 타임 순서 관계: `Order` 트레이트, `Less` / `Greater` / `FnOrder` ([순서 관계](/ko/stdlib/collections#orderings) 참고) |
+| `ownership.h` | `std::replace` / `std::swap`: 다른 값을 대신 넣어서 빌린 메모리에서 값을 꺼냄([소유권](/ko/reference/ownership#borrowed-values) 참고) |
 | `traits.h` | 여러 모듈이 공유하는 기능 트레이트: `Resettable`(아레나 할당자, DSP 필터) |
 | `convert.h` | 문자열 ↔ 숫자 파싱 (C11/C17), 실패 시 `*ok` 성공 플래그 |
 | `dma.h` | 캐시 일관성 DMA 버퍼 디스크립터 (64바이트 정렬) |
