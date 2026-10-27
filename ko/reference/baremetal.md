@@ -518,9 +518,9 @@ naked void _start() {
 }
 
 void vga_putchar(int x, int y, char c, uint8_t color) {
-    volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
     int offset = (y * 80 + x) * 2;
     unsafe {
+        volatile uint8_t *VGA_BUFFER = (volatile uint8_t*)0xB8000;
         volatile_store(VGA_BUFFER + offset, (uint8_t)c);
         volatile_store(VGA_BUFFER + offset + 1, color);
     }
