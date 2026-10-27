@@ -21,7 +21,7 @@ int main() {
 | [io](/ko/stdlib/io) | `io.h` | 서식화된 출력(stdout/stderr), stdin 입력, 버퍼 서식화 |
 | [io_traits](/ko/stdlib/io) | `io_traits.h` | `Reader` / `Writer` / `Seekable` / `Flusher` 트레이트와 이를 합성한 `Stream` / `SeekableStream`; 모든 스트림에 대한 `read_exact`, `write_all`, `copy_stream` |
 | [io_buf](/ko/stdlib/io) | `io_buf.h` | 임의의 `Reader` / `Writer` 위의 버퍼링 `BufReader<R>` / `BufWriter<W>` (그 자체도 `Reader` / `Writer`) |
-| [io_file](/ko/stdlib/io) | `io_file.h` | `File`: `?&File` 핸들 위의 open/read/write/seek/close, `File::read_to_string` / `write_bytes`; `Reader` / `Writer`이기도 함 |
+| [io_file](/ko/stdlib/io#io_file-file-io) | `io_file.h` | `File`: `?&File` 핸들 위의 open/read/write/seek/close, `File::read_to_string` / `write_bytes`; `Reader` / `Writer`이기도 함 |
 | [dir](/ko/stdlib/dir) | `dir.h` | 디렉터리 나열, `file_stat`(종류, 크기, 수정 시각), `dir_create_all`, `dir_walk`, `dir_copy_tree`, `dir_remove_all`, `file_copy` (POSIX + Win32) |
 | [path](/ko/stdlib/dir#path) | `path.h` | 경로 문자열: join, dirname, basename, ext, stem, normalize, relative |
 | [str](/ko/stdlib/str) | `str.h` | 문자열 길이, 비교, 복사, 검색, 토큰화, 복제 |
