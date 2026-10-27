@@ -140,7 +140,7 @@ These principles combine into a concrete contract. SafeC guarantees the absence 
 |---|---|
 | Hidden heap allocation | All allocation is explicit (`new<R>`, `malloc`) |
 | Hidden runtime | No runtime library required (`--freestanding` supported) |
-| Hidden panics | No panics unless bounds checks are enabled |
+| Hidden panics | No panics except the run-time bounds and range checks on dynamic indexing and slicing (left out inside `unsafe { }`) |
 | Implicit exceptions | Errors are return values, not thrown objects |
 | Background GC | No garbage collector exists |
 | Implicit destructors | Resource cleanup is explicit (`defer`, `drop()`, `free`); the compiler checks that owned values are dropped exactly once, but never inserts the call |

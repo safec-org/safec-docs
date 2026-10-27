@@ -56,7 +56,7 @@ SafeC guarantees the absence of hidden runtime behavior:
 
 - **No hidden heap allocation** — all allocation is explicit (`new<R>`, `malloc`)
 - **No hidden runtime** — no runtime library required (freestanding mode available)
-- **No hidden panics** — unless explicitly opted in with bounds checks
+- **No hidden panics** — the only run-time traps are the bounds and range checks on dynamic indexing and slicing (left out inside `unsafe { }`)
 - **No implicit exceptions** — errors are returned, not thrown
 - **No background GC** — memory is managed through regions and explicit deallocation
 - **No implicit destructor calls** — resource cleanup is explicit (`defer`, manual free)
@@ -79,7 +79,8 @@ SafeC extends C with safety and modern features while preserving C's execution m
 | **Defer** | `defer close(fd)` — deterministic cleanup |
 | **Compile-time evaluation** | `consteval`, `static_assert`, `if const` |
 | **Tuples** | `tuple(int, double)` with `.0`, `.1` member access |
-| **Concurrency** | `spawn`/`join`, typed channels |
+| **Ownership** | Types with `drop()` must be dropped or moved exactly once on every path — checked at compile time, never called for you |
+| **Concurrency** | `spawn`/`join`/`spawn_scoped`, channels, compile-time `Send`/`Sync` checks |
 | **Bare-metal support** | `naked`, `interrupt`, `asm`, `--freestanding` |
 
 ## What SafeC Does NOT Add {#what-safec-does-not-add}
