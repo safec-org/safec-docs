@@ -34,7 +34,7 @@ env:
   # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime,
   # and 'safeguard doc' for the std API reference under /api/): main at the
   # 1.0.0-beta-7 release (PR #85).
-  SAFEC_REF: ${{ inputs.safec_ref || '78801b8f4266ceff6ccf8384fcb70782cb342166' }}
+  SAFEC_REF: ${{ inputs.safec_ref || 'e40ea4c92171271fe8af7ca45e2b2d5536bf5d60' }}
 
 jobs:
   build:

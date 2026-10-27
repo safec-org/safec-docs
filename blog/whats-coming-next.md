@@ -6,7 +6,7 @@ tags: [release, std, compiler, safety, breaking, tools]
 summary: "Shipped in 1.0.0-beta-7. The log of everything merged on SafeC's main branch after 1.0.0-beta-6 — the web stack, async, the GUI toolkit, audio and MIDI, HTTPS, safeguard doc and publish, the self-hosted compiler behind the online playground — and the two breaking changes: a std API without void* or pointer + length pairs, and compiler-enforced Drop and Send/Sync. With a migration guide."
 ---
 
-> **Shipped in 1.0.0-beta-7.** Everything below was released on 2026-10-27 as [SafeC 1.0.0-beta-7](/blog/releases/v1.0.0-beta-7), together with [#82](https://github.com/safec-org/SafeC/pull/82)–[#85](https://github.com/safec-org/SafeC/pull/85). The release notes have the install and upgrade instructions, a short migration list and the known issues; this post stays as the record of the cycle.
+> **Shipped in 1.0.0-beta-7.** Everything below was released on 2026-10-27 as [SafeC 1.0.0-beta-7](/blog/releases/v1.0.0-beta-7), together with [#82](https://github.com/safec-org/SafeC/pull/82)–[#88](https://github.com/safec-org/SafeC/pull/88). The release notes have the install and upgrade instructions, a short migration list and the known issues; this post stays as the record of the cycle.
 
 SafeC's `main` branch had moved a long way since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6). This post was the running log of what the next release would contain: the pull requests merged since then, [#56](https://github.com/safec-org/SafeC/pull/56) through [#81](https://github.com/safec-org/SafeC/pull/81), grouped by area. Two of them are **breaking changes** that the compiler reports at every affected call site; the [migration guide](#migration) at the end shows how to update code.
 
