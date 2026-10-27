@@ -41,7 +41,7 @@ int main() {
 - `TypedefDecl` 노드 (타입 별칭)
 
 SafeC가 지원하지 않는 구성 요소는 자동으로 건너뜁니다:
-- typedef 안의 함수 포인터
+- typedef 안의 함수 포인터, 그리고 함수 포인터 매개변수가 있는 함수(그런 함수는 직접 `extern`으로 선언)
 - Objective-C 블록 타입 (`^`)
 - 배열 typedef
 - `long double`, `wchar_t`, `__int128`

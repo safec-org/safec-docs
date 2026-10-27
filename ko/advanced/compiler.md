@@ -226,8 +226,8 @@ SafeC는 두 단계의 DWARF 디버그 정보를 지원합니다:
 모듈은 포함된 헤더에 대해 `clang -ast-dump=json`을 호출한 다음, `FunctionDecl`과
 `TypedefDecl` 노드를 SafeC의 AST로 추출합니다.
 
-지원되지 않는 구성 요소(함수 포인터, ObjC 블록, `long double`, `__int128`)는
-조용히 건너뛰어집니다. Enum typedef는 `typedef int name`으로 낮춰집니다.
+SafeC가 가져오지 않는 구성 요소 — 함수 포인터·블록 typedef, 함수 포인터를 받는 함수,
+배열 typedef, `long double`, `wchar_t`, `__int128` — 를 쓰는 선언은 조용히 건너뛰어집니다(전체 목록은 [C 상호 운용](/ko/reference/ffi#native-c-header-import)). Enum typedef는 `typedef int name`으로 낮춰집니다.
 
 이는 `--no-import-c-headers`로 비활성화할 수 있습니다.
 

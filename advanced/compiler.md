@@ -215,7 +215,7 @@ No `--g` flag means no debug metadata is emitted.
 
 `#include <stdio.h>` works natively in SafeC. The `CHeaderImporter` module invokes `clang -ast-dump=json` on the included header, then extracts `FunctionDecl` and `TypedefDecl` nodes into SafeC's AST.
 
-Unsupported constructs (function pointers, ObjC blocks, `long double`, `__int128`) are silently skipped. Enum typedefs are lowered to `typedef int name`.
+Declarations using constructs SafeC doesn't import — function-pointer and block typedefs, functions taking a function pointer, array typedefs, `long double`, `wchar_t` and `__int128` — are silently skipped (the full list is in [C Interop](/reference/ffi#native-c-header-import)). Enum typedefs are lowered to `typedef int name`.
 
 This can be disabled with `--no-import-c-headers`.
 
