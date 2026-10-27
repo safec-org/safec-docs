@@ -73,7 +73,7 @@ version = "https://github.com/user/mylib"   # 또는: path = "../mylib"
 - 정의로 이동(std 헤더 포함),
 - 문서 심볼(아웃라인).
 
-가장 가까운 `Package.toml`에서 기능과 compat 전처리기 설정을 읽고, `initializationOptions`로 `includePaths`, `target`, `defines`, `features`를 받습니다.
+가장 가까운 `Package.toml`에서 기능과 compat 전처리기 설정을 읽고, `initializationOptions`로 `includePaths`, `target`, `defines`, `features`, `noDefaultFeatures`, `compatPreprocessor`, `provides`를 받습니다(VS Code 확장에서는 같은 이름의 `safec.*` 설정).
 
 ::::: tabs
 ::: tab VS Code

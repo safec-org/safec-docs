@@ -73,7 +73,7 @@ The [Package Manager](/advanced/safeguard) page documents every command, `Packag
 - go-to-definition (into std headers too),
 - document symbols (the outline).
 
-It reads the nearest `Package.toml` for features and the compat-preprocessor setting, and accepts `includePaths`, `target`, `defines` and `features` through `initializationOptions`.
+It reads the nearest `Package.toml` for features and the compat-preprocessor setting, and accepts `includePaths`, `target`, `defines`, `features`, `noDefaultFeatures`, `compatPreprocessor` and `provides` through `initializationOptions` (the VS Code extension's `safec.*` settings of the same names).
 
 ::::: tabs
 ::: tab VS Code
