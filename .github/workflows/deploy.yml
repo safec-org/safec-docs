@@ -34,7 +34,7 @@ env:
   # (std/dir, std/path, std/serial/markdown extensions, std/wasm DOM + runtime,
   # and 'safeguard doc' for the std API reference under /api/: safeguard-doc branch;
   # move to the merge commit on main once it lands).
-  SAFEC_REF: ${{ inputs.safec_ref || '43106037f391fc3bccbf2f5f1411e8776fc05d82' }}
+  SAFEC_REF: ${{ inputs.safec_ref || '8436abb198816d9a2f449bc84fc3843ff359912d' }}
 
 jobs:
   build:
