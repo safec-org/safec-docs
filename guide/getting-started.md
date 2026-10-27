@@ -288,6 +288,7 @@ The project structure created by `safeguard new`:
 
 ```
 myproject/
+  .gitignore
   Package.toml       # Project manifest
   src/
     main.sc          # Entry point

@@ -288,6 +288,7 @@ safeguard run
 
 ```
 myproject/
+  .gitignore
   Package.toml       # 프로젝트 매니페스트
   src/
     main.sc          # 진입점
