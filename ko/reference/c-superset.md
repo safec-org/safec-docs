@@ -39,6 +39,13 @@ int g_aligned_val __attribute__((aligned(16))) = 7;
 | `weak` | 정의에 붙이면 다른 정의가 덮어쓸 수 있는 약한 정의가 됩니다. `extern` 선언에 붙이면 그 심볼을 정의한 곳이 없을 때 null이 되는 참조가 되므로, 프로그램이 선택적 라이브러리를 링크했을 때만 그것을 쓸 수 있습니다(`if ((void*)f != (void*)0) f(...)`). |
 | `target("avx2,fma")` | 이 함수 하나만 빌드 자체의 ISA 기능에 더해 이 기능들을 쓸 수 있습니다. CPU 지원에 따라 실행 시점에 고르는 커널용입니다([CPU SIMD 수준](/ko/stdlib/simd#cpu-levels) 참고). 기능 이름은 LLVM의 것입니다(`avx`, `avx2`, `fma`, `avx512f`, `sve`, `mve.fp`, ...). |
 | `noinline`, `cold` | 이 함수를 인라인하지 않고, 드물게 실행된다고 표시합니다. 컨테이너는 이것을 성장 경로(`Vec::push`의 재할당, `HashMap`의 재해시)에 써서, 인라인되는 빠른 경로가 상태를 레지스터에 유지하게 합니다. |
+| `noreturn` | SafeC의 `noreturn`과 같음: 함수가 반환하지 않음([함수](/ko/reference/functions) 참고) |
+| `warn_unused_result`, `nodiscard` | `must_use`와 같음: 결과를 버리면 경고. 정의에(또는 호출하는 쪽이 보는 유일한 선언인 헤더의 선언에) 붙이십시오 — 그것이 없는 나중의 정의는 이를 유지하지 않습니다 |
+| `const` | `pure`와 같음 |
+| `export_name("f")`, `import_module("m")`, `import_name("f")` | WebAssembly 내보내기와 가져오기([WebAssembly](/ko/reference/baremetal#wasm) 참고) |
+| `gnu_inline`, `artificial` | 함수를 `inline`으로 만듦 |
+
+그 밖의 어트리뷰트(`visibility`, `unused`, `deprecated`, ...)는 받아들이되 무시하므로, 이를 쓰는 C 헤더도 파싱됩니다.
 
 함수 어트리뷰트는 선언 앞이나 매개변수 목록 뒤에 올 수 있고, const 메서드의 `const` 뒤에도 올 수 있습니다(`int T::get() const __attribute__((noinline)) { ... }`). 제네릭 함수는 모든 인스턴스에서 어트리뷰트를 유지합니다.
 
