@@ -61,7 +61,7 @@ How the [compiler](/advanced/compiler) works, the [safety model](/advanced/safet
 ::: card code
 ### [Examples on GitHub](https://github.com/safec-org/SafeC/tree/main/examples)
 
-Complete projects in the SafeC repository: `async_demo`, `audio_demo`, `fullstack_demo` (a router server and a wasm client), `gui_hello`, `gui_gallery`, and C++ / Objective-C dependencies.
+Complete projects in the SafeC repository: `async_demo`, `audio_demo`, `fullstack_demo` (a router server and a wasm client), `gui_hello`, `gui_gallery`, `gui_web` (a GUI program as a web page), `doc_demo` (a library documented with `safeguard doc`), and C++ / Objective-C dependencies.
 :::
 ::: card gauge
 ### [Benchmarks](/benchmarks)
