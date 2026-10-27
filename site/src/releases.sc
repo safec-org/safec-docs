@@ -12,6 +12,11 @@
 // CHANGELOG section when there is one, else the tag's curated summary,
 // then GitHub's pull-request list); <prefix>changelog shows the whole
 // CHANGELOG — 'Unreleased' included — or, without one, the release list.
+// A hand-written blog/releases/<tag>.md (frontmatter 'release: <tag>')
+// replaces the generated post for that locale, counts as a release (the
+// docs version menu, the changelog's release-notes link) even before the
+// release history has the tag, and is the way to publish curated notes —
+// known issues, migration — on the day of a release.
 #include "site.h"
 #include <std/serial/json.h>
 #include <std/io.h>
@@ -236,10 +241,25 @@ static struct String fill(const &char tpl, const &char v, const &char date) {
     return s;
 }
 
+// Whether a hand-written page (not a generated one) has route
+// <prefix>blog/releases/<tag>.
+static int authored_release(const &Vec<struct Page> pages, const &Locale loc, const &char tag) {
+    struct String route = loc.prefix.clone();
+    route.push("blog/releases/");
+    route.push(tag);
+    int found = 0;
+    for (unsigned long k = 0UL; k < pages.len; k = k + 1UL) {
+        if (!pages.at(k).generated && pages.at(k).route.eq(&route)) { found = 1; }
+    }
+    route.free();
+    return found;
+}
+
 static void add_release_post(&Site site, &Vec<struct Page> pages, unsigned long li, const &Value rel,
                              const &Vec<struct ClSection> cl) {
     &Locale loc = site.locales.at(li);
     const &char tag = util_vstr(rel, "tag_name", "");
+    if (authored_release(pages, loc, tag)) { return; }   // the hand-written notes win
     struct String version = strip_v(tag);
     struct String date = String::from(util_vstr(rel, "published_at", ""));
     if (date.len > 10UL) { date.truncate(10UL); }
@@ -329,7 +349,7 @@ static void add_release_post(&Site site, &Vec<struct Page> pages, unsigned long 
 }
 
 static void add_changelog_page(&Site site, &Vec<struct Page> pages, unsigned long li, const &Value rels,
-                               const &Vec<struct ClSection> cl) {
+                               const &Vec<struct ClSection> cl, const &Vec<struct String> authored) {
     &Locale loc = site.locales.at(li);
     struct String rel_path = loc.dir.clone();
     if (rel_path.len > 0UL) { rel_path.push_char('/'); }
@@ -350,21 +370,28 @@ static void add_changelog_page(&Site site, &Vec<struct Page> pages, unsigned lon
             md.push("## ");
             md.push_str(&s.heading);
             md.push("\n\n");
-            // Released versions link their post.
+            // Released versions link their post (generated or hand-written).
+            struct Vec<struct String> tags = Vec::new();
             for (unsigned long k = 0UL; k < rels.array_len(); k = k + 1UL) {
-                const &char tag = util_vstr(rels.array_at(k), "tag_name", "");
-                struct String v = strip_v(tag);
-                if (v.eq(&s.version)) {
+                tags.push(String::from(util_vstr(rels.array_at(k), "tag_name", "")));
+            }
+            for (unsigned long k = 0UL; k < authored.len; k = k + 1UL) { tags.push(authored.at(k).clone()); }
+            int linked = 0;
+            for (unsigned long k = 0UL; k < tags.len; k = k + 1UL) {
+                struct String v = strip_v(tags.at(k).as_ptr());
+                if (!linked && v.eq(&s.version)) {
                     md.push("[");
                     md.push(blog_str(loc, "releaseNotes", "Release notes"));
                     md.push("](");
                     md.push_str(&loc.prefix);
                     md.push("blog/releases/");
-                    md.push(tag);
+                    md.push_str(tags.at(k));
                     md.push(")\n\n");
+                    linked = 1;
                 }
                 v.free();
             }
+            tags.free();
             md.push_str(&s.body);
             md.push("\n\n");
         }
@@ -405,6 +432,26 @@ void releases_add_pages(&Site site, &Vec<struct Page> pages) {
     for (unsigned long i = 0UL; i < rels.array_len(); i = i + 1UL) { sorted.push(rels.array_at(i).clone()); }
     rels.free();
     sorted.sort(cmp_release);
+    // Hand-written release notes for tags the history doesn't have yet
+    // (released today): newest, so first in the version menu.
+    struct Vec<struct String> authored = Vec::new();
+    for (unsigned long i = 0UL; i < pages.len; i = i + 1UL) {
+        &Page q = pages.at(i);
+        struct String tag = String::from(util_vstr(&q.front, "release", ""));
+        int known = q.generated || tag.len == 0UL;
+        for (unsigned long k = 0UL; k < sorted.len; k = k + 1UL) {
+            if (tag.eq_cstr(util_vstr(sorted.at(k), "tag_name", ""))) { known = 1; }
+        }
+        for (unsigned long k = 0UL; k < authored.len; k = k + 1UL) {
+            if (tag.eq(authored.at(k))) { known = 1; }
+        }
+        if (!known) {
+            site.versions.push(tag.clone());
+            authored.push(tag);
+        } else {
+            tag.free();
+        }
+    }
     rels = Value::array();
     for (unsigned long i = 0UL; i < sorted.len; i = i + 1UL) {
         rels.array_push(sorted.at(i).clone());   // sorted keeps (and drops) its own
@@ -437,8 +484,9 @@ void releases_add_pages(&Site site, &Vec<struct Page> pages) {
         for (unsigned long k = 0UL; k < rels.array_len(); k = k + 1UL) {
             add_release_post(site, pages, li, rels.array_at(k), &cl);
         }
-        add_changelog_page(site, pages, li, &rels, &cl);
+        add_changelog_page(site, pages, li, &rels, &cl, &authored);
     }
+    authored.free();
     cl.free();   // and each section's strings
     rels.free();
 }
