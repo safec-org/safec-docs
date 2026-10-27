@@ -24,7 +24,7 @@ struct Store {
     void set(const &char key, const &char value);
     ?struct String get(const &char key);
     int remove(const &char key);
-    void free();
+    void drop();
 };
 ```
 
@@ -43,18 +43,14 @@ void Store::init() {
 }
 
 void Store::set(const &char key, const &char value) {
-    match (self.entries.remove(key)) {          // replacing? free the old value
-        case some(old): old.free();
-        case none:      { }
-    }
-    self.entries.insert(key, std::String::from(value));
+    self.entries.insert(key, std::String::from(value));   // replacing drops the old value
 }
 ```
 
 맵은 제네릭이므로 자신이 `struct String`을 저장한다는 것을 압니다 —
-어디에도 캐스트가 없습니다. 맵은 키의 복사본을 소유하고, `String`
-값은 `Store`가 소유합니다. 그래서 `set`은 자신이 교체하는 값을
-해제합니다.
+어디에도 캐스트가 없습니다. 맵은 키의 복사본*과* `String` 값을 모두
+소유합니다: 이미 있는 키로 삽입하면 맵이 교체되는 값을 drop하므로,
+`set`은 그냥 삽입입니다.
 
 ```c
 ?struct String Store::get(const &char key) {
@@ -77,32 +73,35 @@ void Store::set(const &char key, const &char value) {
 ```c
 int Store::remove(const &char key) {
     match (self.entries.remove(key)) {
-        case some(old): { old.free(); return 1; }
+        case some(old): { old.drop(); return 1; }
         case none:      return 0;
     }
     return 0;
 }
 
-static void free_value(const &char key, &String v) { v.free(); }
-
-void Store::free() {
-    self.entries.foreach(free_value);   // the values are ours to free
-    self.entries.free();
+void Store::drop() {
+    self.entries.drop();   // drops every key and value
 }
 ```
 
+맵의 `remove`는 값을 우리에게 넘겨주므로(move) `Store::remove`가 그
+값을 drop합니다. 맵에 남아 있는 것은 모두 맵의 것입니다: 맵을 drop하면
+모든 키와 값이 함께 drop되므로 `Store::drop`은 호출 하나로 끝납니다 —
+값을 먼저 직접 해제하면(값들에 대한 `foreach`) 두 번 해제하게 됩니다.
+
 ## 조립하기 {#putting-it-together}
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 
 int main() {
     struct Store store;
     store.init();
-    defer store.free();
+    defer store.drop();
 
     store.set("name", "SafeC");
     store.set("kind", "language");
+    store.set("name", "SafeC!");      // overwrites: the old value is dropped
 
     ?struct String name = store.get("name");
     match (name) {
@@ -124,12 +123,12 @@ int main() {
 ```
 
 ```
-name: SafeC
+name: SafeC!
 removed kind: 1
 kind: (not found, as expected)
 ```
 
-`store.init();` 바로 뒤의 `defer store.free();`는
+`store.init();` 바로 뒤의 `defer store.drop();`는
 [8장](/ko/book/ch08-error-handling)의 "획득 바로 다음에 해제" 관용구를
 한 번 더 보여줍니다 — 여러분이 직접 SafeC 프로그램을 작성할 때쯤에는
 이 짝짓기가 챙겨야 할 무언가가 아니라 자동으로 몸에 밴 것처럼
@@ -141,7 +140,7 @@ kind: (not found, as expected)
 영속성도 없고, 동시 접근도 없습니다. 이것을 확장하는 것은 이 책이
 깊이 다룰 여유가 없었던 나머지 것들을 연습하는 합리적인 방법입니다.
 
-- **영속성**: `free()` 시점에 [`std::csv`](/ko/reference/generics)나
+- **영속성**: `drop()` 시점에 [`std::csv`](/ko/reference/generics)나
   [`std::json`](/ko/stdlib/serial)으로 `entries`를 디스크에
   직렬화하고, `init()` 시점에 다시 불러옵니다.
 - **동시성**: [`std::sync`](/ko/stdlib/sync)의 뮤텍스로 `entries`에

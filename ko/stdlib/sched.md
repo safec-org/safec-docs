@@ -92,7 +92,10 @@ struct Reactor {
     // IoDriver)가 리액터를 구동하는 방법. poll()은 sched->unblock_fd()를
     // 호출하는 콜백을 넘긴 이것이다. 각 백엔드는 이것만 구현한다.
     generic<T> int poll_events(fn void(?&T, int, int) on_ready, ?&T ctx, long long timeout_ms);
-    void close_();
+    void close_();   // OS 큐(epoll에서는 연 signalfd들, Windows에서는 WSAStartup)를 닫고
+                     // 등록 테이블을 해제한다. 멱등: 닫힌 reactor는 Reactor::new()와 같아서
+                     // init()으로 다시 열 수 있고, 다시 닫거나 drop해도 아무 일도 없다
+    void drop();     // close_() — Reactor는 Drop 타입이므로 지역 변수는 모든 경로에서 drop한다
 }
 ```
 
@@ -149,8 +152,7 @@ int main() {
     //     g_sched.spawn(echo_conn, conn_ref);
 
     std::reactor_run(&g_sched, &reactor);
-    reactor.close_();
-    reactor.sigfds.free(); reactor.watched.free();   // close_()는 테이블을 해제하지 않습니다
+    reactor.drop();
     return 0;
 }
 ```

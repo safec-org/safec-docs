@@ -18,6 +18,17 @@ struct HashMap<int, long long> m = std::HashMap::new();  // K, V from the declar
 `get()`/`front()`/`find()`가 반환하는 `?&T`는 컨테이너의 저장 공간 안을 가리킵니다. 이 참조는 원소를 옮기거나 버릴 수 있는 다음 호출 전까지만 유효합니다 — `Vec`의 성장(`push`, `insert`, `reserve`), 모든 `HashMap::insert`/`remove`, 해당 `List`/`BST` 노드의 제거, 또는 `free()`.
 :::
 
+## 컨테이너는 원소를 소유합니다 {#ownership}
+
+컨테이너는 안에 든 값을 소유하고, 원소 자신도 무언가를 소유할 수 있습니다(`String`, `Vec`, `drop()`이 있는 구조체). 모든 컨테이너는 그런 원소를 `Vec`과 같은 방식으로 다룹니다:
+
+- `push`/`insert`/`set`은 값을 값으로 받습니다. 컨테이너가 저장하지 못한 값(메모리 부족, 가득 찬 `StaticVec`/`StaticMap`/`BTree`)은 drop됩니다;
+- 키를 **덮어쓰면**(`HashMap`, `StrMap`, `BST`, `BTree`, `StaticMap`) 교체되는 값이 drop됩니다;
+- `remove`/`pop`은 값을 여러분에게 넘겨줍니다(move) — drop은 여러분 몫입니다. `List::remove`는 떼어 낸 원소를 drop합니다;
+- `clear()`는 남아 있는 모든 원소를 drop하고, `drop()`(= `free()`)도 저장 공간을 해제하기 전에 똑같이 합니다.
+
+그러니 컨테이너만 drop하세요: 값을 먼저 직접 해제하면(`m.foreach(free_value); m.free();`) 두 번 해제하게 됩니다. `BTree`, `StaticVec`, `StaticMap`은 제자리에 있거나 여러분이 준 저장 공간 위에 있어서 자체 `drop()`이 없습니다 — 원소가 무언가를 소유한다면 메모리가 사라지기 전에 `clear()`하세요.
+
 ## 개요 {#overview}
 
 | 헤더 | 타입 | 저장 방식 | 비고 |
@@ -219,7 +230,7 @@ struct Vec {
     ?T            pop();                               // null if empty
     int           insert(unsigned long idx, T value);  // idx <= len
     ?T            remove(unsigned long idx);           // null if out of range
-    void          clear();                             // len := 0, keeps the buffer
+    void          clear();                             // drops the elements; len := 0, keeps the buffer
     int extend([]const T items);
 
     void          reverse();
@@ -282,16 +293,16 @@ struct HashMap {
     static struct HashMap<K, V> new();                        // empty, no allocation
     static struct HashMap<K, V> with_cap(unsigned long cap);  // room for cap entries
 
-    int           insert(K key, V val);      // insert or overwrite; 0 on OOM
+    int           insert(K key, V val);      // insert or overwrite (drops the old value); 0 on OOM
     ?&V           get(K key) const;          // null if missing
     int           contains(K key) const;
     ?V            remove(K key);             // the removed value, or null
     unsigned long length() const;
     int           is_empty() const;
-    void          clear();
+    void          clear();                   // drops every entry, keeps the table
     void          foreach(fn void(const &K, &V) func);
     int           reserve(unsigned long n);  // room for n entries without resizing
-    void          free() consume;
+    void          free() consume;            // = drop(): drops every key and value
 };
 ```
 
@@ -303,15 +314,15 @@ struct HashMap {
 generic<V>
 struct StrMap {
     static struct StrMap<V> new();
-    int           insert(const &char key, V val);   // copies the key
+    int           insert(const &char key, V val);   // copies the key; overwriting drops the old value
     ?&V           get(const &char key) const;
     int           contains(const &char key) const;
     ?V            remove(const &char key);
     unsigned long length() const;
     int           is_empty() const;
-    void          clear();
+    void          clear();                          // drops every entry
     void          foreach(fn void(const &char, &V) func);
-    void          free() consume;
+    void          free() consume;   // = drop(): drops every value
 };
 ```
 
@@ -360,11 +371,11 @@ struct List {
     int           is_empty() const;
     ?&T           find(const &T key, fn int(const &T, const &T) cmp) const;
     int           contains(const &T key, fn int(const &T, const &T) cmp) const;
-    int           remove(const &T key, fn int(const &T, const &T) cmp);  // first match
+    int           remove(const &T key, fn int(const &T, const &T) cmp);  // first match; drops it
     void          foreach(fn void(&T) func);
     void          reverse();
-    void          clear();
-    void          free() consume;
+    void          clear();               // drops every element
+    void          free() consume;        // = drop(): drops the elements, releases the nodes
 };
 ```
 
@@ -429,8 +440,8 @@ struct BST {
     ?&K           min_key() const;
     ?&K           max_key() const;
     void          foreach_inorder(fn void(const &K, &V) func);   // ascending
-    void          clear();
-    void          free() consume;
+    void          clear();                 // drops every entry
+    void          free() consume;          // = drop(): drops the entries, releases the nodes
 };
 ```
 
@@ -466,16 +477,18 @@ int main() {
 generic<V>
 struct BTree {
     void          init();   // empty tree, in place (scalar fields only, no pool copy)
-    int           insert(unsigned long key, V val);   // insert or overwrite; 0 if the pool is full
+    int           insert(unsigned long key, V val);   // insert or overwrite (drops the old value); 0 if the pool is full
     ?&V           get(unsigned long key) const;
     int           contains(unsigned long key) const;
     ?V            remove(unsigned long key);
     unsigned long length() const;
     int           is_empty() const;
     void          foreach(fn void(unsigned long, &V) cb);   // ascending
-    void          clear();
+    void          clear();   // drops every value; no drop(): clear() before the memory goes
 };
 ```
+
+`BTree`에는 `drop()`이 없습니다: `clear()`가 남은 모든 값을 drop하므로, 값이 무언가를 소유한다면 트리의 메모리가 사라지기 전에 호출합니다([컨테이너는 원소를 소유합니다](#ownership) 참고).
 
 풀 때문에 `BTree`는 크므로(수십 KB), 스택에 두지 말고 정적 저장소에 두거나 할당합니다:
 
@@ -550,16 +563,18 @@ generic<T>
 struct StaticVec {
     static struct StaticVec<T> over([]T storage);   // capacity = storage.len
     int push(T val);  ?T pop();  ?&T top() const;  ?&T get(unsigned long idx) const;
-    unsigned long length() const;  int is_empty() const;  int is_full() const;  void clear();
+    unsigned long length() const;  int is_empty() const;  int is_full() const;
+    void clear();   // drops every element (no drop(): the storage is yours)
 };
 
 generic<V> struct StaticMapSlot { unsigned long key; V val; int used; };
 generic<V>
 struct StaticMap {
     static struct StaticMap<V> over([]StaticMapSlot<V> storage);
-    int insert(unsigned long key, V val);   // 0 if full
+    int insert(unsigned long key, V val);   // 0 if full (val is dropped); overwriting drops the old value
     ?&V get(unsigned long key) const;  int contains(unsigned long key) const;
-    unsigned long length() const;  int is_empty() const;  void clear();
+    unsigned long length() const;  int is_empty() const;
+    void clear();   // drops every value (no drop(): the storage is yours)
 };
 ```
 
@@ -576,7 +591,7 @@ void demo() {
 }
 ```
 
-컨테이너는 저장 공간에 대한 리전 없는 참조를 유지하므로, 배열은 컨테이너보다 오래 살아야 합니다.
+컨테이너는 저장 공간에 대한 리전 없는 참조를 유지하므로, 배열은 컨테이너보다 오래 살아야 합니다. 두 컨테이너 모두 `drop()`이 없습니다: 저장 공간은 여러분의 것이므로, 원소가 무언가를 소유한다면 저장 공간이 사라지기 전에 `clear()`합니다(각 원소를 drop합니다).
 
 
 

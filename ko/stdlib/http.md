@@ -837,6 +837,10 @@ struct WsConn {
     ?&heap TlsStream tls;   // a wss:// connection's TLS session, else null
     int is_server;   // 1: accepted server-side (sends unmasked, expects masked)
 
+    // A closed connection (fd = -1, nothing owned): the value to accept()
+    // into, or a placeholder. Dropping or closing it does nothing.
+    static struct WsConn closed();
+
     // Client: TCP connect + Upgrade handshake, verifying Sec-WebSocket-Accept.
     // connect limits the connect and the handshake to WS_DEFAULT_TIMEOUT_MS
     // (30 s); connect_timeout takes the limit (<= 0: none). The limit is
@@ -856,7 +860,9 @@ struct WsConn {
     static struct WsConn accept_upgrade(const &HttpRequest req, &HttpConn conn, ?&int ok);
 
     // Server: fills this connection in place; 1 once a client completes the
-    // handshake, 0 if it failed (the client's socket is already closed).
+    // handshake, 0 if it failed (the client's socket is already closed, and
+    // this connection is left closed). What it held before is overwritten,
+    // not closed: accept into a WsConn::closed().
     int  accept(int listenFd);
 
     int  send_text(const &char text);
@@ -868,7 +874,8 @@ struct WsConn {
     // One whole message (TEXT/BINARY) or a CLOSE frame; pings answered.
     // 0 on error or a message over max_len bytes (0 = no limit).
     int  recv_message(&WsMessage out, unsigned long max_len);
-    void close() consume;               // close frame + close the socket
+    void drop();                        // close frame + close the socket
+    void close() consume;               // = drop(). Both do nothing when fd < 0
 };
 
 int ws_listen(unsigned short port);     // listening fd for accept(), or -1
@@ -885,7 +892,7 @@ struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
     if (!ok) { ws.close(); return std::HttpResponse::error(400); }
     while (1) {
         struct WsMessage m;
-        if (!ws.recv_message(&m, 1048576UL)) { m.free(); break; }
+        if (!ws.recv_message(&m, 1048576UL)) { unsafe { forget(m); } break; }   // nothing was stored
         int op = m.opcode;
         m.free();
         if (op == WS_OPCODE_CLOSE) break;
@@ -904,12 +911,11 @@ struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
 int main() {
     int listener = std::ws_listen(9001);
     while (1) {
-        struct WsConn conn;
-        conn.fd = -1;                         // accept가 실패하면 닫을 것이 없습니다
+        struct WsConn conn = std::WsConn::closed();   // accept가 실패하면 닫을 것이 없습니다
         if (!conn.accept(listener)) { conn.close(); break; }
         while (1) {
             struct WsMessage msg;             // 프레임마다 새 메시지
-            if (!conn.recv(&msg)) { msg.free(); break; }
+            if (!conn.recv(&msg)) { unsafe { forget(msg); } break; }   // 저장된 것이 없습니다
             int op = msg.opcode;
             msg.free();                       // free()는 msg를 소비합니다
             if (op == WS_OPCODE_CLOSE) break;
@@ -921,6 +927,8 @@ int main() {
     return 0;
 }
 ```
+
+`accept`는 연결을 제자리에서 채우고, 그 전에 들고 있던 것을 닫지 않고 덮어씁니다. 그래서 매 반복은 `WsConn::closed()`(fd = -1, 소유한 것이 없는 연결)로 시작합니다. `accept`가 실패하면 연결은 닫힌 상태로 남고, 닫힌 연결의 `close()`/`drop()`과 send 함수들은 아무 일도 하지 않습니다(fd < 0) — 0으로 초기화된 `WsConn`처럼 fd 0을 닫는 일이 없습니다. `recv`가 실패하면 `msg`에는 아무것도 저장되지 않았으므로 해제하지 않고 `forget`합니다.
 
 ## RPC {#rpc}
 

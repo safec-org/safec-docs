@@ -157,7 +157,7 @@ static_assert(fieldcount(Packet) == 3, "Packet field count changed");
 컴파일 타임 조건부 분기입니다. 조건은 상수 표현식이어야 합니다. 선택된 분기만 컴파일됩니다 — 다른 분기는 코드 생성 전에 제거됩니다.
 
 ```c
-#include <io.h>
+#include <std/io.h>
 
 const int DEBUG = 1;
 
@@ -172,7 +172,7 @@ void log_message(const &char msg) {
 이는 전처리기 `#ifdef`보다 더 강력한데, 타입 검사에 참여하기 때문입니다 — 두 분기 모두 구문적으로 유효해야 하지만, 선택된 분기만 의미적으로 유효하면 됩니다.
 
 ```c
-#include <io.h>
+#include <std/io.h>
 
 generic<T>
 void print_value(T val) {
