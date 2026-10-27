@@ -833,17 +833,31 @@ Cross, bare-metal and WebAssembly builds don't use the prebuilt std; neither doe
 
 ## Environment Setup {#environment-setup}
 
-`safeguard` locates the SafeC toolchain using the `SAFEC_HOME` environment variable:
+`safeguard` locates the SafeC toolchain using the `SAFEC_HOME` environment variable, which the install script sets to the install prefix (`~/safec` by default); for a from-source build, point it at the SafeC repository root:
 
 ```bash
-export SAFEC_HOME=/path/to/SafeC
+export SAFEC_HOME=~/safec            # an install
+export SAFEC_HOME=/path/to/SafeC     # a source checkout
 ```
 
-This should point to the SafeC repository root. From there, `safeguard` auto-discovers:
+From there, `safeguard` auto-discovers:
 
-- The `safec` compiler binary at `$SAFEC_HOME/compiler/build/safec`
+- The `safec` compiler binary at `$SAFEC_HOME/bin/safec` (an install) or `$SAFEC_HOME/compiler/build/safec` (a checkout), else `safec` on `PATH`
 - The standard library at `$SAFEC_HOME/std/`
 - In an install, the [prebuilt std](#prebuilt-std) sections at `$SAFEC_HOME/lib/<triple>/std/`
+
+These variables override what it finds:
+
+| Variable | Effect |
+|---|---|
+| `SAFEC` | The `safec` binary to use |
+| `SAFEC_CLANG` / `SAFEC_CLANGXX` | The clang / clang++ that compiles and links (default: the one `safec --print-clang` reports; `llvm-ar` beside it archives) |
+| `SAFEC_STD_FROM_SOURCE=1` | Compile std from source instead of linking the [prebuilt std](#prebuilt-std) |
+| `SAFEC_STD_ARCHIVE` | Link this std archive instead (see [prebuilt std](#prebuilt-std)) |
+| `SAFEC_BLAS` / `SAFEC_BLAS_LIBS` | The CPU BLAS choice, or its link flags (see [`[build] blas`](#linking-external-libraries-and-library-output)) |
+| `SAFEC_STD_DOCS_URL` | Where `safeguard doc` points links to std items |
+| `SAFEC_DOC` / `SAFEC_DOC_ASSETS` | The `safec-doc` binary and its theme directory |
+| `SAFEGUARD_CACHE` | Where safeguard caches the tools it builds (default: `$XDG_CACHE_HOME/safeguard`, `~/.cache/safeguard`, or `%LOCALAPPDATA%\safeguard` on Windows) |
 
 ## Project Structure {#project-structure}
 

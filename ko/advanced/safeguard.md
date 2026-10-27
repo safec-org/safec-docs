@@ -832,17 +832,31 @@ safeguard: linking the prebuilt std sections core from ~/safec/lib/aarch64-apple
 
 ## 환경 설정 {#environment-setup}
 
-`safeguard`는 `SAFEC_HOME` 환경 변수를 사용하여 SafeC 툴체인을 찾습니다:
+`safeguard`는 `SAFEC_HOME` 환경 변수를 사용하여 SafeC 툴체인을 찾습니다. 설치 스크립트는 이를 설치 경로(기본값 `~/safec`)로 설정하며, 소스에서 빌드했다면 SafeC 저장소 루트를 가리키게 합니다:
 
 ```bash
-export SAFEC_HOME=/path/to/SafeC
+export SAFEC_HOME=~/safec            # an install
+export SAFEC_HOME=/path/to/SafeC     # a source checkout
 ```
 
-이는 SafeC 저장소 루트를 가리켜야 합니다. 여기서부터 `safeguard`는 다음을 자동으로 발견합니다:
+여기서부터 `safeguard`는 다음을 자동으로 발견합니다:
 
-- `$SAFEC_HOME/compiler/build/safec`에 있는 `safec` 컴파일러 바이너리
+- `$SAFEC_HOME/bin/safec`(설치본) 또는 `$SAFEC_HOME/compiler/build/safec`(체크아웃)에 있는 `safec` 컴파일러 바이너리, 없으면 `PATH`의 `safec`
 - `$SAFEC_HOME/std/`에 있는 표준 라이브러리
 - 설치본에서는 `$SAFEC_HOME/lib/<triple>/std/`에 있는 [미리 빌드된 std](#prebuilt-std) 섹션
+
+다음 변수가 찾은 것을 덮어씁니다:
+
+| 변수 | 효과 |
+|---|---|
+| `SAFEC` | 사용할 `safec` 바이너리 |
+| `SAFEC_CLANG` / `SAFEC_CLANGXX` | 컴파일·링크하는 clang / clang++(기본값: `safec --print-clang`이 알려 주는 것) |
+| `SAFEC_STD_FROM_SOURCE=1` | [미리 빌드된 std](#prebuilt-std)를 링크하는 대신 std를 소스에서 컴파일 |
+| `SAFEC_STD_ARCHIVE` | 대신 이 std 아카이브를 링크([미리 빌드된 std](#prebuilt-std) 참고) |
+| `SAFEC_BLAS` / `SAFEC_BLAS_LIBS` | CPU BLAS 선택, 또는 그 링크 플래그([`[build] blas`](#linking-external-libraries-and-library-output) 참고) |
+| `SAFEC_STD_DOCS_URL` | `safeguard doc`이 std 항목 링크를 가리키는 곳 |
+| `SAFEC_DOC` / `SAFEC_DOC_ASSETS` | `safec-doc` 바이너리와 그 테마 디렉터리 |
+| `SAFEGUARD_CACHE` | safeguard가 직접 빌드한 도구를 캐시하는 곳(기본값: `$XDG_CACHE_HOME/safeguard`, `~/.cache/safeguard`, Windows에서는 `%LOCALAPPDATA%\safeguard`) |
 
 ## 프로젝트 구조 {#project-structure}
 
