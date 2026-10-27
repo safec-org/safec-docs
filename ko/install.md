@@ -52,8 +52,8 @@ CMake, Ninja, C++17 컴파일러, LLVM 21 개발 파일이 필요합니다. `sc-
 스크립트는 기본적으로 `~/safec`에 설치하고, 셸 rc 파일(bash, zsh, fish; Windows는 사용자 환경 변수)에 `SAFEC_HOME`을 설정하고 `bin/`을 `PATH`에 추가합니다. 셸을 다시 시작하거나 rc 파일을 `source`한 뒤 확인하세요:
 
 ```bash
-safec --version
-safeguard --help
+safec --version       # safec 1.0.0-beta-7
+safeguard --version   # safeguard 1.0.0-beta-7
 ```
 
 ## 요구 사항 {#requirements}
@@ -72,7 +72,7 @@ safeguard --help
 | `install.sh` | `install.ps1` | |
 |---|---|---|
 | `--prefix=<path>` | `-Prefix <path>` | 설치 디렉터리 (기본 `~/safec`) |
-| `--version=<tag>` | `-Version <tag>` | 특정 릴리스, 예: `v1.0.0-beta-6` (기본: 프리릴리스를 포함한 최신) |
+| `--version=<tag>` | `-Version <tag>` | 특정 릴리스, 예: `v1.0.0-beta-7` (기본: 프리릴리스를 포함한 최신) |
 | `--std=<sections>` | `-Std <sections>` | 설치할 미리 빌드된 std 섹션, 예: `core,collections,gui` (기본 `all`) |
 | `--std=+<sections>` | `-Std +<sections>` | 기존 설치에 섹션 추가 |
 | `--skip-env` | `-SkipEnv` | 셸 환경을 건드리지 않음 |
@@ -80,7 +80,7 @@ safeguard --help
 파이프로 실행할 때는 `bash -s --`로 옵션을 넘깁니다:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash -s -- --version=v1.0.0-beta-6 --std=core,collections
+curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash -s -- --version=v1.0.0-beta-7 --std=core,collections
 ```
 
 표준 라이브러리의 소스는 항상 설치됩니다. 미리 빌드된 아카이브는 *섹션* — std의 최상위 디렉터리(`core`, `collections`, `gui`, `ml`, `http`, `audio`, `async`, ...) — 단위로 제공되며, `safeguard`는 프로젝트가 쓰는 섹션을 링크하고, 설치하지 않은 섹션은 필요할 때 소스에서 컴파일합니다. [미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std)를 참고하세요.
@@ -100,4 +100,4 @@ safeguard run
 
 ## 업데이트와 제거 {#updating}
 
-설치 명령을 다시 실행하면 최신 릴리스로 업데이트됩니다(`--version`으로 고를 수도 있습니다). 제거하려면 설치 디렉터리(기본 `~/safec`)와 설치 스크립트가 셸 rc 파일에 추가한 `# SafeC` 블록을 지우세요.
+설치 명령을 다시 실행하면 최신 릴리스로 업데이트됩니다(`--version`으로 고를 수도 있습니다). 최신 릴리스는 [1.0.0-beta-7](/ko/blog/releases/v1.0.0-beta-7)이며, 릴리스 노트에 변경 사항, 마이그레이션 방법, 알려진 문제가 있습니다. 제거하려면 설치 디렉터리(기본 `~/safec`)와 설치 스크립트가 셸 rc 파일에 추가한 `# SafeC` 블록을 지우세요.

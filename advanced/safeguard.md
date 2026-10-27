@@ -22,6 +22,7 @@
 | `safeguard verify-lock` | Check `Package.lock` against current dependency state |
 | `safeguard lint [--verbose]` | Run static-analysis lint passes on all `.sc` source files |
 | `safeguard format [--check]` | Reindent and whitespace-normalize all `.sc`/`.h` source files |
+| `safeguard --version` | Print safeguard's version, the SafeC release it ships with (`safeguard 1.0.0-beta-7`; `safec --version` prints the same release) |
 
 ## `check` — fast compile-only feedback {#check-fast-compile-only-feedback}
 

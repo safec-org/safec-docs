@@ -22,6 +22,7 @@
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 비교하여 검사 |
 | `safeguard lint [--verbose]` | 모든 `.sc` 소스 파일에 대해 정적 분석 린트 패스 실행 |
 | `safeguard format [--check]` | 모든 `.sc`/`.h` 소스 파일의 들여쓰기와 공백을 재정렬 |
+| `safeguard --version` | safeguard의 버전, 즉 함께 배포된 SafeC 릴리스를 출력(`safeguard 1.0.0-beta-7`. `safec --version`도 같은 릴리스를 출력) |
 
 ## `check` — 빠른 컴파일 전용 피드백 {#check-fast-compile-only-feedback}
 
