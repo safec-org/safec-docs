@@ -48,12 +48,99 @@ The compiler picks a backend for `spawn`/`join`/`spawn_scoped` based on the buil
 
 The **Hook** backend compiles `spawn`/`join` to calls against two fixed extern symbols — `__safec_thread_create(func, arg) -> i64` and `__safec_thread_join(i64) -> void` — a deliberate extension point: any runtime providing exactly those two symbols can back `spawn`/`join` without compiler changes. `std/sync/bare_spawn.sc` is the reference implementation, running spawned functions cooperatively on a `std::TaskScheduler` (see [Synchronization](/stdlib/sync)); a vendor RTOS shim could define the same two symbols instead.
 
+## Typed Threads and Locks {#typed-threads}
+
+The checked layer of `std/thread.h`, built on the handle-based functions below. The compiler's [Send/Sync and ownership checks](/reference/threads) apply to it: a value moved into `thread_spawn` can't be used afterwards, a guard that isn't dropped is a leak error, and a reference from `get()` can't outlive its guard.
+
+```c
+#include <std/thread.h>
+
+// A thread that owns its argument (T: Send, R: Send). A Drop value.
+generic<T, R> struct SpawnedThread {
+    int  started() const;           // 0 if the thread couldn't be created
+    R    join() consume;            // waits; f's result
+    void drop();                    // join() and drop the result
+};
+generic<T: Send, R: Send> struct SpawnedThread<T, R> thread_spawn(fn R(T) f, T arg);   // arg moves in
+
+generic<T: Send> struct Mutex {     // Sync: share it between threads
+    static struct Mutex<T> new(T value);
+    struct MutexGuard<T> lock() const;   // blocks; the guard is the only way to the value
+    T    into_inner() consume;      // the value back
+    void drop();
+};
+generic<T> struct MutexGuard {      // !Send: unlock on the locking thread
+    &T   get();                     // valid until drop()
+    void set(T value);              // replace (dropping the old value)
+    void drop();                    // unlocks
+};
+
+generic<T: Send + Sync> struct RwLock {
+    static struct RwLock<T> new(T value);
+    struct RwReadGuard<T>  read() const;    // many at once: get() is const &T
+    struct RwWriteGuard<T> write() const;   // exclusive: get() is &T
+    void drop();
+};
+```
+
+`Mutex` and `RwLock` keep the value in a heap box and must not move once locked (guards point at them); put a shared one in a `static` and initialize it before starting threads. Locking twice on one thread deadlocks (POSIX) — see the [OS-level mutex](#mutex).
+
+```c
+#include <std/thread.h>
+#include <std/collections/vec.h>
+extern int printf(const char *fmt, ...);
+
+static struct Mutex<int> g_total;
+
+long long sum(struct Vec<int> v) {           // owns v: nothing is shared
+    long long s = 0LL;
+    for (unsigned long i = 0UL; i < v.len; i = i + 1UL) s = s + (long long)*v.at(i);
+    v.drop();
+    return s;
+}
+
+?&int add_ten(?&int unused) {
+    for (int i = 0; i < 10; i = i + 1) {
+        struct MutexGuard<int> g = g_total.lock();
+        *g.get() = *g.get() + 1;
+        g.drop();                            // unlocks
+    }
+    return null;
+}
+
+int main() {
+    struct Vec<int> v = Vec::new();
+    for (int i = 1; i <= 100; i = i + 1) v.push(i);
+    struct SpawnedThread<struct Vec<int>, long long> t = thread_spawn(sum, v);   // v moves in
+    long long s = t.join();
+
+    g_total = Mutex::new(0);
+    long long h1 = spawn(add_ten, null);
+    long long h2 = spawn(add_ten, null);
+    join(h1);
+    join(h2);
+    int total = g_total.into_inner();
+
+    struct RwLock<int> limit = RwLock::new(5);
+    struct RwReadGuard<int> r = limit.read();
+    int seen = *r.get();
+    r.drop();
+    struct RwWriteGuard<int> w = limit.write();
+    *w.get() = 6;
+    w.drop();
+    limit.drop();
+
+    printf("%lld %d %d\n", s, total, seen);
+    return 0;
+}
+```
+
 ## Direct OS-Thread API (`thread.h`) {#direct-os-thread-api-threadh}
 
 The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a separate, explicitly-called API for when you want direct control over OS threads rather than the `spawn`/`join` keywords above. Both are pthread/Win32-backed on hosted targets; `thread_create`'s handle is ABI-compatible with `spawn`'s on Win32, but the two are otherwise independent (this API is not part of the Hook backend contract).
 
 ::: tip Checked threads
-`std/thread.h` also has the typed layer the compiler's [Send/Sync checks](/reference/threads) apply to: `thread_spawn(f, arg)` moves an argument (`T: Send`) into a new thread and returns a `SpawnedThread<T, R>` whose `join()` gives back `f`'s result, and `Mutex<T>` / `RwLock<T>` own the value they protect. The handle-based functions below check nothing about what threads share; prefer the typed layer.
+`std/thread.h` also has the typed layer the compiler's [Send/Sync checks](/reference/threads) apply to: `thread_spawn(f, arg)` moves an argument (`T: Send`) into a new thread and returns a `SpawnedThread<T, R>` whose `join()` gives back `f`'s result, and `Mutex<T>` / `RwLock<T>` own the value they protect. The handle-based functions below check nothing about what threads share; prefer the [typed layer](#typed-threads).
 :::
 
 ```c
