@@ -850,6 +850,7 @@ export SAFEC_HOME=/path/to/SafeC
 
 ```
 myproject/
+├── .gitignore
 ├── Package.toml
 ├── src/
 │   └── main.sc

@@ -851,6 +851,7 @@ A typical SafeC project created with `safeguard new`:
 
 ```
 myproject/
+├── .gitignore
 ├── Package.toml
 ├── src/
 │   └── main.sc
