@@ -82,10 +82,10 @@ git clone https://github.com/safec-org/sc-language-server
 cd sc-language-server/editors/vscode
 npm install
 npm install -g @vscode/vsce
-vsce package                         # -> safec-1.0.0.vsix
-code --install-extension safec-1.0.0.vsix
+vsce package                         # -> safec-analyzer-<version>.vsix
+code --install-extension safec-analyzer-*.vsix
 ```
-그다음 설정에 `"safec.server.path": "/path/to/sc-lsp"`를 넣으세요. 확장은 `.sc`와 `.h`를 맡습니다. 일반 C 헤더는 *Change Language Mode*로 C/C++ 확장에 돌려줄 수 있습니다.
+그다음 설정에 `"safec.server.path": "/path/to/sc-lsp"`를 넣으세요. 확장(SafeC Analyzer)은 `.sc`, `.scx`, `.h`를 맡습니다. 일반 C 헤더는 *Change Language Mode*로 C/C++ 확장에 돌려줄 수 있습니다.
 :::
 ::: tab Neovim
 ```lua

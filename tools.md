@@ -82,10 +82,10 @@ git clone https://github.com/safec-org/sc-language-server
 cd sc-language-server/editors/vscode
 npm install
 npm install -g @vscode/vsce
-vsce package                         # -> safec-1.0.0.vsix
-code --install-extension safec-1.0.0.vsix
+vsce package                         # -> safec-analyzer-<version>.vsix
+code --install-extension safec-analyzer-*.vsix
 ```
-Then set `"safec.server.path": "/path/to/sc-lsp"` in your settings. The extension claims `.sc` and `.h`; use *Change Language Mode* to hand a plain C header back to the C/C++ extension.
+Then set `"safec.server.path": "/path/to/sc-lsp"` in your settings. The extension (SafeC Analyzer) claims `.sc`, `.scx` and `.h`; use *Change Language Mode* to hand a plain C header back to the C/C++ extension.
 :::
 ::: tab Neovim
 ```lua
