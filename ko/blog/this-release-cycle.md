@@ -6,6 +6,8 @@ tags: [release, std, async, audio, web, gui]
 summary: 1.0.0-beta-6 이후 SafeC 표준 라이브러리에 Rust 스타일 비동기, 실시간 오디오와 MIDI, HTTPS를 포함한 완전한 웹 스택, Wayland와 브라우저에서도 도는 안티에일리어싱 GUI 툴킷, 섹션 단위로 미리 빌드된 std가 추가되었습니다. 문서는 이제 SafeC로 빌드되고, Windows CI가 다시 통과합니다.
 ---
 
+> 2026-10-27에 **[1.0.0-beta-7](/ko/blog/releases/v1.0.0-beta-7)로 릴리스되었습니다.**
+
 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 몇 주는 표준 라이브러리에 쓰였습니다. 이제 HTTP를 서비스하고, 창을 열고, 오디오를 재생하고, future를 await하는 프로그램을 `std`만으로 작성할 수 있습니다. 아래 내용은 모두 `main`에 병합되었고(풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)–[#67](https://github.com/safec-org/SafeC/pull/67)) 다음 릴리스에 포함됩니다([변경 내역](/ko/changelog)은 #69부터 기록하며, beta-6 이후 전체 내용은 [다음 릴리스 미리 보기](/ko/blog/whats-coming-next)에 정리했습니다).
 
 ## std/async: 언어 코루틴 없는 future {#async}
