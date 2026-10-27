@@ -273,7 +273,10 @@ struct Result {
     int err() const;
     ?&T get_ok();              // null for an error
     ?&E get_err();             // null for a success
-    T   unwrap_or(T fallback) const;
+    T   unwrap_or(T fallback) consume;   // the value, or 'fallback' (the other one is dropped)
+    T   unwrap() consume;                // the value; panics for an error result
+    E   unwrap_err() consume;            // the error; panics for an ok result
+    void drop();                         // when T or E owns something (String, Vec, ...)
 };
 ```
 
@@ -380,10 +383,10 @@ unsigned long long sys_strtoull(const &char s, ?&&const char end, int base);
 double             sys_strtod(const &char s, ?&&const char end);
 float              sys_strtof(const &char s, ?&&const char end);
 
-// Typed sort/search over n elements starting at first; cmp returns <0 / 0 / >0.
-generic<T> void sys_qsort(&T first, unsigned long n, fn int(const &T, const &T) cmp);
-generic<T> ?&T  sys_bsearch(const &T key, const &T first, unsigned long n,
-                            fn int(const &T, const &T) cmp);   // match, or null
+// Typed sort/search over a slice; cmp returns <0 / 0 / >0.
+generic<T> void           sys_qsort([]T items, fn int(const &T, const &T) cmp);
+generic<T> ?unsigned long sys_bsearch(const &T key, []const T items,
+                                      fn int(const &T, const &T) cmp);   // the index of a match, or null
 
 long long   sys_cpu_time_ns();
 long long   sys_time_now_ns();
@@ -444,7 +447,7 @@ int time_days_in_month(int month, int year);        // month 0-11, full year (e.
 int time_is_leap(int year);
 ```
 
-```c
+```c norun
 #include <std/time.h>
 #include <std/io.h>
 

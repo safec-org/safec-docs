@@ -112,7 +112,7 @@ struct DenseTensor {
     float at2(unsigned long r, unsigned long c) const;
     void  set1(unsigned long i, float v);                  // rounded to E
     void  set2(unsigned long r, unsigned long c, float v);
-    void  free();
+    void  free() consume;
     // ... and the methods below
 };
 
@@ -1504,7 +1504,9 @@ The tests run each technique on its problem:
 ```
 
 Every tensor has a device: `DEVICE_CPU`, or a GPU backend (`DEVICE_ROCM` for
-AMD, `DEVICE_CUDA` for NVIDIA, `DEVICE_MPS` for Apple Silicon). An op runs
+AMD, `DEVICE_CUDA` for NVIDIA, `DEVICE_MPS` for Apple Silicon, and the
+cross-vendor `DEVICE_VULKAN` — any Vulkan 1.2 GPU, Apple's through MoltenVK —
+and `DEVICE_WEBGPU`). An op runs
 on the device of its operands. If any operand lives on a GPU, the op runs
 there, uploading the others, and its result lives there too. A model whose
 parameters are on a GPU therefore trains there through the same code that
@@ -1529,7 +1531,7 @@ model_sync(&net);                          // host copies current: save, inspect
 |---|---|
 | Explicitly | `TrainConfig.device` (the fits place the optimizer's parameters there and keep the dataset there); `model_to(&m, d)` for any model (its parameters and buffers: running statistics, an averaged generator); `t.place(d)` moves a tensor in place; `t.to(d)` returns a copy on `d` (a graph node: gradients flow back) |
 | By default | `device_set_default(d)`; `device_default()` is what `DEVICE_AUTO` resolves to |
-| Automatically | `device_auto()`: the first usable GPU among the backends the program was built with (ROCm, then CUDA, then Metal), else the CPU. `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps` in the environment overrides it. |
+| Automatically | `device_auto()`: the first usable GPU among the backends the program was built with (ROCm, CUDA, Metal, then Vulkan and WebGPU), else the CPU. `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps\|vulkan\|webgpu` in the environment overrides it. |
 
 The build's [features](/advanced/safeguard#feature-flags) link the backends
 in, and `safeguard` adds each one's libraries to the link (the Link column;
@@ -1540,7 +1542,9 @@ on the CPU and links no GPU library:
 |---|---|---|
 | `rocm` | `device_rocm.sc`: HIP kernels compiled once by hiprtc, rocBLAS GEMMs, MIOpen convolutions | `-lamdhip64 -lhiprtc -lrocblas`, `-lMIOpen` (optional, weak: without it convolutions use im2col + GEMM) |
 | `cuda` | `device_cuda.sc`: the same kernel source compiled by NVRTC, cuBLAS, cuDNN | `-lcuda -lcublas -lnvrtc`, `-lcudnn` (optional, weak) |
-| `mps` | `device_mps.sc`: shared-memory buffers, `mps_gemm`, the Metal optimizer kernel; other ops run on the CPU over the shared memory | `-framework Metal -framework Foundation -lobjc` |
+| `mps` | `device_mps.sc`: shared-memory buffers; the same kernel source compiled at run time by Metal, with Metal GEMM and implicit-GEMM convolution kernels | `-framework Metal -framework Foundation -lobjc` |
+| `vulkan` | `device_vulkan.sc`: the same kernels as SPIR-V, compiled ahead of time with Slang and embedded (no shader toolchain needed); needs Vulkan 1.2 with buffer device addresses | `-lvulkan` (`-lvulkan-1` on Windows; on macOS Homebrew's `vulkan-loader` and `molten-vk`) |
+| `webgpu` | `device_webgpu.sc`: the same kernels ported to WGSL (`device_kernels.wgsl`, checked against `device_kernels.cu`), through the WebGPU C API | a WebGPU implementation, e.g. wgpu-native: `-lwgpu_native` |
 
 `device_compiled(d)`, `device_available(d)`, `device_name(d)`,
 `device_sync(d)` and `device_stats(d)` (launches, GEMMs, transfers and
@@ -1572,9 +1576,10 @@ every op works on every device; the GPU only changes the speed.
 **Traits.** `DenseTensor` and [`SparseTensor`](#sparse) conform to
 `trait DeviceTensor : Tensor` (`device()`, `place(d)`, `sync()`), so
 [generic code](/reference/generics#composing-traits) can take either.
-`RocmTensor`, `CudaTensor` and `MpsTensor` each inherit `DeviceTensor` and
+`RocmTensor`, `CudaTensor`, `MpsTensor`, `VulkanTensor` and `WebGpuTensor` each inherit `DeviceTensor` and
 add `device_buffer()`, the values' buffer on that backend (a hipDeviceptr, a
-CUdeviceptr, an MTLBuffer), for code that calls a vendor library itself.
+CUdeviceptr, an MTLBuffer's GPU address, a Vulkan buffer device address, an
+offset into the WebGPU backend's heap), for code that calls a vendor library itself.
 
 ```c
 generic<T: DeviceTensor>
@@ -1585,8 +1590,10 @@ int to_host(&T t) { return t.sync(); }   // a DenseTensor or a SparseTensor
 upload, download, copy, sync, gemm, gemm_batched, conv, launch, offset,
 storage16), registered with `device_register_backend_(device, &tag)`; every
 call resolves at compile time, and the runtime only picks the device from
-the tensors. The ROCm and CUDA backends share one kernel source,
-`device_kernels.cu`.
+the tensors. Every backend runs one kernel set, `device_kernels.cu`: ROCm,
+CUDA and Metal compile it at run time (hiprtc, NVRTC, Metal), Vulkan runs it
+as SPIR-V compiled ahead of time, and WebGPU runs a WGSL port of it that a
+script checks against the source.
 
 ### Precision: fp16 and bf16 on the device {#device-precision}
 
@@ -1595,7 +1602,7 @@ the tensors. The ROCm and CUDA backends share one kernel source,
 `device_set_precision(d, DEVICE_FP16)` (or `DEVICE_BF16`), or
 `TrainConfig.precision` for one fit, trains in 16 bits on `d`:
 
-- **Storage.** On ROCm and CUDA, activations and their gradients are stored
+- **Storage.** On every GPU backend, activations and their gradients are stored
   in 16 bits. Parameters, their gradients and the optimizer state stay
   fp32. A buffer's element type travels with its device handle, so every
   kernel, copy, GEMM and convolution reads it from there; kernels compute in
@@ -1603,7 +1610,9 @@ the tensors. The ROCm and CUDA backends share one kernel source,
   a plain fp32 build and one for 16-bit operands, and a launch picks the
   plain build when no operand is 16-bit, so fp32 training pays nothing.
 - **Compute.** Matmuls run as 16-bit GEMMs with fp32 accumulation (rocBLAS
-  / cuBLAS `gemm_ex`), convolutions in MIOpen's / cuDNN's 16-bit kernels.
+  / cuBLAS `gemm_ex`), convolutions in MIOpen's / cuDNN's 16-bit kernels;
+  the Metal, Vulkan and WebGPU backends use their own GEMM and convolution
+  kernels.
   The first time each convolution shape and direction runs, the 16-bit and
   fp32 versions are timed and the faster kept for that shape
   (`device_set_precision_pick(DEVICE_PICK_ALWAYS)` runs every one in 16 bits).
@@ -1616,9 +1625,6 @@ the tensors. The ROCm and CUDA backends share one kernel source,
   the scale halves, and 2000 clean steps in a row double it.
   `device_loss_scale(d)` reads it. bf16 shares fp32's exponent range and
   needs no scaling.
-- **Metal.** The Metal backend keeps fp32 storage (its kernels run on the
-  CPU over shared memory), so a 16-bit precision there changes only the loss
-  scaling.
 
 On an MI100, fp16 is the faster 16-bit type: MIOpen's fp16 kernels use the
 matrix cores, while its bf16 convolutions run at about fp32 speed or slower
@@ -1675,7 +1681,7 @@ check passes.
 #include <std/ml/gpu_mps.h>   // Apple Silicon/macOS — [features] "mps"
 #include <std/ml/gpu_cuda.h>  // NVIDIA — [features] "cuda"
 #include <std/ml/gpu_rocm.h>  // AMD — [features] "rocm"
-#include <std/ml/gpu_spirv.h> // Vulkan/SPIR-V (incomplete, see Backend status)
+#include <std/ml/gpu_spirv.h> // Vulkan (SPIR-V), cross-vendor — [features] "vulkan"
 #include <std/ml/gpu_webgpu.h>// WebGPU
 ```
 
@@ -2083,7 +2089,7 @@ generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
 int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
-int mps_relu_backward_f32(((const float*)([]const float a))[0..[]float out], ((float*)([]const float selfGrad))[0..[]float out]);
+int mps_relu_backward_f32([]const float a, []const float selfGrad, []float out);
 
 // Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
 //   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
@@ -2198,12 +2204,11 @@ On an M1 Pro, a decode step over 8 sequences × 2048 cached tokens (8 heads, hea
 
 ### Tensor wrappers
 
-Autograd `FloatTensor` ops that run their forward pass on a backend without a [device backend](#devices) of its own, and reuse the CPU backward. Each falls back to the CPU when its device is unavailable. ROCm, CUDA and Metal tensors run every op on the device instead: place the tensor there.
+Autograd `FloatTensor` ops that run one forward pass on a GPU or a CPU library and reuse the CPU backward. Each falls back to the CPU when its device is unavailable. On ROCm, CUDA, Metal, Vulkan and WebGPU, tensors placed on the [device](#devices) run every op there, backward included.
 
 | Header | Functions | Device |
 |--------|-----------|--------|
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
-| `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`); elsewhere the core's own SIMD ops |
 | `tensor_blas.h` | `tensor_matmul_blas` | through `sgemm`: a linked CBLAS (Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), else the built-in kernel |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | picks core (`sgemm`) / vDSP / BLAS by size |
@@ -2216,10 +2221,10 @@ Autograd `FloatTensor` ops that run their forward pass on a backend without a [d
 |---|---|---|---|---|
 | ROCm / HIP | real (HIP C++, compiled at first use by hiprtc) | real (64×64 LDS-tiled SGEMM) | real (rocBLAS) | **measured** on MI100: 325 + 73 checks in `tests/stdlib/rocm`, and the [MLP benchmarks](/benchmarks#ml-mlp) |
 | CUDA | real (CUDA C++, compiled at first use by NVRTC) | real (64×64 shared-memory-tiled SGEMM) | real (cuBLAS; cuBLASLt for GEMM + ReLU) | **measured** on H200: 216 checks in `tests/stdlib/cuda` (including cuDNN and cuFFT), the [MLP benchmarks](/benchmarks#ml-mlp) and the [conv/FFT benchmarks](/benchmarks#ml-convolution) |
-| Vulkan/SPIR-V | always returns 0 | always returns 0 | n/a | SPIR-V is binary IR; no glslc/glslangValidator in the test environment |
-| WebGPU | real (WGSL, text IR) | real (WGSL) | n/a | unmeasured — no wgpu-native/Dawn library in the test environment |
+| Vulkan (SPIR-V) | real (`device_kernels.cu` as SPIR-V, compiled ahead of time with Slang) | real (the Metal GEMM kernels, as SPIR-V) | n/a | `tests/stdlib/vulkan/run.sh` checks the host-array API and every training workload in fp32, fp16 and bf16 against the CPU, on a Vulkan 1.2 GPU |
+| WebGPU | real (WGSL port of `device_kernels.cu`) | real (WGSL) | n/a | `tests/stdlib/webgpu/run.sh` checks the struct layouts against `webgpu.h`, the host-array API and every training workload against the CPU, with wgpu-native |
 
-SPIR-V kernels are binary IR, so the Vulkan backend needs a SPIR-V compiler (glslc/glslangValidator) to be complete; WebGPU takes text IR (WGSL) and is written in full, but no wgpu-native/Dawn library was available to run it.
+The SPIR-V is generated from `device_kernels.cu` by `gen_device_kernels.sh` (Slang) and checked in, so a program needs only the Vulkan loader. WGSL has no pointers, 64-bit integers or float atomics, so WebGPU runs `device_kernels.wgsl`, a port `gen_device_kernels_wgsl.sh` checks against the CUDA source.
 
 ## fp16 / bf16 {#fp16-bf16}
 
@@ -2249,7 +2254,7 @@ void fp16_to_bf16_bulk([]const unsigned short src, []unsigned short dst);
 void bf16_to_fp16_bulk([]const unsigned short src, []unsigned short dst);
 
 int         half_cpu_features();        // HALF_CPU_* bits, detected once
-const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
+const &char half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
 
 **What the CPU does natively.** Every x86-64 CPU since 2012 converts fp16

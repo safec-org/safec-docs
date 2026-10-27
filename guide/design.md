@@ -196,6 +196,11 @@ Exceptions hide control flow. In a real-time system, you need to know exactly wh
 SafeC uses return values for error handling. This is more verbose than exceptions, but the control flow is always visible:
 
 ```c
+#include <stdio.h>
+
+#define SENSOR_COUNT 4
+static float sensorValues[SENSOR_COUNT] = { 21.5f, 22.0f, 19.8f, 20.1f };
+
 int readSensor(int id, &float out) {
     if (id < 0 || id >= SENSOR_COUNT) return -1;
     *out = sensorValues[id];              // write through the reference; no unsafe needed

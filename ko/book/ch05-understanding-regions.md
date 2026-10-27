@@ -234,6 +234,15 @@ double sum_point(&Point p) {
 암묵적으로 변환됩니다.
 
 ```c
+#include <stdio.h>
+
+// 위의 struct Point와 sum_point(): 이 예제만으로 실행되도록
+struct Point { double x; double y; }
+
+double sum_point(&Point p) {
+    return p.x + p.y;
+}
+
 int main() {
     struct Point local;
     local.x = 1.0; local.y = 2.0;

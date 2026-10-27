@@ -135,6 +135,7 @@ struct PoolAllocator pool = std::PoolAllocator::new(4096UL);
 ?&heap Packet p = std::alloc_t(&pool);                 // T = Packet
 ?&heap float xs = std::alloc_array_t(&pool, 64UL);     // 64 floats
 match (p) { case some(x): std::dealloc_t(&pool, x); case null: { } }
+pool.destroy();
 ```
 
 `alloc_array_t` aborts with a diagnostic if `n * sizeof(T)` overflows (`checked_mul_size`). The memory is uninitialised. These are distinct from [`std::alloc` / `std::dealloc`](/stdlib/mem), which allocate from the general-purpose heap and take no allocator.
@@ -227,7 +228,7 @@ struct BumpAllocator {
     void          dealloc(?&heap unsigned char ptr);   // no-op (one block can't be freed)
     void          reset();                    // every earlier allocation becomes invalid
     unsigned long remaining() const;
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -250,7 +251,9 @@ int main() {
     std::print("remaining: ");
     std::println_int((long long)a.remaining());
     a.reset();                               // next frame starts empty
-    return counts.is_null() ? 1 : 0;
+    int rc = counts.is_null() ? 1 : 0;
+    a.destroy();                             // BumpAllocator is a Drop type
+    return rc;
 }
 ```
 
@@ -275,7 +278,7 @@ struct SlabAllocator {
     void          reset();                   // frees every slot at once
     unsigned long available() const;         // free slots
     unsigned long max_align() const;         // largest power of two dividing obj_size, <= 8
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -319,7 +322,7 @@ struct PoolAllocator {
     void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
     unsigned long available() const;         // total free bytes
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 
@@ -339,7 +342,7 @@ struct TlsfAllocator {
     ?&heap unsigned char alloc(unsigned long size, unsigned long align);   // byte level; null if exhausted or align > 8
     void          dealloc(?&heap unsigned char ptr);  // a block alloc() returned; null is a no-op
     void          reset();                   // the whole buffer is one free block again
-    void          destroy();
+    void          destroy() consume;
 };
 ```
 

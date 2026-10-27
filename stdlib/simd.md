@@ -129,7 +129,7 @@ int sgemm(int transA, int transB, unsigned long m, unsigned long n, unsigned lon
 
 // Same, always on the calling thread (no pool; a vendor library, if linked,
 // runs single-threaded): for code that is already parallel.
-void sgemm_serial(/* same parameters */);
+int sgemm_serial(/* same parameters */);
 
 int sgemm_vendor();            // 1 if a vendor BLAS is in use
 const &char sgemm_backend();   // "AOCL-BLAS (BLIS)", "oneMKL", "Accelerate", "OpenBLAS", "CBLAS", "built-in"

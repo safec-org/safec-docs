@@ -134,7 +134,7 @@ struct QueryParams {
 
     struct String to_string() const;                          // "k=v&k2=v2", form-encoded
     struct QueryParams clone() const;
-    void          free();
+    void          free() consume;
 };
 ```
 
@@ -170,7 +170,7 @@ struct Url {
     struct String path_decoded() const;
     int           is_absolute() const;
     struct Url    clone() const;
-    void          free();
+    void          free() consume;
 };
 
 struct String url_remove_dot_segments(const &char path);   // "/a/b/../c/./d" -> "/a/c/d"

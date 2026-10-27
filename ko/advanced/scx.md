@@ -180,7 +180,7 @@ SafeC 확장이 설치된 에디터에서 파일을 열면 `.sc` 파일과 동�
 마찬가지입니다. 프론트엔드/백엔드 분리는 파일을 제외하는 것이 아니라
 scx로 렌더링된 페이지를 조건부로 *호출*하는 것에서 나옵니다:
 
-```c
+```c norun
 // src/main.sc
 #ifdef SAFEC_FEATURE_FRONTEND
 struct String render_home(const &char visitor_name); // src/pages.scx

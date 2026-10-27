@@ -40,6 +40,7 @@ struct HttpResponse create(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();           // Router is a Drop type: freed however main returns
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -161,7 +162,7 @@ struct HttpRequest {
     int                content_type_is(const &char mime) const;
     struct String      cookie(const &char name) const;    // empty if unset
     struct HttpRequest clone() const;
-    void free();
+    void free() consume;
 };
 
 struct HttpResponse {
@@ -185,7 +186,7 @@ struct HttpResponse {
     struct HttpHeaders header_map() const;
     void          set_body(const &char body);
     void set_body_bytes([]const unsigned char data);
-    void free();
+    void free() consume;
 };
 
 const &char http_reason_phrase(int status);    // 413 -> "Content Too Large"; "Unknown" otherwise
@@ -236,7 +237,7 @@ struct HttpHeaders {
     void          write_to(&String out) const;                    // "Name: value\r\n" per field
     struct String to_raw() const;                                 // the raw block form
     struct HttpHeaders clone() const;
-    void          free();
+    void          free() consume;
 };
 
 // Parameters of structured values: boundary of a Content-Type, filename of a
@@ -292,7 +293,7 @@ struct Router {
     int  serve(&HttpServer srv);                 // blocking
     int  start(&HttpServer srv);                 // background
     int  listen(const &HttpServerConfig cfg);    // bind + serve
-    void free();
+    void free() consume;
 };
 
 struct HttpConn http_conn_none();   // for calling dispatch() outside a server
@@ -401,7 +402,7 @@ struct CookieList {                         // a request's Cookie header(s)
     const ?&char  get(const &char name) const;
     const ?&char  name_at(unsigned long i) const;
     const ?&char  value_at(unsigned long i) const;
-    void          free();
+    void          free() consume;
 };
 
 struct SetCookie {
@@ -413,7 +414,7 @@ struct SetCookie {
     static struct SetCookie removal(const &char name, const &char path);
     static struct SetCookie parse(const &char header_value, ?&int ok);
     struct String to_string() const;
-    void          free();
+    void          free() consume;
 };
 
 void http_set_cookie(&HttpResponse resp, const &SetCookie c);   // adds one Set-Cookie line
@@ -451,7 +452,7 @@ struct MultipartForm {
     ?&MultipartPart get(const &char name);
     ?&MultipartPart part_at(unsigned long i);
     const ?&char    value(const &char name) const;   // a plain field's text
-    void            free();
+    void            free() consume;
 };
 
 struct MultipartBuilder {              // for client requests
@@ -460,7 +461,7 @@ struct MultipartBuilder {              // for client requests
     void add_file(const &char name, const &char filename, const &char content_type, []const unsigned char data);
     struct String content_type() const;   // "multipart/form-data; boundary=..."
     void finish();                        // then send .body
-    void free();
+    void free() consume;
 };
 ```
 
@@ -511,16 +512,16 @@ struct SseStream {                     // server side
     int  send_event(const ?&char event, const &char data, const ?&char id);
     int  comment(const &char text);    // keep-alive ping
     int  retry(int ms);
-    void close();
+    void close() consume;
 };
 
-struct SseEvent { struct String event, data, id; int retry; void free(); };
+struct SseEvent { struct String event, data, id; int retry; void free() consume; };
 
 struct SseParser {                     // incremental text/event-stream parser
     static struct SseParser new();
     void feed([]const unsigned char bytes);
     int  next(&SseEvent out);          // 1 with an event, 0 when more input is needed
-    void free();
+    void free() consume;
 };
 
 struct SseClient {                     // client side (http:// and https:// URLs)
@@ -529,7 +530,7 @@ struct SseClient {                     // client side (http:// and https:// URLs
     static struct SseClient connect_tls(const &char url, const ?&char last_event_id, const ?&TlsConfig cfg,
                                         int timeout_ms, ?&int ok);
     int  next(&SseEvent out);          // blocks; 0 once the stream ended
-    void close();
+    void close() consume;
 };
 ```
 
@@ -799,7 +800,7 @@ struct OAuth2Token {
                                       const &char tokenPath, const &char clientId,
                                       const &char clientSecret, const &char refreshToken, ?&int ok);
 
-    void free();                 // releases the three strings
+    void free() consume;         // releases the three strings
 };
 ```
 
@@ -829,7 +830,7 @@ struct WsMessage {
     int                  opcode;   // WS_OPCODE_*
     ?&heap unsigned char data;     // null for an empty frame
     unsigned long        len;
-    void free();
+    void free() consume;
 };
 
 struct WsConn {
@@ -868,7 +869,7 @@ struct WsConn {
     // One whole message (TEXT/BINARY) or a CLOSE frame; pings answered.
     // 0 on error or a message over max_len bytes (0 = no limit).
     int  recv_message(&WsMessage out, unsigned long max_len);
-    void close();                       // close frame + close the socket
+    void close() consume;               // close frame + close the socket
 };
 
 int ws_listen(unsigned short port);     // listening fd for accept(), or -1
@@ -882,12 +883,14 @@ struct HttpResponse chat(&HttpRequest req, &HttpCtx ctx) {
     if (!std::ws_is_upgrade(req)) return std::HttpResponse::text(426, "WebSocket only");
     int ok = 0;
     struct WsConn ws = std::WsConn::accept_upgrade(req, ctx.conn, &ok);
-    if (!ok) return std::HttpResponse::error(400);
-    struct WsMessage m;
-    while (ws.recv_message(&m, 1048576UL)) {
-        if (m.opcode == WS_OPCODE_CLOSE) { m.free(); break; }
-        ws.send_text("got it");
+    if (!ok) { ws.close(); return std::HttpResponse::error(400); }
+    while (1) {
+        struct WsMessage m;
+        if (!ws.recv_message(&m, 1048576UL)) { m.free(); break; }
+        int op = m.opcode;
         m.free();
+        if (op == WS_OPCODE_CLOSE) break;
+        ws.send_text("got it");
     }
     ws.close();
     return std::HttpResponse::new(200);   // ignored: the connection was detached
@@ -901,16 +904,20 @@ A `WsConn` is message-based (`recv` yields whole frames), so it is not a byte-st
 
 int main() {
     int listener = std::ws_listen(9001);
-    struct WsConn conn;
-    while (conn.accept(listener)) {
-        struct WsMessage msg;
-        while (conn.recv(&msg)) {
-            if (msg.opcode == WS_OPCODE_CLOSE) { msg.free(); break; }
-            if (msg.opcode == WS_OPCODE_PING)  { conn.send_pong(); }
-            if (msg.opcode == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
-            msg.free();
+    while (1) {
+        struct WsConn conn;
+        conn.fd = -1;                         // nothing to close if accept fails
+        if (!conn.accept(listener)) { conn.close(); break; }
+        while (1) {
+            struct WsMessage msg;             // a fresh message per frame
+            if (!conn.recv(&msg)) { msg.free(); break; }
+            int op = msg.opcode;
+            msg.free();                       // free() consumes msg
+            if (op == WS_OPCODE_CLOSE) break;
+            if (op == WS_OPCODE_PING)  { conn.send_pong(); }
+            if (op == WS_OPCODE_TEXT)  { conn.send_text("echo"); }
         }
-        conn.close();
+        conn.close();                         // close() consumes conn
     }
     return 0;
 }
@@ -930,7 +937,7 @@ struct RpcResult {
     ?&heap unsigned char data;          // response bytes; null on failure
     unsigned long        len;
     struct String        error_message; // when ok == 0
-    void free();
+    void free() consume;
 };
 
 typedef fn struct RpcResult([]const unsigned char data) RpcMethodHandler;
@@ -1004,7 +1011,7 @@ struct Signal {
     int           changed(&unsigned long last_seen) const; // 1 (and updates last_seen) if version moved
     void          notify();         // run subscribers in registration order
     void          unsubscribe_all();
-    void          free();
+    void          free() consume;
 };
 
 // listener(userdata) runs on every later set()/notify() — not for the current value.

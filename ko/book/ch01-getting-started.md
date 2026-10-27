@@ -36,6 +36,7 @@ cd hello
 
 ```
 hello/
+├── .gitignore
 ├── Package.toml
 └── src/
     └── main.sc
@@ -50,12 +51,14 @@ safeguard run
 ```
 
 ```
-Hello from SafeC!
+Hello from hello!
 ```
+
+(인사말에는 프로젝트 이름이 들어갑니다.)
 
 ## SafeC 프로그램의 구조 {#anatomy-of-a-safec-program}
 
-`src/main.sc`를 열어 봅니다.
+`src/main.sc`를 열어 봅니다. 주석을 빼고 인사말을 바꾸면 다음과 같습니다.
 
 ```c
 extern int printf(const char* fmt, ...);

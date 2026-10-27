@@ -61,7 +61,7 @@ struct AesCtx {
     int gcm_decrypt([]const unsigned char iv, []const unsigned char aad, []unsigned char data, []const unsigned char tag);
 
     // 사용이 끝나면 키 스케줄과 IV를 지움(volatile 저장).
-    void destroy();
+    void destroy() consume;
 }
 ```
 
@@ -602,7 +602,7 @@ struct SecureAllocator {
     ?&heap unsigned char alloc(unsigned long size, unsigned long align);
     void          dealloc(?&heap unsigned char ptr);  // 슬롯을 0으로 지운 뒤 해제; null이면 아무것도 안 함
     unsigned long available() const;
-    void          destroy();             // 모든 슬롯을 0으로 지우고 백킹 버퍼를 해제
+    void          destroy() consume;     // 모든 슬롯을 0으로 지우고 백킹 버퍼를 해제
 };
 ```
 
@@ -789,7 +789,7 @@ struct TlsTranscript {
     struct Sha256Ctx hash;
 
     void update([]const unsigned char data);
-    void finish(unsigned char out[32]);   // snapshot — the transcript stays usable
+    void finish([]unsigned char out);     // 32 bytes; a snapshot — the transcript stays usable
 };
 
 struct TlsSession {

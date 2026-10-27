@@ -76,7 +76,7 @@ C를 시스템 언어로 만드는 모든 것 — 예측 가능한 성능, 안�
 ::: card chip
 ### [베어메탈과 WebAssembly](/ko/reference/baremetal)
 
-`--freestanding`은 인터럽트 핸들러, 인라인 어셈블리, `volatile` MMIO와 함께 14개의 OS 없는 타깃(Cortex-M, RISC-V, x86, AArch64)으로 빌드합니다. `--target=wasm32`는 `std/wasm` DOM 바인딩을 쓰는 브라우저 모듈을 만듭니다.
+`--freestanding`은 인터럽트 핸들러, 인라인 어셈블리, `volatile` MMIO와 함께 15개의 OS 없는 타깃(Cortex-M, RISC-V, x86, AArch64)으로 빌드합니다. `--target=wasm32`는 `std/wasm` DOM 바인딩을 쓰는 브라우저 모듈을 만듭니다.
 :::
 ::: card flow
 ### [런타임 부담 없는 비동기](/ko/stdlib/async)
@@ -187,6 +187,7 @@ struct HttpResponse hello(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -210,7 +211,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // 디스플레이 없음
+        case null: { app.free(); return 1; }     // 디스플레이 없음
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -224,7 +225,7 @@ int main() {
     return 0;
 }
 ```
-X11, Win32, Cocoa에서 TrueType 텍스트를 지원하는 안티에일리어싱 벡터 캔버스와 30개 이상의 테마 위젯 — [GUI](/ko/stdlib/gui).
+X11, Wayland, Win32, Cocoa와 웹(WebAssembly)에서 TrueType 텍스트를 지원하는 안티에일리어싱 벡터 캔버스와 30개 이상의 테마 위젯 — [GUI](/ko/stdlib/gui).
 :::
 ::: tab 비동기
 ```c norun
@@ -251,7 +252,9 @@ void Countdown::drop() { if (self.st == 1) self.d.drop(); }
 
 int main() {
     struct Countdown c; c.st = ASYNC_INIT;
-    return block_on(&c) == 42 ? 0 : 1;       // or LocalExecutor / ThreadPool / Runtime
+    int v = block_on(&c);                    // or LocalExecutor / ThreadPool / Runtime
+    c.drop();
+    return v == 42 ? 0 : 1;
 }
 ```
 future, waker, join/select/timeout, 채널, epoll·kqueue·WSAPoll 기반 비동기 TCP — [비동기](/ko/stdlib/async).
@@ -267,11 +270,11 @@ struct Tone { double phase; double step; };
 int render(&AudioIo io, ?&Tone tp) {
     match (tp) {
         case some(t): {
-            struct Slice<float> out = io.output_f32();   // frames x channels, interleaved
+            []float out = io.output_f32();   // frames x channels, interleaved
             for (unsigned int f = 0U; f < io.frames; f = f + 1U) {
                 float v = (float)(0.2 * std::sin_d(t.phase));
-                out.set((unsigned long)f * 2UL, v);
-                out.set((unsigned long)f * 2UL + 1UL, v);
+                out[(unsigned long)f * 2UL] = v;           // bounds-checked
+                out[(unsigned long)f * 2UL + 1UL] = v;
                 t.phase = t.phase + t.step;
             }
         }
@@ -301,6 +304,67 @@ int fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
 ::::
 
 :::: section alt
+## 머신러닝, CPU에서 GPU까지 {#ml}
+
+::: lead
+`std/ml`은 SafeC 안에서 신경망을 학습하고 실행합니다 — 자동미분 텐서, 요즘 모델을 이루는 레이어, GPU 백엔드까지, Python도 프레임워크 런타임도 없이.
+:::
+
+::: split
+::: col
+- **텐서와 자동미분.** 역방향 자동미분을 갖춘 `DenseTensor<E>`. float32(`FloatTensor`), fp16(`HalfTensor`), bf16(`BF16Tensor`)으로 저장하고 float32로 계산합니다.
+- **레이어와 모델.** MLP, 손실 함수, SGD부터 AdamW와 Lion까지의 옵티마이저, 멀티헤드·플래시·고급 어텐션(MLA, Gated DeltaNet), DiT와 JiT 트랜스포머, RNN과 xLSTM, Mamba, CNN과 ResNet 형태의 ConvNet, U-Net과 디퓨전, 오토인코더, GAN, 강화 학습, LoRA / QLoRA 파인튜닝.
+- **커널 하나로 모든 GPU.** 같은 학습 코드가 CPU(내장 GEMM 또는 벤더 BLAS)나 텐서 디바이스 — CUDA, ROCm, Metal, Vulkan(SPIR-V), WebGPU — 에서 돌아가며, 모두 커널 소스 하나에서 나오고 fp16·bf16 혼합 정밀도를 지원합니다.
+- **측정 결과.** PyTorch의 최적 구성과 비교해 작은 MLP를 2.6배(MI100), 7.8배(H200) 빠르게 학습하고 Gemma 4 E2B를 3.1배, 1.5배 빠르게 디코딩합니다. M1 Pro에서는 MLX와 PyTorch가 앞서는 테스트도 있습니다. [벤치마크](/ko/benchmarks#machine-learning)를 보세요.
+
+::: actions
+[머신러닝 레퍼런스](/ko/stdlib/ml)
+[ML 벤치마크](/ko/benchmarks#machine-learning)
+:::
+:::
+::: col
+```c norun
+#include <std/ml/module.h>
+#include <std/ml/datasets.h>
+#include <std/ml/trainer.h>
+extern int printf(const char* fmt, ...);
+
+// The forward pass builds the autograd graph as it goes.
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x,
+                             const &FloatTensor y) {
+    return tensor_cross_entropy_loss(m.forward(x), y);
+}
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) {
+    return m.forward(x);
+}
+
+int main() {
+    struct Rng rng = Rng::new(1UL);
+    struct Dataset data = Dataset::moons(400UL, 0.1f, &rng);
+    defer data.drop();
+    struct DatasetSplit sp = data.split(0.25f, &rng);
+    defer sp.train.drop();
+    defer sp.test.drop();
+    struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+    defer net.drop();
+    struct Optimizer opt = Optimizer::new(OPT_ADAM, 0.01f);
+    defer opt.drop();
+    model_add_params(&net, &opt);
+
+    struct TrainConfig cfg = TrainConfig::default();
+    cfg.epochs = 60UL;
+    cfg.device = device_auto();   // a GPU if built in, else the CPU
+    trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+    float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);
+    printf("accuracy %.2f on %s\n", acc, device_name(cfg.device));
+    return 0;
+}
+```
+:::
+:::
+::::
+
+:::: section
 ## 설치 {#install}
 
 ::::: tabs
@@ -326,7 +390,7 @@ safeguard run
 SafeC는 컴파일과 링크에 **clang 21 이상**이 필요합니다(설치 스크립트가 찾아 주거나 설치 방법을 알려 줍니다). 옵션, 요구 사항, 소스 빌드는 [설치](/ko/install)를 보세요.
 ::::
 
-:::: section
+:::: section alt
 ## 시작하기 {#next}
 
 ::::: cards 3
@@ -338,7 +402,7 @@ SafeC 북, 가이드, 언어 레퍼런스, 표준 라이브러리를 한곳에�
 ::: card play
 ### [플레이그라운드](/ko/playground)
 
-브라우저에서 SafeC를 편집하고, 북의 예제를 불러오고, 프로그램을 링크로 공유하세요.
+브라우저에서 SafeC를 편집·실행하고, 북의 예제를 불러오고, 프로그램을 링크로 공유하세요.
 :::
 ::: card terminal
 ### [도구](/ko/tools)

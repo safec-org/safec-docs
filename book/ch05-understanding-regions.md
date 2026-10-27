@@ -232,6 +232,15 @@ A reference of *any* of the four regions converts to `&T`/`?&T`
 implicitly, with no cast and no `unsafe`:
 
 ```c
+#include <stdio.h>
+
+// struct Point and sum_point() from above, so this runs on its own
+struct Point { double x; double y; }
+
+double sum_point(&Point p) {
+    return p.x + p.y;
+}
+
 int main() {
     struct Point local;
     local.x = 1.0; local.y = 2.0;

@@ -154,7 +154,7 @@ int main() {
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| gui | `gui/gui.h` | Windows (options, HiDPI, cursors, focus), events, colors, the clipboard and clock over an RGBA8888 buffer per window; X11, Win32, Cocoa and bare-metal framebuffer backends |
+| gui | `gui/gui.h` | Windows (options, HiDPI, cursors, focus), events, colors, the clipboard and clock over an RGBA8888 buffer per window; X11, Wayland, Win32, Cocoa, WebAssembly, headless and bare-metal framebuffer backends |
 | app | `gui/gui_app.h` | `GuiApp`: several windows from one event loop, timers, per-frame animation, redraw-on-change, a pumpable loop |
 | backend | `gui/gui_backend.h` | The `GuiBackend` interface every backend implements, and `GuiPresenter` for GPU presentation |
 | headless | `gui/gui_headless.h` | An in-memory backend with a virtual clock and input injection, for tests |

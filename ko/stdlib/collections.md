@@ -229,7 +229,7 @@ struct Vec {
     struct Vec<T> clone() const;                       // shallow element copy
     void          foreach(fn void(&T, unsigned long) func);
     struct Vec<T> filter(fn int(const &T) pred) const;
-    void          free();
+    void          free() consume;
 };
 
 generic<T, U> struct Vec<U> vec_map(const &Vec<T> v, fn U(const &T) f);
@@ -291,7 +291,7 @@ struct HashMap {
     void          clear();
     void          foreach(fn void(const &K, &V) func);
     int           reserve(unsigned long n);  // room for n entries without resizing
-    void          free();
+    void          free() consume;
 };
 ```
 
@@ -311,7 +311,7 @@ struct StrMap {
     int           is_empty() const;
     void          clear();
     void          foreach(fn void(const &char, &V) func);
-    void          free();
+    void          free() consume;
 };
 ```
 
@@ -364,7 +364,7 @@ struct List {
     void          foreach(fn void(&T) func);
     void          reverse();
     void          clear();
-    void          free();
+    void          free() consume;
 };
 ```
 
@@ -385,7 +385,7 @@ struct Stack {
     static struct Stack<T> new();  static struct Stack<T> with_cap(unsigned long cap);
     int push(T value);  ?T pop();  ?&T peek() const;
     unsigned long length() const;  int is_empty() const;
-    void clear();  int reserve(unsigned long n);  void free();
+    void clear();  int reserve(unsigned long n);  void free() consume;
 };
 
 generic<T>
@@ -393,7 +393,7 @@ struct Queue {
     static struct Queue<T> new();  static struct Queue<T> with_cap(unsigned long cap);
     int enqueue(T value);  ?T dequeue();  ?&T front() const;  ?&T back() const;
     unsigned long length() const;  int is_empty() const;
-    void clear();  int reserve(unsigned long n);  void free();
+    void clear();  int reserve(unsigned long n);  void free() consume;
 };
 ```
 
@@ -430,7 +430,7 @@ struct BST {
     ?&K           max_key() const;
     void          foreach_inorder(fn void(const &K, &V) func);   // ascending
     void          clear();
-    void          free();
+    void          free() consume;
 };
 ```
 
@@ -674,11 +674,11 @@ struct String {
     struct String  repeat(unsigned long n) const;
     struct String  capitalize() const;
 
-    // Split -- writes into caller-provided 'out' array (max slots); returns
+    // Split -- writes into the caller's 'out' slots (out.len of them); returns
     // items written; overflow puts the remainder in the last slot
-    unsigned long  split(const &char delim, &String out, unsigned long max) const;
-    unsigned long  split_lines(&String out, unsigned long max) const;
-    unsigned long  split_whitespace(&String out, unsigned long max) const;
+    unsigned long  split(const &char delim, []String out) const;
+    unsigned long  split_lines([]String out) const;
+    unsigned long  split_whitespace([]String out) const;
 
     // Comparison
     int            eq(&String other) const;
@@ -699,7 +699,7 @@ struct String {
     double         parse_float(?&int ok) const;
 
     struct String  clone() const;
-    void           free();
+    void           free() consume;
 };
 ```
 

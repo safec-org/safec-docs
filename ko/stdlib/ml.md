@@ -110,7 +110,7 @@ struct DenseTensor {
     float at2(unsigned long r, unsigned long c) const;
     void  set1(unsigned long i, float v);                  // rounded to E
     void  set2(unsigned long r, unsigned long c, float v);
-    void  free();
+    void  free() consume;
     // ... and the methods below
 };
 
@@ -1453,7 +1453,9 @@ while (1) {
 ```
 
 모든 텐서에는 디바이스가 있습니다: `DEVICE_CPU`, 또는 GPU 백엔드(AMD는
-`DEVICE_ROCM`, NVIDIA는 `DEVICE_CUDA`, Apple Silicon은 `DEVICE_MPS`)입니다.
+`DEVICE_ROCM`, NVIDIA는 `DEVICE_CUDA`, Apple Silicon은 `DEVICE_MPS`, 그리고
+벤더를 가리지 않는 `DEVICE_VULKAN`(Vulkan 1.2 GPU 어디서나, Apple GPU는
+MoltenVK로)과 `DEVICE_WEBGPU`)입니다.
 연산은 피연산자의 디바이스에서 실행됩니다. 피연산자 중 하나라도 GPU에
 있으면 연산은 그곳에서 실행되며 나머지를 올리고, 결과도 그곳에 둡니다.
 그래서 파라미터가 GPU에 있는 모델은 CPU에서 학습하는 것과 같은 코드로
@@ -1478,7 +1480,7 @@ model_sync(&net);                          // 호스트 사본을 최신으로: 
 |---|---|
 | 명시적으로 | `TrainConfig.device`(학습 함수가 옵티마이저의 파라미터를 그곳에 두고 데이터셋도 그곳에 둠), 모든 모델에 `model_to(&m, d)`(파라미터와 버퍼: 실행 통계, 평균 생성기), `t.place(d)`는 텐서를 제자리에서 옮김, `t.to(d)`는 `d`에 있는 사본을 돌려줌(그래프 노드: 기울기가 거꾸로 흐름) |
 | 기본값으로 | `device_set_default(d)`. `DEVICE_AUTO`는 `device_default()`로 결정됨 |
-| 자동으로 | `device_auto()`: 프로그램이 함께 빌드된 백엔드 중 쓸 수 있는 첫 GPU(ROCm, CUDA, Metal 순), 없으면 CPU. 환경 변수 `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps`가 이를 덮어씀 |
+| 자동으로 | `device_auto()`: 프로그램이 함께 빌드된 백엔드 중 쓸 수 있는 첫 GPU(ROCm, CUDA, Metal, 그다음 Vulkan과 WebGPU 순), 없으면 CPU. 환경 변수 `SAFEC_DEVICE=cpu\|rocm\|cuda\|mps\|vulkan\|webgpu`가 이를 덮어씀 |
 
 빌드의 [feature](/ko/advanced/safeguard#feature-flags)가 백엔드를 링크하며,
 `safeguard`는 각 백엔드의 라이브러리(링크 열)를 링크에 추가합니다(직접 빌드할
@@ -1489,7 +1491,9 @@ model_sync(&net);                          // 호스트 사본을 최신으로: 
 |---|---|---|
 | `rocm` | `device_rocm.sc`: hiprtc가 한 번 컴파일하는 HIP 커널, rocBLAS GEMM, MIOpen 합성곱 | `-lamdhip64 -lhiprtc -lrocblas`, `-lMIOpen`(선택, weak: 없으면 합성곱은 im2col + GEMM) |
 | `cuda` | `device_cuda.sc`: 같은 커널 소스를 NVRTC가 컴파일, cuBLAS, cuDNN | `-lcuda -lcublas -lnvrtc`, `-lcudnn`(선택, weak) |
-| `mps` | `device_mps.sc`: 공유 메모리 버퍼, `mps_gemm`, Metal 옵티마이저 커널. 다른 연산은 공유 메모리 위에서 CPU로 실행 | `-framework Metal -framework Foundation -lobjc` |
+| `mps` | `device_mps.sc`: 공유 메모리 버퍼. 같은 커널 소스를 Metal이 런타임에 컴파일하고, Metal GEMM과 암시적 GEMM 합성곱 커널을 씀 | `-framework Metal -framework Foundation -lobjc` |
+| `vulkan` | `device_vulkan.sc`: 같은 커널을 Slang으로 미리 컴파일해 내장한 SPIR-V(셰이더 도구 불필요). 버퍼 디바이스 주소를 지원하는 Vulkan 1.2 필요 | `-lvulkan`(Windows는 `-lvulkan-1`, macOS는 Homebrew의 `vulkan-loader`와 `molten-vk`) |
+| `webgpu` | `device_webgpu.sc`: 같은 커널을 WGSL로 옮긴 것(`device_kernels.wgsl`, `device_kernels.cu`와 대조해 검사)을 WebGPU C API로 실행 | wgpu-native 같은 WebGPU 구현: `-lwgpu_native` |
 
 `device_compiled(d)`, `device_available(d)`, `device_name(d)`,
 `device_sync(d)`, `device_stats(d)`(`device_stats_reset` 이후의 실행 수,
@@ -1520,9 +1524,10 @@ causal / 슬라이딩 윈도우 마스크 포함)와 log-softmax, 모든 헤드�
 **트레이트.** `DenseTensor`와 [`SparseTensor`](#sparse)는
 `trait DeviceTensor : Tensor`(`device()`, `place(d)`, `sync()`)를 따르므로,
 [제네릭 코드](/ko/reference/generics#composing-traits)는 둘 중 무엇이든 받을
-수 있습니다. `RocmTensor`, `CudaTensor`, `MpsTensor`는 각각
+수 있습니다. `RocmTensor`, `CudaTensor`, `MpsTensor`, `VulkanTensor`, `WebGpuTensor`는 각각
 `DeviceTensor`를 상속하고, 벤더 라이브러리를 직접 부르는 코드를 위해
-그 백엔드에서의 값 버퍼(hipDeviceptr, CUdeviceptr, MTLBuffer)인
+그 백엔드에서의 값 버퍼(hipDeviceptr, CUdeviceptr, MTLBuffer의 GPU 주소,
+Vulkan 버퍼 디바이스 주소, WebGPU 백엔드 힙의 오프셋)인
 `device_buffer()`를 더합니다.
 
 ```c
@@ -1533,8 +1538,10 @@ int to_host(&T t) { return t.sync(); }   // DenseTensor 또는 SparseTensor
 **백엔드.** 백엔드는 정적 함수(alloc, release, upload, download, copy,
 sync, gemm, gemm_batched, conv, launch, offset, storage16)의 구조체이며
 `device_register_backend_(device, &tag)`로 등록합니다. 모든 호출은 컴파일
-타임에 결정되고, 런타임은 텐서를 보고 디바이스만 고릅니다. ROCm과 CUDA
-백엔드는 커널 소스 `device_kernels.cu` 하나를 함께 씁니다.
+타임에 결정되고, 런타임은 텐서를 보고 디바이스만 고릅니다. 모든 백엔드가
+커널 집합 하나, `device_kernels.cu`를 실행합니다: ROCm, CUDA, Metal은
+런타임에 컴파일하고(hiprtc, NVRTC, Metal), Vulkan은 미리 컴파일한 SPIR-V로,
+WebGPU는 스크립트가 원본과 대조해 검사하는 WGSL 이식본으로 실행합니다.
 
 ### 정밀도: 디바이스의 fp16과 bf16 {#device-precision}
 
@@ -1543,7 +1550,7 @@ sync, gemm, gemm_batched, conv, launch, offset, storage16)의 구조체이며
 `device_set_precision(d, DEVICE_FP16)`(또는 `DEVICE_BF16`), 또는 학습 한
 번에는 `TrainConfig.precision`이 `d`에서 16비트로 학습합니다:
 
-- **저장.** ROCm과 CUDA에서는 활성값과 그 기울기를 16비트로 저장합니다.
+- **저장.** 모든 GPU 백엔드에서 활성값과 그 기울기를 16비트로 저장합니다.
   파라미터, 그 기울기, 옵티마이저 상태는 fp32로 남습니다. 버퍼의 원소
   형식은 디바이스 핸들과 함께 다니므로 모든 커널, 복사, GEMM, 합성곱이
   그곳에서 읽습니다. 커널은 fp32로 계산하고 저장하는 값마다 한 번
@@ -1551,7 +1558,8 @@ sync, gemm, gemm_batched, conv, launch, offset, storage16)의 구조체이며
   16비트 피연산자용 빌드이며, 16비트 피연산자가 없는 실행은 평범한 빌드를
   고르므로 fp32 학습에는 비용이 없습니다.
 - **계산.** 행렬곱은 fp32로 누적하는 16비트 GEMM(rocBLAS / cuBLAS
-  `gemm_ex`), 합성곱은 MIOpen / cuDNN의 16비트 커널로 실행합니다. 합성곱
+  `gemm_ex`), 합성곱은 MIOpen / cuDNN의 16비트 커널로 실행합니다(Metal,
+  Vulkan, WebGPU 백엔드는 자체 GEMM·합성곱 커널을 씁니다). 합성곱
   형태와 방향마다 처음 실행할 때 16비트와 fp32를 재서 그 형태에는 더
   빠른 쪽을 씁니다(`device_set_precision_pick(DEVICE_PICK_ALWAYS)`는 모두
   16비트로 실행). 파라미터의 16비트 사본은 옵티마이저 스텝마다 한 번
@@ -1563,8 +1571,6 @@ sync, gemm, gemm_batched, conv, launch, offset, storage16)의 구조체이며
   디바이스에서 읽는 플래그를 세워 갱신을 건너뛰고, 스케일은 절반이 되며,
   2000번 연속 깨끗한 스텝 뒤에는 두 배가 됩니다. `device_loss_scale(d)`가
   읽습니다. bf16은 fp32와 지수 범위가 같아 스케일링이 필요 없습니다.
-- **Metal.** Metal 백엔드는 fp32 저장을 유지하므로(커널이 공유 메모리
-  위에서 CPU로 실행됨), 그곳에서 16비트 정밀도는 손실 스케일링만 바꿉니다.
 
 MI100에서는 fp16이 더 빠른 16비트 형식입니다: MIOpen의 fp16 커널은 행렬
 코어를 쓰지만 bf16 합성곱은 fp32와 비슷하거나 더 느립니다
@@ -1620,7 +1626,7 @@ CPU와 2e-4 이내, fp16과 bf16은 5% 이내로 맞는지, 희소 곱과 그 �
 #include <std/ml/gpu_mps.h>   // Apple Silicon/macOS — [features] "mps"
 #include <std/ml/gpu_cuda.h>  // NVIDIA — [features] "cuda"
 #include <std/ml/gpu_rocm.h>  // AMD — [features] "rocm"
-#include <std/ml/gpu_spirv.h> // Vulkan/SPIR-V (incomplete, see Backend status)
+#include <std/ml/gpu_spirv.h> // Vulkan (SPIR-V), cross-vendor — [features] "vulkan"
 #include <std/ml/gpu_webgpu.h>// WebGPU
 ```
 
@@ -1978,7 +1984,7 @@ struct MpsBuf {
     int  read([]unsigned char dst) const;                 // 이 버퍼에 쓰는 배치가 모두 끝난 뒤 유효
     int  write([]const unsigned char src);
     static struct MpsBuf alloc(unsigned long n, int dtype);                 // 원소 n개
-    static struct SpirvBuf upload([]const float host);        // fp32 값 n개
+    static struct MpsBuf upload([]const float host);          // fp32 값
     static struct MpsBuf upload_f16([]const float host);    // CPU에서 반올림; upload_bf16도 있음
     static struct MpsBuf upload_bits([]const unsigned short bits, int dtype);  // 원시 fp16 / bf16
     static struct MpsBuf linear_attn_state(unsigned long numHeads, unsigned long headDim);
@@ -2013,7 +2019,7 @@ generic<T> void mps_batch_register_finalize(fn void(?&T) finalizeFn, ?&T ctx);  
 // Transposed matmuls for backward passes: abt = A·Bᵀ, atb = Aᵀ·B.
 int mps_matmul_abt_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long N, unsigned long K);
 int mps_matmul_atb_f32(const &float a, const &float b, &float out, unsigned long M, unsigned long K, unsigned long N);
-int mps_relu_backward_f32(((const float*)([]const float a))[0..[]float out], ((float*)([]const float selfGrad))[0..[]float out]);
+int mps_relu_backward_f32([]const float a, []const float selfGrad, []float out);
 
 // Chained forms (first operand already on the GPU), plus fp16/bf16 versions:
 //   mps_matmul_f32_chained, mps_relu_f32_chained, mps_sub_f32_chained, mps_mul_f32_chained,
@@ -2128,12 +2134,11 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 
 ### 텐서 래퍼 {#tensor-wrappers}
 
-자체 [디바이스 백엔드](#devices)가 없는 백엔드에서 순전파를 실행하고 CPU 역전파를 재사용하는 자동미분 `FloatTensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다. ROCm·CUDA·Metal 텐서는 대신 모든 연산을 디바이스에서 실행합니다: 텐서를 그곳에 두십시오.
+순전파 하나를 GPU나 CPU 라이브러리에서 실행하고 CPU 역전파를 재사용하는 자동미분 `FloatTensor` 연산입니다. 장치를 쓸 수 없으면 각각 CPU로 대체됩니다. ROCm, CUDA, Metal, Vulkan, WebGPU에서는 [디바이스](#devices)에 둔 텐서가 역전파까지 모든 연산을 그곳에서 실행합니다.
 
 | 헤더 | 함수 | 장치 |
 |--------|-----------|--------|
 | `tensor_spirv.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_spirv` | Vulkan |
-| `tensor_webgpu.h` | `tensor_{add,sub,mul,scale,relu,sum,matmul}_webgpu` | WebGPU |
 | `tensor_vdsp.h` | `tensor_{add,sub,mul,sum}_vdsp` | Apple Accelerate vDSP (`-framework Accelerate`). 다른 플랫폼에서는 core의 SIMD 연산 |
 | `tensor_blas.h` | `tensor_matmul_blas` | `sgemm`을 거쳐: 링크된 CBLAS(Accelerate / AOCL-BLAS / oneMKL / OpenBLAS), 없으면 내장 커널 |
 | `tensor_auto.h` | `tensor_{add,sub,mul,sum,matmul}_auto` | 크기에 따라 core(`sgemm`) / vDSP / BLAS 선택 |
@@ -2146,10 +2151,10 @@ M1 Pro에서 8개 시퀀스 × 캐시 토큰 2048개(헤드 8개, 헤드 차원 
 |---|---|---|---|---|
 | ROCm / HIP | 실제 동작 (HIP C++, 처음 쓸 때 hiprtc로 컴파일) | 실제 동작 (64×64 LDS 타일 SGEMM) | 실제 동작 (rocBLAS) | MI100에서 **측정함**: `tests/stdlib/rocm`의 검사 325 + 73개와 [MLP 벤치마크](/ko/benchmarks#ml-mlp) |
 | CUDA | 실제 동작 (CUDA C++, 처음 쓸 때 NVRTC로 컴파일) | 실제 동작 (64×64 공유 메모리 타일 SGEMM) | 실제 동작 (cuBLAS, GEMM + ReLU는 cuBLASLt) | H200에서 **측정**: `tests/stdlib/cuda`의 216개 검사(cuDNN, cuFFT 포함), [MLP 벤치마크](/ko/benchmarks#ml-mlp), [합성곱/FFT 벤치마크](/ko/benchmarks#ml-convolution) |
-| Vulkan/SPIR-V | 항상 0 반환 | 항상 0 반환 | n/a | SPIR-V는 바이너리 IR; 테스트 환경에 glslc/glslangValidator 없음 |
-| WebGPU | 실제 동작 (WGSL, 텍스트 IR) | 실제 동작 (WGSL) | n/a | 측정 안 함 — 테스트 환경에 wgpu-native/Dawn 라이브러리 없음 |
+| Vulkan (SPIR-V) | 실제 동작 (Slang으로 미리 컴파일한 SPIR-V의 `device_kernels.cu`) | 실제 동작 (Metal GEMM 커널을 SPIR-V로) | n/a | `tests/stdlib/vulkan/run.sh`가 Vulkan 1.2 GPU에서 host-array API와 모든 학습 작업을 fp32, fp16, bf16으로 CPU와 대조해 검사 |
+| WebGPU | 실제 동작 (`device_kernels.cu`의 WGSL 이식본) | 실제 동작 (WGSL) | n/a | `tests/stdlib/webgpu/run.sh`가 wgpu-native로 구조체 레이아웃을 `webgpu.h`와, host-array API와 모든 학습 작업을 CPU와 대조해 검사 |
 
-SPIR-V 커널은 바이너리 IR이라 Vulkan 백엔드가 완성되려면 SPIR-V 컴파일러(glslc/glslangValidator)가 필요합니다. WebGPU는 텍스트 IR(WGSL)을 받아 전부 작성되어 있지만, 실행할 wgpu-native/Dawn 라이브러리가 없었습니다.
+SPIR-V는 `gen_device_kernels.sh`(Slang)가 `device_kernels.cu`에서 생성해 저장소에 넣어 두므로, 프로그램에는 Vulkan 로더만 있으면 됩니다. WGSL에는 포인터, 64비트 정수, float 원자 연산이 없어 WebGPU는 `gen_device_kernels_wgsl.sh`가 CUDA 원본과 대조해 검사하는 이식본 `device_kernels.wgsl`을 실행합니다.
 
 ## fp16 / bf16 {#fp16-bf16}
 
@@ -2179,7 +2184,7 @@ void fp16_to_bf16_bulk([]const unsigned short src, []unsigned short dst);
 void bf16_to_fp16_bulk([]const unsigned short src, []unsigned short dst);
 
 int         half_cpu_features();        // HALF_CPU_* 비트, 한 번 감지
-const char* half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
+const &char half_cpu_features_name();   // "F16C, AVX512-BF16", ..., "none"
 ```
 
 **CPU가 직접 하는 것.** 2012년 이후의 모든 x86-64 CPU는 fp16을 하드웨어로

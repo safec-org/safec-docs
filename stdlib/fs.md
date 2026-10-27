@@ -399,7 +399,7 @@ struct FatCtx {
     // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
     unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
+    generic<T> int readdir(unsigned long inode, fn void(&VfsNode, ?&T) cb, ?&T user);
 }
 ```
 
@@ -468,7 +468,7 @@ struct Ext2Ctx {
     // FsRead: mount with vfs_root.mount_ro(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
     unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
+    generic<T> int readdir(unsigned long inode, fn void(&VfsNode, ?&T) cb, ?&T user);
 }
 ```
 
@@ -508,7 +508,7 @@ struct TmpfsCtx {
     // FileSystem: mount with vfs_root.mount(mountpoint, &ctx)
     int           open(const &char path, int flags, &VfsNode node_out);
     unsigned long read(unsigned long inode, unsigned long offset, []unsigned char buf);
-    int           readdir(unsigned long inode, fn void(&VfsNode, ?&Erased) cb, ?&Erased user);
+    generic<T> int readdir(unsigned long inode, fn void(&VfsNode, ?&T) cb, ?&T user);
     unsigned long write(unsigned long inode, unsigned long offset, []const unsigned char buf);
     int           unlink(const &char path);
     int           mkdir(const &char path);

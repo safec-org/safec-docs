@@ -32,7 +32,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // no display
+        case null: { app.free(); return 1; }     // no display
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -85,7 +85,7 @@ struct GuiWindow {
     int  wait_event(&GuiEvent out, int timeoutMs);
     void present();                       // show the buffer
     void present_rect(int x, int y, int w, int h);
-    void destroy();
+    void destroy() consume;
 
     void set_title(const &char title);    // UTF-8
     void set_size(int width, int height); // logical
@@ -177,7 +177,7 @@ struct GuiColor {
     static struct GuiColor hexa(unsigned int rrggbbaa);
     static struct GuiColor rgbaf(float r, float g, float b, float a);   // 0..1
     static struct GuiColor hsv(float h, float s, float v, float a);     // h in degrees
-    struct GuiColor with_alpha(unsigned char a) const;
+    struct GuiColor with_alpha(float f) const;   // alpha multiplied by f (0..1)
     struct GuiColor mix(struct GuiColor other, float t) const;
     struct GuiColor shade(float amount) const;   // > 0 lighter, < 0 darker
     unsigned int packed() const;                 // 0xRRGGBBAA
@@ -219,7 +219,7 @@ struct GuiApp {
     void quit(int exitCode);
     double now_ms() const;
     void set_frame_interval(double ms);   // default 1000/60
-    void free();                // closes every window
+    void free() consume;        // closes every window
 };
 ```
 
@@ -244,9 +244,11 @@ static void tick(&GuiApp app, unsigned int id, ?&State os) {
     match (os) {
         case some(s): {
             s.seconds = s.seconds + 1;
-            char buf[32];
-            unsafe { snprintf(&buf[0], 32UL, "%d s", s.seconds); }
-            s.label.set_text(&buf[0]);
+            struct String t = std::String::new();
+            t.push_int((long long)s.seconds);
+            t.push(" s");
+            s.label.set_text(t.as_ptr());
+            t.free();
         }
         case null: { }
     }
@@ -262,7 +264,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow oa = app.open_window("Widgets", 300, 120);
     ?&GuiWindow ob = app.open_window("Canvas", 300, 200);
-    if (oa.is_null() || ob.is_null()) { return 1; }
+    if (oa.is_null() || ob.is_null()) { app.free(); return 1; }
     &GuiWindow a; &GuiWindow b;
     unsafe { a = (struct GuiWindow*)oa; b = (struct GuiWindow*)ob; }
 
@@ -326,6 +328,7 @@ gui_headless_advance(600.0);                   // the clock, in ms
 gui_headless_set_scale(2.0);                   // windows made from now on are 2x
 int cur = gui_headless_cursor(&win);           // GUI_CURSOR_* last asked for
 unsigned long n = gui_headless_present_count(&win);
+win.destroy();
 ```
 
 ### 백엔드 작성하기 {#writing-a-backend}
@@ -406,10 +409,10 @@ struct GuiImage {
     int  save_png(const &char path) const;                       // RGBA, stored deflate blocks
     void premultiply(); void unpremultiply();
     struct GuiImage copy() const;
-    struct GuiImage scaled(int width, int height, int smooth) const;  // area average / bilinear
+    struct GuiImage scaled(int width, int height) const;  // area average shrinking, bilinear enlarging
     unsigned int get_pixel(int x, int y) const; void set_pixel(int x, int y, unsigned int rgba);
     void draw(&GuiWindow win, int x, int y) const;              // a straight copy
-    void free();
+    void free() consume;
 };
 ```
 

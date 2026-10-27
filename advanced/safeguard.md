@@ -15,10 +15,10 @@
 | `safeguard std-prebuilt <prefix>` | Compile std for this machine into `<prefix>/lib/<triple>/std/<section>.a`, one archive per section: the [prebuilt std](#prebuilt-std) a release ships |
 | `safeguard test` | Build and run every file under `tests/` as an independent binary |
 | `safeguard doc [--serve] [--std]` | Generate the [API reference](#safeguard-doc) into `build/doc/` (or std's, with `--std`) |
-| `safeguard publish [--ci=…] [--write] [--tag] [--push]` | Prepare the repository for [publishing](#safeguard-publish): `.gitignore`, CI, release archives, Pages |
+| `safeguard publish [--ci=…] [--bump=…] [--write] [--tag] [--push]` | Prepare the repository for [publishing](#safeguard-publish): `.gitignore`, CI, release archives, Pages |
 | `safeguard run` | Build and execute the project binary |
 | `safeguard bundle [--sign <identity>]` | Build the binary and package it as an application: `.app`, app folder or `.deb` (see [App Bundles](#app-bundles)) |
-| `safeguard clean` | Remove the `build/` directory and all artifacts |
+| `safeguard clean` | Remove the `build/` and `deps/` directories |
 | `safeguard verify-lock` | Check `Package.lock` against current dependency state |
 | `safeguard lint [--verbose]` | Run static-analysis lint passes on all `.sc` source files |
 | `safeguard format [--check]` | Reindent and whitespace-normalize all `.sc`/`.h` source files |
@@ -465,7 +465,7 @@ extern "C" int sum_cpp(int a, int b) {
 }
 ```
 
-```c
+```c norun
 extern int printf(const char* fmt, ...);
 // src/main.sc
 extern int add_c(int a, int b);

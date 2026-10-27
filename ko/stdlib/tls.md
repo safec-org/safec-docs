@@ -40,10 +40,10 @@ int main() {
     struct Result<TlsStream, TlsError> r = std::TlsStream::connect(fd, "example.com", &cfg);
     cfg.free();
     match (r.get_err()) {
-        case some(e): { std::println(e.message); return 1; }   // fd는 여전히 호출자가 닫습니다
+        case some(e): { std::println(e.message); r.drop(); return 1; }   // fd는 여전히 호출자가 닫습니다
         case null: { }
     }
-    struct TlsStream t = r.value;
+    struct TlsStream t = r.unwrap();                  // r을 소비합니다
     std::print(t.backend_name()); std::print(" "); std::println(t.cipher());
 
     const &char req = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
@@ -65,14 +65,16 @@ sc.load_files("cert.pem", "key.pem");     // 체인(리프 먼저)과 키: PKCS#
 sc.set_alpn("h2,http/1.1");               // 서버의 선호 순서
 struct Result<TlsAcceptor, TlsError> ar = std::TlsAcceptor::new(&sc);
 sc.free();                                // acceptor는 필요한 것을 보관합니다
-struct TlsAcceptor acc = ar.value;        // (먼저 ar.ok()를 확인하세요)
+struct TlsAcceptor acc = ar.unwrap();     // (먼저 ar.ok()를 확인하세요: 오류이면 unwrap()은 패닉합니다)
 
 int fd = std::tcp_accept_nb(listen_fd);   // 여기서부터 블로킹: fd_set_blocking(fd)
 struct Result<TlsStream, TlsError> r = acc.accept(fd);   // 핸드셰이크
 if (r.ok()) {
-    struct TlsStream t = r.value;
+    struct TlsStream t = r.unwrap();
     // t.read / t.write ..., t.alpn(), t.peer_certificate(&cert) ...
     t.close();
+} else {
+    r.drop();                             // TlsError를 해제합니다
 }
 acc.free();                               // 시작한 스트림들의 핸드셰이크가 끝난 뒤에
 ```
@@ -117,7 +119,7 @@ struct TlsConfig {
     void set_client_cert(const &char cert_pem, const &char key_pem);
     void insecure_skip_verify();     // 검증 끔: 자체 서명 테스트 서버에만
     struct TlsConfig clone() const;
-    void free();
+    void free() consume;
 };
 
 struct TlsServerConfig {
@@ -133,7 +135,7 @@ struct TlsServerConfig {
     static struct TlsServerConfig new();
     int  load_files(const &char cert_path, const &char key_path);   // 하나라도 못 읽으면 0
     void set_alpn(const &char protocols);
-    void free();
+    void free() consume;
 };
 ```
 
@@ -152,8 +154,8 @@ struct TlsStream {
     long long read([]unsigned char buf);         // 읽은 수, 0 = 상대가 닫음, -1, TLS_WANT_*
     long long write([]const unsigned char buf);  // 쓴 수, -1, TLS_WANT_*
     int       shutdown();      // close_notify 보내기(한 번)
-    int       close();         // shutdown, 해제, 소켓 닫기
-    void      release();       // TLS 상태만 해제하고 fd는 열어 둠
+    int       close() consume; // shutdown, 해제, 소켓 닫기
+    void      release() consume;       // TLS 상태만 해제하고 fd는 열어 둠
 
     int  is_open() const;
     int  version() const;               // TLS_VERSION_1_2 / TLS_VERSION_1_3
@@ -168,7 +170,7 @@ struct TlsAcceptor {
     static struct Result<TlsAcceptor, TlsError> new(const &TlsServerConfig cfg);
     struct Result<TlsStream, TlsError> accept(int fd);   // 블로킹 핸드셰이크
     struct Result<TlsStream, TlsError> start(int fd);    // 논블로킹: handshake()로 진행
-    void free();
+    void free() consume;
 };
 ```
 

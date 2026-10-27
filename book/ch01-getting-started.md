@@ -36,6 +36,7 @@ This scaffolds:
 
 ```
 hello/
+├── .gitignore
 ├── Package.toml
 └── src/
     └── main.sc
@@ -50,12 +51,14 @@ safeguard run
 ```
 
 ```
-Hello from SafeC!
+Hello from hello!
 ```
+
+(The greeting uses the project's name.)
 
 ## Anatomy of a SafeC program
 
-Open `src/main.sc`:
+Open `src/main.sc`. Without its comments, and with the greeting changed, it is:
 
 ```c
 extern int printf(const char* fmt, ...);

@@ -40,7 +40,7 @@ int fft_serial_f32([]Complex32 data);
 int ifft_serial_f32([]Complex32 data);
 int fft_prepare_f32(unsigned long n);
 int fft_real_f32([]const float in, []Complex32 out);
-int fft_batch_f32((&Complex32 data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_batch_f32([]Complex32 data, unsigned long n, int inverse);   // data.len / n transforms
 int fft_real_batch_f32([]const float in, []Complex32 out, unsigned long n);
 int fft_real_half_batch_f32([]const float in, []Complex32 out, unsigned long n);   // and fft_real_half_f32
 
@@ -70,8 +70,8 @@ void resample_sinc_f32([]const float in, []float out, unsigned long kernelHalfWi
 int dct2_f32([]const float in, []float out);
 int idct3_f32([]const float in, []float out);
 int dft_f32([]const Complex32 in, []Complex32 out);   // also dft_real_f32, idft_f32
-int conv2d_f32(([]const float img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const float kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]float out)[0..(unsigned long h) * (unsigned long w)]);
-int fft2d_f32(([]Complex32 img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);    // and ifft2d_f32
+int conv2d_f32([]const float img, unsigned long h, unsigned long w, []const float kernel, unsigned long kh, unsigned long kw, []float out);
+int fft2d_f32([]Complex32 img, unsigned long h, unsigned long w);    // and ifft2d_f32
 ```
 
 The analysis-only modules (CQT, CWT, minimum-phase, z-transform design) stay `double`.
@@ -147,7 +147,7 @@ int main() {
 #include <std/dsp/dsp.h>
 ```
 
-Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed` arrays (passed as `&Fixed` to the first element) with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
+Basic array-level building blocks shared by the rest of `std/dsp/`. All operate on `Fixed` slices (`[]Fixed`) with no heap allocation, except `dsp_dot_f64` (a `double`-array primitive, unrelated to the Fixed path — see below).
 
 ```c
 Fixed dsp_dot([]const Fixed a, []const Fixed b);           // sum of a[i]*b[i]
@@ -274,7 +274,7 @@ int ifft_serial([]Complex data);
 int fft_prepare(unsigned long n);                             // build twiddles for lengths <= n
 int fft_real([]const double in, []Complex out); // real -> full n-point spectrum
 // 'batch' transforms stored back to back (row r at data[r*n]), threaded
-int fft_batch((&Complex data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_batch([]Complex data, unsigned long n, int inverse);   // data.len / n transforms
 int fft_real_batch([]const double in, []Complex out, unsigned long n);   // batch = in.len / n
 // the same in place: row r holds its n reals in its first n/2 slots
 int fft_real_batch_inplace([]Complex data, unsigned long n);
@@ -374,7 +374,7 @@ struct FirFilter {
     void   reset();          // zeros the history
     void   process_block([]const double in, []double out);   // out may alias in
 
-    static struct FirFilter new(const &double coeffs, unsigned long numTaps, &double history);
+    static struct FirFilter new([]const double coeffs, []double history);   // numTaps = min(coeffs.len, history.len)
 };
 
 struct IirFilter {           // general-order, direct form I
@@ -387,13 +387,12 @@ struct IirFilter {           // general-order, direct form I
     void   reset();
     void   process_block([]const double in, []double out);
 
-    static struct IirFilter new(const &double b, unsigned long numB,
-                                const &double a, unsigned long numA,
-                                &double xHistory, &double yHistory);
+    static struct IirFilter new([]const double b, []const double a,
+                                []double xHistory, []double yHistory);
 };
 ```
 
-`FFirFilter` and `FIirFilter` (built with `FFirFilter::new` / `FIirFilter::new`) are the Q8.24 counterparts, same shape with `&Fixed` in place of `&double`. All of them are [`SampleFilter`s](#sample-filter-traits).
+`FFirFilter` and `FIirFilter` (built with `FFirFilter::new` / `FIirFilter::new`) are the Q8.24 counterparts, same shape with `Fixed` in place of `double`. All of them are [`SampleFilter`s](#sample-filter-traits).
 
 ### Example — 3-tap moving average {#example-3-tap-moving-average}
 
@@ -601,10 +600,10 @@ void fresample_linear([]const Fixed in, []Fixed out);
 // B, A: order+1 analog (s-domain) coefficients, ascending powers of s.
 // bOut, aOut: order+1 digital coefficients in the negative-power-of-z
 // convention (aOut[0] = 1) — feed straight into filter.h's IirFilter::new.
-void bilinear_nth_order((const &double B)[0..(unsigned long order) + 1UL], (const &double A)[0..(unsigned long order) + 1UL], double fs, (&double bOut)[0../*LEN*/], (&double aOut)[0../*LEN*/]);
+int bilinear_nth_order([]const double B, []const double A, double fs, []double bOut, []double aOut);   // order = B.len - 1
 
-double ztransform_response_mag((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
-double ztransform_response_phase((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
+double ztransform_response_mag([]const double b, []const double a, double fs, double freqHz);
+double ztransform_response_phase([]const double b, []const double a, double fs, double freqHz);
 ```
 
 ---
@@ -624,8 +623,8 @@ struct CombFF {
     void   reset();
     void   process_block([]const double in, []double out);   // out may alias in
 
-    // 'history' is the caller's ring buffer of 'delay' samples, zeroed.
-    static struct CombFF new(&double history, unsigned long delay, double gain);
+    // 'history' is the caller's ring buffer (its length is the delay), zeroed.
+    static struct CombFF new([]double history, double gain);   // delay = history.len
 };
 struct CombFB {
     &double history; unsigned long delay; unsigned long pos; double gain;
@@ -633,7 +632,7 @@ struct CombFB {
     void   reset();
     void   process_block([]const double in, []double out);
 
-    static struct CombFB new(&double history, unsigned long delay, double gain);
+    static struct CombFB new([]double history, double gain);   // delay = history.len
 };
 ```
 
@@ -650,9 +649,9 @@ struct KarplusStrong {
     // it to 'length' for a fresh pluck, the rest keeps its old contents).
     void   pluck([]const double excitation);
 
-    // 'buffer' is the caller's delay line of 'length' samples; seed it (or
+    // 'buffer' is the caller's delay line (its length is the period); seed it (or
     // call pluck) before next().
-    static struct KarplusStrong new(&double buffer, unsigned long length, double damping);
+    static struct KarplusStrong new([]double buffer, double damping);   // length = buffer.len
 };
 ```
 
@@ -869,14 +868,14 @@ The 2D analogues of the 1D building blocks above: `conv2d` is zero-padded ("same
 ```c
 // img: h*w row-major; kernel: kh*kw row-major (kh/kw should be odd);
 // out: room for h*w doubles. Out-of-bounds kernel taps read as zero.
-int conv2d(([]const double img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const double kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]double out)[0..(unsigned long h) * (unsigned long w)]);
+int conv2d([]const double img, unsigned long h, unsigned long w, []const double kernel, unsigned long kh, unsigned long kw, []double out);
 
-int fft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);   // in-place, h and w must be powers of two
-int ifft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);
+int fft2d([]Complex img, unsigned long h, unsigned long w);   // in-place, h and w must be powers of two
+int ifft2d([]Complex img, unsigned long h, unsigned long w);
 
-int gaussian_kernel(([]double kernel)[0..(unsigned long size) * (unsigned long size)], unsigned long size, double sigma);  // normalized (sums to 1)
-int sobel_x_kernel(([]double kernel)[0..9UL]);   // fixed 3x3, room for 9 doubles
-int sobel_y_kernel(([]double kernel)[0..9UL]);
+int gaussian_kernel([]double kernel, unsigned long size, double sigma);  // normalized (sums to 1)
+int sobel_x_kernel([]double kernel);   // fixed 3x3, room for 9 doubles
+int sobel_y_kernel([]double kernel);
 ```
 
 ---

@@ -52,6 +52,10 @@ The **Hook** backend compiles `spawn`/`join` to calls against two fixed extern s
 
 The rest of this page — `thread_create`/`mutex_*`/`cond_*`/`rwlock_*` — is a separate, explicitly-called API for when you want direct control over OS threads rather than the `spawn`/`join` keywords above. Both are pthread/Win32-backed on hosted targets; `thread_create`'s handle is ABI-compatible with `spawn`'s on Win32, but the two are otherwise independent (this API is not part of the Hook backend contract).
 
+::: tip Checked threads
+`std/thread.h` also has the typed layer the compiler's [Send/Sync checks](/reference/threads) apply to: `thread_spawn(f, arg)` moves an argument (`T: Send`) into a new thread and returns a `SpawnedThread<T, R>` whose `join()` gives back `f`'s result, and `Mutex<T>` / `RwLock<T>` own the value they protect. The handle-based functions below check nothing about what threads share; prefer the typed layer.
+:::
+
 ```c
 #include <std/thread.h>
 ```

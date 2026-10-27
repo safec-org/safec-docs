@@ -40,7 +40,7 @@ int fft_serial_f32([]Complex32 data);
 int ifft_serial_f32([]Complex32 data);
 int fft_prepare_f32(unsigned long n);
 int fft_real_f32([]const float in, []Complex32 out);
-int fft_batch_f32((&Complex32 data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_batch_f32([]Complex32 data, unsigned long n, int inverse);   // data.len / n transforms
 int fft_real_batch_f32([]const float in, []Complex32 out, unsigned long n);
 int fft_real_half_batch_f32([]const float in, []Complex32 out, unsigned long n);   // and fft_real_half_f32
 
@@ -70,8 +70,8 @@ void resample_sinc_f32([]const float in, []float out, unsigned long kernelHalfWi
 int dct2_f32([]const float in, []float out);
 int idct3_f32([]const float in, []float out);
 int dft_f32([]const Complex32 in, []Complex32 out);   // also dft_real_f32, idft_f32
-int conv2d_f32(([]const float img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const float kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]float out)[0..(unsigned long h) * (unsigned long w)]);
-int fft2d_f32(([]Complex32 img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);    // and ifft2d_f32
+int conv2d_f32([]const float img, unsigned long h, unsigned long w, []const float kernel, unsigned long kh, unsigned long kw, []float out);
+int fft2d_f32([]Complex32 img, unsigned long h, unsigned long w);    // and ifft2d_f32
 ```
 
 분석 전용 모듈(CQT, CWT, 최소 위상, z-변환 설계)은 `double`만 지원합니다.
@@ -147,7 +147,7 @@ int main() {
 #include <std/dsp/dsp.h>
 ```
 
-`std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed` 배열(첫 원소에 대한 `&Fixed`로 전달) 위에서 동작합니다.
+`std/dsp/`의 나머지 부분이 공유하는 기본적인 배열 수준 빌딩 블록입니다. `dsp_dot_f64`(`Fixed` 경로와 무관한 `double` 배열 프리미티브 — 아래 참고)를 제외하면 모두 힙 할당 없이 `Fixed` 슬라이스(`[]Fixed`) 위에서 동작합니다.
 
 ```c
 Fixed dsp_dot([]const Fixed a, []const Fixed b);           // a[i]*b[i]의 합
@@ -278,7 +278,7 @@ int ifft_serial([]Complex data);
 int fft_prepare(unsigned long n);                             // n 이하 길이의 트위들 테이블 생성
 int fft_real([]const double in, []Complex out); // 실수 -> n점 전체 스펙트럼
 // 연속으로 저장된 'batch'개 변환 (행 r은 data[r*n]), 스레드 사용
-int fft_batch((&Complex data)[0..(unsigned long n) * (unsigned long batch)], unsigned long n, int inverse);
+int fft_batch([]Complex data, unsigned long n, int inverse);   // data.len / n transforms
 int fft_real_batch([]const double in, []Complex out, unsigned long n);   // batch = in.len / n
 // 같은 작업을 제자리에서: 행 r의 앞쪽 n/2칸에 실수 n개가 들어 있음
 int fft_real_batch_inplace([]Complex data, unsigned long n);
@@ -377,7 +377,7 @@ struct FirFilter {
     void   reset();          // zeros the history
     void   process_block([]const double in, []double out);   // out may alias in
 
-    static struct FirFilter new(const &double coeffs, unsigned long numTaps, &double history);
+    static struct FirFilter new([]const double coeffs, []double history);   // numTaps = min(coeffs.len, history.len)
 };
 
 struct IirFilter {           // general-order, direct form I
@@ -390,13 +390,12 @@ struct IirFilter {           // general-order, direct form I
     void   reset();
     void   process_block([]const double in, []double out);
 
-    static struct IirFilter new(const &double b, unsigned long numB,
-                                const &double a, unsigned long numA,
-                                &double xHistory, &double yHistory);
+    static struct IirFilter new([]const double b, []const double a,
+                                []double xHistory, []double yHistory);
 };
 ```
 
-`FFirFilter`와 `FIirFilter`(`FFirFilter::new` / `FIirFilter::new`로 만듭니다)는 `&double` 대신 `&Fixed`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다. 모두 [`SampleFilter`](#sample-filter-traits)입니다.
+`FFirFilter`와 `FIirFilter`(`FFirFilter::new` / `FIirFilter::new`로 만듭니다)는 `double` 대신 `Fixed`를 쓰는, 동일한 형태의 Q8.24 대응 버전입니다. 모두 [`SampleFilter`](#sample-filter-traits)입니다.
 
 ### 예제 — 3탭 이동 평균 {#example-3-tap-moving-average}
 
@@ -604,10 +603,10 @@ void fresample_linear([]const Fixed in, []Fixed out);
 // B, A: order+1개의 아날로그(s영역) 계수, s의 오름차순 거듭제곱.
 // bOut, aOut: 음의 z 거듭제곱 표기법(aOut[0] = 1)에서의 order+1개
 // 디지털 계수 -- filter.h의 IirFilter::new에 그대로 넣으면 된다.
-void bilinear_nth_order((const &double B)[0..(unsigned long order) + 1UL], (const &double A)[0..(unsigned long order) + 1UL], double fs, (&double bOut)[0../*LEN*/], (&double aOut)[0../*LEN*/]);
+int bilinear_nth_order([]const double B, []const double A, double fs, []double bOut, []double aOut);   // order = B.len - 1
 
-double ztransform_response_mag((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
-double ztransform_response_phase((const &double b)[0..(unsigned long order) + 1UL], (const &double a)[0..(unsigned long order) + 1UL], double fs, double freqHz);
+double ztransform_response_mag([]const double b, []const double a, double fs, double freqHz);
+double ztransform_response_phase([]const double b, []const double a, double fs, double freqHz);
 ```
 
 ---
@@ -627,8 +626,8 @@ struct CombFF {
     void   reset();
     void   process_block([]const double in, []double out);   // out may alias in
 
-    // 'history' is the caller's ring buffer of 'delay' samples, zeroed.
-    static struct CombFF new(&double history, unsigned long delay, double gain);
+    // 'history' is the caller's ring buffer (its length is the delay), zeroed.
+    static struct CombFF new([]double history, double gain);   // delay = history.len
 };
 struct CombFB {
     &double history; unsigned long delay; unsigned long pos; double gain;
@@ -636,7 +635,7 @@ struct CombFB {
     void   reset();
     void   process_block([]const double in, []double out);
 
-    static struct CombFB new(&double history, unsigned long delay, double gain);
+    static struct CombFB new([]double history, double gain);   // delay = history.len
 };
 ```
 
@@ -653,9 +652,9 @@ struct KarplusStrong {
     // it to 'length' for a fresh pluck, the rest keeps its old contents).
     void   pluck([]const double excitation);
 
-    // 'buffer' is the caller's delay line of 'length' samples; seed it (or
+    // 'buffer' is the caller's delay line (its length is the period); seed it (or
     // call pluck) before next().
-    static struct KarplusStrong new(&double buffer, unsigned long length, double damping);
+    static struct KarplusStrong new([]double buffer, double damping);   // length = buffer.len
 };
 ```
 
@@ -872,14 +871,14 @@ int cwt_morlet([]const double signal, []const double scales, double w0, []Comple
 ```c
 // img: h*w개, 행 우선; kernel: kh*kw개, 행 우선 (kh/kw는 홀수여야 함);
 // out: h*w개의 double을 담을 공간. 범위를 벗어난 커널 탭은 0으로 취급.
-int conv2d(([]const double img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w, ([]const double kernel)[0..(unsigned long kh) * (unsigned long kw)], unsigned long kh, unsigned long kw, ([]double out)[0..(unsigned long h) * (unsigned long w)]);
+int conv2d([]const double img, unsigned long h, unsigned long w, []const double kernel, unsigned long kh, unsigned long kw, []double out);
 
-int fft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);   // 제자리 연산, h와 w는 2의 거듭제곱이어야 함
-int ifft2d(([]Complex img)[0..(unsigned long h) * (unsigned long w)], unsigned long h, unsigned long w);
+int fft2d([]Complex img, unsigned long h, unsigned long w);   // 제자리 연산, h와 w는 2의 거듭제곱이어야 함
+int ifft2d([]Complex img, unsigned long h, unsigned long w);
 
-int gaussian_kernel(([]double kernel)[0..(unsigned long size) * (unsigned long size)], unsigned long size, double sigma);  // 정규화됨 (합이 1)
-int sobel_x_kernel(([]double kernel)[0..9UL]);   // 고정 3x3, 9개의 double을 담을 공간
-int sobel_y_kernel(([]double kernel)[0..9UL]);
+int gaussian_kernel([]double kernel, unsigned long size, double sigma);  // 정규화됨 (합이 1)
+int sobel_x_kernel([]double kernel);   // 고정 3x3, 9개의 double을 담을 공간
+int sobel_y_kernel([]double kernel);
 ```
 
 ---

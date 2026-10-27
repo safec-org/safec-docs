@@ -57,6 +57,7 @@ This generates the following structure:
 
 ```
 hello/
+  .gitignore
   Package.toml
   src/
     main.sc

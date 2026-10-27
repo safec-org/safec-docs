@@ -103,7 +103,7 @@ Handles are `&File` references to an opaque type — the C `FILE` underneath is 
 ```c
 struct File {
     static ?&File open(const &char path, const &char mode);  // "r", "w", "a", "rb", "wb", etc.
-    int       close();                                       // 0 on success
+    int       close() consume;                               // 0 on success
 
     long long read([]unsigned char buf);       // bytes read, 0 at EOF, -1 on error
     int       getc();                                          // char, or -1 at EOF/error

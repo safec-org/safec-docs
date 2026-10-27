@@ -6,7 +6,7 @@ tags: [unreleased, std, compiler, safety, breaking, tools]
 summary: "A log of everything on SafeC's main branch that the next release will ship — the web stack, async, the GUI toolkit, audio and MIDI, HTTPS, safeguard doc and publish, the self-hosted compiler behind the online playground — and the two breaking changes: a std API without void* or pointer + length pairs, and compiler-enforced Drop and Send/Sync. With a migration guide."
 ---
 
-SafeC's `main` branch has moved a long way since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6). This post is the running log of what the next release will contain: the pull requests merged since then, [#56](https://github.com/safec-org/SafeC/pull/56) through [#79](https://github.com/safec-org/SafeC/pull/79), grouped by area. Two of them are **breaking changes** that the compiler reports at every affected call site; the [migration guide](#migration) at the end shows how to update code.
+SafeC's `main` branch has moved a long way since [1.0.0-beta-6](/blog/releases/v1.0.0-beta-6). This post is the running log of what the next release will contain: the pull requests merged since then, [#56](https://github.com/safec-org/SafeC/pull/56) through [#81](https://github.com/safec-org/SafeC/pull/81), grouped by area. Two of them are **breaking changes** that the compiler reports at every affected call site; the [migration guide](#migration) at the end shows how to update code.
 
 SafeC's [`CHANGELOG.md`](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md), which this site renders as the [changelog](/changelog), records the later changes — `safeguard doc` and `publish`, scc, the slice API and the ownership checks — under *Unreleased*, down to individual signatures. The first half of this cycle — the web stack, async, the GUI toolkit, audio and HTTPS — has a longer write-up in [This cycle in SafeC](/blog/this-release-cycle).
 
@@ -21,7 +21,7 @@ SafeC's [`CHANGELOG.md`](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.
 | [HTTPS](#https) | `std/tls`: the OS's TLS, with a SafeC TLS 1.3 fallback | [#66](https://github.com/safec-org/SafeC/pull/66) |
 | [safeguard doc & publish](#safeguard-doc) | rustdoc-style API reference; library publishing with CI | [#69](https://github.com/safec-org/SafeC/pull/69) |
 | [scc & the playground](#scc) | A SafeC compiler written in SafeC, compiling to WebAssembly | [#70](https://github.com/safec-org/SafeC/pull/70) |
-| [Slices, not `void*`](#slices) — **breaking** | std's public API takes slices and typed erasure | [#76](https://github.com/safec-org/SafeC/pull/76) |
+| [Slices, not `void*`](#slices) — **breaking** | std's public API takes slices and typed erasure; no `void*` left anywhere in std | [#76](https://github.com/safec-org/SafeC/pull/76), [#80](https://github.com/safec-org/SafeC/pull/80), [#81](https://github.com/safec-org/SafeC/pull/81) |
 | [Drop, Send and Sync](#ownership) — **breaking** | Compiler-checked ownership and thread safety | [#77](https://github.com/safec-org/SafeC/pull/77) |
 | [Fixes](#fixes) | Codegen, safety-check gaps, Windows and macOS CI | [#64](https://github.com/safec-org/SafeC/pull/64), [#68](https://github.com/safec-org/SafeC/pull/68), [#71](https://github.com/safec-org/SafeC/pull/71)–[#75](https://github.com/safec-org/SafeC/pull/75), [#78](https://github.com/safec-org/SafeC/pull/78), [#79](https://github.com/safec-org/SafeC/pull/79) |
 
@@ -68,7 +68,7 @@ scc is what powers this site's [Playground](/playground): its *Run* button now c
 - **The language grew to match:** [read-only slices](/reference/types#read-only-slices) `[]const T`, [optional slices](/reference/types#optional-slices) `?[]T` and nullable function references `?fn R(Args)`, slice-returning functions and slice fields, range-checked re-slicing (`a[i..j]` traps when `i > j` or `j > len` outside `unsafe`), and byte slices that interconvert across `char`, `signed char` and `unsigned char`. Casting a slice to a pointer is now an error: use `s.ptr`.
 - New in std: `Erased`, `S24` (a packed 24-bit audio sample, so 24-bit buffers are `[]S24`), `struct TimeFields`, `Vec::from_slice` / `as_slice`, `String::from_bytes` / `push_bytes` / `as_bytes`, and `over([]T)` constructors for `StaticVec`, `StaticMap`, `RingBuffer`, `LFQueue` and the allocators.
 
-A lint in SafeC's test suite now fails the build if a raw pointer reappears in a public std declaration.
+[#80](https://github.com/safec-org/SafeC/pull/80) and [#81](https://github.com/safec-org/SafeC/pull/81) finished the job inside std: the audio, GUI, ML, TLS and OS backends bind their C, Objective-C, CUDA, HIP, Metal, Vulkan and WebGPU APIs through typed handles and byte pointers, audio and MIDI callback contexts must be `Send + Sync`, allocators hand out `?&heap unsigned char`, and `malloc_defer` takes its type from the declaration. No `void*` is left anywhere in std, and a lint in SafeC's test suite fails the build if one reappears, or if a raw pointer reappears in a public std declaration.
 
 ## Breaking: compiler-enforced Drop, Send and Sync {#ownership}
 

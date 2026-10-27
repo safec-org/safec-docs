@@ -76,7 +76,7 @@ No implicit allocations, no exceptions, no hidden copies, no narrowing conversio
 ::: card chip
 ### [Bare metal and WebAssembly](/reference/baremetal)
 
-`--freestanding` builds for 14 no-OS targets (Cortex-M, RISC-V, x86, AArch64) with interrupt handlers, inline assembly and `volatile` MMIO. `--target=wasm32` builds browser modules with `std/wasm` DOM bindings.
+`--freestanding` builds for 15 no-OS targets (Cortex-M, RISC-V, x86, AArch64) with interrupt handlers, inline assembly and `volatile` MMIO. `--target=wasm32` builds browser modules with `std/wasm` DOM bindings.
 :::
 ::: card flow
 ### [Async without a runtime tax](/stdlib/async)
@@ -187,6 +187,7 @@ struct HttpResponse hello(&HttpRequest req, &HttpCtx ctx) {
 
 int main() {
     struct Router app = std::Router::new();
+    defer app.drop();
     app.use_logger();
     app.use_gzip(1024UL);
     app.get("/hello/:name", hello);
@@ -210,7 +211,7 @@ int main() {
     struct GuiApp app = GuiApp::new();
     ?&GuiWindow ow = app.open_window("Hello", 360, 200);
     match (ow) {
-        case null: { return 1; }                 // no display
+        case null: { app.free(); return 1; }     // no display
         case some(win): {
             &Widget root = Widget::vstack().set_padding(16);
             &Widget label = Widget::label("Hello from SafeC");
@@ -224,7 +225,7 @@ int main() {
     return 0;
 }
 ```
-An anti-aliased vector canvas with TrueType text and 30+ themed widgets on X11, Win32 and Cocoa — [GUI](/stdlib/gui).
+An anti-aliased vector canvas with TrueType text and 30+ themed widgets on X11, Wayland, Win32, Cocoa and the web (WebAssembly) — [GUI](/stdlib/gui).
 :::
 ::: tab Async
 ```c norun
@@ -251,7 +252,9 @@ void Countdown::drop() { if (self.st == 1) self.d.drop(); }
 
 int main() {
     struct Countdown c; c.st = ASYNC_INIT;
-    return block_on(&c) == 42 ? 0 : 1;       // or LocalExecutor / ThreadPool / Runtime
+    int v = block_on(&c);                    // or LocalExecutor / ThreadPool / Runtime
+    c.drop();
+    return v == 42 ? 0 : 1;
 }
 ```
 Futures, wakers, join/select/timeout, channels and async TCP over epoll, kqueue and WSAPoll — [Async](/stdlib/async).
@@ -267,11 +270,11 @@ struct Tone { double phase; double step; };
 int render(&AudioIo io, ?&Tone tp) {
     match (tp) {
         case some(t): {
-            struct Slice<float> out = io.output_f32();   // frames x channels, interleaved
+            []float out = io.output_f32();   // frames x channels, interleaved
             for (unsigned int f = 0U; f < io.frames; f = f + 1U) {
                 float v = (float)(0.2 * std::sin_d(t.phase));
-                out.set((unsigned long)f * 2UL, v);
-                out.set((unsigned long)f * 2UL + 1UL, v);
+                out[(unsigned long)f * 2UL] = v;           // bounds-checked
+                out[(unsigned long)f * 2UL + 1UL] = v;
                 t.phase = t.phase + t.step;
             }
         }
@@ -301,6 +304,67 @@ The whole standard library builds for every bare-metal target; `std/wasm` drives
 ::::
 
 :::: section alt
+## Machine learning, CPU to GPU {#ml}
+
+::: lead
+`std/ml` trains and runs neural networks in SafeC itself — tensors with autograd, the layers today's models are built from, and GPU backends — with no Python and no framework runtime.
+:::
+
+::: split
+::: col
+- **Tensors and autograd.** `DenseTensor<E>` with reverse-mode autograd, stored as float32 (`FloatTensor`), fp16 (`HalfTensor`) or bf16 (`BF16Tensor`) and computed in float32.
+- **Layers and models.** MLPs, losses and optimizers from SGD to AdamW and Lion; multi-head, flash and advanced attention (MLA, Gated DeltaNet); DiT and JiT transformers, RNNs and xLSTM, Mamba, CNNs and ResNet-style ConvNets, U-Net and diffusion, autoencoders, GANs, reinforcement learning and LoRA / QLoRA fine-tuning.
+- **One kernel set, every GPU.** The same training code runs on the CPU (built-in GEMM or a vendor BLAS) or on a tensor device: CUDA, ROCm, Metal, Vulkan (SPIR-V) or WebGPU, all from one kernel source, with fp16 and bf16 mixed precision.
+- **Measured.** Against PyTorch's best configuration, SafeC trains a small MLP 2.6× (MI100) and 7.8× (H200) faster and decodes Gemma 4 E2B 3.1× and 1.5× faster; on an M1 Pro, MLX and PyTorch still win some tests. See [the benchmarks](/benchmarks#machine-learning).
+
+::: actions
+[Machine learning reference](/stdlib/ml)
+[ML benchmarks](/benchmarks#machine-learning)
+:::
+:::
+::: col
+```c norun
+#include <std/ml/module.h>
+#include <std/ml/datasets.h>
+#include <std/ml/trainer.h>
+extern int printf(const char* fmt, ...);
+
+// The forward pass builds the autograd graph as it goes.
+static &FloatTensor clf_loss(&Mlp m, const &FloatTensor x,
+                             const &FloatTensor y) {
+    return tensor_cross_entropy_loss(m.forward(x), y);
+}
+static &FloatTensor clf_logits(&Mlp m, const &FloatTensor x) {
+    return m.forward(x);
+}
+
+int main() {
+    struct Rng rng = Rng::new(1UL);
+    struct Dataset data = Dataset::moons(400UL, 0.1f, &rng);
+    defer data.drop();
+    struct DatasetSplit sp = data.split(0.25f, &rng);
+    defer sp.train.drop();
+    defer sp.test.drop();
+    struct Mlp net = Mlp::new(2UL, 32UL, 2UL, 2UL, ACT_RELU, ACT_NONE, &rng);
+    defer net.drop();
+    struct Optimizer opt = Optimizer::new(OPT_ADAM, 0.01f);
+    defer opt.drop();
+    model_add_params(&net, &opt);
+
+    struct TrainConfig cfg = TrainConfig::default();
+    cfg.epochs = 60UL;
+    cfg.device = device_auto();   // a GPU if built in, else the CPU
+    trainer_fit(&net, clf_loss, &opt, &sp.train, &cfg);
+    float acc = trainer_accuracy(&net, clf_logits, &sp.test, 64UL);
+    printf("accuracy %.2f on %s\n", acc, device_name(cfg.device));
+    return 0;
+}
+```
+:::
+:::
+::::
+
+:::: section
 ## Install {#install}
 
 ::::: tabs
@@ -326,7 +390,7 @@ safeguard run
 SafeC needs **clang 21 or newer** to compile and link (the installer finds it or tells you how to get it). See [Install](/install) for options, requirements and building from source.
 ::::
 
-:::: section
+:::: section alt
 ## Get going {#next}
 
 ::::: cards 3
@@ -338,7 +402,7 @@ The Book, the guide, the language reference and the standard library, in one pla
 ::: card play
 ### [Playground](/playground)
 
-Edit SafeC in your browser, load the Book's examples and share a program as a link.
+Edit and run SafeC in your browser, load the Book's examples and share a program as a link.
 :::
 ::: card terminal
 ### [Tools](/tools)

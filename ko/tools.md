@@ -7,7 +7,7 @@ summary: SafeC 툴체인 — safec 컴파일러, safeguard 패키지 매니저·
 # 도구
 
 ::: lead
-모든 릴리스에는 세 프로그램이 들어 있습니다. 컴파일러 `safec`, 대부분의 프로젝트가 모든 작업에 쓰는 패키지 매니저이자 빌드 도구 `safeguard`, 에디터용 언어 서버 `sc-lsp`. [설치](/ko/install)하면 셋 모두 `PATH`에 들어갑니다.
+모든 릴리스에는 세 프로그램이 들어 있습니다. 컴파일러 `safec`, 대부분의 프로젝트가 모든 작업에 쓰는 패키지 매니저이자 빌드 도구 `safeguard`, 에디터용 언어 서버 `sc-lsp`. [설치](/ko/install)하면 셋 모두(그리고 `safeguard doc`이 쓰는 API 레퍼런스 생성기 `safec-doc`) `PATH`에 들어갑니다.
 :::
 
 ::::: cards 3
@@ -42,7 +42,10 @@ summary: SafeC 툴체인 — safec 컴파일러, safeguard 패키지 매니저·
 | `safeguard fetch` | `[dependencies]` 클론·빌드 |
 | `safeguard format` | `.sc` / `.h` 파일 들여쓰기·공백 정리 |
 | `safeguard lint` | 정적 분석 린트 |
-| `safeguard bundle` | GUI 앱을 macOS `.app`, Windows 앱 폴더, Linux `.deb`로 패키징 |
+| `safeguard bundle` | GUI 앱을 macOS `.app`, Windows 앱 폴더, Linux `.deb`와 AppDir, 또는 (`--target wasm32`) 웹 페이지로 패키징 |
+| `safeguard doc` | 패키지의 [API 레퍼런스](/ko/advanced/safeguard#safeguard-doc) 생성 (`--serve`로 보기, `--std`로 std의 것) |
+| `safeguard publish` | 라이브러리를 [배포](/ko/advanced/safeguard#safeguard-publish)할 수 있게 준비: CI, 릴리스 아카이브, Pages 문서 |
+| `safeguard clean` | `build/`와 `deps/` 제거 |
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 대조 |
 | `safeguard std-modules` | 빌드가 컴파일하는 std 소스와 링크하는 시스템 라이브러리 |
 
@@ -119,4 +122,4 @@ safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 
 ## 플레이그라운드 {#playground}
 
-[플레이그라운드](/ko/playground)는 브라우저에서 하이라이팅과 함께 SafeC를 편집하고, 북의 예제를 불러오고, 프로그램을 링크로 공유합니다. 코드 실행에는 브라우저 컴파일러(WebAssembly로 빌드한 셀프 호스팅 SafeC 컴파일러)가 필요하며, 곧 제공됩니다.
+[플레이그라운드](/ko/playground)는 브라우저에서 하이라이팅과 함께 SafeC를 편집하고, 북의 예제를 불러오고, 프로그램을 링크로 공유합니다. *실행*은 WebAssembly로 빌드한 SafeC의 셀프 호스팅 컴파일러 scc로 브라우저 안에서 프로그램을 컴파일하고 실행합니다. 언어의 부분집합과 함께 포함된 std 헤더를 받아들입니다([자세히](/ko/playground#about)).

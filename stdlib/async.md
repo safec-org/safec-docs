@@ -75,6 +75,7 @@ int main() {
     struct Countdown c;
     c.st = ASYNC_INIT;
     int v = block_on(&c);                          // prints 3 2 1, returns 42
+    c.drop();                                      // a Drop type: finished, so this does nothing
     return v == 42 ? 0 : 1;
 }
 ```
@@ -100,7 +101,7 @@ generic<T> struct Poll {
     static struct Poll<T> pending();
     int is_ready() const;
     int is_pending() const;
-    ?T  take() const;               // the value, or null if Pending
+    ?T  take() consume;             // the value, or null if Pending
 };
 
 trait Future {
@@ -129,7 +130,7 @@ struct Waker {
                                            ?&T data, unsigned long tag);
     static struct Waker noop();
 
-    void wake();                         // wake_by_ref(), then drop()
+    void wake() consume;                 // wake_by_ref(), then drop()
     void wake_by_ref() const;
     struct Waker clone() const;          // runs the clone hook
     void drop();                         // runs the drop hook; a dropped waker wakes nothing
@@ -384,7 +385,7 @@ struct Poll<Unit> Flag::poll(&Context cx) {
     return Poll::pending();                    // ... then report Pending
 }
 void Flag::set()  { self.is_set = 1; self.waiter.wake(); }
-void Flag::drop() { self.waiter.clear(); }
+void Flag::drop() { self.waiter.drop(); }   // releases a held waker
 ```
 
 (Shared between threads it would need a lock around the check and the registration, as `std/async`'s own primitives have.)
@@ -401,7 +402,7 @@ generic<F: Future, T> struct AsyncTask {
     static struct AsyncTask<F, T> new(F fut);
     int is_finished() const;           // done, either way
     int is_aborted() const;
-    ?T  take() const;                  // the output if it finished (not aborted)
+    ?T  take();                        // the output if it finished (not aborted)
 };
 
 generic<T> struct JoinHandle {         // returned by spawn
@@ -472,10 +473,10 @@ ex.run(&clk);
 
 On a microcontroller, with a millisecond tick from an interrupt:
 
-```c
+```c norun
 static volatile long long g_ms = 0;               // incremented by the SysTick handler
 static long long board_now() { return g_ms; }
-static void board_idle(long long timeout_ms) { asm volatile("wfi"); }   // any interrupt wakes it
+static void board_idle(long long timeout_ms) { unsafe { asm volatile("wfi"); } }   // any interrupt wakes it
 
 static struct LocalExecutor ex;
 int main() {
@@ -509,7 +510,7 @@ struct ThreadPool {
     generic<F, T> struct JoinHandle<T> spawn(&AsyncTask<F, T> task);
     generic<F: Future, T> T block_on(F fut);   // run as a task, block this thread for the value
     void wait_idle();                    // every spawned task finished
-    void shutdown();                     // stop and join the workers
+    void shutdown() consume;             // stop and join the workers
 };
 ```
 
@@ -689,7 +690,7 @@ struct AsyncTcpListener {
     static struct AsyncTcpListener bind(unsigned short port);   // 0: any free port
     struct AcceptFut accept();                           // -> struct AsyncTcpStream (.fd < 0 on error)
     unsigned short local_port() const;
-    int close();
+    int close() consume;
 };
 
 struct AsyncTcpStream {
@@ -698,8 +699,8 @@ struct AsyncTcpStream {
     static struct ConnectFut connect(unsigned int addr_network_order, unsigned short port);
     struct ReadFut     read([]unsigned char buf);        // -> long long: bytes, 0 at EOF, -1 on error
     struct WriteFut    write([]const unsigned char buf);       // -> long long: bytes written, -1 on error
-    struct WriteAllFut write_all([]unsigned char buf);   // -> int: 1 all written, 0 on error
-    int close();
+    struct WriteAllFut write_all([]const unsigned char buf);   // -> int: 1 all written, 0 on error
+    int close() consume;
 };
 
 struct IoReady { static struct IoReady new(int fd, int filter); };   // -> UNIT once ready
@@ -710,6 +711,9 @@ The I/O futures make the non-blocking call at once (sockets from [`std/sched/io_
 An echo server, one handler task per connection:
 
 ```c
+#include <std/async/async.h>
+#include <std/async/net.h>
+
 struct EchoConn {
     int st; struct AsyncTcpStream c; struct ReadFut rd; struct WriteAllFut wr;
     long long n; int ok; unsigned char buf[512];
@@ -725,8 +729,9 @@ struct Poll<int> EchoConn::poll(&Context cx) {
         if (self.n <= 0LL) break;                       // EOF or error
         self.wr = self.c.write_all(self.buf[0..(unsigned long)self.n]);
         AWAIT_INTO(2, self.ok, self.wr);
+        if (self.ok == 0) break;
     }
-    self.c.close();
+    unsafe { self.c.close(); }    // early, in place: drop() then closes nothing again
     ASYNC_RETURN(0);
     ASYNC_END;
 }
@@ -750,19 +755,26 @@ struct Poll<int> Server::poll(&Context cx) {
     for (self.n = 0; self.n < 16; self.n = self.n + 1) {
         self.acc = self.l.accept();
         AWAIT_INTO(1, self.c, self.acc);
+        if (self.c.fd < 0) break;
         {
             struct EchoConn e;
             e.st = ASYNC_INIT;
-            e.c = self.c;
+            e.c = std::replace(&self.c, AsyncTcpStream::from_fd(-1));   // move the stream out
             self.conns[self.n] = AsyncTask::new(e);
-            async_spawn(cx, &self.conns[self.n]);       // the handler lives in the server's struct
+            drop(async_spawn(cx, &self.conns[self.n]));  // the handler lives in the server's struct
         }
     }
     ASYNC_RETURN(self.n);
     ASYNC_END;
 }
 
-void Server::drop() { if (self.st == 1) self.acc.drop(); self.l.close(); self.st = ASYNC_DONE; }
+void Server::drop() {
+    if (self.st == 1) self.acc.drop();
+    self.c.drop();
+    for (int i = 0; i < self.n; i = i + 1) self.conns[i].drop();
+    self.l.close();
+    self.st = ASYNC_DONE;
+}
 
 static struct Runtime rt;
 static struct AsyncTask<struct Server, int> server;
@@ -772,9 +784,10 @@ int main() {
     if (rt.init() != 0) return 1;
     struct Server s;
     s.st = ASYNC_INIT;
+    s.n = 0;
     s.l = AsyncTcpListener::bind((unsigned short)7000);
     server = AsyncTask::new(s);
-    rt.spawn(&server);
+    drop(rt.spawn(&server));      // the JoinHandle: not awaited here
     rt.run();
     rt.close_();
     return 0;
