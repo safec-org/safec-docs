@@ -7,10 +7,10 @@ SafeC는 두 개의 계층으로 이루어진 스레딩을 제공합니다: **`s
 ```c
 long long spawn(fn, arg);          // fn: &static 함수 참조; 스레드 핸들을 반환
 void      join(handle);
-long long spawn_scoped(fn, arg);   // spawn과 같지만, 컴파일러가 스코프 종료 전 join을 보장
+long long spawn_scoped(fn, arg);   // spawn과 같지만, 시작한 함수가 반환하기 전에 join됨
 ```
 
-`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 인자로 그대로 전달됩니다. 스레드 함수는 nullable 참조를 받고 반환합니다(`?&T f(?&T arg)`). 인자는 리전 격리를 지켜야 합니다: 생성된 스레드가 참조 대상보다 오래 살거나 그 위에서 경쟁할 수 있으므로, 컴파일러는 `&static`이 아닌 가변 참조를 거부합니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
+`spawn`의 첫 번째 인자는 함수에 대한 `&static` 참조여야 합니다(일반적인 최상위 함수 이름은 암묵적으로 이 형태로 붕괴합니다). 두 번째 인자는 스레드의 인자로 그대로 전달됩니다. 스레드 함수는 nullable 참조를 받고 반환합니다(`?&T f(?&T arg)`). 인자는 검사됩니다([스레드 안전성](/ko/reference/threads#spawn) 참고): 생성된 스레드가 참조 대상보다 오래 살거나 그 위에서 경쟁할 수 있으므로 `spawn`의 인자는 `null`이거나 정적 데이터를 가리켜야 하며, `spawn_scoped`는 지역 변수를 빌려줄 수 있습니다. `spawn`과 `spawn_scoped` 모두 `join`에 전달할 `long long` 핸들을 반환합니다.
 
 ```c
 extern int printf(const char *fmt, ...);
@@ -32,7 +32,7 @@ int main() {
 
 ### 리전 격리 {#region-isolation}
 
-`spawn`의 인자는 **가변이면서 `&static`이 아닌** 참조일 수 없습니다 — 그런 참조를 전달하면 컴파일 오류("region isolation violation")가 발생합니다. 스폰된 스레드가 해당 참조가 가리키는 리전보다 더 오래 살아남을 수 있기 때문입니다. 대신 `&static` 참조, 불변 참조, 또는 (인덱스나 직접 관리하는 힙 포인터 같은) 일반 값을 전달합니다.
+`spawn`으로 시작한 스레드는 어떤 스코프에서도 join되지 않으므로, 그 인자는 `null`이거나 **정적 데이터**를 가리켜야 합니다: `T`가 Sync인 `const &static T`, 또는 `T`가 자기 상태를 스스로 동기화할 때(`Mutex`, 원자 연산)만 가변 `&static T`. 스택, 아레나, 힙 데이터를 가리키는 참조는 컴파일 오류이며("the argument '&stack int' refers to data the thread may outlive"), 원시 포인터는 `unsafe` 안에서만 허용됩니다. 스레드에 지역 변수를 넘기려면 `spawn_scoped`를 쓰세요. 전체 규칙은 [스레드 안전성](/ko/reference/threads#spawn)에 있습니다.
 
 ### 백엔드 선택 {#backend-selection}
 

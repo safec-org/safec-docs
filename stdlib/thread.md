@@ -7,10 +7,10 @@ SafeC has two layers of threading: the **`spawn`/`join`/`spawn_scoped` language 
 ```c
 long long spawn(fn, arg);          // fn: &static function reference; returns a thread handle
 void      join(handle);
-long long spawn_scoped(fn, arg);   // like spawn, but the compiler guarantees a join before scope exit
+long long spawn_scoped(fn, arg);   // like spawn, but joined before the starting function returns
 ```
 
-`spawn`'s first argument must be a `&static` reference to a function (an ordinary top-level function name decays to one implicitly); its second argument is passed through as the thread's argument. Thread functions take and return a nullable reference (`?&T f(?&T arg)`). The argument must respect region isolation: the compiler rejects a mutable reference that isn't `&static`, since the spawned thread could outlive the referent or race on it. Both `spawn` and `spawn_scoped` return a `long long` handle to pass to `join`.
+`spawn`'s first argument must be a `&static` reference to a function (an ordinary top-level function name decays to one implicitly); its second argument is passed through as the thread's argument. Thread functions take and return a nullable reference (`?&T f(?&T arg)`). The argument is checked (see [Thread Safety](/reference/threads#spawn)): for `spawn` it must be `null` or refer to static data, since the spawned thread could outlive the referent or race on it; `spawn_scoped` may lend a local. Both `spawn` and `spawn_scoped` return a `long long` handle to pass to `join`.
 
 ```c
 extern int printf(const char *fmt, ...);
@@ -32,7 +32,7 @@ int main() {
 
 ### Region Isolation {#region-isolation}
 
-`spawn`'s argument may not be a **mutable, non-`&static`** reference — passing one is a compile error ("region isolation violation"), since the spawned thread could outlive the region the reference points into. Pass a `&static` reference, an immutable reference, or a plain value (e.g. an index or a heap pointer you manage explicitly) instead.
+A `spawn`ed thread isn't joined by any scope, so its argument must be `null` or refer to **static data**: a `const &static T` whose `T` is Sync, or a mutable `&static T` only when `T` synchronizes its own state (a `Mutex`, atomics). A reference to stack, arena or heap data is a compile error ("the argument '&stack int' refers to data the thread may outlive"), and a raw pointer is accepted only inside `unsafe`. To give a thread a local, use `spawn_scoped`; the full rules are in [Thread Safety](/reference/threads#spawn).
 
 ### Backend Selection {#backend-selection}
 

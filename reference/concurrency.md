@@ -1,6 +1,6 @@
 # Concurrency
 
-SafeC provides low-level, C-compatible concurrency primitives. Threads are created with `spawn` and joined with `join`, mapping directly to POSIX pthreads. There are no closures or runtime schedulers -- concurrency is explicit and deterministic.
+SafeC provides low-level, C-compatible concurrency primitives. Threads are created with `spawn` and joined with `join`, mapping directly to POSIX pthreads (Win32 threads on Windows, and a two-symbol hook on bare metal — see [backend selection](/stdlib/thread#backend-selection)). There are no closures or runtime schedulers -- concurrency is explicit and deterministic.
 
 What a thread may reach is checked at compile time: every type is Send and/or Sync (derived from its structure), and `spawn`, `spawn_scoped`, channels and the standard library's thread types accept only what is safe to share. [Thread Safety](/reference/threads) has the full rules.
 
@@ -63,7 +63,7 @@ join(h2);                      // wait for worker2
 | `spawn(fn, arg)` | `pthread_create(&tid, NULL, fn, arg)` |
 | `join(handle)` | `pthread_join((pthread_t)handle, NULL)` |
 
-The handle returned by `spawn` is the raw `pthread_t` value cast to `long long`.
+The handle returned by `spawn` is the raw `pthread_t` value cast to `long long`. That is the hosted Linux/macOS/BSD lowering; a Windows target calls `CreateThread`/`WaitForSingleObject` instead, and a freestanding target `__safec_thread_create`/`__safec_thread_join` ([backend selection](/stdlib/thread#backend-selection)).
 
 ## Region Safety in Concurrency {#region-safety-in-concurrency}
 
@@ -154,7 +154,7 @@ The SafeC standard library provides higher-level concurrency primitives in the `
 - **Read-write locks**: `rwlock_create`, `rwlock_read_lock`, `rwlock_write_lock`, `rwlock_unlock`
 - **Thread utilities**: `thread_yield`, `thread_sleep_ms`, `thread_self`
 
-These are cross-platform wrappers over POSIX threads (or Win32 threads with `-D__WINDOWS__`). They pass untyped handles, so nothing checks what threads share through them. The module's typed layer is built on them and is checked:
+These are cross-platform wrappers over POSIX threads (or Win32 threads when the target is Windows — see [thread](/stdlib/thread)). They pass untyped handles, so nothing checks what threads share through them. The module's typed layer is built on them and is checked:
 
 - **`thread_spawn(f, arg)`** moves `arg` (a Send value) into a new thread and returns a `SpawnedThread<T, R>`; `join()` it for `f`'s result.
 - **`Mutex<T>`** owns a `T` reachable only through the `MutexGuard<T>` that `lock()` returns; the guard unlocks when dropped, and a reference from `guard.get()` can't outlive it.
