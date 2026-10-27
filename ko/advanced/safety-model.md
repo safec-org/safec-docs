@@ -173,8 +173,10 @@ void demo() {
 | 별칭/대여 검사(NLL) | 가변 배타성이 유지됨 |
 | Null 가능성 강제 | `match`/`.is_null()`/`.default()`/`unsafe` 밖에서 nullable 참조를 역참조하는 것은 거부됨 |
 | 경계 검사 | 배열 접근이 범위 안에 있음 |
+| 소유권 | [Drop 타입](/ko/reference/ownership)의 모든 값이 모든 경로에서 정확히 한 번 drop되거나 이동됨: 누수, drop·이동 후 사용, 이중 drop 없음 |
+| 스레드 안전성 | `spawn`, `spawn_scoped`, 채널, std의 스레드 타입이 다른 스레드에 넘기는 것이 [Send/Sync](/ko/reference/threads)임 |
 
-모든 검사는 컴파일 타임에 실행됩니다. 유일한 런타임 삽입은 동적 배열 인덱스에 대한 경계 검사이며, 이는 생성된 IR에서 눈에 보입니다.
+모든 검사는 컴파일 타임에 실행됩니다. 유일한 런타임 삽입은 동적 배열·슬라이스 인덱스에 대한 경계·범위 검사이며, 이는 생성된 IR에서 눈에 보입니다.
 
 ## `unsafe` 탈출구 {#the-unsafe-escape-hatch}
 

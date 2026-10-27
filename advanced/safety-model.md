@@ -173,8 +173,10 @@ The compiler enforces these properties through a series of analysis passes durin
 | Alias/borrow checking (NLL) | Mutable exclusivity is maintained |
 | Nullability enforcement | Dereferencing a nullable reference outside `match`/`.is_null()`/`.default()`/`unsafe` is rejected |
 | Bounds checking | Array accesses are within bounds |
+| Ownership | Every value of a [Drop type](/reference/ownership) is dropped or moved exactly once on every path: no leak, use after drop or move, or double drop |
+| Thread safety | What `spawn`, `spawn_scoped`, channels and std's thread types hand to another thread is [Send/Sync](/reference/threads) |
 
-All checks run at compile time. The only runtime insertion is bounds checks for dynamic array indices, and those are visible in the generated IR.
+All checks run at compile time. The only runtime insertion is bounds and range checks for dynamic array and slice indices, and those are visible in the generated IR.
 
 ## The `unsafe` Escape Hatch {#the-unsafe-escape-hatch}
 
