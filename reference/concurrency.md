@@ -162,7 +162,7 @@ These are cross-platform wrappers over POSIX threads (or Win32 threads when the 
 
 ```c
 #include <std/thread.h>
-static struct Mutex<int> g_total;
+static struct Mutex<int> g_total;   // = Mutex::new(0) before any thread starts
 
 void add(int k) {
     struct MutexGuard<int> g = g_total.lock();

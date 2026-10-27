@@ -66,7 +66,7 @@ A thread started by `spawn` is not tied to any scope (it may run until the progr
 
 ```c
 static struct Counter g_c;
-static struct Mutex<int> g_total;
+static struct Mutex<int> g_total;   // = Mutex::new(0) before any thread starts
 
 spawn(work, &c);         // error: spawn: the argument '&stack Counter' refers to data the
                          //        thread may outlive (a spawned thread isn't joined by its
@@ -146,7 +146,7 @@ Forgetting to join is a leak error like any other; dropping a `SpawnedThread` jo
 `Mutex<T>` owns a `T` that is reachable only while locked. `lock()` returns a `MutexGuard<T>`, a Drop value that unlocks in `drop()`; `guard.get()` returns a reference into the protected value that borrows from the guard:
 
 ```c
-static struct Mutex<int> g_m;
+static struct Mutex<int> g_m;       // = Mutex::new(0) before any thread starts
 
 void add(int k) {
     struct MutexGuard<int> g = g_m.lock();

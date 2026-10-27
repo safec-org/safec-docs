@@ -162,7 +162,7 @@ SafeC 표준 라이브러리는 `thread` 모듈에서 더 고수준의 동시성
 
 ```c
 #include <std/thread.h>
-static struct Mutex<int> g_total;
+static struct Mutex<int> g_total;   // = Mutex::new(0) before any thread starts
 
 void add(int k) {
     struct MutexGuard<int> g = g_total.lock();
