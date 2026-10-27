@@ -96,13 +96,17 @@ Equally important is what SafeC deliberately omits:
 
 ## Project Components {#project-components}
 
-The SafeC project consists of three main components:
+The SafeC project consists of these components:
 
 **Compiler (`safec`)** — A full LLVM frontend that compiles `.sc` files to LLVM IR. The pipeline is: Preprocessor, Lexer, Parser, AST, Sema (semantic analysis), ConstEval (compile-time evaluation), CodeGen (LLVM IR generation).
 
-**Standard Library (`std/`)** — 20+ modules covering memory, I/O, strings, math, collections, concurrency, and system interfaces. All implemented in SafeC with C FFI for system calls.
+**Standard Library (`std/`)** — about 300 headers in 27 sections: memory, I/O, strings, math, collections and allocators; threads, synchronization and async; networking, TLS, HTTP and the web; GUI, audio and DSP; machine learning; crypto, encoding, serialization and file systems; SIMD, HAL and bare-metal kernels — see the [Standard Library](/stdlib/). All implemented in SafeC, with C FFI for system calls.
 
-**Package Manager (`safeguard`)** — A build tool and dependency manager. Handles compilation, linking, dependency fetching, and standard library integration.
+**Package Manager (`safeguard`)** — A build tool and dependency manager. Handles compilation, linking, dependency fetching, tests, formatting, linting, app bundles, API docs and standard library integration.
+
+**Language server (`sc-lsp`)** — Editor support built on the compiler's own frontend (see [Tools](/tools#sc-lsp)).
+
+**Self-hosted compiler (`scc`)** — A SafeC compiler written in SafeC, built to WebAssembly for the [Playground](/playground).
 
 ## File Extension {#file-extension}
 
