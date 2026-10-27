@@ -66,7 +66,7 @@ ld.lld -T board.ld --gc-sections -static -nostdlib firmware.o libsafec_std.a lib
 
 ### 베어메탈에서 테스트하기 {#testing}
 
-표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). wasm32와 wasm64 이미지는 `wasm-ld`로 링크해 Node에서 실행합니다(`run_wasm.mjs`). 현재 16개 타깃 모두 모든 검사를 통과합니다.
+표준 라이브러리 자체의 베어메탈 테스트 모음(`tests/stdlib/baremetal/`)은 타깃마다 모든 `std/*.sc`를 빌드하고(`sweep.sh`), 최소 런타임(`bm_rt.sc`: 정적 아레나 위의 `memcpy`/`memset`/`malloc`, `__atomic_*` 심)과 함께 테스트 이미지를 주소 `0x10000`에 링크한 뒤 Unicorn CPU 에뮬레이터에서 실행합니다(`run.sh`, `run.py`). wasm32와 wasm64 이미지는 `wasm-ld`로 링크해 Node에서 실행합니다(`run_wasm.mjs`). `safec --list-targets`가 나열하는 모든 타깃을 다룹니다: 위의 베어메탈 별칭 15개와 `wasm32`, `wasm64`.
 
 `tests/stdlib/baremetal/qemu/run.sh`는 한 단계 더 나아가 QEMU의 에뮬레이션 하드웨어에서 작은 프로그램을 부팅합니다: 주소 변환을 실제로 켠 네이티브 [`MmuContext`](/ko/stdlib/kernel#mmu-context-kernelmmuh) 형식(S 모드의 RISC-V Sv39/Sv32, MMU를 켠 AArch64와 ARMv7-A, x86 32비트 페이징과 x86-64 롱 모드), 그리고 QEMU의 주변장치 모델을 상대로 한 [HAL 칩](/ko/stdlib/hal#hal-chips) PL011, 16550, STM32F4 USART/TIM/SPI입니다. x86에서는 LLVM의 i686 코드가 SSE를 쓰므로 시작 코드가 SSE도 켭니다(`CR0`/`CR4`).
 

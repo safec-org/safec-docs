@@ -65,7 +65,7 @@ In freestanding mode a call to a hosted-only function (`malloc`, `printf`, …) 
 
 ### Testing on bare metal {#testing}
 
-The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`); wasm32 and wasm64 images are linked with `wasm-ld` and run under Node (`run_wasm.mjs`). All 16 targets currently pass every check.
+The standard library's own bare-metal suite (`tests/stdlib/baremetal/`) builds every `std/*.sc` for each target (`sweep.sh`), then links a test image with a minimal runtime (`bm_rt.sc`: `memcpy`/`memset`/`malloc` over a static arena, `__atomic_*` shims) at address `0x10000` and runs it in the Unicorn CPU emulator (`run.sh`, `run.py`); wasm32 and wasm64 images are linked with `wasm-ld` and run under Node (`run_wasm.mjs`). It covers every target `safec --list-targets` names: the 15 bare-metal aliases above, `wasm32` and `wasm64`.
 
 `tests/stdlib/baremetal/qemu/run.sh` goes one step further and boots small programs on QEMU's emulated hardware: the native [`MmuContext`](/stdlib/kernel#mmu-context-kernelmmuh) format with translation really on (RISC-V Sv39/Sv32 in S-mode, AArch64 and ARMv7-A with the MMU enabled, x86 32-bit paging and x86-64 long mode), and the [HAL chips](/stdlib/hal#hal-chips) PL011, 16550 and STM32F4 USART/TIM/SPI against QEMU's models of them. On x86 the start-up code also turns SSE on (`CR0`/`CR4`), since LLVM's i686 code uses it.
 
