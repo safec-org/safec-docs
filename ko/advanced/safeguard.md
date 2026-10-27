@@ -570,7 +570,7 @@ compat_preprocessor = true
 
 ## 외부 라이브러리 링킹과 라이브러리 출력 {#linking-external-libraries-and-library-output}
 
-`[build]`의 네 가지 추가 키가 최종 링크 단계와 어떤 종류의 산출물이
+`[build]`의 추가 키들이 최종 링크 단계와 어떤 종류의 산출물이
 생성되는지를 구성합니다 — `safec --emit-bin`이 직접 노출하는 것과
 동일한 내부 플래그이며([컴파일러 아키텍처](/ko/advanced/compiler#linking-emit-bin)
 참고), 여기서는 커맨드 라인 대신 `Package.toml`에 의해 구동됩니다:
@@ -581,6 +581,7 @@ libs       = ["m", "pthread"]   # 최종 링크에서 -l<name>
 lib_dirs   = ["/usr/local/lib"] # 최종 링크에서 -L<dir>
 lto        = "thin"             # "" (기본값, 꺼짐), "thin", 또는 "full"
 crate_type = "bin"              # "bin" (기본값), "staticlib", 또는 "cdylib"
+output     = "myapp"            # 산출물 이름, 아래의 <output> (기본값: 패키지 이름)
 blas       = "auto"             # std의 sgemm이 쓸 CPU BLAS (아래 참고)
 ```
 
@@ -676,6 +677,7 @@ safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
 | macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist`(`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/`(아이콘과 리소스), `Contents/Frameworks/`(의존성의 `.dylib`) |
 | Windows | `build/<name>/`: `<output>.exe`, 의존성의 DLL, 리소스 — 포터블 앱 폴더 |
 | Linux | `build/<pkg>_<version>_<arch>.deb`와 `build/<name>.AppDir` |
+| `--target wasm32` | `build/<name>.web/`: 모듈, 그 JavaScript 글루, 리소스, `index.html` |
 
 **macOS.** `.png` 아이콘은 `.icns`로 변환됩니다(`sips`로 각 크기로
 조정하고 `iconutil`로 묶습니다). `Contents/Frameworks`로 복사된 각 의존성
@@ -707,6 +709,8 @@ v6를 선언하는 애플리케이션 매니페스트입니다.
 시스템 라이브러리의 패키지(X11의 `std::gui`라면 `libx11-6`)를 더한 것입니다. 같은 트리에 `AppRun`, 데스크톱 항목, 아이콘을
 최상위에 더한 것이 `build/<name>.AppDir`이며, `appimagetool`에 바로 넘길
 수 있습니다. `dpkg`가 없으면 경고와 함께 AppDir만 만듭니다.
+
+**WebAssembly.** `safeguard bundle --target wasm32`에는 `[bundle]` 테이블이 필요 없습니다. 프로그램이 쓰는 모든 std 모듈의 글루(`gui_web.js`, `safec_dom.js`, `audio_web.js`)와 생성된 페이지를 담은 `build/<name>.web/`을 만들며, 그 폴더를 HTTP로 제공하면 됩니다. `web_entry`, `web_present`, `web_windows`, `web_page`, `web_files` 키로 조정합니다 — [safeguard가 만드는 페이지](/ko/stdlib/gui-platforms#safeguard-bundle-wasm32) 참고.
 
 GUI 프로그램은 [`std::gui`](/ko/stdlib/gui)를 사용하며, 그 백엔드는
 플랫폼마다의 라이브러리를 호출합니다. safeguard는 이를 스스로 링크합니다(Cocoa와

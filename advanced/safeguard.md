@@ -569,7 +569,7 @@ compat_preprocessor = true
 
 ## Linking External Libraries and Library Output {#linking-external-libraries-and-library-output}
 
-Four more `[build]` keys configure the final link step and what kind of
+More `[build]` keys configure the final link step and what kind of
 artifact it produces — the same underlying flags `safec --emit-bin` exposes
 directly (see [Compiler Architecture](/advanced/compiler#linking-emit-bin)),
 here driven by `Package.toml` instead of the command line:
@@ -580,6 +580,7 @@ libs       = ["m", "pthread"]   # -l<name> at the final link
 lib_dirs   = ["/usr/local/lib"] # -L<dir> at the final link
 lto        = "thin"             # "" (off, default), "thin", or "full"
 crate_type = "bin"              # "bin" (default), "staticlib", or "cdylib"
+output     = "myapp"            # the artifact's name, <output> below (default: the package name)
 blas       = "auto"             # CPU BLAS for std's sgemm (see below)
 ```
 
@@ -676,6 +677,7 @@ safeguard bundle --release --sign "Developer ID Application: Example (TEAMID)"
 | macOS | `build/<name>.app`: `Contents/MacOS/<output>`, `Contents/Info.plist` (`CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleIconFile`, `NSHighResolutionCapable`, `LSMinimumSystemVersion`, `LSApplicationCategoryType`), `Contents/Resources/` (the icon and the resources) and `Contents/Frameworks/` (the dependencies' `.dylib`s) |
 | Windows | `build/<name>/`: `<output>.exe`, the dependencies' DLLs and the resources — a portable app folder |
 | Linux | `build/<pkg>_<version>_<arch>.deb` and `build/<name>.AppDir` |
+| `--target wasm32` | `build/<name>.web/`: the module, its JavaScript glue, the resources and an `index.html` |
 
 **macOS.** A `.png` icon becomes an `.icns` (scaled to each size with
 `sips`, packed with `iconutil`). Each dependency `.dylib` copied into
@@ -708,6 +710,8 @@ libraries they link (`libx11-6` for `std::gui` on X11).
 The same tree, with `AppRun`, the desktop entry and the icon at its top,
 is `build/<name>.AppDir`, ready for `appimagetool`. Without `dpkg` only the
 AppDir is made, with a warning.
+
+**WebAssembly.** `safeguard bundle --target wasm32` needs no `[bundle]` table. It writes `build/<name>.web/` with the glue of every std module the program uses (`gui_web.js`, `safec_dom.js`, `audio_web.js`) and a generated page; serve the folder over HTTP. The `web_entry`, `web_present`, `web_windows`, `web_page` and `web_files` keys tune it — see [A page from safeguard](/stdlib/gui-platforms#safeguard-bundle-wasm32).
 
 A GUI program uses [`std::gui`](/stdlib/gui), whose backend calls each
 platform's own libraries; safeguard links them by itself (Cocoa and the
