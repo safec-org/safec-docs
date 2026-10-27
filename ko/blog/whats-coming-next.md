@@ -2,13 +2,15 @@
 title: "다음 릴리스 미리 보기: 1.0.0-beta-6 이후 병합된 모든 것"
 date: 2026-10-26
 author: SafeC 팀
-tags: [unreleased, std, compiler, safety, breaking, tools]
-summary: "다음 릴리스에 포함될, SafeC main 브랜치의 모든 변경 기록입니다. 웹 스택, 비동기, GUI 툴킷, 오디오와 MIDI, HTTPS, safeguard doc과 publish, 온라인 플레이그라운드를 움직이는 셀프 호스팅 컴파일러, 그리고 두 가지 호환성을 깨는 변경 — void*와 포인터 + 길이 쌍이 없는 std API, 컴파일러가 강제하는 Drop과 Send/Sync — 을 다루며, 마이그레이션 가이드를 포함합니다."
+tags: [release, std, compiler, safety, breaking, tools]
+summary: "1.0.0-beta-7로 릴리스되었습니다. 1.0.0-beta-6 이후 SafeC main 브랜치에 병합된 모든 변경의 기록입니다. 웹 스택, 비동기, GUI 툴킷, 오디오와 MIDI, HTTPS, safeguard doc과 publish, 온라인 플레이그라운드를 움직이는 셀프 호스팅 컴파일러, 그리고 두 가지 호환성을 깨는 변경 — void*와 포인터 + 길이 쌍이 없는 std API, 컴파일러가 강제하는 Drop과 Send/Sync — 을 다루며, 마이그레이션 가이드를 포함합니다."
 ---
 
-SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 많이 나아갔습니다. 이 글은 다음 릴리스에 들어갈 내용의 기록입니다. 그 뒤로 병합된 풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)부터 [#81](https://github.com/safec-org/SafeC/pull/81)까지를 영역별로 묶었습니다. 그중 두 가지는 **호환성을 깨는 변경**이며, 컴파일러가 영향을 받는 호출 지점마다 오류를 보고합니다. 코드를 고치는 방법은 끝의 [마이그레이션 가이드](#migration)에 있습니다.
+> **1.0.0-beta-7로 릴리스되었습니다.** 아래 내용은 모두 [#82](https://github.com/safec-org/SafeC/pull/82)–[#88](https://github.com/safec-org/SafeC/pull/88)와 함께 2026-10-27에 [SafeC 1.0.0-beta-7](/ko/blog/releases/v1.0.0-beta-7)로 릴리스되었습니다. 설치와 업그레이드 방법, 짧은 마이그레이션 목록, 알려진 문제는 릴리스 노트에 있으며, 이 글은 이번 주기의 기록으로 남겨 둡니다.
 
-이 사이트가 [변경 내역](/ko/changelog)으로 보여 주는 SafeC의 [`CHANGELOG.md`](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md)는 후반부의 변경 — `safeguard doc`과 `publish`, scc, 슬라이스 API, 소유권 검사 — 을 *Unreleased* 아래에 개별 시그니처 수준까지 기록합니다. 이번 주기의 앞부분 — 웹 스택, 비동기, GUI 툴킷, 오디오, HTTPS — 은 [이번 주기의 SafeC](/ko/blog/this-release-cycle)에 더 자세히 정리되어 있습니다.
+SafeC의 `main` 브랜치는 [1.0.0-beta-6](/ko/blog/releases/v1.0.0-beta-6) 이후 많이 나아갔습니다. 이 글은 다음 릴리스에 들어갈 내용을 기록해 온 글입니다. 그 뒤로 병합된 풀 리퀘스트 [#56](https://github.com/safec-org/SafeC/pull/56)부터 [#81](https://github.com/safec-org/SafeC/pull/81)까지를 영역별로 묶었습니다. 그중 두 가지는 **호환성을 깨는 변경**이며, 컴파일러가 영향을 받는 호출 지점마다 오류를 보고합니다. 코드를 고치는 방법은 끝의 [마이그레이션 가이드](#migration)에 있습니다.
+
+이 사이트가 [변경 내역](/ko/changelog)으로 보여 주는 SafeC의 [`CHANGELOG.md`](https://github.com/safec-org/SafeC/blob/main/CHANGELOG.md)는 후반부의 변경 — `safeguard doc`과 `publish`, scc, 슬라이스 API, 소유권 검사 — 을 *1.0.0-beta-7* 아래에(이 글을 쓰는 동안에는 *Unreleased* 아래에) 개별 시그니처 수준까지 기록합니다. 이번 주기의 앞부분 — 웹 스택, 비동기, GUI 툴킷, 오디오, HTTPS — 은 [이번 주기의 SafeC](/ko/blog/this-release-cycle)에 더 자세히 정리되어 있습니다.
 
 ## 한눈에 보기 {#at-a-glance}
 
@@ -197,4 +199,4 @@ int main() {
 
 ## 사용해 보기 {#try}
 
-이 모든 것이 지금 `main`에 있습니다. 다음 릴리스 전까지는 [소스에서 SafeC를 빌드](/ko/install#quick-install)하거나 [플레이그라운드](/ko/playground)에서 언어를 써 보세요. 의존하던 무언가가 컴파일러의 설명 없이 깨졌다면 [이슈를 열어](https://github.com/safec-org/SafeC/issues) 주세요.
+이 모든 것이 [1.0.0-beta-7](/ko/blog/releases/v1.0.0-beta-7)로 릴리스되었습니다. [설치](/ko/install)하거나 [플레이그라운드](/ko/playground)에서 언어를 써 보세요. 의존하던 무언가가 컴파일러의 설명 없이 깨졌다면 [이슈를 열어](https://github.com/safec-org/SafeC/issues) 주세요.

@@ -20,6 +20,12 @@ SafeC는 진화한 C입니다. 리전을 통한 **컴파일 타임 메모리 안
 :::
 
 <p class="hero-meta">오픈 소스(MIT) · Linux, macOS, Windows · 베어메탈과 WebAssembly · LLVM 백엔드</p>
+
+<div class="hero-meta hero-release">
+
+최신 릴리스: [SafeC 1.0.0-beta-7](/ko/blog/releases/v1.0.0-beta-7) — 웹 스택, 비동기, GUI, 오디오, 슬라이스, 컴파일러가 검사하는 소유권
+
+</div>
 :::
 ::: col
 ```c

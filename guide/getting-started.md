@@ -22,7 +22,7 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 | Option | Description |
 |---|---|
 | `--prefix=<path>` | Install directory (default: `~/safec`) |
-| `--version=<tag>` | Release tag to install, e.g. `v1.0.0-beta-6` (default: the newest, pre-releases included) |
+| `--version=<tag>` | Release tag to install, e.g. `v1.0.0-beta-7` (default: the newest, pre-releases included) |
 | `--std=<sections>` | The [prebuilt std](/advanced/safeguard#prebuilt-std) sections to install, e.g. `core,collections,gui` (default: `all`). std's sources are always installed; a section that isn't is compiled from source when a build needs it |
 | `--std=+<sections>` | Add prebuilt std sections to an existing install, from the release it came from |
 | `--skip-env` | Skip shell environment configuration |
@@ -41,7 +41,8 @@ Building from source (needed for a platform the release workflow doesn't publish
 Verify the install:
 
 ```bash
-safec --help
+safec --version       # safec 1.0.0-beta-7
+safeguard --version   # safeguard 1.0.0-beta-7
 ```
 
 ## Your First Program {#your-first-program}

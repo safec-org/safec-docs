@@ -22,7 +22,7 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 | 옵션 | 설명 |
 |---|---|
 | `--prefix=<path>` | 설치 디렉터리 (기본값: `~/safec`) |
-| `--version=<tag>` | 설치할 릴리스 태그, 예: `v1.0.0-beta-6` (기본값: 프리릴리스를 포함한 최신 릴리스) |
+| `--version=<tag>` | 설치할 릴리스 태그, 예: `v1.0.0-beta-7` (기본값: 프리릴리스를 포함한 최신 릴리스) |
 | `--std=<sections>` | 설치할 [미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std) 섹션, 예: `core,collections,gui` (기본값: `all`). std 소스는 항상 설치되며, 설치되지 않은 섹션은 빌드에 필요할 때 소스에서 컴파일됩니다 |
 | `--std=+<sections>` | 기존 설치본에 미리 빌드된 std 섹션을 추가합니다. 설치한 릴리스에서 가져옵니다 |
 | `--skip-env` | 셸 환경 구성 건너뛰기 |
@@ -41,7 +41,8 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 설치를 확인합니다:
 
 ```bash
-safec --help
+safec --version       # safec 1.0.0-beta-7
+safeguard --version   # safeguard 1.0.0-beta-7
 ```
 
 ## 첫 프로그램 {#your-first-program}

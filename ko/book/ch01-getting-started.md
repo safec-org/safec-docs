@@ -14,6 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | b
 
 ```bash
 safec --version
+safeguard --version
 ```
 
 SafeC는 clang을 거쳐 컴파일하므로 머신에 **clang 21 이상**도 필요합니다.

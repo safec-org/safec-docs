@@ -20,6 +20,12 @@ SafeC is C, evolved: **compile-time memory safety** through regions, no garbage 
 :::
 
 <p class="hero-meta">Open source (MIT) · Linux, macOS, Windows · bare metal and WebAssembly · LLVM backend</p>
+
+<div class="hero-meta hero-release">
+
+Latest release: [SafeC 1.0.0-beta-7](/blog/releases/v1.0.0-beta-7) — web stack, async, GUI, audio, slices and compiler-checked ownership
+
+</div>
 :::
 ::: col
 ```c

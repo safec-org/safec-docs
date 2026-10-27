@@ -352,6 +352,8 @@ body.page .vp-doc h1 { font-size: 40px; line-height: 1.15; letter-spacing: -0.02
 .hero h1 { margin: 0; font-size: 56px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 800; }
 .hero h1 + p { font-size: 19px; line-height: 1.6; color: var(--c-text-2); margin-top: 20px; }
 .hero-meta { line-height: 1.6 !important; font-size: 13px !important; color: var(--c-text-3); margin-top: 20px !important; }
+.hero-release { margin-top: 10px !important; }
+.hero-release p { margin: 0 !important; line-height: 1.6 !important; font-size: 13px !important; color: var(--c-text-3); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; }
 .hero .code-block { box-shadow: var(--shadow-3); border: 1px solid var(--c-divider); margin: 0; }
 .hero .code-block::before { content: ""; display: block; height: 34px; border-bottom: 1px solid var(--c-divider);

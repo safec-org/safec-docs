@@ -398,7 +398,7 @@ atomic int counter = 0;
 | `atomic_compare_exchange_strong(ptr, &expected, desired)` | `bool atomic_compare_exchange_strong(T *ptr, T *exp, T des)` | C11 compare-and-swap: on failure the current value is written to `expected` |
 | `atomic_fence()` | `void atomic_fence()` | Full memory barrier |
 
-All atomic operations use sequentially consistent ordering by default. A trailing string literal picks another one: `"relaxed"`, `"acquire"`, `"release"` or `"acq_rel"` (`atomic_load(&x, "acquire")`, `atomic_store(&x, v, "release")`, `atomic_fence("acq_rel")`). Give the two compare-and-swap forms `"relaxed"` or `"acquire"` at most: the same order is used for the failure case, where `"release"` and `"acq_rel"` aren't valid.
+All atomic operations use sequentially consistent ordering by default. A trailing string literal picks another one: `"relaxed"`, `"acquire"`, `"release"` or `"acq_rel"` (`atomic_load(&x, "acquire")`, `atomic_store(&x, v, "release")`, `atomic_fence("acq_rel")`). The two compare-and-swap forms use the strongest failure ordering that is valid for the one given, as in C11: `"release"` fails with `"relaxed"`, `"acq_rel"` with `"acquire"`.
 
 ### Example: Lock-Free Counter {#example-lock-free-counter}
 

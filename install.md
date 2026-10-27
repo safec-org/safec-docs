@@ -52,8 +52,8 @@ Needs CMake, Ninja, a C++17 compiler and LLVM 21 development files. `sc-lsp` liv
 The script installs into `~/safec` by default, sets `SAFEC_HOME` and adds its `bin/` to your `PATH` in your shell's rc file (bash, zsh or fish; the user environment on Windows). Restart the shell, or `source` the rc file, then check:
 
 ```bash
-safec --version
-safeguard --help
+safec --version       # safec 1.0.0-beta-7
+safeguard --version   # safeguard 1.0.0-beta-7
 ```
 
 ## Requirements {#requirements}
@@ -72,7 +72,7 @@ safeguard --help
 | `install.sh` | `install.ps1` | |
 |---|---|---|
 | `--prefix=<path>` | `-Prefix <path>` | Install directory (default `~/safec`) |
-| `--version=<tag>` | `-Version <tag>` | A specific release, e.g. `v1.0.0-beta-6` (default: the newest, pre-releases included) |
+| `--version=<tag>` | `-Version <tag>` | A specific release, e.g. `v1.0.0-beta-7` (default: the newest, pre-releases included) |
 | `--std=<sections>` | `-Std <sections>` | Prebuilt std sections to install, e.g. `core,collections,gui` (default `all`) |
 | `--std=+<sections>` | `-Std +<sections>` | Add sections to an existing install later |
 | `--skip-env` | `-SkipEnv` | Don't touch the shell environment |
@@ -80,7 +80,7 @@ safeguard --help
 Pass options to the piped script with `bash -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash -s -- --version=v1.0.0-beta-6 --std=core,collections
+curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash -s -- --version=v1.0.0-beta-7 --std=core,collections
 ```
 
 The standard library's sources are always installed. Its prebuilt archives come in *sections* — std's top-level directories (`core`, `collections`, `gui`, `ml`, `http`, `audio`, `async`, ...); `safeguard` links the sections a project uses and compiles any section you left out from source when a build needs it. See [Prebuilt std](/advanced/safeguard#prebuilt-std).
@@ -100,4 +100,4 @@ safeguard run
 
 ## Updating and removing {#updating}
 
-Run the install command again to update to the newest release (or pass `--version` to pick one). To remove SafeC, delete the install directory (`~/safec` by default) and the `# SafeC` block the installer added to your shell rc file.
+Run the install command again to update to the newest release (or pass `--version` to pick one). The newest is [1.0.0-beta-7](/blog/releases/v1.0.0-beta-7); its release notes list what changed, how to migrate and the known issues. To remove SafeC, delete the install directory (`~/safec` by default) and the `# SafeC` block the installer added to your shell rc file.

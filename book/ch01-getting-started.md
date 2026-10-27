@@ -14,6 +14,7 @@ source its rc file) once the script finishes, then check it worked:
 
 ```bash
 safec --version
+safeguard --version
 ```
 
 SafeC compiles through clang, so the machine also needs **clang 21 or

@@ -49,6 +49,7 @@ The compiler itself: SafeC to LLVM IR, objects or binaries, for any LLVM target.
 | `safeguard verify-lock` | Check `Package.lock` against the current dependency state |
 | `safeguard std-modules` | Which std sources a build compiles and which system libraries it links |
 | `safeguard std-prebuilt <prefix>` | Compile std for this machine into one archive per section: the [prebuilt std](/advanced/safeguard#prebuilt-std) a release ships |
+| `safeguard --version` | Print safeguard's version: the SafeC release it ships with (`safeguard 1.0.0-beta-7`) |
 
 ```toml
 # Package.toml
@@ -119,7 +120,7 @@ safec hello.sc --emit-bin -o hello
 safec blink.sc --target=arm-7em --freestanding --emit-llvm -o blink.ll
 ```
 
-[Getting Started](/guide/getting-started#compiler-flags) lists every flag and covers single-file builds and C headers; [Compiler Architecture](/advanced/compiler) describes the pipeline behind them.
+`safec --version` prints the compiler's version, the same release as `safeguard --version`. [Getting Started](/guide/getting-started#compiler-flags) lists every flag and covers single-file builds and C headers; [Compiler Architecture](/advanced/compiler) describes the pipeline behind them.
 
 ## Playground {#playground}
 
