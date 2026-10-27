@@ -48,6 +48,7 @@ summary: SafeC 툴체인 — safec 컴파일러, safeguard 패키지 매니저·
 | `safeguard clean` | `build/`와 `deps/` 제거 |
 | `safeguard verify-lock` | `Package.lock`을 현재 의존성 상태와 대조 |
 | `safeguard std-modules` | 빌드가 컴파일하는 std 소스와 링크하는 시스템 라이브러리 |
+| `safeguard std-prebuilt <prefix>` | 이 머신용 std를 섹션마다 아카이브 하나로 컴파일: 릴리스가 함께 배포하는 [미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std) |
 
 ```toml
 # Package.toml

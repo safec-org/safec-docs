@@ -48,6 +48,7 @@ The compiler itself: SafeC to LLVM IR, objects or binaries, for any LLVM target.
 | `safeguard clean` | Remove `build/` and `deps/` |
 | `safeguard verify-lock` | Check `Package.lock` against the current dependency state |
 | `safeguard std-modules` | Which std sources a build compiles and which system libraries it links |
+| `safeguard std-prebuilt <prefix>` | Compile std for this machine into one archive per section: the [prebuilt std](/advanced/safeguard#prebuilt-std) a release ships |
 
 ```toml
 # Package.toml
