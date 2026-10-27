@@ -1,6 +1,6 @@
 # 표준 라이브러리 개요
 
-SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 네트워킹, 파일시스템, DSP, 디버깅, 보안을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `.sc` 파일은 한 번만 컴파일되어 `libsafec_std.a`에 들어가고 링크됩니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
+SafeC 표준 라이브러리(`std/`)는 핵심 유틸리티, 컬렉션, 얼로케이터, 스레드와 비동기, 네트워킹, TLS와 HTTP, GUI, 오디오, DSP, 머신러닝, 파일시스템, 인코딩과 직렬화, 암호, 디버깅, 베어메탈 지원을 아우릅니다. 각 모듈은 `.h` 헤더와, 제네릭이 아닌 부분을 위한 `.sc` 구현으로 구성되며, 제네릭 컨테이너는 헤더 전용입니다. `#include`는 항상 `.h` 파일만 지정합니다 — `safeguard`는 프로그램이 쓰는 모듈의 `.sc` 구현을 링크합니다([미리 빌드된 std](/ko/advanced/safeguard#prebuilt-std)에서 가져오거나 `build/deps/libsafec_std.a`로 컴파일합니다. [표준 라이브러리 포함하기](#including-the-standard-library) 참고). 모든 공개 선언과 그 문서 주석은 [API 레퍼런스](/api/)에 있습니다. `prelude.h`를 include하면 대부분의 모듈을 한 번에 가져올 수 있습니다. GUI, 오디오/MIDI, 인코딩, HTTP/RPC/wasm, async, 실시간 스케줄러, ML, SIMD는 각자의 헤더로 include합니다.
 
 ```c
 #include <std/prelude.h>

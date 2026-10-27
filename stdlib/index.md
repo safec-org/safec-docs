@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-The SafeC standard library (`std/`) covers core utilities, collections, allocators, networking, filesystems, DSP, debugging, and security. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — the `.sc` files are compiled once into `libsafec_std.a` and linked. Include `prelude.h` to pull in most modules at once; GUI, audio/MIDI, encoding, HTTP/RPC/wasm, async, the real-time scheduler, ML and SIMD are included by their own headers.
+The SafeC standard library (`std/`) covers core utilities, collections, allocators, threads and async, networking, TLS and HTTP, GUI, audio, DSP, machine learning, filesystems, encoding and serialization, cryptography, debugging, and bare-metal support. Each module is a `.h` header, plus a `.sc` implementation for the non-generic parts; generic containers are header-only. `#include` only ever names `.h` files — `safeguard` links the `.sc` implementations of the modules a program uses (from the [prebuilt std](/advanced/safeguard#prebuilt-std), or compiled into `build/deps/libsafec_std.a`; see [Including the Standard Library](#including-the-standard-library)). Every public declaration, with its doc comment, is in the [API Reference](/api/). Include `prelude.h` to pull in most modules at once; GUI, audio/MIDI, encoding, HTTP/RPC/wasm, async, the real-time scheduler, ML and SIMD are included by their own headers.
 
 ```c
 #include <std/prelude.h>
