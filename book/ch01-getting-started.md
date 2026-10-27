@@ -16,10 +16,11 @@ source its rc file) once the script finishes, then check it worked:
 safec --version
 ```
 
-For install-script options (custom prefix, a specific release version,
-building from source instead of the prebuilt release) see
-[Getting Started](/guide/getting-started) in the Guide section — this
-chapter only covers what you need to write and run your first program.
+SafeC compiles through clang, so the machine also needs **clang 21 or
+newer**. For that, the install-script options (custom prefix, a specific
+release version, which prebuilt std sections) and building from source
+instead of the prebuilt release, see [Install](/install) — this chapter
+only covers what you need to write and run your first program.
 
 ## `safeguard`: creating a project
 
@@ -58,7 +59,7 @@ Hello from hello!
 
 ## Anatomy of a SafeC program
 
-Open `src/main.sc`. Without its comments, and with the greeting changed, it is:
+Open `src/main.sc`. Without its comments, with the greeting changed, and without the template's `unsafe { }` around the call (calling `printf` doesn't need it), it is:
 
 ```c
 extern int printf(const char* fmt, ...);

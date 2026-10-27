@@ -8,7 +8,7 @@ This guide walks you through installing SafeC, compiling your first program, and
 
 ## Installation {#installation}
 
-Run the install script. It downloads a prebuilt `safec`/`safeguard`/`sc-lsp` release from GitHub Releases and configures your shell environment — no LLVM or C++ toolchain needed on the machine you're installing to.
+Run the install script. It downloads a prebuilt `safec`/`safeguard`/`sc-lsp` release from GitHub Releases and configures your shell environment — there is nothing to build. It does need **clang 21 or newer** on the machine (SafeC hands its LLVM IR to clang to compile and link, and clang imports C headers); [Install](/install#requirements) says how to get one per platform.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/safec-org/SafeC/main/install.sh | bash
@@ -22,7 +22,7 @@ irm https://raw.githubusercontent.com/safec-org/SafeC/main/install.ps1 | iex
 | Option | Description |
 |---|---|
 | `--prefix=<path>` | Install directory (default: `~/safec`) |
-| `--version=<tag>` | Release tag to install, e.g. `v0.2.0` (default: latest) |
+| `--version=<tag>` | Release tag to install, e.g. `v1.0.0-beta-6` (default: the newest, pre-releases included) |
 | `--std=<sections>` | The [prebuilt std](/advanced/safeguard#prebuilt-std) sections to install, e.g. `core,collections,gui` (default: `all`). std's sources are always installed; a section that isn't is compiled from source when a build needs it |
 | `--std=+<sections>` | Add prebuilt std sections to an existing install, from the release it came from |
 | `--skip-env` | Skip shell environment configuration |
@@ -35,7 +35,7 @@ Published binaries: macOS `arm64`, Linux `x86_64`, Windows `x86_64`. See [Releas
 - **Linux with glibc 2.25** or newer (Debian 10, Ubuntu 18.04, RHEL 8 and later): the binaries are built against an older glibc and checked for it, and the prebuilt std calls nothing newer than 2.25 (`getrandom`). Musl-based distributions (Alpine) aren't supported by the release binaries.
 
 ::: tip
-Building from source (needed for a platform the release workflow doesn't publish, or to build from an unreleased commit) is still possible via each component's own `CMakeLists.txt` under `compiler/`, `safeguard/`, and the sibling `sc-language-server` repo — see [Compiler Architecture](/advanced/compiler).
+Building from source (needed for a platform the release workflow doesn't publish, or to build from an unreleased commit) is still possible via each component's own `CMakeLists.txt` under `compiler/`, `safeguard/`, and the sibling `sc-language-server` repo — see [Install → From source](/install#quick-install) and [Compiler Architecture](/advanced/compiler).
 :::
 
 Verify the install:
